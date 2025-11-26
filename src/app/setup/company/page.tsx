@@ -7,6 +7,7 @@ export default function CreateCompanyPage() {
   const router = useRouter();
 
   const [form, setForm] = useState({
+    admin_name: "", // NEU: Name des Company-Admins
     name: "",
     street: "",
     house_number: "",
@@ -47,28 +48,34 @@ export default function CreateCompanyPage() {
       balance_sheet_total: form.balance_sheet_total ? parseFloat(form.balance_sheet_total) : undefined,
     };
     
-    // DEBUG: Payload anzeigen
-    console.log("Sending payload:", payload);  // ← HIER EINFÜGEN
+    console.log("Sending payload:", payload);
 
-    const res = await fetch("/api/company/create", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(payload)
-    });
+    try {
+      const res = await fetch("/api/company/create", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      });
 
-    const data = await res.json();
+      const data = await res.json();
 
-    if (!res.ok) {
-      setError(data.error || "Fehler bei der Erstellung.");
-      console.error("API Error:", data);
+      if (!res.ok) {
+        setError(data.error || "Fehler bei der Erstellung.");
+        console.error("API Error:", data);
+        setLoading(false);
+        return;
+      }
+
+      console.log("Success:", data);
+
+      // Weiter zu Schritt 2: weitere User anlegen (optional) oder direkt zum Dashboard
+      router.push("/dashboard");
+    } catch (err: any) {
+      setError(err.message || "Netzwerkfehler");
       setLoading(false);
-      return;
     }
-
-    // Weiter zu Schritt 2: User anlegen
-    router.push("/setup/user");
   }
 
   return (
@@ -83,6 +90,19 @@ export default function CreateCompanyPage() {
       )}
 
       <form className="space-y-4" onSubmit={handleSubmit}>
+        {/* NEU: Admin-Name Feld */}
+        <div>
+          <label className="block text-sm font-medium">Ihr Name (Company-Admin) *</label>
+          <input
+            type="text"
+            className="mt-1 w-full border rounded px-3 py-2"
+            value={form.admin_name}
+            onChange={(e) => updateField("admin_name", e.target.value)}
+            required
+            placeholder="Max Mustermann"
+          />
+        </div>
+
         <div>
           <label className="block text-sm font-medium">Firmenname *</label>
           <input
@@ -260,7 +280,7 @@ export default function CreateCompanyPage() {
           className="w-full bg-black text-white py-2 rounded mt-6 hover:bg-gray-800 disabled:bg-gray-400"
           disabled={loading}
         >
-          {loading ? "Speichere..." : "Weiter"}
+          {loading ? "Speichere..." : "Firma anlegen und zum Dashboard"}
         </button>
       </form>
     </div>

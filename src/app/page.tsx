@@ -1,30 +1,36 @@
-// src/app/page.tsx
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+'use client';
 
-export default async function RootPage() {
-  const supabase = await createClient();
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { createBrowserClient } from '@supabase/ssr';
 
-  // 1) Ist der User eingeloggt?
-  const { data: { user } } = await supabase.auth.getUser();
-  
-  if (!user) {
-    // NICHT eingeloggt → Zum Login
-    return redirect("/login");
-  }
+export default function HomePage() {
+  const router = useRouter();
 
-  // 2) User IST eingeloggt - prüfe ob bereits Company_Admin
-  const { data: companyRelation } = await supabase
-    .from("company_users")
-    .select("company_id, role")
-    .eq("user_id", user.id)
-    .maybeSingle();
+  useEffect(() => {
+    const checkAuth = async () => {
+      const supabase = createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      );
 
-  if (companyRelation?.company_id) {
-    // Hat bereits eine Firma → Direkt zum Dashboard
-    return redirect("/dashboard");
-  }
+      const { data: { user } } = await supabase.auth.getUser();
 
-  // 3) Noch keine Firma → Setup-Flow starten
-  return redirect("/setup/company");
+      if (user) {
+        // User ist eingeloggt -> zum Dashboard
+        router.push('/dashboard');
+      } else {
+        // User ist nicht eingeloggt -> zum Login
+        router.push('/login');
+      }
+    };
+
+    checkAuth();
+  }, [router]);
+
+  return (
+    <div className="flex items-center justify-center min-h-screen">
+      <div className="text-lg">Weiterleitung...</div>
+    </div>
+  );
 }

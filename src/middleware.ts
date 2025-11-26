@@ -1,58 +1,87 @@
-// src/middleware.ts
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createServerClient } from '@supabase/ssr';
+import { NextResponse, type NextRequest } from 'next/server';
 
-export default async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+export async function middleware(request: NextRequest) {
+  const response = NextResponse.next({
+    request: {
+      headers: request.headers,
+    },
+  });
 
-  // Öffentliche Routen, die OHNE Login erreichbar sind
-  const publicRoutes = ['/login', '/'];
-  const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route));
-
-  // API-Routen nicht durch Middleware prüfen (haben eigene Logik)
-  if (pathname.startsWith('/api/')) {
-    return NextResponse.next();
-  }
-
-  // Supabase Client erstellen
-  const supabase = await createClient();
-  
-  // User-Session prüfen
-  const { data: { user }, error } = await supabase.auth.getUser();
-
-  // Wenn User NICHT eingeloggt ist
-  if (!user || error) {
-    // Geschützte Route? -> Redirect zu /login
-    if (!isPublicRoute) {
-      const loginUrl = new URL('/login', request.url);
-      return NextResponse.redirect(loginUrl);
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return request.cookies.get(name)?.value;
+        },
+        set(name: string, value: string, options: any) {
+          request.cookies.set({
+            name,
+            value,
+            ...options,
+          });
+          response.cookies.set({
+            name,
+            value,
+            ...options,
+          });
+        },
+        remove(name: string, options: any) {
+          request.cookies.set({
+            name,
+            value: '',
+            ...options,
+          });
+          response.cookies.set({
+            name,
+            value: '',
+            ...options,
+          });
+        },
+      },
     }
-    // Öffentliche Route -> erlauben
-    return NextResponse.next();
+  );
+
+  const { data: { user } } = await supabase.auth.getUser();
+
+  // Root path (/) - immer zum Login weiterleiten wenn nicht eingeloggt
+  if (request.nextUrl.pathname === '/') {
+    if (!user) {
+      return NextResponse.redirect(new URL('/login', request.url));
+    } else {
+      return NextResponse.redirect(new URL('/dashboard', request.url));
+    }
   }
 
-  // User IST eingeloggt
-  // Auf /login zugreifen? -> Redirect zu /dashboard
-  if (pathname === '/login') {
-    const dashboardUrl = new URL('/dashboard', request.url);
-    return NextResponse.redirect(dashboardUrl);
+  // Geschützte Routen - erfordern Login
+  const protectedPaths = ['/dashboard', '/projekte', '/mitarbeiter', '/arbeitsplaene', '/zeiterfassung', '/berichte', '/einstellungen'];
+  const isProtectedPath = protectedPaths.some(path => request.nextUrl.pathname.startsWith(path));
+
+  if (isProtectedPath && !user) {
+    return NextResponse.redirect(new URL('/login', request.url));
   }
 
-  // Alle anderen Routen erlauben
-  return NextResponse.next();
+  // Login/Register Seiten - wenn eingeloggt zum Dashboard
+  if ((request.nextUrl.pathname === '/login' || request.nextUrl.pathname === '/register') && user) {
+    return NextResponse.redirect(new URL('/dashboard', request.url));
+  }
+
+  return response;
 }
 
-// Konfiguration: Auf welche Routen die Middleware angewendet wird
 export const config = {
   matcher: [
-    /*
-     * Match alle Routen AUSSER:
-     * - _next/static (static files)
-     * - _next/image (image optimization)
-     * - favicon.ico (favicon)
-     * - Dateien mit Extensions (.svg, .png, .jpg, etc.)
-     */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
-  ],
+    '/',
+    '/dashboard/:path*',
+    '/projekte/:path*',
+    '/mitarbeiter/:path*',
+    '/arbeitsplaene/:path*',
+    '/zeiterfassung/:path*',
+    '/berichte/:path*',
+    '/einstellungen/:path*',
+    '/login',
+    '/register'
+  ]
 };
