@@ -22,16 +22,27 @@ interface Project {
   created_at: string;
 }
 
+interface WorkPackage {
+  id: string;
+  package_number: string;
+  name: string;
+  start_date: string | null;
+  end_date: string | null;
+  assigned_employees: number;
+  total_person_months: number;
+}
+
 interface Assignment {
   id: string;
   user_profile_id: string;
-  role: string | null;
-  assigned_at: string;
+  total_pm: number;
   user_profiles: {
     name: string;
     email: string;
   };
 }
+
+type TabType = 'details' | 'workpackages' | 'team';
 
 export default function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -45,7 +56,9 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [project, setProject] = useState<Project | null>(null);
+  const [workPackages, setWorkPackages] = useState<WorkPackage[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [activeTab, setActiveTab] = useState<TabType>('details');
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -123,12 +136,44 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
         status: projectData.status || 'active'
       });
 
-      const { data: assignmentsData } = await supabase
-        .from('project_assignments')
-        .select('*, user_profiles(name, email)')
-        .eq('project_id', id);
+      // Zugewiesene Mitarbeiter laden (aus Arbeitspaketen)
+      const { data: wpAssignmentsData } = await supabase
+        .from('work_package_assignments')
+        .select(`
+          id,
+          person_months,
+          user_profile_id,
+          user_profiles(name, email),
+          work_packages!inner(project_id)
+        `)
+        .eq('work_packages.project_id', id);
 
-      setAssignments(assignmentsData || []);
+      // Mitarbeiter gruppieren (ein Mitarbeiter kann in mehreren Paketen sein)
+      const employeeMap = new Map();
+      wpAssignmentsData?.forEach((assignment: any) => {
+        const userId = assignment.user_profile_id;
+        if (!employeeMap.has(userId)) {
+          employeeMap.set(userId, {
+            id: assignment.id,
+            user_profile_id: userId,
+            user_profiles: assignment.user_profiles,
+            total_pm: 0
+          });
+        }
+        const employee = employeeMap.get(userId);
+        employee.total_pm += assignment.person_months || 0;
+      });
+
+      setAssignments(Array.from(employeeMap.values()));
+
+      // Arbeitspakete laden
+      const { data: workPackagesData } = await supabase
+        .from('v_work_packages_overview')
+        .select('*')
+        .eq('project_id', id)
+        .order('package_number');
+
+      setWorkPackages(workPackagesData || []);
 
     } catch (error: any) {
       console.error('Error loading data:', error);
@@ -182,7 +227,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   };
 
   const handleDelete = async () => {
-    if (!confirm('Möchten Sie dieses Projekt wirklich löschen?')) return;
+    if (!confirm('Möchten Sie dieses Projekt wirklich löschen? Alle Arbeitspakete werden ebenfalls gelöscht.')) return;
 
     try {
       const { error: deleteError } = await supabase
@@ -268,7 +313,8 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
         </div>
       </nav>
 
-      <div className="max-w-5xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+        {/* Header */}
         <div className="bg-white rounded-lg shadow-md p-6 mb-6">
           <div className="flex justify-between items-start">
             <div className="flex-1">
@@ -306,6 +352,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
           </div>
         </div>
 
+        {/* Messages */}
         {error && (
           <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
             {error}
@@ -321,259 +368,383 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
           </div>
         )}
 
-        {editing ? (
-          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Projekt bearbeiten</h2>
-            
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Projektname *</label>
-                  <input
-                    type="text"
-                    value={editData.name}
-                    onChange={(e) => setEditData({ ...editData, name: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    required
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Beschreibung</label>
-                  <textarea
-                    value={editData.description}
-                    onChange={(e) => setEditData({ ...editData, description: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    rows={3}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Projektnummer</label>
-                  <input
-                    type="text"
-                    value={editData.project_number}
-                    onChange={(e) => setEditData({ ...editData, project_number: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                    placeholder="P-2024-001"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
-                  <select
-                    value={editData.status}
-                    onChange={(e) => setEditData({ ...editData, status: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                  >
-                    <option value="active">Aktiv</option>
-                    <option value="on_hold">Pausiert</option>
-                    <option value="completed">Abgeschlossen</option>
-                    <option value="archived">Archiviert</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Kunde</label>
-                  <input
-                    type="text"
-                    value={editData.client_name}
-                    onChange={(e) => setEditData({ ...editData, client_name: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Kundenkontakt</label>
-                  <input
-                    type="text"
-                    value={editData.client_contact}
-                    onChange={(e) => setEditData({ ...editData, client_contact: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                    placeholder="Email oder Telefon"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Startdatum</label>
-                  <input
-                    type="date"
-                    value={editData.start_date}
-                    onChange={(e) => setEditData({ ...editData, start_date: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Enddatum</label>
-                  <input
-                    type="date"
-                    value={editData.end_date}
-                    onChange={(e) => setEditData({ ...editData, end_date: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Budget (€)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={editData.budget}
-                    onChange={(e) => setEditData({ ...editData, budget: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Stundensatz (€/h)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={editData.hourly_rate}
-                    onChange={(e) => setEditData({ ...editData, hourly_rate: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Geschätzte Stunden</label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    value={editData.estimated_hours}
-                    onChange={(e) => setEditData({ ...editData, estimated_hours: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Farbe</label>
-                  <input
-                    type="color"
-                    value={editData.color}
-                    onChange={(e) => setEditData({ ...editData, color: e.target.value })}
-                    className="w-full h-10 px-2 border border-gray-300 rounded-lg"
-                  />
-                </div>
-              </div>
-
-              <div className="flex space-x-3 pt-4">
-                <button
-                  onClick={() => {
-                    setEditing(false);
-                    setError('');
-                  }}
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium"
-                  disabled={saving}
-                >
-                  Abbrechen
-                </button>
-                <button
-                  onClick={handleSave}
-                  disabled={saving}
-                  className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium disabled:bg-gray-400"
-                >
-                  {saving ? 'Wird gespeichert...' : 'Speichern'}
-                </button>
-              </div>
-            </div>
+        {/* Tabs */}
+        <div className="bg-white rounded-lg shadow-md mb-6">
+          <div className="border-b border-gray-200">
+            <nav className="flex -mb-px">
+              <button
+                onClick={() => setActiveTab('details')}
+                className={`px-6 py-4 text-sm font-medium border-b-2 ${
+                  activeTab === 'details'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                Projektdetails
+              </button>
+              <button
+                onClick={() => setActiveTab('workpackages')}
+                className={`px-6 py-4 text-sm font-medium border-b-2 ${
+                  activeTab === 'workpackages'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                Arbeitspakete ({workPackages.length})
+              </button>
+              <button
+                onClick={() => setActiveTab('team')}
+                className={`px-6 py-4 text-sm font-medium border-b-2 ${
+                  activeTab === 'team'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                Team ({assignments.length})
+              </button>
+            </nav>
           </div>
-        ) : (
-          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Projektdetails</h2>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {project.project_number && (
-                <div>
-                  <span className="text-sm text-gray-500">Projektnummer</span>
-                  <p className="text-gray-900 font-medium">{project.project_number}</p>
-                </div>
-              )}
 
-              {project.client_name && (
-                <div>
-                  <span className="text-sm text-gray-500">Kunde</span>
-                  <p className="text-gray-900 font-medium">{project.client_name}</p>
-                </div>
-              )}
-
-              {project.client_contact && (
-                <div>
-                  <span className="text-sm text-gray-500">Kundenkontakt</span>
-                  <p className="text-gray-900 font-medium">{project.client_contact}</p>
-                </div>
-              )}
-
-              {project.start_date && (
-                <div>
-                  <span className="text-sm text-gray-500">Startdatum</span>
-                  <p className="text-gray-900 font-medium">
-                    {new Date(project.start_date).toLocaleDateString('de-DE')}
-                  </p>
-                </div>
-              )}
-
-              {project.end_date && (
-                <div>
-                  <span className="text-sm text-gray-500">Enddatum</span>
-                  <p className="text-gray-900 font-medium">
-                    {new Date(project.end_date).toLocaleDateString('de-DE')}
-                  </p>
-                </div>
-              )}
-
-              {project.budget && (
-                <div>
-                  <span className="text-sm text-gray-500">Budget</span>
-                  <p className="text-gray-900 font-medium">{project.budget.toLocaleString('de-DE')} €</p>
-                </div>
-              )}
-
-              {project.hourly_rate && (
-                <div>
-                  <span className="text-sm text-gray-500">Stundensatz</span>
-                  <p className="text-gray-900 font-medium">{project.hourly_rate.toLocaleString('de-DE')} €/h</p>
-                </div>
-              )}
-
-              {project.estimated_hours && (
-                <div>
-                  <span className="text-sm text-gray-500">Geschätzte Stunden</span>
-                  <p className="text-gray-900 font-medium">{project.estimated_hours}h</p>
-                </div>
-              )}
-
+          {/* Tab Content */}
+          <div className="p-6">
+            {/* Details Tab */}
+            {activeTab === 'details' && (
               <div>
-                <span className="text-sm text-gray-500">Erstellt am</span>
-                <p className="text-gray-900 font-medium">
-                  {new Date(project.created_at).toLocaleDateString('de-DE')}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Zugewiesene Mitarbeiter</h2>
-          
-          {assignments.length === 0 ? (
-            <p className="text-gray-500 text-sm">Noch keine Mitarbeiter zugewiesen</p>
-          ) : (
-            <div className="space-y-3">
-              {assignments.map((assignment) => (
-                <div key={assignment.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                {editing ? (
+                  /* Edit Mode */
                   <div>
-                    <p className="font-medium text-gray-900">{assignment.user_profiles.name}</p>
-                    <p className="text-sm text-gray-600">{assignment.user_profiles.email}</p>
+                    <h2 className="text-xl font-bold text-gray-900 mb-4">Projekt bearbeiten</h2>
+                    
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="md:col-span-2">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Projektname *</label>
+                          <input
+                            type="text"
+                            value={editData.name}
+                            onChange={(e) => setEditData({ ...editData, name: e.target.value })}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            required
+                          />
+                        </div>
+
+                        <div className="md:col-span-2">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Beschreibung</label>
+                          <textarea
+                            value={editData.description}
+                            onChange={(e) => setEditData({ ...editData, description: e.target.value })}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            rows={3}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Projektnummer</label>
+                          <input
+                            type="text"
+                            value={editData.project_number}
+                            onChange={(e) => setEditData({ ...editData, project_number: e.target.value })}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                            placeholder="P-2024-001"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                          <select
+                            value={editData.status}
+                            onChange={(e) => setEditData({ ...editData, status: e.target.value })}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                          >
+                            <option value="active">Aktiv</option>
+                            <option value="on_hold">Pausiert</option>
+                            <option value="completed">Abgeschlossen</option>
+                            <option value="archived">Archiviert</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Kunde</label>
+                          <input
+                            type="text"
+                            value={editData.client_name}
+                            onChange={(e) => setEditData({ ...editData, client_name: e.target.value })}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Kundenkontakt</label>
+                          <input
+                            type="text"
+                            value={editData.client_contact}
+                            onChange={(e) => setEditData({ ...editData, client_contact: e.target.value })}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                            placeholder="Email oder Telefon"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Startdatum</label>
+                          <input
+                            type="date"
+                            value={editData.start_date}
+                            onChange={(e) => setEditData({ ...editData, start_date: e.target.value })}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Enddatum</label>
+                          <input
+                            type="date"
+                            value={editData.end_date}
+                            onChange={(e) => setEditData({ ...editData, end_date: e.target.value })}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Budget (€)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={editData.budget}
+                            onChange={(e) => setEditData({ ...editData, budget: e.target.value })}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Stundensatz (€/h)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={editData.hourly_rate}
+                            onChange={(e) => setEditData({ ...editData, hourly_rate: e.target.value })}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Geschätzte Stunden</label>
+                          <input
+                            type="number"
+                            step="0.5"
+                            value={editData.estimated_hours}
+                            onChange={(e) => setEditData({ ...editData, estimated_hours: e.target.value })}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Farbe</label>
+                          <input
+                            type="color"
+                            value={editData.color}
+                            onChange={(e) => setEditData({ ...editData, color: e.target.value })}
+                            className="w-full h-10 px-2 border border-gray-300 rounded-lg"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex space-x-3 pt-4">
+                        <button
+                          onClick={() => {
+                            setEditing(false);
+                            setError('');
+                          }}
+                          className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium"
+                          disabled={saving}
+                        >
+                          Abbrechen
+                        </button>
+                        <button
+                          onClick={handleSave}
+                          disabled={saving}
+                          className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium disabled:bg-gray-400"
+                        >
+                          {saving ? 'Wird gespeichert...' : 'Speichern'}
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                  {assignment.role && (
-                    <span className="text-sm text-gray-500">{assignment.role}</span>
+                ) : (
+                  /* View Mode */
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900 mb-4">Projektdetails</h2>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {project.project_number && (
+                        <div>
+                          <span className="text-sm text-gray-500">Projektnummer</span>
+                          <p className="text-gray-900 font-medium">{project.project_number}</p>
+                        </div>
+                      )}
+
+                      {project.client_name && (
+                        <div>
+                          <span className="text-sm text-gray-500">Kunde</span>
+                          <p className="text-gray-900 font-medium">{project.client_name}</p>
+                        </div>
+                      )}
+
+                      {project.client_contact && (
+                        <div>
+                          <span className="text-sm text-gray-500">Kundenkontakt</span>
+                          <p className="text-gray-900 font-medium">{project.client_contact}</p>
+                        </div>
+                      )}
+
+                      {project.start_date && (
+                        <div>
+                          <span className="text-sm text-gray-500">Startdatum</span>
+                          <p className="text-gray-900 font-medium">
+                            {new Date(project.start_date).toLocaleDateString('de-DE')}
+                          </p>
+                        </div>
+                      )}
+
+                      {project.end_date && (
+                        <div>
+                          <span className="text-sm text-gray-500">Enddatum</span>
+                          <p className="text-gray-900 font-medium">
+                            {new Date(project.end_date).toLocaleDateString('de-DE')}
+                          </p>
+                        </div>
+                      )}
+
+                      {project.budget && (
+                        <div>
+                          <span className="text-sm text-gray-500">Budget</span>
+                          <p className="text-gray-900 font-medium">{project.budget.toLocaleString('de-DE')} €</p>
+                        </div>
+                      )}
+
+                      {project.hourly_rate && (
+                        <div>
+                          <span className="text-sm text-gray-500">Stundensatz</span>
+                          <p className="text-gray-900 font-medium">{project.hourly_rate.toLocaleString('de-DE')} €/h</p>
+                        </div>
+                      )}
+
+                      {project.estimated_hours && (
+                        <div>
+                          <span className="text-sm text-gray-500">Geschätzte Stunden</span>
+                          <p className="text-gray-900 font-medium">{project.estimated_hours}h</p>
+                        </div>
+                      )}
+
+                      <div>
+                        <span className="text-sm text-gray-500">Erstellt am</span>
+                        <p className="text-gray-900 font-medium">
+                          {new Date(project.created_at).toLocaleDateString('de-DE')}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Arbeitspakete Tab - NEU */}
+            {activeTab === 'workpackages' && (
+              <div>
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900">Arbeitspakete</h3>
+                  {(profile?.role === 'company_admin' || profile?.role === 'manager') && (
+                    <button
+                      onClick={() => router.push(`/projekte/${id}/arbeitspakete/neu`)}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium"
+                    >
+                      Neues Arbeitspaket
+                    </button>
                   )}
                 </div>
-              ))}
-            </div>
-          )}
+
+                {workPackages.length === 0 ? (
+                  <div className="text-center py-12">
+                    <svg className="w-16 h-16 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                    <p className="text-gray-600 mb-2">Noch keine Arbeitspakete</p>
+                    <p className="text-sm text-gray-500">Legen Sie Ihr erstes Arbeitspaket an</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {workPackages.map((wp) => (
+                      <div
+                        key={wp.id}
+                        className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 cursor-pointer"
+                        onClick={() => router.push(`/projekte/${id}/arbeitspakete/${wp.id}`)}
+                      >
+                        <div className="flex-1">
+                          <div className="flex items-center">
+                            <span className="text-sm font-mono text-gray-500 bg-white px-2 py-1 rounded mr-3">
+                              {wp.package_number}
+                            </span>
+                            <h4 className="font-medium text-gray-900">{wp.name}</h4>
+                          </div>
+                          {wp.start_date && wp.end_date && (
+                            <p className="text-sm text-gray-600 mt-1">
+                              {new Date(wp.start_date).toLocaleDateString('de-DE')} - {new Date(wp.end_date).toLocaleDateString('de-DE')}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center space-x-4 text-sm">
+                          <div className="text-right">
+                            <p className="text-gray-500">Mitarbeiter</p>
+                            <p className="font-medium text-gray-900">{wp.assigned_employees}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-gray-500">PM gesamt</p>
+                            <p className="font-medium text-gray-900">{wp.total_person_months}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Team Tab */}
+            {activeTab === 'team' && (
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Zugewiesene Mitarbeiter</h3>
+                
+                {assignments.length === 0 ? (
+                  <p className="text-gray-500 text-sm">Noch keine Mitarbeiter zugewiesen</p>
+                ) : (
+                  <>
+                    <div className="space-y-3">
+                      {assignments.map((assignment: any) => (
+                        <div key={assignment.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                          <div>
+                            <p className="font-medium text-gray-900">{assignment.user_profiles.name}</p>
+                            <p className="text-sm text-gray-600">{assignment.user_profiles.email}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm text-gray-500">Gesamt PM</p>
+                            <p className="text-lg font-bold text-gray-900">{assignment.total_pm.toFixed(2)}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    
+                    <div className="mt-6 pt-4 border-t border-gray-200 flex justify-end">
+                      <div className="text-right">
+                        <p className="text-sm text-gray-600">Gesamt-Aufwand Projekt</p>
+                        <p className="text-2xl font-bold text-gray-900">
+                          {assignments.reduce((sum: number, a: any) => sum + a.total_pm, 0).toFixed(2)} PM
+                        </p>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
