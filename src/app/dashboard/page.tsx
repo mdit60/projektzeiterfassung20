@@ -90,7 +90,10 @@ export default function DashboardPage() {
 
   const userName = profile?.name || user.email?.split('@')[0] || 'User';
   const companyName = company?.name || 'Projektzeiterfassung';
-  const isAdmin = profile?.role === 'company_admin';
+  const userRole = profile?.role || 'employee';
+  const isAdmin = userRole === 'company_admin';
+  const isManager = userRole === 'manager';
+  const isEmployee = userRole === 'employee';
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -123,6 +126,16 @@ export default function DashboardPage() {
                     Admin
                   </span>
                 )}
+                {isManager && (
+                  <span className="inline-block px-2 py-0.5 bg-blue-100 text-blue-800 text-xs rounded font-medium">
+                    Manager
+                  </span>
+                )}
+                {isEmployee && (
+                  <span className="inline-block px-2 py-0.5 bg-gray-100 text-gray-800 text-xs rounded font-medium">
+                    Mitarbeiter
+                  </span>
+                )}
               </div>
               <button
                 onClick={handleLogout}
@@ -142,12 +155,15 @@ export default function DashboardPage() {
             Willkommen, {userName}!
           </h2>
           <p className="text-gray-600 mb-6">
-            Verwalten Sie Ihre Projekte, Mitarbeiter und Arbeitszeiten
+            {isAdmin && 'Verwalten Sie Ihre Projekte, Mitarbeiter und Arbeitszeiten'}
+            {isManager && 'Verwalten Sie Ihr Team und Projekte'}
+            {isEmployee && 'Erfassen Sie Ihre Arbeitszeiten und sehen Sie Ihre Projekte'}
           </p>
 
-          {/* Quick Actions Grid */}
+          {/* Quick Actions Grid - Rollenbasiert */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-            {/* Projekte */}
+            
+            {/* Projekte - Alle dürfen sehen */}
             <div 
               onClick={() => router.push('/projekte')}
               className="bg-white rounded-lg shadow hover:shadow-lg p-6 cursor-pointer transition-all"
@@ -158,44 +174,52 @@ export default function DashboardPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
                 </div>
-                <h3 className="ml-4 text-lg font-semibold text-gray-900">Projekte</h3>
+                <h3 className="ml-4 text-lg font-semibold text-gray-900">
+                  {isEmployee ? 'Meine Projekte' : 'Projekte'}
+                </h3>
               </div>
-              <p className="text-gray-600 text-sm">Projekte verwalten und erstellen</p>
+              <p className="text-gray-600 text-sm">
+                {isEmployee ? 'Ihre zugewiesenen Projekte' : 'Projekte verwalten und erstellen'}
+              </p>
             </div>
 
-            {/* Mitarbeiter */}
-            <div 
-              onClick={() => router.push('/mitarbeiter')}
-              className="bg-white rounded-lg shadow hover:shadow-lg p-6 cursor-pointer transition-all"
-            >
-              <div className="flex items-center mb-4">
-                <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                  <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-                  </svg>
+            {/* Mitarbeiter - NUR für Admin und Manager */}
+            {(isAdmin || isManager) && (
+              <div 
+                onClick={() => router.push('/mitarbeiter')}
+                className="bg-white rounded-lg shadow hover:shadow-lg p-6 cursor-pointer transition-all"
+              >
+                <div className="flex items-center mb-4">
+                  <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                    <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                    </svg>
+                  </div>
+                  <h3 className="ml-4 text-lg font-semibold text-gray-900">Mitarbeiter</h3>
                 </div>
-                <h3 className="ml-4 text-lg font-semibold text-gray-900">Mitarbeiter</h3>
+                <p className="text-gray-600 text-sm">Team verwalten und Rollen zuweisen</p>
               </div>
-              <p className="text-gray-600 text-sm">Team verwalten und Rollen zuweisen</p>
-            </div>
+            )}
 
-            {/* Arbeitspläne */}
-            <div 
-              onClick={() => router.push('/arbeitsplaene')}
-              className="bg-white rounded-lg shadow hover:shadow-lg p-6 cursor-pointer transition-all"
-            >
-              <div className="flex items-center mb-4">
-                <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                  <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
+            {/* Arbeitspläne - NUR für Admin und Manager */}
+            {(isAdmin || isManager) && (
+              <div 
+                onClick={() => router.push('/arbeitsplaene')}
+                className="bg-white rounded-lg shadow hover:shadow-lg p-6 cursor-pointer transition-all"
+              >
+                <div className="flex items-center mb-4">
+                  <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                    <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <h3 className="ml-4 text-lg font-semibold text-gray-900">Arbeitspläne</h3>
                 </div>
-                <h3 className="ml-4 text-lg font-semibold text-gray-900">Arbeitspläne</h3>
+                <p className="text-gray-600 text-sm">Schichten und Zeitpläne erstellen</p>
               </div>
-              <p className="text-gray-600 text-sm">Schichten und Zeitpläne erstellen</p>
-            </div>
+            )}
 
-            {/* Zeiterfassung */}
+            {/* Zeiterfassung - Alle dürfen sehen */}
             <div 
               onClick={() => router.push('/zeiterfassung')}
               className="bg-white rounded-lg shadow hover:shadow-lg p-6 cursor-pointer transition-all"
@@ -208,10 +232,12 @@ export default function DashboardPage() {
                 </div>
                 <h3 className="ml-4 text-lg font-semibold text-gray-900">Zeiterfassung</h3>
               </div>
-              <p className="text-gray-600 text-sm">Arbeitszeiten erfassen und auswerten</p>
+              <p className="text-gray-600 text-sm">
+                {isEmployee ? 'Ihre Arbeitszeiten erfassen' : 'Arbeitszeiten erfassen und auswerten'}
+              </p>
             </div>
 
-            {/* Berichte */}
+            {/* Berichte - Alle dürfen sehen (aber unterschiedliche Inhalte) */}
             <div 
               onClick={() => router.push('/berichte')}
               className="bg-white rounded-lg shadow hover:shadow-lg p-6 cursor-pointer transition-all"
@@ -222,12 +248,16 @@ export default function DashboardPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                   </svg>
                 </div>
-                <h3 className="ml-4 text-lg font-semibold text-gray-900">Berichte</h3>
+                <h3 className="ml-4 text-lg font-semibold text-gray-900">
+                  {isEmployee ? 'Meine Berichte' : 'Berichte'}
+                </h3>
               </div>
-              <p className="text-gray-600 text-sm">Auswertungen und Statistiken</p>
+              <p className="text-gray-600 text-sm">
+                {isEmployee ? 'Ihre persönlichen Auswertungen' : 'Auswertungen und Statistiken'}
+              </p>
             </div>
 
-            {/* Firmendaten / Unternehmensdaten - NUR für Company Admin! */}
+            {/* Unternehmensdaten - NUR für Company Admin! */}
             {isAdmin && (
               <div 
                 onClick={() => router.push('/einstellungen')}
@@ -246,8 +276,8 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* Company Info Card */}
-          {company && (
+          {/* Company Info Card - NUR für Admin und Manager */}
+          {(isAdmin || isManager) && company && (
             <div className="bg-white rounded-lg shadow p-6">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-semibold text-gray-900">Firmeninformationen</h3>
@@ -311,6 +341,35 @@ export default function DashboardPage() {
             </div>
           )}
 
+          {/* Employee Info - Nur für Mitarbeiter */}
+          {isEmployee && profile && (
+            <div className="bg-white rounded-lg shadow p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Meine Daten</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="text-gray-600">Name:</span>
+                  <p className="font-medium text-gray-900">{profile.name}</p>
+                </div>
+                <div>
+                  <span className="text-gray-600">E-Mail:</span>
+                  <p className="font-medium text-gray-900">{profile.email}</p>
+                </div>
+                {profile.job_title && (
+                  <div>
+                    <span className="text-gray-600">Position:</span>
+                    <p className="font-medium text-gray-900">{profile.job_title}</p>
+                  </div>
+                )}
+                {profile.weekly_hours && (
+                  <div>
+                    <span className="text-gray-600">Wochenstunden:</span>
+                    <p className="font-medium text-gray-900">{profile.weekly_hours}h</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Debug Info - nur wenn Profil fehlt */}
           {!profile && (
             <div className="bg-red-50 border-2 border-red-200 rounded-lg p-4 mt-6">
@@ -321,15 +380,8 @@ export default function DashboardPage() {
                 <div>
                   <h3 className="text-sm font-bold text-red-800">⚠️ FEHLER: Profil nicht gefunden!</h3>
                   <p className="text-sm text-red-700 mt-1">
-                    Ihr Benutzerprofil konnte nicht geladen werden. Das bedeutet, die Datenbank-Abfrage schlägt fehl.
+                    Ihr Benutzerprofil konnte nicht geladen werden. Bitte kontaktieren Sie Ihren Administrator.
                   </p>
-                  <p className="text-sm text-red-700 mt-2">
-                    <strong>Bitte überprüfen Sie:</strong>
-                  </p>
-                  <ul className="text-sm text-red-700 mt-1 ml-4 list-disc">
-                    <li>Wurden die RLS Policies korrekt ausgeführt?</li>
-                    <li>Öffnen Sie die Browser Console (F12) und prüfen Sie die Fehler</li>
-                  </ul>
                 </div>
               </div>
             </div>

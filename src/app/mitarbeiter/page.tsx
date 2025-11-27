@@ -167,8 +167,6 @@ export default function MitarbeiterPage() {
     setSuccess('');
     setInviting(true);
 
-    let adminSession: any = null;
-
     try {
       if (!inviteData.name.trim() || !inviteData.email.trim() || !inviteData.password.trim()) {
         throw new Error('Bitte füllen Sie alle Pflichtfelder aus');
@@ -177,6 +175,8 @@ export default function MitarbeiterPage() {
       if (inviteData.password.length < 6) {
         throw new Error('Passwort muss mindestens 6 Zeichen lang sein');
       }
+      // Admin Email für Quick Re-Login merken
+      const adminEmail = user.email;
 
       const { data: existingProfile } = await supabase
         .from('user_profiles')
@@ -189,15 +189,9 @@ export default function MitarbeiterPage() {
         throw new Error('Ein Mitarbeiter mit dieser E-Mail existiert bereits');
       }
 
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        throw new Error('Keine aktive Session gefunden');
-      }
-      adminSession = {
-        access_token: session.access_token,
-        refresh_token: session.refresh_token
-      };
+      console.log('🚀 Creating new employee...');
 
+      // User erstellen
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: inviteData.email,
         password: inviteData.password,
@@ -217,17 +211,9 @@ export default function MitarbeiterPage() {
         throw new Error('User konnte nicht erstellt werden');
       }
 
-      const { error: sessionError } = await supabase.auth.setSession({
-        access_token: adminSession.access_token,
-        refresh_token: adminSession.refresh_token
-      });
+      console.log('✅ User created:', authData.user.id);
 
-      if (sessionError) {
-        throw new Error('Admin-Session konnte nicht wiederhergestellt werden');
-      }
-
-      await new Promise(resolve => setTimeout(resolve, 500));
-
+      // Profil erstellen
       const { error: profileError } = await supabase
         .from('user_profiles')
         .insert([{
@@ -243,37 +229,23 @@ export default function MitarbeiterPage() {
         throw new Error('Fehler beim Erstellen des Profils');
       }
 
-      setSuccess(`${inviteData.name} wurde erfolgreich eingeladen!`);
-      
-      setInviteData({
-        name: '',
-        email: '',
-        password: '',
-        role: 'employee'
-      });
+      console.log('✅ Employee created successfully!');
 
+      // WICHTIG: Neuen Mitarbeiter sofort ausloggen
+      await supabase.auth.signOut();
+
+      setSuccess(`${inviteData.name} wurde erstellt! Quick Re-Login in 2 Sekunden...`);
+
+      // Quick Re-Login: Redirect mit vorausgefüllter Admin-Email
       setTimeout(() => {
-        setShowInviteModal(false);
-        setSuccess('');
-        loadData();
+        window.location.href = `/login?email=${encodeURIComponent(adminEmail || '')}`;
       }, 2000);
-
+      
     } catch (error: any) {
       setError(error.message || 'Fehler beim Einladen des Mitarbeiters');
-      
-      if (adminSession) {
-        try {
-          await supabase.auth.setSession({
-            access_token: adminSession.access_token,
-            refresh_token: adminSession.refresh_token
-          });
-        } catch (restoreError) {
-          console.error('Failed to restore session:', restoreError);
-        }
-      }
-    } finally {
       setInviting(false);
     }
+    // WICHTIG: setInviting(false) NICHT im finally, da wir redirecten
   };
 
   const getRoleName = (role: string) => {
@@ -530,11 +502,132 @@ export default function MitarbeiterPage() {
         </div>
       )}
 
-      {/* Invite Modal - bleibt gleich wie vorher */}
+{/* Invite Modal */}
       {showInviteModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-            {/* ... rest des Invite Modals wie vorher ... */}
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-gray-900">Mitarbeiter einladen</h2>
+              <button
+                onClick={() => {
+                  setShowInviteModal(false);
+                  setError('');
+                  setSuccess('');
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {error && (
+              <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+                {error}
+              </div>
+            )}
+
+            {success && (
+              <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm flex items-center">
+                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                {success}
+              </div>
+            )}
+
+            <form onSubmit={handleInvite} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Name *
+                </label>
+                <input
+                  type="text"
+                  value={inviteData.name}
+                  onChange={(e) => setInviteData({ ...inviteData, name: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Max Mustermann"
+                  required
+                  disabled={inviting}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  E-Mail *
+                </label>
+                <input
+                  type="email"
+                  value={inviteData.email}
+                  onChange={(e) => setInviteData({ ...inviteData, email: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="max@firma.de"
+                  required
+                  disabled={inviting}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Temporäres Passwort *
+                </label>
+                <input
+                  type="password"
+                  value={inviteData.password}
+                  onChange={(e) => setInviteData({ ...inviteData, password: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Mindestens 6 Zeichen"
+                  required
+                  minLength={6}
+                  disabled={inviting}
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Der Mitarbeiter kann das Passwort später ändern
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Rolle *
+                </label>
+                <select
+                  value={inviteData.role}
+                  onChange={(e) => setInviteData({ ...inviteData, role: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
+                  disabled={inviting}
+                >
+                  <option value="employee">Mitarbeiter</option>
+                  <option value="manager">Manager</option>
+                  {profile?.role === 'company_admin' && (
+                    <option value="company_admin">Administrator</option>
+                  )}
+                </select>
+              </div>
+
+              <div className="flex space-x-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowInviteModal(false);
+                    setError('');
+                    setSuccess('');
+                  }}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium transition-colors"
+                  disabled={inviting}
+                >
+                  Abbrechen
+                </button>
+                <button
+                  type="submit"
+                  disabled={inviting}
+                  className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors disabled:bg-gray-400"
+                >
+                  {inviting ? 'Wird erstellt...' : 'Einladen'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
