@@ -98,7 +98,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const [loadingPackages, setLoadingPackages] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [activeTab, setActiveTab] = useState<'arbeitspakete' | 'projektmitarbeiter' | 'anlage62'>('arbeitspakete');
+  const [activeTab, setActiveTab] = useState<'arbeitspakete' | 'projektmitarbeiter' | 'anlage5' | 'anlage62'>('arbeitspakete');
 
   // Modal States
   const [showAPModal, setShowAPModal] = useState(false);
@@ -1071,7 +1071,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
           </div>
         </div>
 
-        {/* Arbeitspakete & Anlage 6.2 Sektion */}
+        {/* Arbeitspakete & Anlagen Sektion */}
         <div className="bg-white rounded-lg shadow">
           {/* Tab-Navigation */}
           <div className="px-6 py-4 border-b border-gray-200">
@@ -1096,6 +1096,16 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                   }`}
                 >
                   👥 Projektmitarbeiter ({projectAssignments.length})
+                </button>
+                <button
+                  onClick={() => setActiveTab('anlage5')}
+                  className={`px-4 py-2 font-medium rounded-lg transition-colors ${
+                    activeTab === 'anlage5'
+                      ? 'bg-green-100 text-green-700'
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  📋 Anlage 5
                 </button>
                 <button
                   onClick={() => setActiveTab('anlage62')}
@@ -1412,6 +1422,146 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                   <li><span className="font-medium">B:</span> Mitarbeiter mit anderen staatlichen Abschlüssen (z.B. Techniker, Meister)</li>
                   <li><span className="font-medium">C:</span> Facharbeiter in einem anerkannten Ausbildungsberuf</li>
                 </ul>
+              </div>
+            </div>
+          )}
+
+          {/* Tab: Anlage 5 - Kontrollsummen */}
+          {activeTab === 'anlage5' && (
+            <div className="px-6 py-6">
+              <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+                <h3 className="font-medium text-green-800 mb-1">📋 ZIM Anlage 5 - Kontrollsummen</h3>
+                <p className="text-sm text-green-700">
+                  Übersicht der Personenmonate je Arbeitspaket und je Mitarbeiter
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* a) Personenmonate je Arbeitspaket - 1/3 Breite */}
+                <div className="lg:col-span-1">
+                  <h4 className="font-medium text-gray-900 mb-4">a) Personenmonate je Arbeitspaket</h4>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200 border border-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">AP Nr.</th>
+                          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Aufwand PM</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {workPackages
+                          .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }))
+                          .map(wp => {
+                            const totalPM = wp.assignments?.reduce((sum, a) => sum + (a.person_months || 0), 0) || 0;
+                            return (
+                              <tr key={wp.id} className="hover:bg-gray-50">
+                                <td className="px-4 py-2 text-sm font-medium text-gray-900">{wp.code}</td>
+                                <td className="px-4 py-2 text-sm text-right text-gray-900">
+                                  {totalPM > 0 ? totalPM.toFixed(2).replace('.', ',') : '-'}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        {/* Summenzeile */}
+                        <tr className="bg-gray-100 font-bold">
+                          <td className="px-4 py-3 text-sm text-gray-900">Summe</td>
+                          <td className="px-4 py-3 text-sm text-right text-gray-900">
+                            {workPackages.reduce((sum, wp) => {
+                              return sum + (wp.assignments?.reduce((s, a) => s + (a.person_months || 0), 0) || 0);
+                            }, 0).toFixed(0)}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* b) Personenmonate je Mitarbeiter - 2/3 Breite */}
+                <div className="lg:col-span-2">
+                  <h4 className="font-medium text-gray-900 mb-4">b) Personenmonate je Mitarbeiter</h4>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200 border border-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">MA Nr.</th>
+                          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Aufwand PM</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">beteiligt an AP</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {(() => {
+                          // PM pro MA aggregieren
+                          const pmByMA: { [key: string]: { pm: number; aps: string[]; maNum: number } } = {};
+                          
+                          workPackages.forEach(wp => {
+                            wp.assignments?.forEach(a => {
+                              const maId = a.user_profile?.id;
+                              if (!maId) return;
+                              
+                              if (!pmByMA[maId]) {
+                                const emp = companyEmployees.find(e => e.id === maId);
+                                pmByMA[maId] = { 
+                                  pm: 0, 
+                                  aps: [],
+                                  maNum: emp?.project_employee_number || 99
+                                };
+                              }
+                              pmByMA[maId].pm += a.person_months || 0;
+                              if (a.person_months && a.person_months > 0 && !pmByMA[maId].aps.includes(wp.code)) {
+                                pmByMA[maId].aps.push(wp.code);
+                              }
+                            });
+                          });
+
+                          // Nach MA-Nummer sortieren
+                          const sortedMAs = Object.entries(pmByMA)
+                            .sort((a, b) => a[1].maNum - b[1].maNum);
+
+                          let totalPM = 0;
+                          
+                          return (
+                            <>
+                              {sortedMAs.map(([maId, data]) => {
+                                totalPM += data.pm;
+                                // AP-Nummern sortieren und formatieren
+                                const sortedAPs = data.aps
+                                  .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+                                  .join('; ');
+                                
+                                return (
+                                  <tr key={maId} className="hover:bg-gray-50">
+                                    <td className="px-4 py-2 text-sm font-medium text-gray-900">{data.maNum}</td>
+                                    <td className="px-4 py-2 text-sm text-right text-gray-900">
+                                      {data.pm > 0 ? data.pm.toFixed(1).replace('.', ',') : '-'}
+                                    </td>
+                                    <td className="px-4 py-2 text-sm text-gray-600">
+                                      {sortedAPs || '-'}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                              {/* Summenzeile */}
+                              <tr className="bg-gray-100 font-bold">
+                                <td className="px-4 py-3 text-sm text-gray-900">Summe</td>
+                                <td className="px-4 py-3 text-sm text-right text-gray-900">{totalPM.toFixed(0)}</td>
+                                <td className="px-4 py-3"></td>
+                              </tr>
+                            </>
+                          );
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              {/* Hinweis */}
+              <div className="mt-6 p-4 bg-blue-50 rounded-lg text-sm text-blue-700">
+                <p className="font-medium mb-1">💡 Hinweis zur Plausibilitätsprüfung:</p>
+                <p>
+                  Die Summe der Personenmonate je Arbeitspaket muss mit der Summe der Personenmonate je Mitarbeiter übereinstimmen.
+                  Beide Summen sollten identisch sein.
+                </p>
               </div>
             </div>
           )}
