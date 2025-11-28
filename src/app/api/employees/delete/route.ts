@@ -1,12 +1,20 @@
-import { createClient } from '@supabase/supabase-js';
+// src/app/api/employees/delete/route.ts
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
   try {
+    const { employeeId, checkOnly } = await request.json();
+
+    if (!employeeId) {
+      return NextResponse.json(
+        { error: 'Mitarbeiter-ID fehlt' },
+        { status: 400 }
+      );
+    }
+
     const cookieStore = await cookies();
-    
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -19,100 +27,118 @@ export async function POST(request: Request) {
       }
     );
 
-    // 1. Current User prüfen
+    // Authentifizierung prüfen
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
-      return NextResponse.json({ error: 'Nicht authentifiziert' }, { status: 401 });
+      return NextResponse.json(
+        { error: 'Nicht authentifiziert' },
+        { status: 401 }
+      );
     }
 
-    // 2. Admin-Profil laden (nur Company Admin darf löschen!)
+    // Admin-Rechte prüfen
     const { data: adminProfile } = await supabase
       .from('user_profiles')
-      .select('*')
+      .select('role')
       .eq('user_id', user.id)
       .single();
 
-    if (!adminProfile || adminProfile.role !== 'company_admin') {
-      return NextResponse.json({ error: 'Keine Berechtigung. Nur Company-Admins können Mitarbeiter löschen.' }, { status: 403 });
+    if (adminProfile?.role !== 'company_admin') {
+      return NextResponse.json(
+        { error: 'Keine Berechtigung. Nur Company-Admins können Mitarbeiter löschen.' },
+        { status: 403 }
+      );
     }
 
-    // 3. Request-Daten
-    const body = await request.json();
-    const { employeeId } = body;
+    // ⭐ NEU: Prüfen ob Mitarbeiter gelöscht werden kann
+    const { data: deleteCheck } = await supabase
+      .rpc('can_delete_employee', { employee_id: employeeId });
 
-    if (!employeeId) {
-      return NextResponse.json({ error: 'Mitarbeiter-ID fehlt' }, { status: 400 });
+    if (deleteCheck && deleteCheck.length > 0) {
+      const check = deleteCheck[0];
+      
+      if (!check.can_delete) {
+        return NextResponse.json({
+          error: check.reason,
+          canDelete: false,
+          activeProjects: check.active_projects,
+          totalAssignments: check.total_assignments,
+          suggestion: check.active_projects > 0 
+            ? 'Bitte zuerst Mitarbeiter von aktiven Projekten entfernen oder Projekte abschließen.'
+            : 'Verwenden Sie stattdessen "Anonymisieren" um DSGVO-konform zu löschen.'
+        }, { status: 400 });
+      }
     }
 
-    // 4. Mitarbeiter laden
+    // ⭐ NEU: Wenn nur Check, hier beenden
+    if (checkOnly) {
+      return NextResponse.json({
+        canDelete: true,
+        message: 'Mitarbeiter kann sicher gelöscht werden'
+      });
+    }
+
+    // Mitarbeiter-Daten laden
     const { data: employee } = await supabase
       .from('user_profiles')
-      .select('*')
+      .select('user_id, name')
       .eq('id', employeeId)
-      .eq('company_id', adminProfile.company_id)
       .single();
 
     if (!employee) {
-      return NextResponse.json({ error: 'Mitarbeiter nicht gefunden' }, { status: 404 });
+      return NextResponse.json(
+        { error: 'Mitarbeiter nicht gefunden' },
+        { status: 404 }
+      );
     }
 
-    // 5. Sich selbst kann man nicht löschen
-    if (employee.user_id === user.id) {
-      return NextResponse.json({ error: 'Sie können sich nicht selbst löschen' }, { status: 400 });
-    }
-
-    console.log('🗑️ Deleting employee:', employee.email);
-
-    // 6. Profil löschen
-    const { error: profileDeleteError } = await supabase
+    // ⭐ Nur löschen wenn KEINE Zuordnungen existieren
+    // (wird durch ON DELETE RESTRICT automatisch verhindert)
+    
+    // 1. Profil löschen (CASCADE zu auth.users)
+    const { error: profileError } = await supabase
       .from('user_profiles')
       .delete()
       .eq('id', employeeId);
 
-    if (profileDeleteError) {
-      console.error('Error deleting profile:', profileDeleteError);
-      return NextResponse.json({ error: 'Fehler beim Löschen des Profils' }, { status: 500 });
-    }
-
-    console.log('✅ Profile deleted');
-
-    // 7. User aus Auth löschen (nur mit Service Role Key möglich!)
-    if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      const supabaseAdmin = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!,
-        {
-          auth: {
-            autoRefreshToken: false,
-            persistSession: false
-          }
-        }
-      );
-
-      const { error: authDeleteError } = await supabaseAdmin.auth.admin.deleteUser(employee.user_id);
-
-      if (authDeleteError) {
-        console.error('Error deleting auth user:', authDeleteError);
-        // Profil ist schon gelöscht, Auth-User bleibt halt
-        return NextResponse.json({ 
-          success: true, 
-          message: 'Mitarbeiter wurde gelöscht (Auth-User konnte nicht gelöscht werden)',
-          warning: 'Auth-User konnte nicht gelöscht werden'
-        });
+    if (profileError) {
+      // Wenn RESTRICT greift, bekommen wir hier einen Fehler
+      if (profileError.code === '23503') { // Foreign key violation
+        return NextResponse.json({
+          error: 'Mitarbeiter kann nicht gelöscht werden: Hat noch Arbeitspaket-Zuordnungen',
+          suggestion: 'Verwenden Sie "Anonymisieren" oder entfernen Sie zuerst alle Zuordnungen',
+          canDelete: false
+        }, { status: 400 });
       }
-
-      console.log('✅ Auth user deleted');
-    } else {
-      console.warn('⚠️ Service Role Key not found - auth user not deleted');
+      
+      throw profileError;
     }
 
-    return NextResponse.json({ 
-      success: true, 
-      message: 'Mitarbeiter wurde vollständig gelöscht' 
+    // 2. Auth-User mit Service Role Key löschen
+    const supabaseAdmin = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        cookies: {
+          get(name: string) {
+            return cookieStore.get(name)?.value;
+          },
+        },
+      }
+    );
+
+    await supabaseAdmin.auth.admin.deleteUser(employee.user_id);
+
+    return NextResponse.json({
+      success: true,
+      message: `${employee.name} wurde erfolgreich gelöscht`
     });
 
   } catch (error: any) {
-    console.error('Server error:', error);
-    return NextResponse.json({ error: 'Interner Serverfehler' }, { status: 500 });
+    console.error('Error deleting employee:', error);
+    return NextResponse.json(
+      { error: error.message || 'Fehler beim Löschen des Mitarbeiters' },
+      { status: 500 }
+    );
   }
 }

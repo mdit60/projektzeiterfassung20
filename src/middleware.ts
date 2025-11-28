@@ -2,10 +2,8 @@ import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
 export async function middleware(request: NextRequest) {
-  const response = NextResponse.next({
-    request: {
-      headers: request.headers,
-    },
+  let supabaseResponse = NextResponse.next({
+    request,
   });
 
   const supabase = createServerClient(
@@ -13,75 +11,99 @@ export async function middleware(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name: string) {
-          return request.cookies.get(name)?.value;
+        getAll() {
+          return request.cookies.getAll();
         },
-        set(name: string, value: string, options: any) {
-          request.cookies.set({
-            name,
-            value,
-            ...options,
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) =>
+            request.cookies.set(name, value)
+          );
+          supabaseResponse = NextResponse.next({
+            request,
           });
-          response.cookies.set({
-            name,
-            value,
-            ...options,
-          });
-        },
-        remove(name: string, options: any) {
-          request.cookies.set({
-            name,
-            value: '',
-            ...options,
-          });
-          response.cookies.set({
-            name,
-            value: '',
-            ...options,
-          });
+          cookiesToSet.forEach(({ name, value, options }) =>
+            supabaseResponse.cookies.set(name, value, options)
+          );
         },
       },
     }
   );
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  // Root path (/) - immer zum Login weiterleiten wenn nicht eingeloggt
-  if (request.nextUrl.pathname === '/') {
-    if (!user) {
-      return NextResponse.redirect(new URL('/login', request.url));
-    } else {
-      return NextResponse.redirect(new URL('/dashboard', request.url));
-    }
+  const pathname = request.nextUrl.pathname;
+
+  // ==========================================
+  // ÖFFENTLICHE ROUTEN - KEIN LOGIN ERFORDERLICH
+  // ==========================================
+  const publicRoutes = [
+    '/',
+    '/login',
+    '/register',  // <-- WICHTIG: Register muss öffentlich sein!
+  ];
+
+  // Prüfe ob aktuelle Route öffentlich ist
+  const isPublicRoute = publicRoutes.some(route => 
+    pathname === route || pathname.startsWith(route + '/')
+  );
+
+  // ==========================================
+  // GESCHÜTZTE ROUTEN - LOGIN ERFORDERLICH
+  // ==========================================
+  const protectedRoutes = [
+    '/dashboard',
+    '/projekte',
+    '/mitarbeiter',
+    '/arbeitsplaene',
+    '/zeiterfassung',
+    '/berichte',
+    '/einstellungen'
+  ];
+
+  const isProtectedRoute = protectedRoutes.some(route => 
+    pathname === route || pathname.startsWith(route + '/')
+  );
+
+  // ==========================================
+  // REDIRECT-LOGIK
+  // ==========================================
+
+  // 1. Nicht eingeloggt + geschützte Route → Login
+  if (!user && isProtectedRoute) {
+    const url = request.nextUrl.clone();
+    url.pathname = '/login';
+    return NextResponse.redirect(url);
   }
 
-  // Geschützte Routen - erfordern Login
-  const protectedPaths = ['/dashboard', '/projekte', '/mitarbeiter', '/arbeitsplaene', '/zeiterfassung', '/berichte', '/einstellungen'];
-  const isProtectedPath = protectedPaths.some(path => request.nextUrl.pathname.startsWith(path));
-
-  if (isProtectedPath && !user) {
-    return NextResponse.redirect(new URL('/login', request.url));
+  // 2. Eingeloggt + auf Login-Seite → Dashboard
+  //    ABER: Register bleibt erlaubt (für zusätzliche Firmen)
+  if (user && pathname === '/login') {
+    const url = request.nextUrl.clone();
+    url.pathname = '/dashboard';
+    return NextResponse.redirect(url);
   }
 
-  // Login/Register Seiten - wenn eingeloggt zum Dashboard
-  if ((request.nextUrl.pathname === '/login' || request.nextUrl.pathname === '/register') && user) {
-    return NextResponse.redirect(new URL('/dashboard', request.url));
+  // 3. Root → Redirect basierend auf Login-Status
+  if (pathname === '/') {
+    const url = request.nextUrl.clone();
+    url.pathname = user ? '/dashboard' : '/login';
+    return NextResponse.redirect(url);
   }
 
-  return response;
+  return supabaseResponse;
 }
 
 export const config = {
   matcher: [
-    '/',
-    '/dashboard/:path*',
-    '/projekte/:path*',
-    '/mitarbeiter/:path*',
-    '/arbeitsplaene/:path*',
-    '/zeiterfassung/:path*',
-    '/berichte/:path*',
-    '/einstellungen/:path*',
-    '/login',
-    '/register'
-  ]
+    /*
+     * Match all request paths except for the ones starting with:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - public folder
+     */
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+  ],
 };

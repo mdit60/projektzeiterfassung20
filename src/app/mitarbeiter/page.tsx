@@ -124,11 +124,56 @@ export default function MitarbeiterPage() {
     }
   };
 
-  const handleDeleteClick = (employee: Employee) => {
+const handleDeleteClick = async (employee: Employee) => {
+  setActionLoading(true);
+  setError('');
+
+  try {
+    // ⭐ Check ob MA gelöscht werden kann
+    const response = await fetch('/api/employees/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        employeeId: employee.id,
+        checkOnly: true
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      // Kann nicht gelöscht werden - Fehler anzeigen
+      if (data.activeProjects > 0) {
+        setError(
+          `${employee.name} kann nicht gelöscht werden:\n\n` +
+          `• Hat ${data.activeProjects} aktive Projekt-Zuordnung(en)\n` +
+          `• Bitte zuerst von Projekten entfernen oder Projekte abschließen\n\n` +
+          `Alternative: Mitarbeiter deaktivieren (orange Symbol)`
+        );
+      } else if (data.totalAssignments > 0) {
+        setError(
+          `${employee.name} kann nicht gelöscht werden:\n\n` +
+          `• Hat ${data.totalAssignments} Arbeitspaket-Zuordnung(en)\n` +
+          `• Projektdaten würden verloren gehen\n\n` +
+          `Empfehlung: Mitarbeiter anonymisieren (DSGVO-konform)`
+        );
+      } else {
+        setError(data.error || 'Fehler beim Prüfen');
+      }
+      return; // Modal NICHT öffnen
+    }
+
+    // ✅ Kann gelöscht werden - Modal öffnen
     setSelectedEmployee(employee);
     setShowDeleteModal(true);
-  };
 
+  } catch (error: any) {
+    console.error('Delete check error:', error);
+    setError(error.message || 'Fehler beim Prüfen');
+  } finally {
+    setActionLoading(false);
+  }
+};
   const handleDeleteConfirm = async () => {
     if (!selectedEmployee) return;
 
@@ -240,7 +285,7 @@ export default function MitarbeiterPage() {
       setTimeout(() => {
         window.location.href = `/login?email=${encodeURIComponent(adminEmail || '')}`;
       }, 2000);
-      
+
     } catch (error: any) {
       setError(error.message || 'Fehler beim Einladen des Mitarbeiters');
       setInviting(false);
