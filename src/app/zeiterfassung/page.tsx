@@ -32,7 +32,7 @@ interface MonthEntry {
   project_id: string;
   project_name: string;
   project_color: string;
-  days: { [day: number]: number };  // Nur Zahlen, keine Strings
+  days: { [day: number]: number };
 }
 
 // Abwesenheits-Typen
@@ -61,6 +61,7 @@ export default function ZeiterfassungPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [profile, setProfile] = useState<any>(null);
+  const [companyStateCode, setCompanyStateCode] = useState<string>('DE-NW'); // NEU: Bundesland
   const [workPackages, setWorkPackages] = useState<WorkPackage[]>([]);
   const [allWorkPackages, setAllWorkPackages] = useState<WorkPackage[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
@@ -96,9 +97,19 @@ export default function ZeiterfassungPage() {
         return;
       }
 
+      // ============================================
+      // NEU: Profil MIT Company (für state_code) laden
+      // ============================================
       const { data: profileData } = await supabase
         .from('user_profiles')
-        .select('*, contract_hours_per_week')
+        .select(`
+          *,
+          companies (
+            id,
+            name,
+            state_code
+          )
+        `)
         .eq('user_id', user.id)
         .single();
 
@@ -108,8 +119,34 @@ export default function ZeiterfassungPage() {
       }
       setProfile(profileData);
 
-      // ALLE Arbeitspakete laden
-      const { data: allWpData } = await supabase
+      // Bundesland der Firma extrahieren (Fallback: DE-NW)
+      const stateCode = (profileData.companies as any)?.state_code || 'DE-NW';
+      setCompanyStateCode(stateCode);
+      console.log('🏢 Firmen-Bundesland:', stateCode);
+
+      // Arbeitspakete die dem User zugeordnet sind
+      const { data: assignedWPs } = await supabase
+        .from('work_package_assignments')
+        .select(`
+          work_package_id,
+          work_packages (
+            id,
+            code,
+            description,
+            estimated_hours,
+            project_id,
+            project:projects (id, name, color)
+          )
+        `)
+        .eq('user_profile_id', profileData.id);
+
+      const myWPs = (assignedWPs || [])
+        .map((a: any) => a.work_packages)
+        .filter(Boolean);
+      setWorkPackages(myWPs);
+
+      // Alle Arbeitspakete der Firma
+      const { data: allWPs } = await supabase
         .from('work_packages')
         .select(`
           id,
@@ -117,118 +154,103 @@ export default function ZeiterfassungPage() {
           description,
           estimated_hours,
           project_id,
-          project:projects(id, name, color)
+          project:projects!inner (id, name, color, company_id)
         `)
+        .eq('projects.company_id', profileData.company_id)
         .eq('is_active', true)
         .order('code');
 
-      setAllWorkPackages(allWpData || []);
+      setAllWorkPackages(allWPs || []);
 
-      // Zugeordnete Arbeitspakete
-      const { data: assignmentData } = await supabase
-        .from('work_package_assignments')
-        .select('work_package_id')
-        .eq('user_profile_id', profileData.id);
-
-      const assignedWpIds = assignmentData?.map(a => a.work_package_id) || [];
-      const assignedWps = (allWpData || []).filter(wp => assignedWpIds.includes(wp.id));
-      setWorkPackages(assignedWps);
-
-      // Feiertage laden - KORREKTES Enddatum berechnen
+      // ============================================
+      // NEU: Feiertage mit Bundesland-Filter laden
+      // ============================================
       const startDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-01`;
-      const lastDayOfMonth = new Date(currentYear, currentMonth, 0).getDate(); // Letzter Tag des Monats
+      const lastDayOfMonth = new Date(currentYear, currentMonth, 0).getDate();
       const endDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(lastDayOfMonth).padStart(2, '0')}`;
 
-      const { data: companyData } = await supabase
-        .from('companies')
-        .select('state_code')
-        .eq('id', profileData.company_id)
-        .single();
-
-      const stateCode = companyData?.state_code || 'DE-BY';
-
-      const { data: holidayData } = await supabase
+      // Alle Feiertage im Monat laden (bundesweit + alle Bundesländer)
+      const { data: holidaysData, error: holidaysError } = await supabase
         .from('public_holidays')
-        .select('holiday_date, name')
+        .select('holiday_date, name, state_code, is_regional_only')
+        .eq('country', 'DE')
         .gte('holiday_date', startDate)
-        .lte('holiday_date', endDate)
-        .or(`state_code.is.null,state_code.eq.${stateCode}`);
+        .lte('holiday_date', endDate);
 
-      setHolidays(holidayData || []);
+      if (holidaysError) {
+        console.error('Fehler beim Laden der Feiertage:', holidaysError);
+      }
 
-      // Zeiteinträge laden
-      const { data: timeData, error: timeError } = await supabase
+      // Filtern: bundesweit (NULL) ODER Firmen-Bundesland
+      const filteredHolidays = (holidaysData || []).filter(h => 
+        h.state_code === null || h.state_code === stateCode
+      ).filter(h => 
+        // Regionale Sonderfälle ausschließen (z.B. Augsburg Friedensfest)
+        !h.is_regional_only
+      );
+
+      // Duplikate entfernen (wenn bundesweit + regional gleicher Tag)
+      const uniqueHolidays: Holiday[] = [];
+      const seenDates = new Set<string>();
+      
+      for (const h of filteredHolidays) {
+        if (!seenDates.has(h.holiday_date)) {
+          seenDates.add(h.holiday_date);
+          uniqueHolidays.push({
+            holiday_date: h.holiday_date,
+            name: h.name
+          });
+        }
+      }
+
+      console.log(`🎄 Feiertage für ${currentMonth}/${currentYear} (${stateCode}):`, uniqueHolidays);
+      setHolidays(uniqueHolidays);
+
+      // Bestehende Einträge laden
+      const { data: existingEntries } = await supabase
         .from('time_entries')
-        .select(`
-          id,
-          entry_date,
-          hours,
-          category,
-          work_package_id,
-          work_package_code,
-          work_package_description,
-          project_id,
-          project:projects(id, name, color)
-        `)
+        .select('*')
         .eq('user_profile_id', profileData.id)
         .gte('entry_date', startDate)
         .lte('entry_date', endDate);
 
-      if (timeError) {
-        console.error('Error loading time entries:', timeError);
-      }
+      // Einträge gruppieren
+      const entriesMap: { [wpId: string]: MonthEntry } = {};
+      const newAbsenceRow: { [day: number]: 'U' | 'K' | 'S' | null } = {};
 
-      console.log('Geladene Zeiteinträge:', timeData);
+      for (const entry of (existingEntries || [])) {
+        const day = new Date(entry.entry_date).getDate();
 
-      // Gruppiere nach Arbeitspaket
-      const entriesMap: { [key: string]: MonthEntry } = {};
-      const absences: { [day: number]: 'U' | 'K' | 'S' | null } = {};
-
-      if (timeData && timeData.length > 0) {
-        timeData.forEach((entry: any) => {
-          const day = new Date(entry.entry_date).getDate();
-          const proj = getProject(entry.project);
-
-          // Fehlzeiten separat behandeln
-          if (entry.category === 'vacation') {
-            absences[day] = 'U';
-            return;
-          } else if (entry.category === 'sick_leave') {
-            absences[day] = 'K';
-            return;
-          } else if (entry.category === 'other_absence') {
-            absences[day] = 'S';
-            return;
-          } else if (entry.category === 'public_holiday' || entry.category === 'non_billable') {
-            return;
-          }
-
-          // Projektarbeit
-          const key = entry.work_package_id || `manual-${entry.work_package_code}`;
-
-          if (!entriesMap[key]) {
-            const wpInfo = (allWpData || []).find(wp => wp.id === entry.work_package_id);
-            
-            entriesMap[key] = {
-              work_package_id: entry.work_package_id || '',
-              work_package_code: entry.work_package_code || wpInfo?.code || '',
-              work_package_description: entry.work_package_description || wpInfo?.description || '',
-              project_id: entry.project_id,
+        if (entry.category === 'vacation') {
+          newAbsenceRow[day] = 'U';
+        } else if (entry.category === 'sick_leave') {
+          newAbsenceRow[day] = 'K';
+        } else if (entry.category === 'other_absence') {
+          newAbsenceRow[day] = 'S';
+        } else if (entry.category === 'project_work' && entry.work_package_id) {
+          if (!entriesMap[entry.work_package_id]) {
+            const wp = allWPs?.find((w: any) => w.id === entry.work_package_id);
+            const proj = wp ? getProject(wp.project) : null;
+            entriesMap[entry.work_package_id] = {
+              work_package_id: entry.work_package_id,
+              work_package_code: entry.work_package_code || '',
+              work_package_description: entry.work_package_description || '',
+              project_id: entry.project_id || '',
               project_name: proj?.name || '',
               project_color: proj?.color || '#3B82F6',
               days: {}
             };
           }
-          entriesMap[key].days[day] = entry.hours;
-        });
+          entriesMap[entry.work_package_id].days[day] = entry.hours;
+        }
       }
 
+      setAbsenceRow(newAbsenceRow);
       setEntries(Object.values(entriesMap));
-      setAbsenceRow(absences);
 
     } catch (error: any) {
-      console.error('Error:', error);
-      setError('Fehler beim Laden der Daten');
+      console.error('Load error:', error);
+      setError('Fehler beim Laden: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -288,7 +310,7 @@ export default function ZeiterfassungPage() {
   };
 
   const getMaxMonthlyHours = () => {
-    const weeklyHours = profile?.contract_hours_per_week || 40;
+    const weeklyHours = profile?.weekly_hours_contract || profile?.contract_hours_per_week || 40;
     return Math.round((weeklyHours * 52) / 12 * 100) / 100;
   };
 
@@ -388,7 +410,7 @@ export default function ZeiterfassungPage() {
     });
   };
 
-  // Summen-Berechnungen - KORRIGIERT
+  // Summen-Berechnungen
   const getRowTotal = (entry: MonthEntry): number => {
     let total = 0;
     for (const val of Object.values(entry.days)) {
@@ -442,20 +464,24 @@ export default function ZeiterfassungPage() {
       project: projectTotal,
       absence: absenceTotal,
       nonBillable: nonBillableTotal,
-      total: projectTotal + absenceTotal + nonBillableTotal
+      total: projectTotal + absenceTotal + nonBillableTotal,
+      billableTotal: projectTotal + absenceTotal
     };
   };
 
   const isOverMaxHours = () => {
     const totals = getMonthTotals();
-    return totals.total > getMaxMonthlyHours();
+    return totals.billableTotal > getMaxMonthlyHours();
   };
 
   // Speichern
   const handleSave = async () => {
     try {
-      if (isOverMaxHours()) {
-        setError(`Die Gesamtstunden (${getMonthTotals().total.toFixed(1)}h) überschreiten die maximale Monatsarbeitszeit von ${getMaxMonthlyHours().toFixed(1)}h.`);
+      const totals = getMonthTotals();
+      const maxHours = getMaxMonthlyHours();
+      
+      if (totals.billableTotal > maxHours) {
+        setError(`Die erfassten Stunden (Förderfähig + Fehlzeiten: ${totals.billableTotal.toFixed(1)}h) überschreiten die maximale Monatsarbeitszeit von ${maxHours.toFixed(1)}h.`);
         return;
       }
 
@@ -591,7 +617,6 @@ export default function ZeiterfassungPage() {
         }
       }
 
-      const totals = getMonthTotals();
       setSuccess(`✅ ${monthNames[currentMonth - 1]} ${currentYear} gespeichert! Förderfähig: ${totals.project.toFixed(1)}h, Fehlzeiten: ${totals.absence.toFixed(1)}h, Nicht förderfähig: ${totals.nonBillable.toFixed(1)}h`);
       setTimeout(() => setSuccess(''), 8000);
 
@@ -644,6 +669,10 @@ export default function ZeiterfassungPage() {
                 Dashboard
               </button>
             </div>
+            {/* NEU: Bundesland-Anzeige */}
+            <div className="flex items-center text-sm text-gray-500">
+              📍 Feiertage: {companyStateCode.replace('DE-', '')}
+            </div>
           </div>
         </div>
       </nav>
@@ -659,16 +688,21 @@ export default function ZeiterfassungPage() {
               </p>
               <p className="text-blue-200 text-sm mt-1">
                 {workPackages.length} Arbeitspaket{workPackages.length !== 1 ? 'e' : ''} zugeordnet
-                {profile?.contract_hours_per_week && (
-                  <span className="ml-2">• {profile.contract_hours_per_week}h/Woche</span>
+                {(profile?.weekly_hours_contract || profile?.contract_hours_per_week) && (
+                  <span className="ml-2">• {profile?.weekly_hours_contract || profile?.contract_hours_per_week}h/Woche</span>
                 )}
+                <span className="ml-2">• Feiertage: {companyStateCode.replace('DE-', '')}</span>
               </p>
             </div>
             <div className="text-right">
               <div className="text-blue-100 text-sm">Aktueller Monat</div>
               <div className="text-2xl font-bold">{monthNames[currentMonth - 1]} {currentYear}</div>
               <div className="text-blue-200 text-sm mt-1">
-                {monthTotals.total.toFixed(1)}h / {maxHours.toFixed(1)}h max
+                {monthTotals.billableTotal.toFixed(1)}h / {maxHours.toFixed(1)}h max
+              </div>
+              {/* NEU: Feiertage-Anzahl für den Monat */}
+              <div className="text-blue-200 text-xs mt-1">
+                🎄 {holidays.length} Feiertag{holidays.length !== 1 ? 'e' : ''} im Monat
               </div>
             </div>
           </div>
@@ -683,9 +717,17 @@ export default function ZeiterfassungPage() {
             <div>
               <strong>Maximale Monatsstunden überschritten!</strong>
               <div className="text-sm">
-                Erfasst: {monthTotals.total.toFixed(1)}h | Maximum: {maxHours.toFixed(1)}h | Überschreitung: {(monthTotals.total - maxHours).toFixed(1)}h
+                Förderfähig + Fehlzeiten: {monthTotals.billableTotal.toFixed(1)}h | Maximum: {maxHours.toFixed(1)}h | Überschreitung: {(monthTotals.billableTotal - maxHours).toFixed(1)}h
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Info-Box wenn viele nicht-förderfähige Stunden */}
+        {monthTotals.nonBillable > 0 && !overMax && (
+          <div className="mb-4 bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded-lg text-sm">
+            <strong>ℹ️ Hinweis:</strong> Es gibt {monthTotals.nonBillable.toFixed(0)}h automatisch generierte "Nicht förderfähig"-Stunden für Werktage ohne Einträge. 
+            Diese zählen <strong>nicht</strong> zum Maximum.
           </div>
         )}
 
@@ -714,10 +756,37 @@ export default function ZeiterfassungPage() {
               <button onClick={goToNextMonth} className="px-3 py-2 border rounded-lg hover:bg-gray-50">
                 Nächster →
               </button>
+              
+              {/* NEU: Direkte Monats-/Jahr-Auswahl */}
+              <div className="border-l pl-4 ml-2 flex items-center space-x-2">
+                <select
+                  value={currentMonth}
+                  onChange={(e) => setCurrentMonth(parseInt(e.target.value))}
+                  className="px-3 py-2 border rounded-lg bg-white hover:bg-gray-50 cursor-pointer font-medium"
+                >
+                  {monthNames.map((name, index) => (
+                    <option key={index + 1} value={index + 1}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={currentYear}
+                  onChange={(e) => setCurrentYear(parseInt(e.target.value))}
+                  className="px-3 py-2 border rounded-lg bg-white hover:bg-gray-50 cursor-pointer font-medium"
+                >
+                  {/* Jahre von 2020 bis aktuelles Jahr + 5 */}
+                  {Array.from({ length: new Date().getFullYear() - 2020 + 6 }, (_, i) => 2020 + i).map(year => (
+                    <option key={year} value={year}>
+                      {year}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div className="flex items-center space-x-4">
-              <label className="flex items-center text-sm cursor-pointer" title="Alle Arbeitspakete im Dropdown anzeigen">
+              <label className="flex items-center text-sm cursor-pointer">
                 <input
                   type="checkbox"
                   checked={showAllAPs}
@@ -880,7 +949,6 @@ export default function ZeiterfassungPage() {
                         ) : isNonWorking ? (
                           <div className="text-gray-400">-</div>
                         ) : absence ? (
-                          // Abwesenheit eingetragen - zeige mit X zum Löschen
                           <div className={`relative group ${absenceInfo?.bgColor} rounded`}>
                             <input
                               type="text"
@@ -898,7 +966,6 @@ export default function ZeiterfassungPage() {
                             </button>
                           </div>
                         ) : (
-                          // Kein Eintrag - normales Eingabefeld
                           <input
                             type="text"
                             value=""
@@ -977,6 +1044,7 @@ export default function ZeiterfassungPage() {
                 <tr className="bg-gray-100 font-bold">
                   <td className="sticky left-0 z-10 bg-gray-100 px-3 py-2 border-b text-right text-gray-700">
                     Σ Nicht förderfähig:
+                    <div className="text-xs font-normal text-gray-500">(zählt nicht zum Max)</div>
                   </td>
                   {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
                     const hours = getNonBillableHoursForDay(day);
@@ -1039,7 +1107,7 @@ export default function ZeiterfassungPage() {
         {/* Zusammenfassung */}
         <div className="mt-6 bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-bold text-gray-900 mb-4">Monatszusammenfassung</h3>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
             <div className="bg-green-50 rounded-lg p-4 text-center">
               <div className="text-2xl font-bold text-green-700">{monthTotals.project.toFixed(1)}h</div>
               <div className="text-sm text-green-600">Förderfähig</div>
@@ -1048,15 +1116,24 @@ export default function ZeiterfassungPage() {
               <div className="text-2xl font-bold text-orange-700">{monthTotals.absence.toFixed(1)}h</div>
               <div className="text-sm text-orange-600">Fehlzeiten</div>
             </div>
+            <div className={`rounded-lg p-4 text-center border-2 ${overMax ? 'bg-red-50 border-red-400' : 'bg-blue-50 border-blue-400'}`}>
+              <div className={`text-2xl font-bold ${overMax ? 'text-red-700' : 'text-blue-700'}`}>
+                {monthTotals.billableTotal.toFixed(1)}h
+              </div>
+              <div className={`text-sm ${overMax ? 'text-red-600' : 'text-blue-600'}`}>
+                Relevant für Max
+              </div>
+            </div>
             <div className="bg-gray-100 rounded-lg p-4 text-center">
               <div className="text-2xl font-bold text-gray-700">{monthTotals.nonBillable.toFixed(1)}h</div>
               <div className="text-sm text-gray-600">Nicht förderfähig</div>
+              <div className="text-xs text-gray-500">(Platzhalter)</div>
             </div>
-            <div className={`rounded-lg p-4 text-center ${overMax ? 'bg-red-100' : 'bg-blue-50'}`}>
-              <div className={`text-2xl font-bold ${overMax ? 'text-red-700' : 'text-blue-700'}`}>
+            <div className="bg-yellow-50 rounded-lg p-4 text-center">
+              <div className="text-2xl font-bold text-yellow-700">
                 {monthTotals.total.toFixed(1)}h
               </div>
-              <div className={`text-sm ${overMax ? 'text-red-600' : 'text-blue-600'}`}>Gesamt</div>
+              <div className="text-sm text-yellow-600">Gesamt</div>
             </div>
             <div className="bg-gray-50 rounded-lg p-4 text-center">
               <div className="text-2xl font-bold text-gray-700">{maxHours.toFixed(1)}h</div>
@@ -1064,20 +1141,35 @@ export default function ZeiterfassungPage() {
             </div>
           </div>
           
+          {/* Fortschrittsbalken */}
           <div className="mt-4">
             <div className="flex justify-between text-sm text-gray-600 mb-1">
-              <span>Auslastung</span>
-              <span>{Math.round((monthTotals.total / maxHours) * 100)}%</span>
+              <span>Auslastung (Förderfähig + Fehlzeiten)</span>
+              <span>{Math.round((monthTotals.billableTotal / maxHours) * 100)}%</span>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-3">
               <div
                 className={`h-3 rounded-full transition-all ${
-                  overMax ? 'bg-red-500' : monthTotals.total >= maxHours * 0.9 ? 'bg-green-500' : 'bg-blue-500'
+                  overMax ? 'bg-red-500' : monthTotals.billableTotal >= maxHours * 0.9 ? 'bg-green-500' : 'bg-blue-500'
                 }`}
-                style={{ width: `${Math.min(100, (monthTotals.total / maxHours) * 100)}%` }}
+                style={{ width: `${Math.min(100, (monthTotals.billableTotal / maxHours) * 100)}%` }}
               ></div>
             </div>
           </div>
+
+          {/* NEU: Feiertage-Liste für den Monat */}
+          {holidays.length > 0 && (
+            <div className="mt-4 pt-4 border-t">
+              <h4 className="text-sm font-medium text-gray-700 mb-2">🎄 Feiertage im {monthNames[currentMonth - 1]}:</h4>
+              <div className="flex flex-wrap gap-2">
+                {holidays.map(h => (
+                  <span key={h.holiday_date} className="inline-flex items-center px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-xs">
+                    {new Date(h.holiday_date).getDate()}. - {h.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
