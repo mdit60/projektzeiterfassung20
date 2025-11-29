@@ -39,7 +39,7 @@ export default function RegisterPage() {
   });
 
   const germanStates = [
-    { code: 'DE-BW', name: 'Baden-Württemberg' },
+    { code: 'DE-BW', name: 'Baden-WÃ¼rttemberg' },
     { code: 'DE-BY', name: 'Bayern' },
     { code: 'DE-BE', name: 'Berlin' },
     { code: 'DE-BB', name: 'Brandenburg' },
@@ -54,10 +54,10 @@ export default function RegisterPage() {
     { code: 'DE-SN', name: 'Sachsen' },
     { code: 'DE-ST', name: 'Sachsen-Anhalt' },
     { code: 'DE-SH', name: 'Schleswig-Holstein' },
-    { code: 'DE-TH', name: 'Thüringen' }
+    { code: 'DE-TH', name: 'ThÃ¼ringen' }
   ];
 
-  const legalForms = ['GmbH', 'UG', 'AG', 'GbR', 'OHG', 'KG', 'e.K.', 'Einzelunternehmen', 'Sonstige'];
+  const legalForms = ['GmbH', 'GmbH & Co. KG', 'UG', 'UG & Co. KG', 'AG', 'GbR', 'OHG', 'KG', 'e.K.', 'Einzelunternehmen', 'Sonstige'];
 
   const handleStep1Submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,7 +65,7 @@ export default function RegisterPage() {
 
     // Validierung
     if (!adminData.name.trim() || !adminData.email.trim() || !adminData.password.trim()) {
-      setError('Bitte füllen Sie alle Pflichtfelder aus');
+      setError('Bitte fÃ¼llen Sie alle Pflichtfelder aus');
       return;
     }
 
@@ -75,14 +75,14 @@ export default function RegisterPage() {
     }
 
     if (adminData.password !== adminData.passwordConfirm) {
-      setError('Passwörter stimmen nicht überein');
+      setError('PasswÃ¶rter stimmen nicht Ã¼berein');
       return;
     }
 
-    // Email-Format prüfen
+    // Email-Format prÃ¼fen
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(adminData.email)) {
-      setError('Bitte geben Sie eine gültige E-Mail-Adresse ein');
+      setError('Bitte geben Sie eine gÃ¼ltige E-Mail-Adresse ein');
       return;
     }
 
@@ -99,12 +99,12 @@ export default function RegisterPage() {
       if (!companyData.name.trim() || !companyData.street.trim() || 
           !companyData.houseNumber.trim() || !companyData.zip.trim() || 
           !companyData.city.trim()) {
-        throw new Error('Bitte füllen Sie alle Pflichtfelder aus');
+        throw new Error('Bitte fÃ¼llen Sie alle Pflichtfelder aus');
       }
 
-      console.log('🚀 Starting registration process...');
+      console.log('ðŸš€ Starting registration process...');
 
-      // 1. Prüfen ob Firma bereits existiert
+      // 1. PrÃ¼fen ob Firma bereits existiert
       const { data: existingCompany } = await supabase
         .from('companies')
         .select('id')
@@ -112,11 +112,11 @@ export default function RegisterPage() {
         .maybeSingle();
 
       if (existingCompany) {
-        throw new Error('Eine Firma mit diesem Namen existiert bereits. Bitte wählen Sie einen anderen Namen.');
+        throw new Error('Eine Firma mit diesem Namen existiert bereits. Bitte wÃ¤hlen Sie einen anderen Namen.');
       }
 
       // 2. User in Supabase Auth erstellen
-      console.log('📝 Creating auth user...');
+      console.log('ðŸ“ Creating auth user...');
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: adminData.email,
         password: adminData.password,
@@ -128,7 +128,7 @@ export default function RegisterPage() {
       });
 
       if (authError) {
-        console.error('❌ Auth error:', authError);
+        console.error('âŒ Auth error:', authError);
         throw new Error(authError.message);
       }
 
@@ -136,14 +136,14 @@ export default function RegisterPage() {
         throw new Error('Benutzer konnte nicht erstellt werden');
       }
 
-      console.log('✅ Auth user created:', authData.user.id);
+      console.log('âœ… Auth user created:', authData.user.id);
 
       // 3. Warten bis Session aktiv ist
-      console.log('⏳ Waiting for session...');
+      console.log('â³ Waiting for session...');
       await new Promise(resolve => setTimeout(resolve, 2000));
 
       // 4. Firma erstellen
-      console.log('🏢 Creating company...');
+      console.log('ðŸ¢ Creating company...');
       const { data: newCompany, error: companyError } = await supabase
         .from('companies')
         .insert([{
@@ -164,14 +164,14 @@ export default function RegisterPage() {
         .single();
 
       if (companyError) {
-        console.error('❌ Company error:', companyError);
+        console.error('âŒ Company error:', companyError);
         throw new Error('Firma konnte nicht erstellt werden: ' + companyError.message);
       }
 
-      console.log('✅ Company created:', newCompany.id);
+      console.log('âœ… Company created:', newCompany.id);
 
       // 5. User-Profil erstellen
-      console.log('👤 Creating user profile...');
+      console.log('ðŸ‘¤ Creating user profile...');
       const { error: profileError } = await supabase
         .from('user_profiles')
         .insert([{
@@ -184,18 +184,18 @@ export default function RegisterPage() {
         }]);
 
       if (profileError) {
-        console.error('❌ Profile error:', profileError);
+        console.error('âŒ Profile error:', profileError);
         throw new Error('Benutzerprofil konnte nicht erstellt werden: ' + profileError.message);
       }
 
-      console.log('✅ Profile created!');
-      console.log('🎉 Registration complete! Redirecting to dashboard...');
+      console.log('âœ… Profile created!');
+      console.log('ðŸŽ‰ Registration complete! Redirecting to dashboard...');
 
       // 6. Weiterleitung zum Dashboard
       router.push('/dashboard');
 
     } catch (err: any) {
-      console.error('❌ Registration error:', err);
+      console.error('âŒ Registration error:', err);
       setError(err.message || 'Ein Fehler ist aufgetreten');
     } finally {
       setLoading(false);
@@ -285,7 +285,7 @@ export default function RegisterPage() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Passwort bestätigen *
+                Passwort bestÃ¤tigen *
               </label>
               <input
                 type="password"
@@ -335,14 +335,14 @@ export default function RegisterPage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Straße *
+                  StraÃŸe *
                 </label>
                 <input
                   type="text"
                   value={companyData.street}
                   onChange={(e) => setCompanyData({ ...companyData, street: e.target.value })}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Musterstraße"
+                  placeholder="MusterstraÃŸe"
                   required
                   disabled={loading}
                 />
@@ -477,7 +477,7 @@ export default function RegisterPage() {
                 className="flex-1 py-3 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors"
                 disabled={loading}
               >
-                Zurück
+                ZurÃ¼ck
               </button>
               <button
                 type="submit"

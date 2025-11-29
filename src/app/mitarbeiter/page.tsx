@@ -1,3 +1,4 @@
+// src/app/mitarbeiter/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -35,11 +36,13 @@ export default function MitarbeiterPage() {
   const [success, setSuccess] = useState('');
 
   const [inviteData, setInviteData] = useState({
-    name: '',
-    email: '',
+    firstName: '',
+    lastName: '',
+    emailPrefix: '',
     password: '',
     role: 'employee'
   });
+  const [companyDomain, setCompanyDomain] = useState('');
 
   useEffect(() => {
     loadData();
@@ -66,6 +69,14 @@ export default function MitarbeiterPage() {
       }
 
       setProfile(profileData);
+
+      // Domain aus Admin-E-Mail extrahieren
+      if (profileData.email) {
+        const emailParts = profileData.email.split('@');
+        if (emailParts.length === 2) {
+          setCompanyDomain(emailParts[1]);
+        }
+      }
 
       if (profileData.role === 'employee') {
         router.push('/dashboard');
@@ -124,56 +135,11 @@ export default function MitarbeiterPage() {
     }
   };
 
-const handleDeleteClick = async (employee: Employee) => {
-  setActionLoading(true);
-  setError('');
-
-  try {
-    // ⭐ Check ob MA gelöscht werden kann
-    const response = await fetch('/api/employees/delete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        employeeId: employee.id,
-        checkOnly: true
-      })
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      // Kann nicht gelöscht werden - Fehler anzeigen
-      if (data.activeProjects > 0) {
-        setError(
-          `${employee.name} kann nicht gelöscht werden:\n\n` +
-          `• Hat ${data.activeProjects} aktive Projekt-Zuordnung(en)\n` +
-          `• Bitte zuerst von Projekten entfernen oder Projekte abschließen\n\n` +
-          `Alternative: Mitarbeiter deaktivieren (orange Symbol)`
-        );
-      } else if (data.totalAssignments > 0) {
-        setError(
-          `${employee.name} kann nicht gelöscht werden:\n\n` +
-          `• Hat ${data.totalAssignments} Arbeitspaket-Zuordnung(en)\n` +
-          `• Projektdaten würden verloren gehen\n\n` +
-          `Empfehlung: Mitarbeiter anonymisieren (DSGVO-konform)`
-        );
-      } else {
-        setError(data.error || 'Fehler beim Prüfen');
-      }
-      return; // Modal NICHT öffnen
-    }
-
-    // ✅ Kann gelöscht werden - Modal öffnen
+  const handleDeleteClick = (employee: Employee) => {
     setSelectedEmployee(employee);
     setShowDeleteModal(true);
+  };
 
-  } catch (error: any) {
-    console.error('Delete check error:', error);
-    setError(error.message || 'Fehler beim Prüfen');
-  } finally {
-    setActionLoading(false);
-  }
-};
   const handleDeleteConfirm = async () => {
     if (!selectedEmployee) return;
 
@@ -212,21 +178,29 @@ const handleDeleteClick = async (employee: Employee) => {
     setSuccess('');
     setInviting(true);
 
+    let adminSession: any = null;
+
     try {
-      if (!inviteData.name.trim() || !inviteData.email.trim() || !inviteData.password.trim()) {
+      if (!inviteData.firstName.trim() || !inviteData.lastName.trim() || !inviteData.emailPrefix.trim() || !inviteData.password.trim()) {
         throw new Error('Bitte füllen Sie alle Pflichtfelder aus');
       }
+
+      // Vollständiger Name für Anzeige
+      const fullName = `${inviteData.firstName.trim()} ${inviteData.lastName.trim()}`;
+
+      // Vollständige E-Mail zusammensetzen
+      const fullEmail = companyDomain 
+        ? `${inviteData.emailPrefix.trim()}@${companyDomain}`.toLowerCase()
+        : inviteData.emailPrefix.trim().toLowerCase();
 
       if (inviteData.password.length < 6) {
         throw new Error('Passwort muss mindestens 6 Zeichen lang sein');
       }
-      // Admin Email für Quick Re-Login merken
-      const adminEmail = user.email;
 
       const { data: existingProfile } = await supabase
         .from('user_profiles')
         .select('email')
-        .eq('email', inviteData.email.toLowerCase())
+        .eq('email', fullEmail)
         .eq('company_id', profile.company_id)
         .maybeSingle();
 
@@ -234,15 +208,23 @@ const handleDeleteClick = async (employee: Employee) => {
         throw new Error('Ein Mitarbeiter mit dieser E-Mail existiert bereits');
       }
 
-      console.log('🚀 Creating new employee...');
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('Keine aktive Session gefunden');
+      }
+      adminSession = {
+        access_token: session.access_token,
+        refresh_token: session.refresh_token
+      };
 
-      // User erstellen
       const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: inviteData.email,
+        email: fullEmail,
         password: inviteData.password,
         options: {
           data: {
-            name: inviteData.name,
+            name: fullName,
+            first_name: inviteData.firstName.trim(),
+            last_name: inviteData.lastName.trim(),
             role: inviteData.role
           }
         }
@@ -256,17 +238,27 @@ const handleDeleteClick = async (employee: Employee) => {
         throw new Error('User konnte nicht erstellt werden');
       }
 
-      console.log('✅ User created:', authData.user.id);
+      const { error: sessionError } = await supabase.auth.setSession({
+        access_token: adminSession.access_token,
+        refresh_token: adminSession.refresh_token
+      });
 
-      // Profil erstellen
+      if (sessionError) {
+        throw new Error('Admin-Session konnte nicht wiederhergestellt werden');
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 500));
+
       const { error: profileError } = await supabase
         .from('user_profiles')
         .insert([{
           user_id: authData.user.id,
           company_id: profile.company_id,
           role: inviteData.role,
-          name: inviteData.name,
-          email: inviteData.email.toLowerCase(),
+          name: fullName,
+          first_name: inviteData.firstName.trim(),
+          last_name: inviteData.lastName.trim(),
+          email: fullEmail,
           is_active: true
         }]);
 
@@ -274,23 +266,38 @@ const handleDeleteClick = async (employee: Employee) => {
         throw new Error('Fehler beim Erstellen des Profils');
       }
 
-      console.log('✅ Employee created successfully!');
+      setSuccess(`${fullName} wurde erfolgreich eingeladen!`);
+      
+      setInviteData({
+        firstName: '',
+        lastName: '',
+        emailPrefix: '',
+        password: '',
+        role: 'employee'
+      });
 
-      // WICHTIG: Neuen Mitarbeiter sofort ausloggen
-      await supabase.auth.signOut();
-
-      setSuccess(`${inviteData.name} wurde erstellt! Quick Re-Login in 2 Sekunden...`);
-
-      // Quick Re-Login: Redirect mit vorausgefüllter Admin-Email
       setTimeout(() => {
-        window.location.href = `/login?email=${encodeURIComponent(adminEmail || '')}`;
+        setShowInviteModal(false);
+        setSuccess('');
+        loadData();
       }, 2000);
 
     } catch (error: any) {
       setError(error.message || 'Fehler beim Einladen des Mitarbeiters');
+      
+      if (adminSession) {
+        try {
+          await supabase.auth.setSession({
+            access_token: adminSession.access_token,
+            refresh_token: adminSession.refresh_token
+          });
+        } catch (restoreError) {
+          console.error('Failed to restore session:', restoreError);
+        }
+      }
+    } finally {
       setInviting(false);
     }
-    // WICHTIG: setInviting(false) NICHT im finally, da wir redirecten
   };
 
   const getRoleName = (role: string) => {
@@ -547,18 +554,14 @@ const handleDeleteClick = async (employee: Employee) => {
         </div>
       )}
 
-{/* Invite Modal */}
+      {/* Invite Modal - mit Domain-Vorausfüllung */}
       {showInviteModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-bold text-gray-900">Mitarbeiter einladen</h2>
+              <h3 className="text-xl font-bold text-gray-900">Mitarbeiter einladen</h3>
               <button
-                onClick={() => {
-                  setShowInviteModal(false);
-                  setError('');
-                  setSuccess('');
-                }}
+                onClick={() => setShowInviteModal(false)}
                 className="text-gray-400 hover:text-gray-600"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -567,81 +570,87 @@ const handleDeleteClick = async (employee: Employee) => {
               </button>
             </div>
 
-            {error && (
-              <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
-                {error}
-              </div>
-            )}
-
-            {success && (
-              <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm flex items-center">
-                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-                {success}
-              </div>
-            )}
-
             <form onSubmit={handleInvite} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Vorname *</label>
+                  <input
+                    type="text"
+                    value={inviteData.firstName}
+                    onChange={(e) => setInviteData({ ...inviteData, firstName: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Max"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Nachname *</label>
+                  <input
+                    type="text"
+                    value={inviteData.lastName}
+                    onChange={(e) => setInviteData({ ...inviteData, lastName: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Mustermann"
+                    required
+                  />
+                </div>
+              </div>
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Name *
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">E-Mail *</label>
+                {companyDomain ? (
+                  <div className="flex">
+                    <input
+                      type="text"
+                      value={inviteData.emailPrefix}
+                      onChange={(e) => setInviteData({ ...inviteData, emailPrefix: e.target.value })}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-l-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="max.mustermann"
+                      required
+                    />
+                    <span className="inline-flex items-center px-3 py-2 border border-l-0 border-gray-300 bg-gray-100 text-gray-600 rounded-r-lg">
+                      @{companyDomain}
+                    </span>
+                  </div>
+                ) : (
+                  <input
+                    type="email"
+                    value={inviteData.emailPrefix}
+                    onChange={(e) => setInviteData({ ...inviteData, emailPrefix: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="max.mustermann@firma.de"
+                    required
+                  />
+                )}
+                {companyDomain && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    Domain wird automatisch aus Ihrer E-Mail übernommen
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Temporäres Passwort *</label>
                 <input
                   type="text"
-                  value={inviteData.name}
-                  onChange={(e) => setInviteData({ ...inviteData, name: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Max Mustermann"
-                  required
-                  disabled={inviting}
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  E-Mail *
-                </label>
-                <input
-                  type="email"
-                  value={inviteData.email}
-                  onChange={(e) => setInviteData({ ...inviteData, email: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="max@firma.de"
-                  required
-                  disabled={inviting}
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Temporäres Passwort *
-                </label>
-                <input
-                  type="password"
                   value={inviteData.password}
                   onChange={(e) => setInviteData({ ...inviteData, password: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Mindestens 6 Zeichen"
-                  required
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Mind. 6 Zeichen"
                   minLength={6}
-                  disabled={inviting}
+                  required
                 />
                 <p className="mt-1 text-xs text-gray-500">
-                  Der Mitarbeiter kann das Passwort später ändern
+                  Teilen Sie dieses Passwort dem Mitarbeiter mit
                 </p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Rolle *
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Rolle *</label>
                 <select
                   value={inviteData.role}
                   onChange={(e) => setInviteData({ ...inviteData, role: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
-                  disabled={inviting}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="employee">Mitarbeiter</option>
                   <option value="manager">Manager</option>
@@ -654,22 +663,17 @@ const handleDeleteClick = async (employee: Employee) => {
               <div className="flex space-x-3 pt-4">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowInviteModal(false);
-                    setError('');
-                    setSuccess('');
-                  }}
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium transition-colors"
-                  disabled={inviting}
+                  onClick={() => setShowInviteModal(false)}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium"
                 >
                   Abbrechen
                 </button>
                 <button
                   type="submit"
                   disabled={inviting}
-                  className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors disabled:bg-gray-400"
+                  className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium disabled:bg-gray-400"
                 >
-                  {inviting ? 'Wird erstellt...' : 'Einladen'}
+                  {inviting ? 'Wird eingeladen...' : 'Einladen'}
                 </button>
               </div>
             </form>

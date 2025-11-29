@@ -294,7 +294,9 @@ export default function EinstellungenPage() {
                   >
                     <option value="">Bitte auswählen</option>
                     <option value="GmbH">GmbH</option>
+                    <option value="GmbH & Co. KG">GmbH & Co. KG</option>
                     <option value="UG">UG (haftungsbeschränkt)</option>
+                    <option value="UG & Co. KG">UG (haftungsbeschränkt) & Co. KG</option>
                     <option value="AG">AG</option>
                     <option value="KG">KG</option>
                     <option value="OHG">OHG</option>

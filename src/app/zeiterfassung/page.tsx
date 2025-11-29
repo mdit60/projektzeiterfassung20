@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserClient } from '@supabase/ssr';
 
@@ -61,7 +61,7 @@ export default function ZeiterfassungPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [profile, setProfile] = useState<any>(null);
-  const [companyStateCode, setCompanyStateCode] = useState<string>('DE-NW'); // NEU: Bundesland
+  const [companyStateCode, setCompanyStateCode] = useState<string>('DE-NW');
   const [workPackages, setWorkPackages] = useState<WorkPackage[]>([]);
   const [allWorkPackages, setAllWorkPackages] = useState<WorkPackage[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
@@ -77,10 +77,21 @@ export default function ZeiterfassungPage() {
   // Fehlzeiten-Zeile (für U/K/S)
   const [absenceRow, setAbsenceRow] = useState<{ [day: number]: 'U' | 'K' | 'S' | null }>({});
 
+  // NEU: Track ob Änderungen vorliegen
+  const [hasChanges, setHasChanges] = useState(false);
+  const initialLoadDone = useRef(false);
+
   const monthNames = [
     'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
     'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'
   ];
+
+  // NEU: Änderungen tracken
+  useEffect(() => {
+    if (initialLoadDone.current) {
+      setHasChanges(true);
+    }
+  }, [entries, absenceRow]);
 
   useEffect(() => {
     loadData();
@@ -90,6 +101,7 @@ export default function ZeiterfassungPage() {
     try {
       setLoading(true);
       setError('');
+      initialLoadDone.current = false;
 
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
@@ -97,9 +109,6 @@ export default function ZeiterfassungPage() {
         return;
       }
 
-      // ============================================
-      // NEU: Profil MIT Company (für state_code) laden
-      // ============================================
       const { data: profileData } = await supabase
         .from('user_profiles')
         .select(`
@@ -119,10 +128,8 @@ export default function ZeiterfassungPage() {
       }
       setProfile(profileData);
 
-      // Bundesland der Firma extrahieren (Fallback: DE-NW)
       const stateCode = (profileData.companies as any)?.state_code || 'DE-NW';
       setCompanyStateCode(stateCode);
-      console.log('🏢 Firmen-Bundesland:', stateCode);
 
       // Arbeitspakete die dem User zugeordnet sind
       const { data: assignedWPs } = await supabase
@@ -162,48 +169,32 @@ export default function ZeiterfassungPage() {
 
       setAllWorkPackages(allWPs || []);
 
-      // ============================================
-      // NEU: Feiertage mit Bundesland-Filter laden
-      // ============================================
+      // Feiertage laden
       const startDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-01`;
       const lastDayOfMonth = new Date(currentYear, currentMonth, 0).getDate();
       const endDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(lastDayOfMonth).padStart(2, '0')}`;
 
-      // Alle Feiertage im Monat laden (bundesweit + alle Bundesländer)
-      const { data: holidaysData, error: holidaysError } = await supabase
+      const { data: holidaysData } = await supabase
         .from('public_holidays')
         .select('holiday_date, name, state_code, is_regional_only')
         .eq('country', 'DE')
         .gte('holiday_date', startDate)
         .lte('holiday_date', endDate);
 
-      if (holidaysError) {
-        console.error('Fehler beim Laden der Feiertage:', holidaysError);
-      }
-
-      // Filtern: bundesweit (NULL) ODER Firmen-Bundesland
       const filteredHolidays = (holidaysData || []).filter(h => 
         h.state_code === null || h.state_code === stateCode
-      ).filter(h => 
-        // Regionale Sonderfälle ausschließen (z.B. Augsburg Friedensfest)
-        !h.is_regional_only
-      );
+      ).filter(h => !h.is_regional_only);
 
-      // Duplikate entfernen (wenn bundesweit + regional gleicher Tag)
       const uniqueHolidays: Holiday[] = [];
       const seenDates = new Set<string>();
       
       for (const h of filteredHolidays) {
         if (!seenDates.has(h.holiday_date)) {
           seenDates.add(h.holiday_date);
-          uniqueHolidays.push({
-            holiday_date: h.holiday_date,
-            name: h.name
-          });
+          uniqueHolidays.push({ holiday_date: h.holiday_date, name: h.name });
         }
       }
 
-      console.log(`🎄 Feiertage für ${currentMonth}/${currentYear} (${stateCode}):`, uniqueHolidays);
       setHolidays(uniqueHolidays);
 
       // Bestehende Einträge laden
@@ -214,7 +205,6 @@ export default function ZeiterfassungPage() {
         .gte('entry_date', startDate)
         .lte('entry_date', endDate);
 
-      // Einträge gruppieren
       const entriesMap: { [wpId: string]: MonthEntry } = {};
       const newAbsenceRow: { [day: number]: 'U' | 'K' | 'S' | null } = {};
 
@@ -226,7 +216,11 @@ export default function ZeiterfassungPage() {
         } else if (entry.category === 'sick_leave') {
           newAbsenceRow[day] = 'K';
         } else if (entry.category === 'other_absence') {
-          newAbsenceRow[day] = 'S';
+          // Nur als Sonderurlaub behandeln wenn es KEIN Feiertag/Non-Billable ist
+          if (entry.work_package_code !== 'HOLIDAY' && entry.work_package_code !== 'NON_BILLABLE') {
+            newAbsenceRow[day] = 'S';
+          }
+          // HOLIDAY und NON_BILLABLE Einträge ignorieren - werden neu berechnet
         } else if (entry.category === 'project_work' && entry.work_package_id) {
           if (!entriesMap[entry.work_package_id]) {
             const wp = allWPs?.find((w: any) => w.id === entry.work_package_id);
@@ -247,6 +241,12 @@ export default function ZeiterfassungPage() {
 
       setAbsenceRow(newAbsenceRow);
       setEntries(Object.values(entriesMap));
+      
+      // Nach dem Laden: keine Änderungen
+      setTimeout(() => {
+        initialLoadDone.current = true;
+        setHasChanges(false);
+      }, 100);
 
     } catch (error: any) {
       console.error('Load error:', error);
@@ -256,8 +256,138 @@ export default function ZeiterfassungPage() {
     }
   };
 
-  // Navigation
-  const goToPreviousMonth = () => {
+  // ============================================
+  // NEU: Auto-Save Funktion (ohne UI-Blockierung)
+  // ============================================
+  const autoSave = async (): Promise<boolean> => {
+    if (!profile || !hasChanges) return true;
+    
+    // Prüfen ob überhaupt Daten zum Speichern da sind
+    const hasData = entries.some(e => Object.keys(e.days).length > 0) || Object.keys(absenceRow).length > 0;
+    if (!hasData) return true;
+
+    try {
+      // Validierung
+      for (const entry of entries) {
+        const hasHours = Object.values(entry.days).some(v => typeof v === 'number' && v > 0);
+        if (hasHours && !entry.work_package_id) {
+          setError('Bitte wählen Sie für alle Zeilen mit Stunden ein Arbeitspaket aus.');
+          return false;
+        }
+      }
+
+      const totals = getMonthTotals();
+      const maxHours = getMaxMonthlyHours();
+      
+      if (totals.billableTotal > maxHours) {
+        setError(`Die erfassten Stunden (${totals.billableTotal.toFixed(1)}h) überschreiten das Maximum von ${maxHours.toFixed(1)}h. Bitte korrigieren Sie die Einträge.`);
+        return false;
+      }
+
+      setSaving(true);
+
+      const startDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-01`;
+      const lastDayOfMonth = new Date(currentYear, currentMonth, 0).getDate();
+      const endDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(lastDayOfMonth).padStart(2, '0')}`;
+
+      // Alte Einträge löschen
+      const { error: deleteError } = await supabase
+        .from('time_entries')
+        .delete()
+        .eq('user_profile_id', profile.id)
+        .gte('entry_date', startDate)
+        .lte('entry_date', endDate);
+
+      if (deleteError) throw deleteError;
+
+      const newEntries: any[] = [];
+      const daysInMonth = getDaysInMonth();
+
+      // 1. Projektarbeit
+      for (const entry of entries) {
+        if (!entry.work_package_id) continue;
+        
+        for (const [dayStr, value] of Object.entries(entry.days)) {
+          if (typeof value === 'number' && value > 0) {
+            const day = parseInt(dayStr);
+            const entryDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+            newEntries.push({
+              user_profile_id: profile.id,
+              company_id: profile.company_id,
+              entry_date: entryDate,
+              project_id: entry.project_id,
+              work_package_id: entry.work_package_id,
+              work_package_code: entry.work_package_code,
+              work_package_description: entry.work_package_description,
+              hours: value,
+              category: 'project_work',
+              created_by: profile.user_id
+            });
+          }
+        }
+      }
+
+      // 2. Fehlzeiten (U/K/S)
+      for (const [dayStr, absence] of Object.entries(absenceRow)) {
+        if (absence) {
+          const day = parseInt(dayStr);
+          const entryDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+          let category = 'other_absence';
+          if (absence === 'U') category = 'vacation';
+          else if (absence === 'K') category = 'sick_leave';
+
+          newEntries.push({
+            user_profile_id: profile.id,
+            company_id: profile.company_id,
+            entry_date: entryDate,
+            project_id: null,
+            work_package_id: null,
+            work_package_code: null,
+            work_package_description: absence === 'U' ? 'Urlaub' : absence === 'K' ? 'Krankheit' : 'Sonderurlaub',
+            hours: 8,
+            category: category,
+            created_by: profile.user_id
+          });
+        }
+      }
+
+      // 3. Feiertage - werden NICHT separat gespeichert, nur in der Anzeige berechnet
+      // (Die DB erlaubt nur: project_work, vacation, sick_leave)
+
+      // 4. Nicht förderfähige Arbeit - wird NICHT separat gespeichert, nur in der Anzeige berechnet
+      // (Differenz zu 8h wird automatisch als "nicht förderfähig" angezeigt)
+
+      if (newEntries.length > 0) {
+        const { error: insertError } = await supabase
+          .from('time_entries')
+          .insert(newEntries);
+
+        if (insertError) throw insertError;
+      }
+
+      setHasChanges(false);
+      return true;
+
+    } catch (error: any) {
+      console.error('Auto-save error:', error);
+      setError('Fehler beim automatischen Speichern: ' + error.message);
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ============================================
+  // Navigation MIT Auto-Save
+  // ============================================
+  const goToPreviousMonth = async () => {
+    if (hasChanges) {
+      const saved = await autoSave();
+      if (!saved) return; // Bei Fehler nicht wechseln
+    }
+    
     if (currentMonth === 1) {
       setCurrentMonth(12);
       setCurrentYear(currentYear - 1);
@@ -266,7 +396,12 @@ export default function ZeiterfassungPage() {
     }
   };
 
-  const goToNextMonth = () => {
+  const goToNextMonth = async () => {
+    if (hasChanges) {
+      const saved = await autoSave();
+      if (!saved) return;
+    }
+    
     if (currentMonth === 12) {
       setCurrentMonth(1);
       setCurrentYear(currentYear + 1);
@@ -275,10 +410,31 @@ export default function ZeiterfassungPage() {
     }
   };
 
-  const goToCurrentMonth = () => {
+  const goToCurrentMonth = async () => {
+    if (hasChanges) {
+      const saved = await autoSave();
+      if (!saved) return;
+    }
+    
     const now = new Date();
     setCurrentYear(now.getFullYear());
     setCurrentMonth(now.getMonth() + 1);
+  };
+
+  const handleMonthChange = async (newMonth: number) => {
+    if (hasChanges) {
+      const saved = await autoSave();
+      if (!saved) return;
+    }
+    setCurrentMonth(newMonth);
+  };
+
+  const handleYearChange = async (newYear: number) => {
+    if (hasChanges) {
+      const saved = await autoSave();
+      if (!saved) return;
+    }
+    setCurrentYear(newYear);
   };
 
   // Helpers
@@ -382,7 +538,6 @@ export default function ZeiterfassungPage() {
     
     if (['U', 'K', 'S'].includes(upperValue)) {
       setAbsenceRow(prev => ({ ...prev, [day]: upperValue as 'U' | 'K' | 'S' }));
-      // Entferne Projektstunden für diesen Tag
       setEntries(prev => prev.map(entry => {
         if (entry.days[day]) {
           const newDays = { ...entry.days };
@@ -392,7 +547,6 @@ export default function ZeiterfassungPage() {
         return entry;
       }));
     } else {
-      // Leere Eingabe, '-', oder andere Zeichen → Abwesenheit löschen
       setAbsenceRow(prev => {
         const newAbsences = { ...prev };
         delete newAbsences[day];
@@ -401,7 +555,6 @@ export default function ZeiterfassungPage() {
     }
   };
   
-  // Direkt Abwesenheit für einen Tag löschen (für X-Button)
   const clearAbsence = (day: number) => {
     setAbsenceRow(prev => {
       const newAbsences = { ...prev };
@@ -442,10 +595,14 @@ export default function ZeiterfassungPage() {
   const getNonBillableHoursForDay = (day: number): number => {
     if (isWeekend(day)) return 0;
     if (getHolidayName(day)) return 0;
-    if (absenceRow[day]) return 0;
+    if (absenceRow[day]) return 0; // Volle Abwesenheit (U/K/S) = kein nicht-förderfähig
+    
     const projectHours = getProjectHoursForDay(day);
-    if (projectHours > 0) return 0;
-    return 8;
+    const dailyTarget = 8; // Soll-Stunden pro Tag
+    
+    // Differenz zwischen Soll und Projekt-Ist = nicht förderfähig
+    const nonBillable = Math.max(0, dailyTarget - projectHours);
+    return nonBillable;
   };
 
   const getMonthTotals = () => {
@@ -474,157 +631,13 @@ export default function ZeiterfassungPage() {
     return totals.billableTotal > getMaxMonthlyHours();
   };
 
-  // Speichern
+  // Manuelles Speichern
   const handleSave = async () => {
-    try {
+    const saved = await autoSave();
+    if (saved) {
       const totals = getMonthTotals();
-      const maxHours = getMaxMonthlyHours();
-      
-      if (totals.billableTotal > maxHours) {
-        setError(`Die erfassten Stunden (Förderfähig + Fehlzeiten: ${totals.billableTotal.toFixed(1)}h) überschreiten die maximale Monatsarbeitszeit von ${maxHours.toFixed(1)}h.`);
-        return;
-      }
-
-      setSaving(true);
-      setError('');
-      setSuccess('');
-
-      for (const entry of entries) {
-        const hasHours = Object.values(entry.days).some(v => typeof v === 'number' && v > 0);
-        if (hasHours && !entry.work_package_id) {
-          throw new Error('Bitte wählen Sie für alle Zeilen mit Stunden ein Arbeitspaket aus.');
-        }
-      }
-
-      const startDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-01`;
-      const lastDayOfMonth = new Date(currentYear, currentMonth, 0).getDate();
-      const endDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(lastDayOfMonth).padStart(2, '0')}`;
-
-      const { error: deleteError } = await supabase
-        .from('time_entries')
-        .delete()
-        .eq('user_profile_id', profile.id)
-        .gte('entry_date', startDate)
-        .lte('entry_date', endDate);
-
-      if (deleteError) {
-        throw new Error('Fehler beim Löschen alter Einträge: ' + deleteError.message);
-      }
-
-      const newEntries: any[] = [];
-      const daysInMonth = getDaysInMonth();
-
-      // 1. Projektarbeit
-      for (const entry of entries) {
-        if (!entry.work_package_id) continue;
-        
-        for (const [dayStr, value] of Object.entries(entry.days)) {
-          if (typeof value === 'number' && value > 0) {
-            const day = parseInt(dayStr);
-            const entryDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-
-            newEntries.push({
-              user_profile_id: profile.id,
-              company_id: profile.company_id,
-              entry_date: entryDate,
-              project_id: entry.project_id,
-              work_package_id: entry.work_package_id,
-              work_package_code: entry.work_package_code,
-              work_package_description: entry.work_package_description,
-              hours: value,
-              category: 'project_work',
-              created_by: profile.user_id
-            });
-          }
-        }
-      }
-
-      // 2. Fehlzeiten (U/K/S)
-      for (const [dayStr, absence] of Object.entries(absenceRow)) {
-        if (absence) {
-          const day = parseInt(dayStr);
-          const entryDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-
-          let category = 'other_absence';
-          if (absence === 'U') category = 'vacation';
-          else if (absence === 'K') category = 'sick_leave';
-
-          newEntries.push({
-            user_profile_id: profile.id,
-            company_id: profile.company_id,
-            entry_date: entryDate,
-            project_id: null,
-            work_package_id: null,
-            work_package_code: null,
-            work_package_description: absence === 'U' ? 'Urlaub' : absence === 'K' ? 'Krankheit' : 'Sonderurlaub',
-            hours: 8,
-            category: category,
-            created_by: profile.user_id
-          });
-        }
-      }
-
-      // 3. Feiertage automatisch
-      for (let day = 1; day <= daysInMonth; day++) {
-        const holidayName = getHolidayName(day);
-        if (holidayName && !isWeekend(day) && !absenceRow[day]) {
-          const hasProjectHours = getProjectHoursForDay(day) > 0;
-          if (!hasProjectHours) {
-            const entryDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-            newEntries.push({
-              user_profile_id: profile.id,
-              company_id: profile.company_id,
-              entry_date: entryDate,
-              project_id: null,
-              work_package_id: null,
-              work_package_code: null,
-              work_package_description: holidayName,
-              hours: 8,
-              category: 'public_holiday',
-              created_by: profile.user_id
-            });
-          }
-        }
-      }
-
-      // 4. Nicht förderfähige Arbeit
-      for (let day = 1; day <= daysInMonth; day++) {
-        const nonBillableHours = getNonBillableHoursForDay(day);
-        if (nonBillableHours > 0) {
-          const entryDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-          newEntries.push({
-            user_profile_id: profile.id,
-            company_id: profile.company_id,
-            entry_date: entryDate,
-            project_id: null,
-            work_package_id: null,
-            work_package_code: 'NON_BILLABLE',
-            work_package_description: 'Nicht förderfähige Arbeitszeit',
-            hours: nonBillableHours,
-            category: 'non_billable',
-            created_by: profile.user_id
-          });
-        }
-      }
-
-      if (newEntries.length > 0) {
-        const { error: insertError } = await supabase
-          .from('time_entries')
-          .insert(newEntries);
-
-        if (insertError) {
-          throw new Error('Fehler beim Speichern: ' + insertError.message);
-        }
-      }
-
-      setSuccess(`✅ ${monthNames[currentMonth - 1]} ${currentYear} gespeichert! Förderfähig: ${totals.project.toFixed(1)}h, Fehlzeiten: ${totals.absence.toFixed(1)}h, Nicht förderfähig: ${totals.nonBillable.toFixed(1)}h`);
-      setTimeout(() => setSuccess(''), 8000);
-
-    } catch (error: any) {
-      console.error('Save error:', error);
-      setError(error.message);
-    } finally {
-      setSaving(false);
+      setSuccess(`✅ ${monthNames[currentMonth - 1]} ${currentYear} gespeichert! Förderfähig: ${totals.project.toFixed(1)}h, Fehlzeiten: ${totals.absence.toFixed(1)}h`);
+      setTimeout(() => setSuccess(''), 5000);
     }
   };
 
@@ -669,9 +682,17 @@ export default function ZeiterfassungPage() {
                 Dashboard
               </button>
             </div>
-            {/* NEU: Bundesland-Anzeige */}
-            <div className="flex items-center text-sm text-gray-500">
-              📍 Feiertage: {companyStateCode.replace('DE-', '')}
+            <div className="flex items-center space-x-4">
+              {/* NEU: Änderungs-Indikator */}
+              {hasChanges && (
+                <span className="flex items-center text-amber-600 text-sm">
+                  <span className="w-2 h-2 bg-amber-500 rounded-full mr-2 animate-pulse"></span>
+                  Ungespeicherte Änderungen
+                </span>
+              )}
+              <span className="text-sm text-gray-500">
+                📍 Feiertage: {companyStateCode.replace('DE-', '')}
+              </span>
             </div>
           </div>
         </div>
@@ -691,7 +712,6 @@ export default function ZeiterfassungPage() {
                 {(profile?.weekly_hours_contract || profile?.contract_hours_per_week) && (
                   <span className="ml-2">• {profile?.weekly_hours_contract || profile?.contract_hours_per_week}h/Woche</span>
                 )}
-                <span className="ml-2">• Feiertage: {companyStateCode.replace('DE-', '')}</span>
               </p>
             </div>
             <div className="text-right">
@@ -699,10 +719,6 @@ export default function ZeiterfassungPage() {
               <div className="text-2xl font-bold">{monthNames[currentMonth - 1]} {currentYear}</div>
               <div className="text-blue-200 text-sm mt-1">
                 {monthTotals.billableTotal.toFixed(1)}h / {maxHours.toFixed(1)}h max
-              </div>
-              {/* NEU: Feiertage-Anzahl für den Monat */}
-              <div className="text-blue-200 text-xs mt-1">
-                🎄 {holidays.length} Feiertag{holidays.length !== 1 ? 'e' : ''} im Monat
               </div>
             </div>
           </div>
@@ -717,24 +733,17 @@ export default function ZeiterfassungPage() {
             <div>
               <strong>Maximale Monatsstunden überschritten!</strong>
               <div className="text-sm">
-                Förderfähig + Fehlzeiten: {monthTotals.billableTotal.toFixed(1)}h | Maximum: {maxHours.toFixed(1)}h | Überschreitung: {(monthTotals.billableTotal - maxHours).toFixed(1)}h
+                Förderfähig + Fehlzeiten: {monthTotals.billableTotal.toFixed(1)}h | Maximum: {maxHours.toFixed(1)}h
               </div>
             </div>
           </div>
         )}
 
-        {/* Info-Box wenn viele nicht-förderfähige Stunden */}
-        {monthTotals.nonBillable > 0 && !overMax && (
-          <div className="mb-4 bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded-lg text-sm">
-            <strong>ℹ️ Hinweis:</strong> Es gibt {monthTotals.nonBillable.toFixed(0)}h automatisch generierte "Nicht förderfähig"-Stunden für Werktage ohne Einträge. 
-            Diese zählen <strong>nicht</strong> zum Maximum.
-          </div>
-        )}
-
         {/* Messages */}
         {error && (
-          <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-            ❌ {error}
+          <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex justify-between items-center">
+            <span>❌ {error}</span>
+            <button onClick={() => setError('')} className="text-red-500 hover:text-red-700">✕</button>
           </div>
         )}
         {success && (
@@ -747,39 +756,47 @@ export default function ZeiterfassungPage() {
         <div className="bg-white rounded-lg shadow p-4 mb-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center space-x-2">
-              <button onClick={goToPreviousMonth} className="px-3 py-2 border rounded-lg hover:bg-gray-50">
+              <button 
+                onClick={goToPreviousMonth} 
+                disabled={saving}
+                className="px-3 py-2 border rounded-lg hover:bg-gray-50 disabled:opacity-50"
+              >
                 ← Vorheriger
               </button>
-              <button onClick={goToCurrentMonth} className="px-3 py-2 border rounded-lg hover:bg-gray-50 font-medium">
+              <button 
+                onClick={goToCurrentMonth} 
+                disabled={saving}
+                className="px-3 py-2 border rounded-lg hover:bg-gray-50 font-medium disabled:opacity-50"
+              >
                 Heute
               </button>
-              <button onClick={goToNextMonth} className="px-3 py-2 border rounded-lg hover:bg-gray-50">
+              <button 
+                onClick={goToNextMonth} 
+                disabled={saving}
+                className="px-3 py-2 border rounded-lg hover:bg-gray-50 disabled:opacity-50"
+              >
                 Nächster →
               </button>
               
-              {/* NEU: Direkte Monats-/Jahr-Auswahl */}
               <div className="border-l pl-4 ml-2 flex items-center space-x-2">
                 <select
                   value={currentMonth}
-                  onChange={(e) => setCurrentMonth(parseInt(e.target.value))}
-                  className="px-3 py-2 border rounded-lg bg-white hover:bg-gray-50 cursor-pointer font-medium"
+                  onChange={(e) => handleMonthChange(parseInt(e.target.value))}
+                  disabled={saving}
+                  className="px-3 py-2 border rounded-lg bg-white hover:bg-gray-50 cursor-pointer font-medium disabled:opacity-50"
                 >
                   {monthNames.map((name, index) => (
-                    <option key={index + 1} value={index + 1}>
-                      {name}
-                    </option>
+                    <option key={index + 1} value={index + 1}>{name}</option>
                   ))}
                 </select>
                 <select
                   value={currentYear}
-                  onChange={(e) => setCurrentYear(parseInt(e.target.value))}
-                  className="px-3 py-2 border rounded-lg bg-white hover:bg-gray-50 cursor-pointer font-medium"
+                  onChange={(e) => handleYearChange(parseInt(e.target.value))}
+                  disabled={saving}
+                  className="px-3 py-2 border rounded-lg bg-white hover:bg-gray-50 cursor-pointer font-medium disabled:opacity-50"
                 >
-                  {/* Jahre von 2020 bis aktuelles Jahr + 5 */}
                   {Array.from({ length: new Date().getFullYear() - 2020 + 6 }, (_, i) => 2020 + i).map(year => (
-                    <option key={year} value={year}>
-                      {year}
-                    </option>
+                    <option key={year} value={year}>{year}</option>
                   ))}
                 </select>
               </div>
@@ -810,15 +827,25 @@ export default function ZeiterfassungPage() {
                 className={`px-4 py-2 rounded-lg flex items-center font-medium ${
                   overMax 
                     ? 'bg-gray-400 text-gray-200 cursor-not-allowed' 
-                    : 'bg-green-600 text-white hover:bg-green-700 disabled:bg-gray-400'
-                }`}
+                    : hasChanges
+                      ? 'bg-amber-500 text-white hover:bg-amber-600'
+                      : 'bg-green-600 text-white hover:bg-green-700'
+                } disabled:bg-gray-400`}
               >
                 <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
-                {saving ? 'Speichert...' : 'Monat speichern'}
+                {saving ? 'Speichert...' : hasChanges ? 'Speichern *' : 'Gespeichert ✓'}
               </button>
             </div>
+          </div>
+          
+          {/* NEU: Auto-Save Hinweis */}
+          <div className="mt-3 text-xs text-gray-500 flex items-center">
+            <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Änderungen werden beim Monatswechsel automatisch gespeichert
           </div>
         </div>
 
@@ -985,8 +1012,6 @@ export default function ZeiterfassungPage() {
                 </tr>
 
                 {/* Summen-Zeilen */}
-                
-                {/* 1. Förderfähige Stunden */}
                 <tr className="bg-green-50 font-bold">
                   <td className="sticky left-0 z-10 bg-green-50 px-3 py-2 border-b text-right text-green-800">
                     Σ Förderfähige Stunden:
@@ -1006,45 +1031,9 @@ export default function ZeiterfassungPage() {
                   <td className="sticky right-0 z-10 bg-green-50 px-2 py-2 border-b"></td>
                 </tr>
 
-                {/* 2. Fehlzeiten */}
-                <tr className="bg-orange-50 font-bold">
-                  <td className="sticky left-0 z-10 bg-orange-50 px-3 py-2 border-b text-right text-orange-800">
-                    Σ Fehlzeiten (U/K/F/S):
-                  </td>
-                  {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
-                    const isNonWorking = isWeekend(day);
-                    const absence = absenceRow[day];
-                    const holiday = getHolidayName(day);
-                    
-                    let display = '-';
-                    let colorClass = 'text-gray-400';
-                    
-                    if (absence) {
-                      display = absence;
-                      const info = ABSENCE_TYPES[absence];
-                      colorClass = info ? info.color : 'text-orange-800';
-                    } else if (holiday && !isWeekend(day)) {
-                      display = 'F';
-                      colorClass = 'text-yellow-700';
-                    }
-                    
-                    return (
-                      <td key={day} className={`px-1 py-2 border-b text-center text-sm ${isNonWorking ? 'bg-gray-100' : ''} ${colorClass}`}>
-                        {display}
-                      </td>
-                    );
-                  })}
-                  <td className="sticky right-12 z-10 bg-orange-200 px-2 py-2 border-b text-center text-lg text-orange-900">
-                    {monthTotals.absence.toFixed(1)}h
-                  </td>
-                  <td className="sticky right-0 z-10 bg-orange-50 px-2 py-2 border-b"></td>
-                </tr>
-
-                {/* 3. Nicht förderfähig */}
                 <tr className="bg-gray-100 font-bold">
                   <td className="sticky left-0 z-10 bg-gray-100 px-3 py-2 border-b text-right text-gray-700">
                     Σ Nicht förderfähig:
-                    <div className="text-xs font-normal text-gray-500">(zählt nicht zum Max)</div>
                   </td>
                   {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
                     const hours = getNonBillableHoursForDay(day);
@@ -1061,7 +1050,6 @@ export default function ZeiterfassungPage() {
                   <td className="sticky right-0 z-10 bg-gray-100 px-2 py-2 border-b"></td>
                 </tr>
 
-                {/* GESAMT */}
                 <tr className={`font-bold ${overMax ? 'bg-red-100' : 'bg-yellow-100'}`}>
                   <td className={`sticky left-0 z-10 px-3 py-3 border-t-2 ${overMax ? 'bg-red-100 border-red-400 text-red-800' : 'bg-yellow-100 border-yellow-400 text-yellow-800'} text-right`}>
                     GESAMT:
@@ -1101,13 +1089,12 @@ export default function ZeiterfassungPage() {
           <div className="flex items-center"><div className="w-4 h-4 bg-red-100 rounded mr-2"></div>K = Krankheit</div>
           <div className="flex items-center"><div className="w-4 h-4 bg-yellow-100 rounded mr-2"></div>F = Feiertag</div>
           <div className="flex items-center"><div className="w-4 h-4 bg-purple-100 rounded mr-2"></div>S = Sonderurlaub</div>
-          <div className="flex items-center"><div className="w-4 h-4 bg-red-200 rounded mr-2"></div>&gt;8h/Tag</div>
         </div>
 
         {/* Zusammenfassung */}
         <div className="mt-6 bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-bold text-gray-900 mb-4">Monatszusammenfassung</h3>
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div className="bg-green-50 rounded-lg p-4 text-center">
               <div className="text-2xl font-bold text-green-700">{monthTotals.project.toFixed(1)}h</div>
               <div className="text-sm text-green-600">Förderfähig</div>
@@ -1121,23 +1108,16 @@ export default function ZeiterfassungPage() {
                 {monthTotals.billableTotal.toFixed(1)}h
               </div>
               <div className={`text-sm ${overMax ? 'text-red-600' : 'text-blue-600'}`}>
-                Relevant für Max
+                Summe (max {maxHours.toFixed(0)}h)
               </div>
             </div>
             <div className="bg-gray-100 rounded-lg p-4 text-center">
               <div className="text-2xl font-bold text-gray-700">{monthTotals.nonBillable.toFixed(1)}h</div>
               <div className="text-sm text-gray-600">Nicht förderfähig</div>
-              <div className="text-xs text-gray-500">(Platzhalter)</div>
             </div>
             <div className="bg-yellow-50 rounded-lg p-4 text-center">
-              <div className="text-2xl font-bold text-yellow-700">
-                {monthTotals.total.toFixed(1)}h
-              </div>
+              <div className="text-2xl font-bold text-yellow-700">{monthTotals.total.toFixed(1)}h</div>
               <div className="text-sm text-yellow-600">Gesamt</div>
-            </div>
-            <div className="bg-gray-50 rounded-lg p-4 text-center">
-              <div className="text-2xl font-bold text-gray-700">{maxHours.toFixed(1)}h</div>
-              <div className="text-sm text-gray-600">Maximum</div>
             </div>
           </div>
           
@@ -1157,7 +1137,7 @@ export default function ZeiterfassungPage() {
             </div>
           </div>
 
-          {/* NEU: Feiertage-Liste für den Monat */}
+          {/* Feiertage-Liste */}
           {holidays.length > 0 && (
             <div className="mt-4 pt-4 border-t">
               <h4 className="text-sm font-medium text-gray-700 mb-2">🎄 Feiertage im {monthNames[currentMonth - 1]}:</h4>

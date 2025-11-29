@@ -160,12 +160,39 @@ export default function MitarbeiterDetailPage() {
 
       if (empError) throw empError;
       
+      // Alle Felder mit Fallback auf leeren String / Defaultwert setzen
       setEmployee({
         ...defaultEmployee,
         ...empData,
+        // String-Felder mit || '' Fallback
+        name: empData.name || '',
+        email: empData.email || '',
+        salutation: empData.salutation || 'Herr',
+        first_name: empData.first_name || '',
+        last_name: empData.last_name || '',
         birth_date: empData.birth_date || '',
+        phone: empData.phone || '',
+        street: empData.street || '',
+        house_number: empData.house_number || '',
+        zip: empData.zip || '',
+        city: empData.city || '',
+        country: empData.country || 'DE',
+        qualification: empData.qualification || '',
         employed_since: empData.employed_since || '',
+        job_function: empData.job_function || '',
+        department: empData.department || '',
+        employee_number: empData.employee_number || '',
+        contract_type: empData.contract_type || 'permanent',
         contract_end_date: empData.contract_end_date || '',
+        tvoed_group: empData.tvoed_group || '',
+        tvoed_level: empData.tvoed_level || '',
+        role: empData.role || 'employee',
+        // Boolean-Felder
+        is_active: empData.is_active ?? true,
+        is_publicly_funded: empData.is_publicly_funded ?? false,
+        is_tvoed_comparable: empData.is_tvoed_comparable ?? false,
+        has_fixed_salary: empData.has_fixed_salary ?? true,
+        // Number-Felder
         weekly_hours_contract: empData.weekly_hours_contract || 40,
         weekly_hours_company: empData.weekly_hours_company || 40
       });
@@ -496,7 +523,7 @@ export default function MitarbeiterDetailPage() {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Anrede</label>
                     <select
-                      value={employee.salutation}
+                      value={employee.salutation || 'Herr'}
                       onChange={(e) => setEmployee({...employee, salutation: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     >
@@ -511,7 +538,7 @@ export default function MitarbeiterDetailPage() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">Vorname *</label>
                       <input
                         type="text"
-                        value={employee.first_name}
+                        value={employee.first_name || ''}
                         onChange={(e) => setEmployee({...employee, first_name: e.target.value})}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       />
@@ -520,7 +547,7 @@ export default function MitarbeiterDetailPage() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">Nachname *</label>
                       <input
                         type="text"
-                        value={employee.last_name}
+                        value={employee.last_name || ''}
                         onChange={(e) => setEmployee({...employee, last_name: e.target.value})}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       />
@@ -531,7 +558,7 @@ export default function MitarbeiterDetailPage() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">Geburtsdatum</label>
                     <input
                       type="date"
-                      value={employee.birth_date}
+                      value={employee.birth_date || ''}
                       onChange={(e) => setEmployee({...employee, birth_date: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     />
@@ -541,7 +568,7 @@ export default function MitarbeiterDetailPage() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">E-Mail</label>
                     <input
                       type="email"
-                      value={employee.email}
+                      value={employee.email || ''}
                       onChange={(e) => setEmployee({...employee, email: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-gray-50"
                       disabled
@@ -553,7 +580,7 @@ export default function MitarbeiterDetailPage() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">Telefon</label>
                     <input
                       type="tel"
-                      value={employee.phone}
+                      value={employee.phone || ''}
                       onChange={(e) => setEmployee({...employee, phone: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       placeholder="+49 123 456789"
@@ -566,7 +593,7 @@ export default function MitarbeiterDetailPage() {
                     </label>
                     <input
                       type="text"
-                      value={employee.qualification}
+                      value={employee.qualification || ''}
                       onChange={(e) => setEmployee({...employee, qualification: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       placeholder="z.B. M. Sc. Elektrotechnik"
@@ -587,7 +614,7 @@ export default function MitarbeiterDetailPage() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">Straße</label>
                       <input
                         type="text"
-                        value={employee.street}
+                        value={employee.street || ''}
                         onChange={(e) => setEmployee({...employee, street: e.target.value})}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       />
@@ -596,7 +623,7 @@ export default function MitarbeiterDetailPage() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">Nr.</label>
                       <input
                         type="text"
-                        value={employee.house_number}
+                        value={employee.house_number || ''}
                         onChange={(e) => setEmployee({...employee, house_number: e.target.value})}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       />
@@ -608,7 +635,7 @@ export default function MitarbeiterDetailPage() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">PLZ</label>
                       <input
                         type="text"
-                        value={employee.zip}
+                        value={employee.zip || ''}
                         onChange={(e) => setEmployee({...employee, zip: e.target.value})}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       />
@@ -617,7 +644,7 @@ export default function MitarbeiterDetailPage() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">Stadt</label>
                       <input
                         type="text"
-                        value={employee.city}
+                        value={employee.city || ''}
                         onChange={(e) => setEmployee({...employee, city: e.target.value})}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       />
@@ -634,7 +661,7 @@ export default function MitarbeiterDetailPage() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">Personalnummer</label>
                     <input
                       type="text"
-                      value={employee.employee_number}
+                      value={employee.employee_number || ''}
                       onChange={(e) => setEmployee({...employee, employee_number: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       placeholder="z.B. MA-001"
@@ -645,7 +672,7 @@ export default function MitarbeiterDetailPage() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">Funktion / Arbeitsgebiet</label>
                     <input
                       type="text"
-                      value={employee.job_function}
+                      value={employee.job_function || ''}
                       onChange={(e) => setEmployee({...employee, job_function: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       placeholder="z.B. Leiter Technik"
@@ -656,7 +683,7 @@ export default function MitarbeiterDetailPage() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">Abteilung</label>
                     <input
                       type="text"
-                      value={employee.department}
+                      value={employee.department || ''}
                       onChange={(e) => setEmployee({...employee, department: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       placeholder="z.B. Entwicklung"
@@ -666,7 +693,7 @@ export default function MitarbeiterDetailPage() {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Rolle im System *</label>
                     <select
-                      value={employee.role}
+                      value={employee.role || 'employee'}
                       onChange={(e) => setEmployee({...employee, role: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     >
@@ -689,7 +716,7 @@ export default function MitarbeiterDetailPage() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">Angestellt seit</label>
                     <input
                       type="date"
-                      value={employee.employed_since}
+                      value={employee.employed_since || ''}
                       onChange={(e) => setEmployee({...employee, employed_since: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     />
@@ -698,7 +725,7 @@ export default function MitarbeiterDetailPage() {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Arbeitsverhältnis</label>
                     <select
-                      value={employee.contract_type}
+                      value={employee.contract_type || 'permanent'}
                       onChange={(e) => setEmployee({...employee, contract_type: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     >
@@ -712,7 +739,7 @@ export default function MitarbeiterDetailPage() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">Befristet bis</label>
                       <input
                         type="date"
-                        value={employee.contract_end_date}
+                        value={employee.contract_end_date || ''}
                         onChange={(e) => setEmployee({...employee, contract_end_date: e.target.value})}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       />
@@ -723,7 +750,7 @@ export default function MitarbeiterDetailPage() {
                     <label className="flex items-center space-x-3">
                       <input
                         type="checkbox"
-                        checked={employee.is_publicly_funded}
+                        checked={employee.is_publicly_funded || false}
                         onChange={(e) => setEmployee({...employee, is_publicly_funded: e.target.checked})}
                         className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
                       />
@@ -735,7 +762,7 @@ export default function MitarbeiterDetailPage() {
                     <label className="flex items-center space-x-3">
                       <input
                         type="checkbox"
-                        checked={employee.is_tvoed_comparable}
+                        checked={employee.is_tvoed_comparable || false}
                         onChange={(e) => setEmployee({...employee, is_tvoed_comparable: e.target.checked})}
                         className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
                       />
@@ -749,7 +776,7 @@ export default function MitarbeiterDetailPage() {
                         <label className="block text-sm font-medium text-gray-700 mb-1">Entgeltgruppe</label>
                         <input
                           type="text"
-                          value={employee.tvoed_group}
+                          value={employee.tvoed_group || ''}
                           onChange={(e) => setEmployee({...employee, tvoed_group: e.target.value})}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                           placeholder="z.B. E13"
@@ -759,7 +786,7 @@ export default function MitarbeiterDetailPage() {
                         <label className="block text-sm font-medium text-gray-700 mb-1">Stufe</label>
                         <input
                           type="text"
-                          value={employee.tvoed_level}
+                          value={employee.tvoed_level || ''}
                           onChange={(e) => setEmployee({...employee, tvoed_level: e.target.value})}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                           placeholder="z.B. 4"
@@ -774,7 +801,7 @@ export default function MitarbeiterDetailPage() {
                       <label className="flex items-center space-x-3">
                         <input
                           type="radio"
-                          checked={employee.has_fixed_salary}
+                          checked={employee.has_fixed_salary !== false}
                           onChange={() => setEmployee({...employee, has_fixed_salary: true})}
                           className="w-4 h-4 text-blue-600 focus:ring-blue-500"
                         />
@@ -783,7 +810,7 @@ export default function MitarbeiterDetailPage() {
                       <label className="flex items-center space-x-3">
                         <input
                           type="radio"
-                          checked={!employee.has_fixed_salary}
+                          checked={employee.has_fixed_salary === false}
                           onChange={() => setEmployee({...employee, has_fixed_salary: false})}
                           className="w-4 h-4 text-blue-600 focus:ring-blue-500"
                         />
@@ -805,7 +832,7 @@ export default function MitarbeiterDetailPage() {
                     <input
                       type="number"
                       step="0.5"
-                      value={employee.weekly_hours_contract}
+                      value={employee.weekly_hours_contract || 40}
                       onChange={(e) => setEmployee({...employee, weekly_hours_contract: parseFloat(e.target.value) || 0})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     />
@@ -818,7 +845,7 @@ export default function MitarbeiterDetailPage() {
                     <input
                       type="number"
                       step="0.5"
-                      value={employee.weekly_hours_company}
+                      value={employee.weekly_hours_company || 40}
                       onChange={(e) => setEmployee({...employee, weekly_hours_company: parseFloat(e.target.value) || 0})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     />
@@ -1024,7 +1051,7 @@ export default function MitarbeiterDetailPage() {
                   <input
                     type="number"
                     step="0.01"
-                    value={editingSalary.monthly_gross_salary}
+                    value={editingSalary.monthly_gross_salary || ''}
                     onChange={(e) => setEditingSalary({...editingSalary, monthly_gross_salary: parseFloat(e.target.value) || 0})}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     placeholder="z.B. 5901.68"
@@ -1041,7 +1068,7 @@ export default function MitarbeiterDetailPage() {
                       <input
                         type="number"
                         step="0.01"
-                        value={editingSalary.christmas_bonus}
+                        value={editingSalary.christmas_bonus || ''}
                         onChange={(e) => setEditingSalary({...editingSalary, christmas_bonus: parseFloat(e.target.value) || 0})}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                       />
@@ -1051,7 +1078,7 @@ export default function MitarbeiterDetailPage() {
                       <input
                         type="number"
                         step="0.5"
-                        value={editingSalary.christmas_bonus_months}
+                        value={editingSalary.christmas_bonus_months || ''}
                         onChange={(e) => setEditingSalary({...editingSalary, christmas_bonus_months: parseFloat(e.target.value) || 0})}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                       />
@@ -1065,7 +1092,7 @@ export default function MitarbeiterDetailPage() {
                       <input
                         type="number"
                         step="0.01"
-                        value={editingSalary.vacation_bonus}
+                        value={editingSalary.vacation_bonus || ''}
                         onChange={(e) => setEditingSalary({...editingSalary, vacation_bonus: parseFloat(e.target.value) || 0})}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                       />
@@ -1075,7 +1102,7 @@ export default function MitarbeiterDetailPage() {
                       <input
                         type="number"
                         step="0.5"
-                        value={editingSalary.vacation_bonus_months}
+                        value={editingSalary.vacation_bonus_months || ''}
                         onChange={(e) => setEditingSalary({...editingSalary, vacation_bonus_months: parseFloat(e.target.value) || 0})}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                       />
@@ -1089,7 +1116,7 @@ export default function MitarbeiterDetailPage() {
                       <input
                         type="number"
                         step="0.01"
-                        value={editingSalary.capital_forming_benefits}
+                        value={editingSalary.capital_forming_benefits || ''}
                         onChange={(e) => setEditingSalary({...editingSalary, capital_forming_benefits: parseFloat(e.target.value) || 0})}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                       />
@@ -1099,7 +1126,7 @@ export default function MitarbeiterDetailPage() {
                       <input
                         type="number"
                         step="1"
-                        value={editingSalary.capital_forming_months}
+                        value={editingSalary.capital_forming_months || ''}
                         onChange={(e) => setEditingSalary({...editingSalary, capital_forming_months: parseFloat(e.target.value) || 0})}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                       />
@@ -1113,7 +1140,7 @@ export default function MitarbeiterDetailPage() {
                       <input
                         type="number"
                         step="0.01"
-                        value={editingSalary.pension_contribution}
+                        value={editingSalary.pension_contribution || ''}
                         onChange={(e) => setEditingSalary({...editingSalary, pension_contribution: parseFloat(e.target.value) || 0})}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                       />
@@ -1123,7 +1150,7 @@ export default function MitarbeiterDetailPage() {
                       <input
                         type="number"
                         step="1"
-                        value={editingSalary.pension_contribution_months}
+                        value={editingSalary.pension_contribution_months || ''}
                         onChange={(e) => setEditingSalary({...editingSalary, pension_contribution_months: parseFloat(e.target.value) || 0})}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                       />
@@ -1137,7 +1164,7 @@ export default function MitarbeiterDetailPage() {
                       <input
                         type="number"
                         step="0.01"
-                        value={editingSalary.other_fixed_components}
+                        value={editingSalary.other_fixed_components || ''}
                         onChange={(e) => setEditingSalary({...editingSalary, other_fixed_components: parseFloat(e.target.value) || 0})}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                       />
@@ -1146,7 +1173,7 @@ export default function MitarbeiterDetailPage() {
                       <label className="block text-xs text-gray-600 mb-1">Beschreibung</label>
                       <input
                         type="text"
-                        value={editingSalary.other_fixed_description}
+                        value={editingSalary.other_fixed_description || ''}
                         onChange={(e) => setEditingSalary({...editingSalary, other_fixed_description: e.target.value})}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                       />
