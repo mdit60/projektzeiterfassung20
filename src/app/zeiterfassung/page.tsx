@@ -68,14 +68,15 @@ export default function ZeiterfassungPage() {
   const [entries, setEntries] = useState<MonthEntry[]>([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  
   const [showAllAPs, setShowAllAPs] = useState(false);
-  
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
 
   // Fehlzeiten-Zeile (für U/K/S)
   const [absenceRow, setAbsenceRow] = useState<{ [day: number]: 'U' | 'K' | 'S' | null }>({});
+  
+  // NEU: Manuelle nicht-förderfähige Stunden
+  const [nonBillableRow, setNonBillableRow] = useState<{ [day: number]: number }>({});
 
   // NEU: Track ob Änderungen vorliegen
   const [hasChanges, setHasChanges] = useState(false);
@@ -91,7 +92,7 @@ export default function ZeiterfassungPage() {
     if (initialLoadDone.current) {
       setHasChanges(true);
     }
-  }, [entries, absenceRow]);
+  }, [entries, absenceRow, nonBillableRow]);
 
   useEffect(() => {
     loadData();
@@ -126,8 +127,8 @@ export default function ZeiterfassungPage() {
         setError('Profil nicht gefunden');
         return;
       }
-      setProfile(profileData);
 
+      setProfile(profileData);
       const stateCode = (profileData.companies as any)?.state_code || 'DE-NW';
       setCompanyStateCode(stateCode);
 
@@ -187,14 +188,12 @@ export default function ZeiterfassungPage() {
 
       const uniqueHolidays: Holiday[] = [];
       const seenDates = new Set<string>();
-      
       for (const h of filteredHolidays) {
         if (!seenDates.has(h.holiday_date)) {
           seenDates.add(h.holiday_date);
           uniqueHolidays.push({ holiday_date: h.holiday_date, name: h.name });
         }
       }
-
       setHolidays(uniqueHolidays);
 
       // Bestehende Einträge laden
@@ -207,6 +206,7 @@ export default function ZeiterfassungPage() {
 
       const entriesMap: { [wpId: string]: MonthEntry } = {};
       const newAbsenceRow: { [day: number]: 'U' | 'K' | 'S' | null } = {};
+      const newNonBillableRow: { [day: number]: number } = {};
 
       for (const entry of (existingEntries || [])) {
         const day = new Date(entry.entry_date).getDate();
@@ -220,7 +220,9 @@ export default function ZeiterfassungPage() {
           if (entry.work_package_code !== 'HOLIDAY' && entry.work_package_code !== 'NON_BILLABLE') {
             newAbsenceRow[day] = 'S';
           }
-          // HOLIDAY und NON_BILLABLE Einträge ignorieren - werden neu berechnet
+        } else if (entry.category === 'non_billable') {
+          // Nicht-förderfähige Stunden laden
+          newNonBillableRow[day] = (newNonBillableRow[day] || 0) + entry.hours;
         } else if (entry.category === 'project_work' && entry.work_package_id) {
           if (!entriesMap[entry.work_package_id]) {
             const wp = allWPs?.find((w: any) => w.id === entry.work_package_id);
@@ -240,8 +242,9 @@ export default function ZeiterfassungPage() {
       }
 
       setAbsenceRow(newAbsenceRow);
+      setNonBillableRow(newNonBillableRow);
       setEntries(Object.values(entriesMap));
-      
+
       // Nach dem Laden: keine Änderungen
       setTimeout(() => {
         initialLoadDone.current = true;
@@ -261,9 +264,11 @@ export default function ZeiterfassungPage() {
   // ============================================
   const autoSave = async (): Promise<boolean> => {
     if (!profile || !hasChanges) return true;
-    
+
     // Prüfen ob überhaupt Daten zum Speichern da sind
-    const hasData = entries.some(e => Object.keys(e.days).length > 0) || Object.keys(absenceRow).length > 0;
+    const hasData = entries.some(e => Object.keys(e.days).length > 0) || 
+                    Object.keys(absenceRow).length > 0 ||
+                    Object.keys(nonBillableRow).length > 0;
     if (!hasData) return true;
 
     try {
@@ -276,11 +281,15 @@ export default function ZeiterfassungPage() {
         }
       }
 
+      // NEU: Validierung NUR für förderfähige Stunden (OHNE nicht-förderfähig!)
       const totals = getMonthTotals();
       const maxHours = getMaxMonthlyHours();
       
-      if (totals.billableTotal > maxHours) {
-        setError(`Die erfassten Stunden (${totals.billableTotal.toFixed(1)}h) überschreiten das Maximum von ${maxHours.toFixed(1)}h. Bitte korrigieren Sie die Einträge.`);
+      // WICHTIG: Nur project (förderfähig) wird gegen max geprüft
+      // Fehlzeiten (U/K/S) und Feiertage zählen NICHT zum Limit
+      // Nicht-förderfähig hat KEIN Limit
+      if (totals.project > maxHours) {
+        setError(`Die förderfähigen Projektstunden (${totals.project.toFixed(1)}h) überschreiten das Maximum von ${maxHours.toFixed(1)}h. Bitte reduzieren Sie die Projektstunden oder buchen Sie Stunden als "Nicht förderfähig".`);
         return false;
       }
 
@@ -301,12 +310,11 @@ export default function ZeiterfassungPage() {
       if (deleteError) throw deleteError;
 
       const newEntries: any[] = [];
-      const daysInMonth = getDaysInMonth();
 
       // 1. Projektarbeit
       for (const entry of entries) {
         if (!entry.work_package_id) continue;
-        
+
         for (const [dayStr, value] of Object.entries(entry.days)) {
           if (typeof value === 'number' && value > 0) {
             const day = parseInt(dayStr);
@@ -353,11 +361,26 @@ export default function ZeiterfassungPage() {
         }
       }
 
-      // 3. Feiertage - werden NICHT separat gespeichert, nur in der Anzeige berechnet
-      // (Die DB erlaubt nur: project_work, vacation, sick_leave)
+      // 3. Nicht-förderfähige Stunden speichern
+      for (const [dayStr, hours] of Object.entries(nonBillableRow)) {
+        if (hours > 0) {
+          const day = parseInt(dayStr);
+          const entryDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
-      // 4. Nicht förderfähige Arbeit - wird NICHT separat gespeichert, nur in der Anzeige berechnet
-      // (Differenz zu 8h wird automatisch als "nicht förderfähig" angezeigt)
+          newEntries.push({
+            user_profile_id: profile.id,
+            company_id: profile.company_id,
+            entry_date: entryDate,
+            project_id: null,
+            work_package_id: null,
+            work_package_code: 'NON_BILLABLE',
+            work_package_description: 'Nicht förderfähige Arbeitszeit',
+            hours: hours,
+            category: 'non_billable',
+            created_by: profile.user_id
+          });
+        }
+      }
 
       if (newEntries.length > 0) {
         const { error: insertError } = await supabase
@@ -387,7 +410,6 @@ export default function ZeiterfassungPage() {
       const saved = await autoSave();
       if (!saved) return; // Bei Fehler nicht wechseln
     }
-    
     if (currentMonth === 1) {
       setCurrentMonth(12);
       setCurrentYear(currentYear - 1);
@@ -401,7 +423,6 @@ export default function ZeiterfassungPage() {
       const saved = await autoSave();
       if (!saved) return;
     }
-    
     if (currentMonth === 12) {
       setCurrentMonth(1);
       setCurrentYear(currentYear + 1);
@@ -415,7 +436,6 @@ export default function ZeiterfassungPage() {
       const saved = await autoSave();
       if (!saved) return;
     }
-    
     const now = new Date();
     setCurrentYear(now.getFullYear());
     setCurrentMonth(now.getMonth() + 1);
@@ -494,6 +514,7 @@ export default function ZeiterfassungPage() {
     if (!wp) return;
 
     const proj = getProject(wp.project);
+
     const newEntries = [...entries];
     newEntries[index] = {
       ...newEntries[index],
@@ -510,17 +531,49 @@ export default function ZeiterfassungPage() {
   const handleHoursChange = (index: number, day: number, value: string) => {
     const newEntries = [...entries];
     const entry = newEntries[index];
-    
-    const upperValue = value.toUpperCase().trim();
-    
+    const trimmedValue = value.trim();
+    const upperValue = trimmedValue.toUpperCase();
+
+    // Prüfe ob es ein Abwesenheits-Kürzel ist
     if (['U', 'K', 'S'].includes(upperValue)) {
       delete entry.days[day];
       setAbsenceRow(prev => ({ ...prev, [day]: upperValue as 'U' | 'K' | 'S' }));
-    } else if (value === '' || value === '0' || value === '-') {
+      // Auch nicht-förderfähig löschen
+      setNonBillableRow(prev => {
+        const newNB = { ...prev };
+        delete newNB[day];
+        return newNB;
+      });
+      setEntries(newEntries);
+      return;
+    }
+    
+    // Leere Eingabe
+    if (trimmedValue === '' || trimmedValue === '-') {
       delete entry.days[day];
-    } else {
-      const hours = Math.min(24, Math.max(0, parseFloat(value) || 0));
-      entry.days[day] = Math.round(hours * 100) / 100;
+      setEntries(newEntries);
+      return;
+    }
+
+    // Erlaube Zwischenzustände beim Tippen: "6," oder "6." oder "6.5" etc.
+    // Regex: optionale Zahl, optionales Komma/Punkt, optionale Nachkommastellen
+    const isValidInput = /^[0-9]*[.,]?[0-9]*$/.test(trimmedValue);
+    
+    if (!isValidInput) {
+      // Ungültige Eingabe ignorieren
+      return;
+    }
+
+    // Dezimalzahlen: Komma durch Punkt ersetzen für parseFloat
+    const normalizedValue = trimmedValue.replace(',', '.');
+    const hours = parseFloat(normalizedValue);
+    
+    // Wenn es eine gültige Zahl ist (auch 0), speichern
+    if (!isNaN(hours)) {
+      const clampedHours = Math.min(24, Math.max(0, hours));
+      entry.days[day] = Math.round(clampedHours * 100) / 100;
+
+      // Wenn Projektstunden eingegeben werden, Abwesenheit löschen
       if (absenceRow[day]) {
         setAbsenceRow(prev => {
           const newAbsences = { ...prev };
@@ -528,16 +581,24 @@ export default function ZeiterfassungPage() {
           return newAbsences;
         });
       }
+    } else if (normalizedValue.endsWith('.')) {
+      // Zwischenzustand "6." - speichere als ganze Zahl
+      const wholeNumber = parseFloat(normalizedValue.slice(0, -1));
+      if (!isNaN(wholeNumber)) {
+        entry.days[day] = wholeNumber;
+      }
     }
-    
+
     setEntries(newEntries);
   };
 
   const handleAbsenceChange = (day: number, value: string) => {
     const upperValue = value.toUpperCase().trim();
-    
+
     if (['U', 'K', 'S'].includes(upperValue)) {
       setAbsenceRow(prev => ({ ...prev, [day]: upperValue as 'U' | 'K' | 'S' }));
+      
+      // Bei Abwesenheit: Projektstunden für diesen Tag löschen
       setEntries(prev => prev.map(entry => {
         if (entry.days[day]) {
           const newDays = { ...entry.days };
@@ -546,6 +607,13 @@ export default function ZeiterfassungPage() {
         }
         return entry;
       }));
+      
+      // Auch nicht-förderfähig löschen bei voller Abwesenheit
+      setNonBillableRow(prev => {
+        const newNB = { ...prev };
+        delete newNB[day];
+        return newNB;
+      });
     } else {
       setAbsenceRow(prev => {
         const newAbsences = { ...prev };
@@ -554,13 +622,34 @@ export default function ZeiterfassungPage() {
       });
     }
   };
-  
+
   const clearAbsence = (day: number) => {
     setAbsenceRow(prev => {
       const newAbsences = { ...prev };
       delete newAbsences[day];
       return newAbsences;
     });
+  };
+
+  // NEU: Handler für nicht-förderfähige Stunden
+  const handleNonBillableChange = (day: number, value: string) => {
+    if (value === '' || value === '0' || value === '-') {
+      setNonBillableRow(prev => {
+        const newNB = { ...prev };
+        delete newNB[day];
+        return newNB;
+      });
+    } else {
+      // Komma durch Punkt ersetzen für parseFloat
+      const normalizedValue = value.replace(',', '.');
+      const hours = Math.min(24, Math.max(0, parseFloat(normalizedValue) || 0));
+      if (!isNaN(hours) && hours > 0) {
+        setNonBillableRow(prev => ({
+          ...prev,
+          [day]: Math.round(hours * 100) / 100
+        }));
+      }
+    }
   };
 
   // Summen-Berechnungen
@@ -592,43 +681,61 @@ export default function ZeiterfassungPage() {
     return 0;
   };
 
-  const getNonBillableHoursForDay = (day: number): number => {
+  // NEU: Getrennte Berechnung für manuelle und automatische nicht-förderfähige Stunden
+  const getManualNonBillableForDay = (day: number): number => {
+    return nonBillableRow[day] || 0;
+  };
+
+  const getAutoNonBillableForDay = (day: number): number => {
     if (isWeekend(day)) return 0;
     if (getHolidayName(day)) return 0;
-    if (absenceRow[day]) return 0; // Volle Abwesenheit (U/K/S) = kein nicht-förderfähig
-    
+    if (absenceRow[day]) return 0; // Volle Abwesenheit = kein Auto-nicht-förderfähig
+
     const projectHours = getProjectHoursForDay(day);
-    const dailyTarget = 8; // Soll-Stunden pro Tag
-    
-    // Differenz zwischen Soll und Projekt-Ist = nicht förderfähig
-    const nonBillable = Math.max(0, dailyTarget - projectHours);
-    return nonBillable;
+    const manualNonBillable = getManualNonBillableForDay(day);
+    const totalWorked = projectHours + manualNonBillable;
+    const dailyTarget = 8;
+
+    // Automatisch berechnete Differenz zu 8h (nur wenn keine manuelle Eingabe die Lücke füllt)
+    return Math.max(0, dailyTarget - totalWorked);
+  };
+
+  const getTotalNonBillableForDay = (day: number): number => {
+    return getManualNonBillableForDay(day) + getAutoNonBillableForDay(day);
   };
 
   const getMonthTotals = () => {
     const daysInMonth = getDaysInMonth();
     let projectTotal = 0;
     let absenceTotal = 0;
-    let nonBillableTotal = 0;
+    let manualNonBillableTotal = 0;
+    let autoNonBillableTotal = 0;
 
     for (let day = 1; day <= daysInMonth; day++) {
       projectTotal += getProjectHoursForDay(day);
       absenceTotal += getAbsenceHoursForDay(day);
-      nonBillableTotal += getNonBillableHoursForDay(day);
+      manualNonBillableTotal += getManualNonBillableForDay(day);
+      autoNonBillableTotal += getAutoNonBillableForDay(day);
     }
 
+    const nonBillableTotal = manualNonBillableTotal + autoNonBillableTotal;
+
     return {
-      project: projectTotal,
-      absence: absenceTotal,
-      nonBillable: nonBillableTotal,
+      project: projectTotal,                    // Förderfähige Projektstunden
+      absence: absenceTotal,                    // Fehlzeiten (U/K/S + Feiertage)
+      nonBillable: nonBillableTotal,            // Gesamt nicht-förderfähig
+      manualNonBillable: manualNonBillableTotal, // Manuell eingetragen
+      autoNonBillable: autoNonBillableTotal,    // Automatisch berechnet (Differenz zu 8h)
       total: projectTotal + absenceTotal + nonBillableTotal,
-      billableTotal: projectTotal + absenceTotal
+      // WICHTIG: Für Validierung nur Projektstunden (nicht Fehlzeiten!)
+      billableForValidation: projectTotal
     };
   };
 
+  // NEU: Warnung wenn förderfähige Stunden über max
   const isOverMaxHours = () => {
     const totals = getMonthTotals();
-    return totals.billableTotal > getMaxMonthlyHours();
+    return totals.project > getMaxMonthlyHours();
   };
 
   // Manuelles Speichern
@@ -718,22 +825,25 @@ export default function ZeiterfassungPage() {
               <div className="text-blue-100 text-sm">Aktueller Monat</div>
               <div className="text-2xl font-bold">{monthNames[currentMonth - 1]} {currentYear}</div>
               <div className="text-blue-200 text-sm mt-1">
-                {monthTotals.billableTotal.toFixed(1)}h / {maxHours.toFixed(1)}h max
+                Förderfähig: {monthTotals.project.toFixed(1)}h / {maxHours.toFixed(1)}h max
               </div>
             </div>
           </div>
         </div>
 
-        {/* Validierungs-Warnung */}
+        {/* Validierungs-Warnung - NEU: Jetzt nur für förderfähige Stunden */}
         {overMax && (
           <div className="mb-4 bg-red-100 border-2 border-red-500 text-red-800 px-4 py-3 rounded-lg flex items-center">
             <svg className="w-6 h-6 mr-3 text-red-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
             <div>
-              <strong>Maximale Monatsstunden überschritten!</strong>
+              <strong>Förderfähige Stunden überschreiten Maximum!</strong>
               <div className="text-sm">
-                Förderfähig + Fehlzeiten: {monthTotals.billableTotal.toFixed(1)}h | Maximum: {maxHours.toFixed(1)}h
+                Förderfähig: {monthTotals.project.toFixed(1)}h | Maximum: {maxHours.toFixed(1)}h
+              </div>
+              <div className="text-sm mt-1">
+                💡 <strong>Tipp:</strong> Buchen Sie überschüssige Stunden als "Nicht förderfähig" in der entsprechenden Zeile.
               </div>
             </div>
           </div>
@@ -777,7 +887,7 @@ export default function ZeiterfassungPage() {
               >
                 Nächster →
               </button>
-              
+
               <div className="border-l pl-4 ml-2 flex items-center space-x-2">
                 <select
                   value={currentMonth}
@@ -812,6 +922,7 @@ export default function ZeiterfassungPage() {
                 />
                 Alle APs im Dropdown
               </label>
+
               <button
                 onClick={addNewRow}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center"
@@ -821,6 +932,7 @@ export default function ZeiterfassungPage() {
                 </svg>
                 Zeile hinzufügen
               </button>
+
               <button
                 onClick={handleSave}
                 disabled={saving || overMax}
@@ -839,7 +951,6 @@ export default function ZeiterfassungPage() {
               </button>
             </div>
           </div>
-          
           {/* NEU: Auto-Save Hinweis */}
           <div className="mt-3 text-xs text-gray-500 flex items-center">
             <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -910,12 +1021,11 @@ export default function ZeiterfassungPage() {
                         </div>
                       )}
                     </td>
-
                     {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
                       const isNonWorking = isNonWorkingDay(day);
                       const hasAbsence = absenceRow[day];
                       const value = entry.days[day];
-                      
+
                       return (
                         <td
                           key={day}
@@ -924,9 +1034,16 @@ export default function ZeiterfassungPage() {
                           }`}
                         >
                           <input
+                            key={`${rowIndex}-${day}-${value ?? ''}`}
                             type="text"
-                            value={typeof value === 'number' ? value : ''}
-                            onChange={(e) => handleHoursChange(rowIndex, day, e.target.value)}
+                            inputMode="decimal"
+                            defaultValue={typeof value === 'number' ? value : ''}
+                            onBlur={(e) => handleHoursChange(rowIndex, day, e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.currentTarget.blur();
+                              }
+                            }}
                             disabled={isNonWorking || !!hasAbsence}
                             className={`w-full text-center text-sm rounded border px-1 py-1 ${
                               isNonWorking || hasAbsence
@@ -938,11 +1055,9 @@ export default function ZeiterfassungPage() {
                         </td>
                       );
                     })}
-
                     <td className="sticky right-12 z-10 bg-green-50 px-2 py-2 border-b text-center font-bold text-green-800">
                       {getRowTotal(entry).toFixed(1)}h
                     </td>
-
                     <td className="sticky right-0 z-10 bg-white px-2 py-2 border-b text-center">
                       <button
                         onClick={() => removeRow(rowIndex)}
@@ -968,7 +1083,7 @@ export default function ZeiterfassungPage() {
                     const holiday = getHolidayName(day);
                     const absence = absenceRow[day];
                     const absenceInfo = absence ? ABSENCE_TYPES[absence] : null;
-                    
+
                     return (
                       <td key={day} className={`px-1 py-1 border-b text-center ${isNonWorking ? 'bg-gray-100' : ''}`}>
                         {holiday && !isWeekend(day) ? (
@@ -1031,34 +1146,69 @@ export default function ZeiterfassungPage() {
                   <td className="sticky right-0 z-10 bg-green-50 px-2 py-2 border-b"></td>
                 </tr>
 
-                <tr className="bg-gray-100 font-bold">
-                  <td className="sticky left-0 z-10 bg-gray-100 px-3 py-2 border-b text-right text-gray-700">
-                    Σ Nicht förderfähig:
+                {/* NEU: Editierbare Nicht-förderfähig Zeile */}
+                <tr className="bg-gray-50">
+                  <td className="sticky left-0 z-10 bg-gray-50 px-3 py-2 border-b border-r font-medium text-gray-700">
+                    Nicht förderfähig
+                    <div className="text-xs font-normal text-gray-500">
+                      Manuelle Eingabe für Überstunden
+                    </div>
                   </td>
                   {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
-                    const hours = getNonBillableHoursForDay(day);
                     const isNonWorking = isNonWorkingDay(day);
+                    const hasAbsence = absenceRow[day];
+                    const manualValue = nonBillableRow[day];
+                    const autoValue = getAutoNonBillableForDay(day);
+
                     return (
-                      <td key={day} className={`px-1 py-2 border-b text-center text-sm ${isNonWorking ? 'bg-gray-200 text-gray-400' : hours > 0 ? 'text-gray-700' : 'text-gray-400'}`}>
-                        {hours > 0 ? hours.toFixed(0) : '-'}
+                      <td key={day} className={`px-1 py-1 border-b text-center ${isNonWorking ? 'bg-gray-100' : ''}`}>
+                        {isNonWorking || hasAbsence ? (
+                          <div className="text-gray-400">-</div>
+                        ) : (
+                          <div className="relative">
+                            <input
+                              key={`nb-${day}-${manualValue ?? ''}`}
+                              type="text"
+                              inputMode="decimal"
+                              defaultValue={manualValue || ''}
+                              onBlur={(e) => handleNonBillableChange(day, e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.currentTarget.blur();
+                                }
+                              }}
+                              className="w-full text-center text-sm rounded border px-1 py-1 hover:border-gray-400 focus:border-gray-500 focus:ring-1 focus:ring-gray-500"
+                              placeholder={autoValue > 0 ? `(${autoValue.toFixed(0)})` : ''}
+                            />
+                          </div>
+                        )}
                       </td>
                     );
                   })}
-                  <td className="sticky right-12 z-10 bg-gray-300 px-2 py-2 border-b text-center text-lg text-gray-800">
-                    {monthTotals.nonBillable.toFixed(1)}h
+                  <td className="sticky right-12 z-10 bg-gray-200 px-2 py-2 border-b text-center font-bold text-gray-800">
+                    {monthTotals.manualNonBillable.toFixed(1)}h
+                    {monthTotals.autoNonBillable > 0 && (
+                      <div className="text-xs font-normal text-gray-600">
+                        (+{monthTotals.autoNonBillable.toFixed(1)}h auto)
+                      </div>
+                    )}
                   </td>
-                  <td className="sticky right-0 z-10 bg-gray-100 px-2 py-2 border-b"></td>
+                  <td className="sticky right-0 z-10 bg-gray-50 px-2 py-2 border-b"></td>
                 </tr>
 
+                {/* Gesamt-Zeile */}
                 <tr className={`font-bold ${overMax ? 'bg-red-100' : 'bg-yellow-100'}`}>
                   <td className={`sticky left-0 z-10 px-3 py-3 border-t-2 ${overMax ? 'bg-red-100 border-red-400 text-red-800' : 'bg-yellow-100 border-yellow-400 text-yellow-800'} text-right`}>
                     GESAMT:
                   </td>
                   {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
-                    const total = getProjectHoursForDay(day) + getAbsenceHoursForDay(day) + getNonBillableHoursForDay(day);
+                    const projectHours = getProjectHoursForDay(day);
+                    const absenceHours = getAbsenceHoursForDay(day);
+                    const nonBillableHours = getTotalNonBillableForDay(day);
+                    const total = projectHours + absenceHours + nonBillableHours;
                     const isNonWorking = isWeekend(day);
                     const isOver8 = total > 8;
-                    
+
                     return (
                       <td key={day} className={`px-1 py-3 border-t-2 ${overMax ? 'border-red-400' : 'border-yellow-400'} text-center text-sm ${
                         isNonWorking ? 'bg-gray-100 text-gray-400' : 
@@ -1073,7 +1223,7 @@ export default function ZeiterfassungPage() {
                     overMax ? 'bg-red-300 border-red-400 text-red-900' : 'bg-yellow-200 border-yellow-400 text-yellow-900'
                   }`}>
                     {monthTotals.total.toFixed(1)}h
-                    <div className="text-xs font-normal">/ {maxHours.toFixed(0)}h</div>
+                    <div className="text-xs font-normal">/ {maxHours.toFixed(0)}h max förderb.</div>
                   </td>
                   <td className={`sticky right-0 z-10 px-2 py-3 border-t-2 ${overMax ? 'bg-red-100 border-red-400' : 'bg-yellow-100 border-yellow-400'}`}></td>
                 </tr>
@@ -1094,45 +1244,61 @@ export default function ZeiterfassungPage() {
         {/* Zusammenfassung */}
         <div className="mt-6 bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-bold text-gray-900 mb-4">Monatszusammenfassung</h3>
+          
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <div className="bg-green-50 rounded-lg p-4 text-center">
-              <div className="text-2xl font-bold text-green-700">{monthTotals.project.toFixed(1)}h</div>
-              <div className="text-sm text-green-600">Förderfähig</div>
+            <div className={`rounded-lg p-4 text-center border-2 ${overMax ? 'bg-red-50 border-red-400' : 'bg-green-50 border-green-400'}`}>
+              <div className={`text-2xl font-bold ${overMax ? 'text-red-700' : 'text-green-700'}`}>
+                {monthTotals.project.toFixed(1)}h
+              </div>
+              <div className={`text-sm ${overMax ? 'text-red-600' : 'text-green-600'}`}>
+                Förderfähig
+                <div className="text-xs">(max {maxHours.toFixed(0)}h)</div>
+              </div>
             </div>
+            
             <div className="bg-orange-50 rounded-lg p-4 text-center">
               <div className="text-2xl font-bold text-orange-700">{monthTotals.absence.toFixed(1)}h</div>
               <div className="text-sm text-orange-600">Fehlzeiten</div>
             </div>
-            <div className={`rounded-lg p-4 text-center border-2 ${overMax ? 'bg-red-50 border-red-400' : 'bg-blue-50 border-blue-400'}`}>
-              <div className={`text-2xl font-bold ${overMax ? 'text-red-700' : 'text-blue-700'}`}>
-                {monthTotals.billableTotal.toFixed(1)}h
-              </div>
-              <div className={`text-sm ${overMax ? 'text-red-600' : 'text-blue-600'}`}>
-                Summe (max {maxHours.toFixed(0)}h)
-              </div>
-            </div>
+            
             <div className="bg-gray-100 rounded-lg p-4 text-center">
               <div className="text-2xl font-bold text-gray-700">{monthTotals.nonBillable.toFixed(1)}h</div>
               <div className="text-sm text-gray-600">Nicht förderfähig</div>
+              {monthTotals.manualNonBillable > 0 && (
+                <div className="text-xs text-gray-500">
+                  ({monthTotals.manualNonBillable.toFixed(1)}h manuell)
+                </div>
+              )}
             </div>
+            
+            <div className="bg-blue-50 rounded-lg p-4 text-center border-2 border-blue-400">
+              <div className="text-2xl font-bold text-blue-700">
+                {(monthTotals.project + monthTotals.absence).toFixed(1)}h
+              </div>
+              <div className="text-sm text-blue-600">
+                Abrechenbar
+                <div className="text-xs">(Förd. + Fehlz.)</div>
+              </div>
+            </div>
+            
             <div className="bg-yellow-50 rounded-lg p-4 text-center">
               <div className="text-2xl font-bold text-yellow-700">{monthTotals.total.toFixed(1)}h</div>
               <div className="text-sm text-yellow-600">Gesamt</div>
             </div>
           </div>
-          
-          {/* Fortschrittsbalken */}
+
+          {/* Fortschrittsbalken - nur für förderfähige Stunden */}
           <div className="mt-4">
             <div className="flex justify-between text-sm text-gray-600 mb-1">
-              <span>Auslastung (Förderfähig + Fehlzeiten)</span>
-              <span>{Math.round((monthTotals.billableTotal / maxHours) * 100)}%</span>
+              <span>Förderfähige Stunden (nur Projektarbeit)</span>
+              <span>{Math.round((monthTotals.project / maxHours) * 100)}%</span>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-3">
               <div
                 className={`h-3 rounded-full transition-all ${
-                  overMax ? 'bg-red-500' : monthTotals.billableTotal >= maxHours * 0.9 ? 'bg-green-500' : 'bg-blue-500'
+                  overMax ? 'bg-red-500' : monthTotals.project >= maxHours * 0.9 ? 'bg-green-500' : 'bg-blue-500'
                 }`}
-                style={{ width: `${Math.min(100, (monthTotals.billableTotal / maxHours) * 100)}%` }}
+                style={{ width: `${Math.min(100, (monthTotals.project / maxHours) * 100)}%` }}
               ></div>
             </div>
           </div>
