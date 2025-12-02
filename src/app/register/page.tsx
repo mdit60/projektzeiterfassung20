@@ -39,7 +39,7 @@ export default function RegisterPage() {
   });
 
   const germanStates = [
-    { code: 'DE-BW', name: 'Baden-WÃ¼rttemberg' },
+    { code: 'DE-BW', name: 'Baden-Württemberg' },
     { code: 'DE-BY', name: 'Bayern' },
     { code: 'DE-BE', name: 'Berlin' },
     { code: 'DE-BB', name: 'Brandenburg' },
@@ -54,7 +54,7 @@ export default function RegisterPage() {
     { code: 'DE-SN', name: 'Sachsen' },
     { code: 'DE-ST', name: 'Sachsen-Anhalt' },
     { code: 'DE-SH', name: 'Schleswig-Holstein' },
-    { code: 'DE-TH', name: 'ThÃ¼ringen' }
+    { code: 'DE-TH', name: 'Thüringen' }
   ];
 
   const legalForms = ['GmbH', 'GmbH & Co. KG', 'UG', 'UG & Co. KG', 'AG', 'GbR', 'OHG', 'KG', 'e.K.', 'Einzelunternehmen', 'Sonstige'];

@@ -22,6 +22,8 @@ interface Project {
   name: string
   short_name: string
   funding_reference: string
+  funding_rate: number
+  overhead_rate: number
   status: string
 }
 
@@ -55,20 +57,23 @@ export default function BerichtePage() {
   const [kurzbezeichnungFueTaetigkeit, setKurzbezeichnungFueTaetigkeit] = useState('')
   const [monateFue, setMonateFue] = useState(12)
   
-  // Form State für ZIM Export
-  const [zimEmployee, setZimEmployee] = useState<string>('')
+  // Form State für ZIM Stundennachweis
   const [zimProject, setZimProject] = useState<string>('')
-  const [zimYear, setZimYear] = useState(new Date().getFullYear())
+  const [zimEmployee, setZimEmployee] = useState<string>('')
   const [zimMonth, setZimMonth] = useState(new Date().getMonth() + 1)
+  const [zimYear, setZimYear] = useState(new Date().getFullYear())
+  
+  // Form State für Zahlungsanforderung
+  const [zaProject, setZaProject] = useState<string>('')
+  const [zaPeriodStart, setZaPeriodStart] = useState('')
+  const [zaPeriodEnd, setZaPeriodEnd] = useState('')
   
   // Aktiver Tab
-  const [activeTab, setActiveTab] = useState<'fzul' | 'zim' | 'uebersicht'>('fzul')
+  const [activeTab, setActiveTab] = useState<'fzul' | 'zim' | 'zahlungsanforderung' | 'uebersicht'>('fzul')
   
   // Jahre für Dropdown (5 Jahre zurück bis aktuelles Jahr)
   const currentYear = new Date().getFullYear()
   const years = Array.from({ length: 6 }, (_, i) => currentYear - 5 + i).reverse()
-  
-  // Monate für Dropdown
   const months = [
     { value: 1, label: 'Januar' },
     { value: 2, label: 'Februar' },
@@ -84,15 +89,12 @@ export default function BerichtePage() {
     { value: 12, label: 'Dezember' },
   ]
   
-  // Projekte mit Förderkennzeichen filtern
-  const fundedProjects = projects.filter(p => p.funding_reference && p.funding_reference.trim() !== '')
-  
   // Daten laden
   useEffect(() => {
     loadData()
   }, [])
   
-  // Wenn Projekt ausgewählt wird, Felder vorausfüllen (FZul)
+  // Wenn Projekt ausgewählt wird, Felder vorausfüllen
   useEffect(() => {
     if (selectedProject) {
       const project = projects.find(p => p.id === selectedProject)
@@ -102,6 +104,24 @@ export default function BerichtePage() {
       }
     }
   }, [selectedProject, projects])
+  
+  // Hilfsfunktion für lokales Datum (ohne Zeitzonen-Shift)
+  const formatDateLocal = (date: Date) => {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+  
+  // Standard-Zeitraum für ZA setzen (letztes Quartal)
+  useEffect(() => {
+    const now = new Date()
+    const quarterStart = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3 - 3, 1)
+    const quarterEnd = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 0)
+    
+    setZaPeriodStart(formatDateLocal(quarterStart))
+    setZaPeriodEnd(formatDateLocal(quarterEnd))
+  }, [])
   
   async function loadData() {
     try {
@@ -243,14 +263,10 @@ export default function BerichtePage() {
     }
   }
   
-  // ZIM Export durchführen
+  // ZIM Monatsbericht Export
   async function handleZimExport() {
-    if (!zimEmployee) {
-      setError('Bitte wählen Sie einen Mitarbeiter aus')
-      return
-    }
-    if (!zimProject) {
-      setError('Bitte wählen Sie ein Projekt aus')
+    if (!zimEmployee || !zimProject) {
+      setError('Bitte wählen Sie Mitarbeiter und Projekt aus')
       return
     }
     
@@ -274,24 +290,19 @@ export default function BerichtePage() {
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: 'Unbekannter Fehler' }))
-        console.error('API Error:', errorData)
         throw new Error(errorData.details || errorData.error || 'Export fehlgeschlagen')
       }
       
-      // Blob erstellen und Download triggern
       const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
       
-      // Filename aus Header oder generieren
       const contentDisposition = response.headers.get('Content-Disposition')
-      let filename = `Stundennachweis_${zimYear}-${String(zimMonth).padStart(2, '0')}.pdf`
+      let filename = `ZIM_Stundennachweis_${zimYear}-${String(zimMonth).padStart(2, '0')}.pdf`
       if (contentDisposition) {
         const match = contentDisposition.match(/filename="(.+)"/)
-        if (match) {
-          filename = match[1]
-        }
+        if (match) filename = match[1]
       }
       
       a.download = filename
@@ -310,24 +321,69 @@ export default function BerichtePage() {
     }
   }
   
-  // Monat vor/zurück navigieren
-  function navigateMonth(direction: 'prev' | 'next') {
-    if (direction === 'prev') {
-      if (zimMonth === 1) {
-        setZimMonth(12)
-        setZimYear(zimYear - 1)
-      } else {
-        setZimMonth(zimMonth - 1)
+  // Zahlungsanforderung PDF Export
+  async function handleZaExport() {
+    if (!zaProject || !zaPeriodStart || !zaPeriodEnd) {
+      setError('Bitte wählen Sie Projekt und Zeitraum aus')
+      return
+    }
+    
+    try {
+      setExporting(true)
+      setError(null)
+      setSuccess(null)
+      
+      const response = await fetch('/api/payment-requests/export', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          projectId: zaProject,
+          periodStart: zaPeriodStart,
+          periodEnd: zaPeriodEnd
+        }),
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unbekannter Fehler' }))
+        console.error('API Error:', errorData)
+        throw new Error(errorData.details || errorData.error || 'Export fehlgeschlagen')
       }
-    } else {
-      if (zimMonth === 12) {
-        setZimMonth(1)
-        setZimYear(zimYear + 1)
-      } else {
-        setZimMonth(zimMonth + 1)
+      
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      
+      const contentDisposition = response.headers.get('Content-Disposition')
+      let filename = `Zahlungsanforderung_${zaPeriodStart}_${zaPeriodEnd}.pdf`
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename="(.+)"/)
+        if (match) filename = match[1]
       }
+      
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
+      
+      setSuccess(`Export erfolgreich: ${filename}`)
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Export fehlgeschlagen')
+      console.error(err)
+    } finally {
+      setExporting(false)
     }
   }
+  
+  // Projekte mit Förderkennzeichen filtern
+  const fundingProjects = projects.filter(p => p.funding_reference)
+  
+  // Ausgewähltes ZA-Projekt Details
+  const selectedZaProject = projects.find(p => p.id === zaProject)
   
   if (loading) {
     return (
@@ -370,6 +426,11 @@ export default function BerichtePage() {
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
               </svg>
               <p className="text-red-700">{error}</p>
+              <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
             </div>
           </div>
         )}
@@ -381,6 +442,11 @@ export default function BerichtePage() {
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
               </svg>
               <p className="text-green-700">{success}</p>
+              <button onClick={() => setSuccess(null)} className="ml-auto text-green-400 hover:text-green-600">
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
             </div>
           </div>
         )}
@@ -388,10 +454,10 @@ export default function BerichtePage() {
         {/* Tab Navigation */}
         <div className="bg-white rounded-lg shadow-sm border mb-6">
           <div className="border-b">
-            <nav className="flex -mb-px">
+            <nav className="flex -mb-px overflow-x-auto">
               <button
                 onClick={() => setActiveTab('fzul')}
-                className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
+                className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                   activeTab === 'fzul'
                     ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -408,7 +474,7 @@ export default function BerichtePage() {
               
               <button
                 onClick={() => setActiveTab('zim')}
-                className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
+                className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                   activeTab === 'zim'
                     ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -424,8 +490,25 @@ export default function BerichtePage() {
               </button>
               
               <button
+                onClick={() => setActiveTab('zahlungsanforderung')}
+                className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                  activeTab === 'zahlungsanforderung'
+                    ? 'border-green-500 text-green-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center space-x-2">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                  <span>Zahlungsanforderung</span>
+                </div>
+                <span className="text-xs text-green-500 block mt-1">NEU ✨</span>
+              </button>
+              
+              <button
                 onClick={() => setActiveTab('uebersicht')}
-                className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
+                className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                   activeTab === 'uebersicht'
                     ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -444,7 +527,7 @@ export default function BerichtePage() {
           </div>
         </div>
         
-        {/* Tab Content: FZul */}
+        {/* Tab Content */}
         {activeTab === 'fzul' && (
           <div className="bg-white rounded-lg shadow-sm border p-6">
             <div className="mb-6">
@@ -460,7 +543,7 @@ export default function BerichtePage() {
                 {/* Jahr */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Jahr <span className="text-red-500">*</span>
+                    Wirtschaftsjahr *
                   </label>
                   <select
                     value={selectedYear}
@@ -476,14 +559,14 @@ export default function BerichtePage() {
                 {/* Mitarbeiter */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Mitarbeiter <span className="text-red-500">*</span>
+                    Mitarbeiter *
                   </label>
                   <select
                     value={selectedEmployee}
                     onChange={(e) => setSelectedEmployee(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   >
-                    <option value="">Bitte wählen...</option>
+                    <option value="">-- Mitarbeiter auswählen --</option>
                     {employees.map(emp => (
                       <option key={emp.id} value={emp.id}>
                         {emp.last_name}, {emp.first_name}
@@ -502,30 +585,30 @@ export default function BerichtePage() {
                     onChange={(e) => setSelectedProject(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   >
-                    <option value="">Alle Projekte</option>
+                    <option value="">-- Alle Projekte --</option>
                     {projects.map(proj => (
                       <option key={proj.id} value={proj.id}>
-                        {proj.name}
+                        {proj.name} {proj.short_name && `(${proj.short_name})`}
                       </option>
                     ))}
                   </select>
                   <p className="text-xs text-gray-500 mt-1">
-                    Optional: Nur Stunden eines bestimmten Projekts exportieren
+                    Leer lassen für alle FuE-Stunden
                   </p>
                 </div>
                 
                 {/* Monate FuE */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Monate mit FuE-Tätigkeit
+                    Monate FuE-Tätigkeit
                   </label>
                   <select
                     value={monateFue}
                     onChange={(e) => setMonateFue(Number(e.target.value))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   >
-                    {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
-                      <option key={m} value={m}>{m} {m === 1 ? 'Monat' : 'Monate'}</option>
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                      <option key={m} value={m}>{m} Monat{m > 1 ? 'e' : ''}</option>
                     ))}
                   </select>
                 </div>
@@ -536,13 +619,13 @@ export default function BerichtePage() {
                 {/* Kurzbezeichnung Vorhaben */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Kurzbezeichnung des Vorhabens
+                    Kurzbezeichnung des FuE-Vorhabens
                   </label>
                   <input
                     type="text"
                     value={kurzbezeichnungVorhaben}
                     onChange={(e) => setKurzbezeichnungVorhaben(e.target.value)}
-                    placeholder="z.B. KI-basierte Prozessoptimierung"
+                    placeholder="z.B. Entwicklung innovativer Sensortechnologie"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
@@ -550,7 +633,7 @@ export default function BerichtePage() {
                 {/* Vorhaben-ID */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Vorhaben-ID / Förderkennzeichen
+                    Vorhaben-ID des FuE-Vorhabens
                   </label>
                   <input
                     type="text"
@@ -573,16 +656,6 @@ export default function BerichtePage() {
                     placeholder="z.B. Softwareentwicklung, Konstruktion"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
-                </div>
-                
-                {/* Info Box */}
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <h4 className="text-sm font-medium text-blue-800 mb-2">ℹ️ Hinweis</h4>
-                  <p className="text-xs text-blue-700">
-                    Der Export erstellt einen Stundennachweis im BMF-konformen Format für die Forschungszulage. 
-                    Das PDF enthält eine Jahresübersicht mit allen 12 Monaten, automatisch berechneten 
-                    Arbeitsstunden und den erforderlichen Unterschriftsfeldern.
-                  </p>
                 </div>
               </div>
             </div>
@@ -619,30 +692,52 @@ export default function BerichtePage() {
           </div>
         )}
         
-        {/* Tab Content: ZIM */}
         {activeTab === 'zim' && (
           <div className="bg-white rounded-lg shadow-sm border p-6">
             <div className="mb-6">
               <h2 className="text-lg font-semibold text-gray-900">ZIM Stundennachweis exportieren</h2>
               <p className="text-sm text-gray-500 mt-1">
-                Monatlicher Stundennachweis für ZIM-Förderprojekte und andere Förderprogramme mit Förderkennzeichen.
+                Monatlicher Stundennachweis für ZIM-Förderprojekte (Zentrales Innovationsprogramm Mittelstand).
               </p>
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Linke Spalte */}
               <div className="space-y-4">
+                {/* Projekt (nur mit Förderkennzeichen) */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Projekt *
+                  </label>
+                  <select
+                    value={zimProject}
+                    onChange={(e) => setZimProject(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">-- Projekt auswählen --</option>
+                    {fundingProjects.map(proj => (
+                      <option key={proj.id} value={proj.id}>
+                        {proj.name} ({proj.funding_reference})
+                      </option>
+                    ))}
+                  </select>
+                  {fundingProjects.length === 0 && (
+                    <p className="text-xs text-orange-600 mt-1">
+                      Keine Projekte mit Förderkennzeichen vorhanden
+                    </p>
+                  )}
+                </div>
+                
                 {/* Mitarbeiter */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Mitarbeiter <span className="text-red-500">*</span>
+                    Mitarbeiter *
                   </label>
                   <select
                     value={zimEmployee}
                     onChange={(e) => setZimEmployee(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   >
-                    <option value="">Bitte wählen...</option>
+                    <option value="">-- Mitarbeiter auswählen --</option>
                     {employees.map(emp => (
                       <option key={emp.id} value={emp.id}>
                         {emp.last_name}, {emp.first_name}
@@ -650,112 +745,48 @@ export default function BerichtePage() {
                     ))}
                   </select>
                 </div>
-                
-                {/* Projekt */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Förderprojekt <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    value={zimProject}
-                    onChange={(e) => setZimProject(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="">Bitte wählen...</option>
-                    {fundedProjects.length > 0 ? (
-                      fundedProjects.map(proj => (
-                        <option key={proj.id} value={proj.id}>
-                          {proj.name} ({proj.funding_reference})
-                        </option>
-                      ))
-                    ) : (
-                      <option value="" disabled>Keine Projekte mit Förderkennzeichen vorhanden</option>
-                    )}
-                  </select>
-                  {fundedProjects.length === 0 && (
-                    <p className="text-xs text-amber-600 mt-1">
-                      ⚠️ Es sind keine Projekte mit Förderkennzeichen vorhanden. 
-                      Bitte fügen Sie ein Förderkennzeichen zu einem Projekt hinzu.
-                    </p>
-                  )}
-                </div>
               </div>
               
-              {/* Rechte Spalte */}
               <div className="space-y-4">
-                {/* Monat/Jahr Auswahl */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Berichtszeitraum <span className="text-red-500">*</span>
-                  </label>
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={() => navigateMonth('prev')}
-                      className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                      title="Vorheriger Monat"
-                    >
-                      <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                      </svg>
-                    </button>
-                    
+                {/* Monat/Jahr */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Monat *
+                    </label>
                     <select
                       value={zimMonth}
                       onChange={(e) => setZimMonth(Number(e.target.value))}
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     >
                       {months.map(m => (
                         <option key={m.value} value={m.value}>{m.label}</option>
                       ))}
                     </select>
-                    
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Jahr *
+                    </label>
                     <select
                       value={zimYear}
                       onChange={(e) => setZimYear(Number(e.target.value))}
-                      className="w-24 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     >
                       {years.map(year => (
                         <option key={year} value={year}>{year}</option>
                       ))}
                     </select>
-                    
-                    <button
-                      onClick={() => navigateMonth('next')}
-                      className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                      title="Nächster Monat"
-                    >
-                      <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
-                    </button>
                   </div>
                 </div>
                 
-                {/* Info Box */}
+                {/* Info */}
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <h4 className="text-sm font-medium text-blue-800 mb-2">ℹ️ Hinweis</h4>
                   <p className="text-xs text-blue-700">
-                    Der Stundennachweis enthält alle erfassten Arbeitspakete des Mitarbeiters für das 
-                    gewählte Projekt im Berichtsmonat. Urlaubs- und Krankheitstage sowie Feiertage 
-                    werden automatisch berücksichtigt.
+                    Der Stundennachweis enthält alle Arbeitspakete des Projekts mit den erfassten Stunden pro Tag.
+                    Feiertage werden automatisch markiert.
                   </p>
                 </div>
-                
-                {/* Projekt-Info wenn ausgewählt */}
-                {zimProject && (
-                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                    <h4 className="text-sm font-medium text-gray-800 mb-2">Ausgewähltes Projekt</h4>
-                    {(() => {
-                      const proj = fundedProjects.find(p => p.id === zimProject)
-                      return proj ? (
-                        <div className="text-xs text-gray-600 space-y-1">
-                          <p><span className="font-medium">Name:</span> {proj.name}</p>
-                          <p><span className="font-medium">Förderkennzeichen:</span> {proj.funding_reference}</p>
-                        </div>
-                      ) : null
-                    })()}
-                  </div>
-                )}
               </div>
             </div>
             
@@ -791,7 +822,174 @@ export default function BerichtePage() {
           </div>
         )}
         
-        {/* Tab Content: Übersicht */}
+        {/* ============================================ */}
+        {/* NEUER TAB: ZAHLUNGSANFORDERUNG              */}
+        {/* ============================================ */}
+        {activeTab === 'zahlungsanforderung' && (
+          <div className="bg-white rounded-lg shadow-sm border p-6">
+            <div className="mb-6">
+              <h2 className="text-lg font-semibold text-gray-900">Zahlungsanforderung (Anlage 1a + 1b)</h2>
+              <p className="text-sm text-gray-500 mt-1">
+                PDF-Export der Anlagen zur Zahlungsanforderung für ZIM-Förderprojekte.
+                Berechnet automatisch Personalstunden und -kosten aus den erfassten Zeiten.
+              </p>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Linke Spalte */}
+              <div className="space-y-4">
+                {/* Projekt */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Projekt *
+                  </label>
+                  <select
+                    value={zaProject}
+                    onChange={(e) => setZaProject(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                  >
+                    <option value="">-- Projekt auswählen --</option>
+                    {fundingProjects.map(proj => (
+                      <option key={proj.id} value={proj.id}>
+                        {proj.name} ({proj.funding_reference})
+                      </option>
+                    ))}
+                  </select>
+                  {fundingProjects.length === 0 && (
+                    <p className="text-xs text-orange-600 mt-1">
+                      ⚠️ Keine Projekte mit Förderkennzeichen vorhanden. Bitte zuerst ein Projekt mit Förderdaten anlegen.
+                    </p>
+                  )}
+                </div>
+                
+                {/* Zeitraum */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Zeitraum von *
+                    </label>
+                    <input
+                      type="date"
+                      value={zaPeriodStart}
+                      onChange={(e) => setZaPeriodStart(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Zeitraum bis *
+                    </label>
+                    <input
+                      type="date"
+                      value={zaPeriodEnd}
+                      onChange={(e) => setZaPeriodEnd(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    />
+                  </div>
+                </div>
+                
+                {/* Schnellauswahl Quartal */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Schnellauswahl
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {[1, 2, 3, 4].map(q => {
+                      const year = currentYear
+                      const startMonth = (q - 1) * 3
+                      const start = new Date(year, startMonth, 1)
+                      const end = new Date(year, startMonth + 3, 0)
+                      return (
+                        <button
+                          key={q}
+                          type="button"
+                          onClick={() => {
+                            setZaPeriodStart(formatDateLocal(start))
+                            setZaPeriodEnd(formatDateLocal(end))
+                          }}
+                          className="px-3 py-1 text-xs border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                        >
+                          Q{q}/{year}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+              
+              {/* Rechte Spalte - Projekt-Info */}
+              <div className="space-y-4">
+                {selectedZaProject ? (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                    <h4 className="text-sm font-semibold text-green-800 mb-3">📋 Projektdaten</h4>
+                    <dl className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <dt className="text-green-700">Förderkennzeichen:</dt>
+                        <dd className="font-medium text-green-900">{selectedZaProject.funding_reference}</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt className="text-green-700">Fördersatz:</dt>
+                        <dd className="font-medium text-green-900">{selectedZaProject.funding_rate || 50} %</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt className="text-green-700">Übrige Kosten:</dt>
+                        <dd className="font-medium text-green-900">{selectedZaProject.overhead_rate || 0} %</dd>
+                      </div>
+                    </dl>
+                  </div>
+                ) : (
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                    <p className="text-sm text-gray-500 text-center py-4">
+                      Wählen Sie ein Projekt aus, um die Förderdaten anzuzeigen.
+                    </p>
+                  </div>
+                )}
+                
+                {/* Info-Box */}
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <h4 className="text-sm font-medium text-blue-800 mb-2">ℹ️ Was wird exportiert?</h4>
+                  <ul className="text-xs text-blue-700 space-y-1">
+                    <li>• <strong>Anlage 1a:</strong> Personenstunden pro Mitarbeiter und Monat</li>
+                    <li>• <strong>Anlage 1b:</strong> Personalkosten (Stunden × Stundensatz)</li>
+                    <li>• Automatische Berechnung aus erfassten Zeiten</li>
+                    <li>• Stundensätze aus Mitarbeiter-Gehaltsdaten</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+            
+            {/* Export Button */}
+            <div className="mt-8 pt-6 border-t flex justify-end">
+              <button
+                onClick={handleZaExport}
+                disabled={exporting || !zaProject || !zaPeriodStart || !zaPeriodEnd}
+                className={`inline-flex items-center px-6 py-3 rounded-lg font-medium text-white transition-colors ${
+                  exporting || !zaProject || !zaPeriodStart || !zaPeriodEnd
+                    ? 'bg-gray-400 cursor-not-allowed'
+                    : 'bg-green-600 hover:bg-green-700'
+                }`}
+              >
+                {exporting ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Berechne &amp; Exportiere...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    PDF herunterladen (Anlage 1a + 1b)
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+        
         {activeTab === 'uebersicht' && (
           <div className="bg-white rounded-lg shadow-sm border p-6">
             <div className="text-center py-12">

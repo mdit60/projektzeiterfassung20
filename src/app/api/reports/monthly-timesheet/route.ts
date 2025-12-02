@@ -272,42 +272,46 @@ export async function POST(request: NextRequest) {
     
     y -= headerHeight + 5
     
-    // Vorhabenthema
+    // ==========================================
+    // VORHABENTHEMA - Label und Wert NEBENEINANDER
+    // ==========================================
     page.drawRectangle({
       x: margin, y: y - 25, width: width - 2 * margin, height: 25,
       borderColor: BLACK, borderWidth: 0.5,
     })
-    page.drawText('Vorhabenthema', {
-      x: margin + 5, y: y - 10, size: 7, font: helvetica, color: DARK_GRAY,
+    page.drawText('Vorhabenthema:', {
+      x: margin + 5, y: y - 16, size: 7, font: helvetica, color: DARK_GRAY,
     })
     page.drawText(project.name || '', {
-      x: margin + 5, y: y - 21, size: 10, font: helveticaBold,
+      x: margin + 75, y: y - 16, size: 10, font: helveticaBold,  // 70px Abstand nach rechts
     })
     
     y -= 30
     
-    // Monat und Mitarbeiter
-    const monthBoxWidth = 120
+    // ==========================================
+    // MONAT und MITARBEITER - Label und Wert NEBENEINANDER
+    // ==========================================
+    const monthBoxWidth = 150  // Etwas breiter für bessere Anordnung
     page.drawRectangle({
       x: margin, y: y - 25, width: monthBoxWidth, height: 25,
       borderColor: BLACK, borderWidth: 0.5,
     })
-    page.drawText('Monat', {
-      x: margin + 5, y: y - 10, size: 7, font: helvetica, color: DARK_GRAY,
+    page.drawText('Monat:', {
+      x: margin + 5, y: y - 16, size: 7, font: helvetica, color: DARK_GRAY,
     })
     page.drawText(`${String(month).padStart(2, '0')} / ${year}`, {
-      x: margin + 5, y: y - 21, size: 10, font: helveticaBold,
+      x: margin + 45, y: y - 16, size: 10, font: helveticaBold,  // 40px Abstand nach rechts
     })
     
     page.drawRectangle({
       x: margin + monthBoxWidth, y: y - 25, width: width - 2 * margin - monthBoxWidth, height: 25,
       borderColor: BLACK, borderWidth: 0.5,
     })
-    page.drawText('Mitarbeiter(in): [Name, Vorname]', {
-      x: margin + monthBoxWidth + 5, y: y - 10, size: 7, font: helvetica, color: DARK_GRAY,
+    page.drawText('Mitarbeiter(in):', {
+      x: margin + monthBoxWidth + 5, y: y - 16, size: 7, font: helvetica, color: DARK_GRAY,
     })
     page.drawText(`${userProfile.last_name} ${userProfile.first_name}`, {
-      x: margin + monthBoxWidth + 5, y: y - 21, size: 10, font: helveticaBold,
+      x: margin + monthBoxWidth + 70, y: y - 16, size: 10, font: helveticaBold,  // 65px Abstand nach rechts
     })
     
     y -= 30
