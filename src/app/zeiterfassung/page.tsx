@@ -1,3 +1,9 @@
+// ==================================================
+// Datei: src/app/zeiterfassung/page.tsx
+// Zeiterfassung mit Admin-Dropdown für Mitarbeiterauswahl
+// Rollen: admin / user (statt company_admin / manager / employee)
+// ==================================================
+
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
@@ -33,6 +39,16 @@ interface MonthEntry {
   project_name: string;
   project_color: string;
   days: { [day: number]: number };
+}
+
+interface Employee {
+  id: string;
+  user_id: string;
+  name: string;
+  email: string;
+  job_function: string | null;
+  weekly_hours_contract: number | null;
+  contract_hours_per_week: number | null;
 }
 
 // Abwesenheits-Typen
@@ -72,13 +88,18 @@ export default function ZeiterfassungPage() {
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
 
+  // NEU: Admin kann anderen Mitarbeiter auswählen
+  const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
+  const [selectedProfile, setSelectedProfile] = useState<Employee | null>(null);
+
   // Fehlzeiten-Zeile (für U/K/S)
   const [absenceRow, setAbsenceRow] = useState<{ [day: number]: 'U' | 'K' | 'S' | null }>({});
   
-  // NEU: Manuelle nicht-förderfähige Stunden
+  // Manuelle nicht-förderfähige Stunden
   const [nonBillableRow, setNonBillableRow] = useState<{ [day: number]: number }>({});
 
-  // NEU: Track ob Änderungen vorliegen
+  // Track ob Änderungen vorliegen
   const [hasChanges, setHasChanges] = useState(false);
   const initialLoadDone = useRef(false);
 
@@ -87,16 +108,40 @@ export default function ZeiterfassungPage() {
     'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'
   ];
 
-  // NEU: Änderungen tracken
+  // Ist der aktuelle User ein Admin?
+  const isAdmin = profile?.role === 'admin';
+
+  // Änderungen tracken
   useEffect(() => {
     if (initialLoadDone.current) {
       setHasChanges(true);
     }
   }, [entries, absenceRow, nonBillableRow]);
 
+  // Initial laden und bei Monatswechsel
   useEffect(() => {
     loadData();
-  }, [currentYear, currentMonth]);
+  }, [currentYear, currentMonth, selectedProfileId]);
+
+  // Mitarbeiterliste laden (nur für Admin)
+  useEffect(() => {
+    if (profile && isAdmin) {
+      loadEmployees();
+    }
+  }, [profile]);
+
+  const loadEmployees = async () => {
+    if (!profile || !isAdmin) return;
+
+    const { data: employees } = await supabase
+      .from('user_profiles')
+      .select('id, user_id, name, email, job_function, weekly_hours_contract, contract_hours_per_week')
+      .eq('company_id', profile.company_id)
+      .eq('is_active', true)
+      .order('name');
+
+    setAllEmployees(employees || []);
+  };
 
   const loadData = async () => {
     try {
@@ -110,6 +155,7 @@ export default function ZeiterfassungPage() {
         return;
       }
 
+      // Eigenes Profil laden
       const { data: profileData } = await supabase
         .from('user_profiles')
         .select(`
@@ -132,7 +178,28 @@ export default function ZeiterfassungPage() {
       const stateCode = (profileData.companies as any)?.state_code || 'DE-NW';
       setCompanyStateCode(stateCode);
 
-      // Arbeitspakete die dem User zugeordnet sind
+      // Bestimme für welchen Mitarbeiter die Daten geladen werden
+      // Admin kann anderen MA auswählen, sonst eigenes Profil
+      const targetProfileId = selectedProfileId || profileData.id;
+
+      // Wenn Admin und anderer MA ausgewählt, lade dessen Daten
+      let targetProfile = profileData;
+      if (selectedProfileId && selectedProfileId !== profileData.id && profileData.role === 'admin') {
+        const { data: otherProfile } = await supabase
+          .from('user_profiles')
+          .select('*')
+          .eq('id', selectedProfileId)
+          .single();
+        
+        if (otherProfile) {
+          targetProfile = otherProfile;
+          setSelectedProfile(otherProfile);
+        }
+      } else {
+        setSelectedProfile(null);
+      }
+
+      // Arbeitspakete die dem Ziel-User zugeordnet sind
       const { data: assignedWPs } = await supabase
         .from('work_package_assignments')
         .select(`
@@ -146,7 +213,7 @@ export default function ZeiterfassungPage() {
             project:projects (id, name, color)
           )
         `)
-        .eq('user_profile_id', profileData.id);
+        .eq('user_profile_id', targetProfileId);
 
       const myWPs = (assignedWPs || [])
         .map((a: any) => a.work_packages)
@@ -196,11 +263,11 @@ export default function ZeiterfassungPage() {
       }
       setHolidays(uniqueHolidays);
 
-      // Bestehende Einträge laden
+      // Bestehende Einträge laden - für den Ziel-User
       const { data: existingEntries } = await supabase
         .from('time_entries')
         .select('*')
-        .eq('user_profile_id', profileData.id)
+        .eq('user_profile_id', targetProfileId)
         .gte('entry_date', startDate)
         .lte('entry_date', endDate);
 
@@ -216,12 +283,10 @@ export default function ZeiterfassungPage() {
         } else if (entry.category === 'sick_leave') {
           newAbsenceRow[day] = 'K';
         } else if (entry.category === 'other_absence') {
-          // Nur als Sonderurlaub behandeln wenn es KEIN Feiertag/Non-Billable ist
           if (entry.work_package_code !== 'HOLIDAY' && entry.work_package_code !== 'NON_BILLABLE') {
             newAbsenceRow[day] = 'S';
           }
         } else if (entry.category === 'non_billable') {
-          // Nicht-förderfähige Stunden laden
           newNonBillableRow[day] = (newNonBillableRow[day] || 0) + entry.hours;
         } else if (entry.category === 'project_work' && entry.work_package_id) {
           if (!entriesMap[entry.work_package_id]) {
@@ -260,10 +325,14 @@ export default function ZeiterfassungPage() {
   };
 
   // ============================================
-  // NEU: Auto-Save Funktion (ohne UI-Blockierung)
+  // Auto-Save Funktion (ohne UI-Blockierung)
   // ============================================
   const autoSave = async (): Promise<boolean> => {
     if (!profile || !hasChanges) return true;
+
+    // Bestimme Ziel-User
+    const targetProfileId = selectedProfileId || profile.id;
+    const targetProfile = selectedProfile || profile;
 
     // Prüfen ob überhaupt Daten zum Speichern da sind
     const hasData = entries.some(e => Object.keys(e.days).length > 0) || 
@@ -281,13 +350,10 @@ export default function ZeiterfassungPage() {
         }
       }
 
-      // NEU: Validierung NUR für förderfähige Stunden (OHNE nicht-förderfähig!)
+      // Validierung NUR für förderfähige Stunden
       const totals = getMonthTotals();
       const maxHours = getMaxMonthlyHours();
       
-      // WICHTIG: Nur project (förderfähig) wird gegen max geprüft
-      // Fehlzeiten (U/K/S) und Feiertage zählen NICHT zum Limit
-      // Nicht-förderfähig hat KEIN Limit
       if (totals.project > maxHours) {
         setError(`Die förderfähigen Projektstunden (${totals.project.toFixed(1)}h) überschreiten das Maximum von ${maxHours.toFixed(1)}h. Bitte reduzieren Sie die Projektstunden oder buchen Sie Stunden als "Nicht förderfähig".`);
         return false;
@@ -299,11 +365,11 @@ export default function ZeiterfassungPage() {
       const lastDayOfMonth = new Date(currentYear, currentMonth, 0).getDate();
       const endDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(lastDayOfMonth).padStart(2, '0')}`;
 
-      // Alte Einträge löschen
+      // Alte Einträge löschen - für den Ziel-User
       const { error: deleteError } = await supabase
         .from('time_entries')
         .delete()
-        .eq('user_profile_id', profile.id)
+        .eq('user_profile_id', targetProfileId)
         .gte('entry_date', startDate)
         .lte('entry_date', endDate);
 
@@ -321,7 +387,7 @@ export default function ZeiterfassungPage() {
             const entryDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
             newEntries.push({
-              user_profile_id: profile.id,
+              user_profile_id: targetProfileId,
               company_id: profile.company_id,
               entry_date: entryDate,
               project_id: entry.project_id,
@@ -330,7 +396,7 @@ export default function ZeiterfassungPage() {
               work_package_description: entry.work_package_description,
               hours: value,
               category: 'project_work',
-              created_by: profile.user_id
+              created_by: profile.user_id // Der Admin der es bearbeitet
             });
           }
         }
@@ -347,7 +413,7 @@ export default function ZeiterfassungPage() {
           else if (absence === 'K') category = 'sick_leave';
 
           newEntries.push({
-            user_profile_id: profile.id,
+            user_profile_id: targetProfileId,
             company_id: profile.company_id,
             entry_date: entryDate,
             project_id: null,
@@ -368,7 +434,7 @@ export default function ZeiterfassungPage() {
           const entryDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
           newEntries.push({
-            user_profile_id: profile.id,
+            user_profile_id: targetProfileId,
             company_id: profile.company_id,
             entry_date: entryDate,
             project_id: null,
@@ -408,7 +474,7 @@ export default function ZeiterfassungPage() {
   const goToPreviousMonth = async () => {
     if (hasChanges) {
       const saved = await autoSave();
-      if (!saved) return; // Bei Fehler nicht wechseln
+      if (!saved) return;
     }
     if (currentMonth === 1) {
       setCurrentMonth(12);
@@ -457,6 +523,15 @@ export default function ZeiterfassungPage() {
     setCurrentYear(newYear);
   };
 
+  // NEU: Mitarbeiter wechseln (nur für Admin)
+  const handleEmployeeChange = async (newProfileId: string) => {
+    if (hasChanges) {
+      const saved = await autoSave();
+      if (!saved) return;
+    }
+    setSelectedProfileId(newProfileId === profile?.id ? null : newProfileId);
+  };
+
   // Helpers
   const getDaysInMonth = () => {
     return new Date(currentYear, currentMonth, 0).getDate();
@@ -486,7 +561,9 @@ export default function ZeiterfassungPage() {
   };
 
   const getMaxMonthlyHours = () => {
-    const weeklyHours = profile?.weekly_hours_contract || profile?.contract_hours_per_week || 40;
+    // Wenn anderer MA ausgewählt, dessen Stunden verwenden
+    const targetProfile = selectedProfile || profile;
+    const weeklyHours = targetProfile?.weekly_hours_contract || targetProfile?.contract_hours_per_week || 40;
     return Math.round((weeklyHours * 52) / 12 * 100) / 100;
   };
 
@@ -531,8 +608,7 @@ export default function ZeiterfassungPage() {
   const handleHoursChange = (index: number, day: number, value: string) => {
     const newEntries = [...entries];
     const entry = newEntries[index];
-    const trimmedValue = value.trim();
-    const upperValue = trimmedValue.toUpperCase();
+    const upperValue = value.toUpperCase().trim();
 
     // Prüfe ob es ein Abwesenheits-Kürzel ist
     if (['U', 'K', 'S'].includes(upperValue)) {
@@ -544,48 +620,26 @@ export default function ZeiterfassungPage() {
         delete newNB[day];
         return newNB;
       });
-      setEntries(newEntries);
-      return;
-    }
-    
-    // Leere Eingabe
-    if (trimmedValue === '' || trimmedValue === '-') {
+    } else if (value === '' || value === '0' || value === '-') {
       delete entry.days[day];
-      setEntries(newEntries);
-      return;
-    }
+    } else {
+      // Dezimalzahlen: Komma durch Punkt ersetzen für parseFloat
+      const normalizedValue = value.replace(',', '.');
+      const hours = Math.min(24, Math.max(0, parseFloat(normalizedValue) || 0));
+      
+      if (!isNaN(hours) && hours > 0) {
+        entry.days[day] = Math.round(hours * 100) / 100;
 
-    // Erlaube Zwischenzustände beim Tippen: "6," oder "6." oder "6.5" etc.
-    // Regex: optionale Zahl, optionales Komma/Punkt, optionale Nachkommastellen
-    const isValidInput = /^[0-9]*[.,]?[0-9]*$/.test(trimmedValue);
-    
-    if (!isValidInput) {
-      // Ungültige Eingabe ignorieren
-      return;
-    }
-
-    // Dezimalzahlen: Komma durch Punkt ersetzen für parseFloat
-    const normalizedValue = trimmedValue.replace(',', '.');
-    const hours = parseFloat(normalizedValue);
-    
-    // Wenn es eine gültige Zahl ist (auch 0), speichern
-    if (!isNaN(hours)) {
-      const clampedHours = Math.min(24, Math.max(0, hours));
-      entry.days[day] = Math.round(clampedHours * 100) / 100;
-
-      // Wenn Projektstunden eingegeben werden, Abwesenheit löschen
-      if (absenceRow[day]) {
-        setAbsenceRow(prev => {
-          const newAbsences = { ...prev };
-          delete newAbsences[day];
-          return newAbsences;
-        });
-      }
-    } else if (normalizedValue.endsWith('.')) {
-      // Zwischenzustand "6." - speichere als ganze Zahl
-      const wholeNumber = parseFloat(normalizedValue.slice(0, -1));
-      if (!isNaN(wholeNumber)) {
-        entry.days[day] = wholeNumber;
+        // Wenn Projektstunden eingegeben werden, Abwesenheit löschen
+        if (absenceRow[day]) {
+          setAbsenceRow(prev => {
+            const newAbsences = { ...prev };
+            delete newAbsences[day];
+            return newAbsences;
+          });
+        }
+      } else {
+        delete entry.days[day];
       }
     }
 
@@ -631,7 +685,7 @@ export default function ZeiterfassungPage() {
     });
   };
 
-  // NEU: Handler für nicht-förderfähige Stunden
+  // Handler für nicht-förderfähige Stunden
   const handleNonBillableChange = (day: number, value: string) => {
     if (value === '' || value === '0' || value === '-') {
       setNonBillableRow(prev => {
@@ -640,7 +694,6 @@ export default function ZeiterfassungPage() {
         return newNB;
       });
     } else {
-      // Komma durch Punkt ersetzen für parseFloat
       const normalizedValue = value.replace(',', '.');
       const hours = Math.min(24, Math.max(0, parseFloat(normalizedValue) || 0));
       if (!isNaN(hours) && hours > 0) {
@@ -681,7 +734,6 @@ export default function ZeiterfassungPage() {
     return 0;
   };
 
-  // NEU: Getrennte Berechnung für manuelle und automatische nicht-förderfähige Stunden
   const getManualNonBillableForDay = (day: number): number => {
     return nonBillableRow[day] || 0;
   };
@@ -689,14 +741,13 @@ export default function ZeiterfassungPage() {
   const getAutoNonBillableForDay = (day: number): number => {
     if (isWeekend(day)) return 0;
     if (getHolidayName(day)) return 0;
-    if (absenceRow[day]) return 0; // Volle Abwesenheit = kein Auto-nicht-förderfähig
+    if (absenceRow[day]) return 0;
 
     const projectHours = getProjectHoursForDay(day);
     const manualNonBillable = getManualNonBillableForDay(day);
     const totalWorked = projectHours + manualNonBillable;
     const dailyTarget = 8;
 
-    // Automatisch berechnete Differenz zu 8h (nur wenn keine manuelle Eingabe die Lücke füllt)
     return Math.max(0, dailyTarget - totalWorked);
   };
 
@@ -721,18 +772,16 @@ export default function ZeiterfassungPage() {
     const nonBillableTotal = manualNonBillableTotal + autoNonBillableTotal;
 
     return {
-      project: projectTotal,                    // Förderfähige Projektstunden
-      absence: absenceTotal,                    // Fehlzeiten (U/K/S + Feiertage)
-      nonBillable: nonBillableTotal,            // Gesamt nicht-förderfähig
-      manualNonBillable: manualNonBillableTotal, // Manuell eingetragen
-      autoNonBillable: autoNonBillableTotal,    // Automatisch berechnet (Differenz zu 8h)
+      project: projectTotal,
+      absence: absenceTotal,
+      nonBillable: nonBillableTotal,
+      manualNonBillable: manualNonBillableTotal,
+      autoNonBillable: autoNonBillableTotal,
       total: projectTotal + absenceTotal + nonBillableTotal,
-      // WICHTIG: Für Validierung nur Projektstunden (nicht Fehlzeiten!)
       billableForValidation: projectTotal
     };
   };
 
-  // NEU: Warnung wenn förderfähige Stunden über max
   const isOverMaxHours = () => {
     const totals = getMonthTotals();
     return totals.project > getMaxMonthlyHours();
@@ -743,7 +792,8 @@ export default function ZeiterfassungPage() {
     const saved = await autoSave();
     if (saved) {
       const totals = getMonthTotals();
-      setSuccess(`✅ ${monthNames[currentMonth - 1]} ${currentYear} gespeichert! Förderfähig: ${totals.project.toFixed(1)}h, Fehlzeiten: ${totals.absence.toFixed(1)}h`);
+      const targetName = selectedProfile?.name || profile?.name;
+      setSuccess(`✅ ${monthNames[currentMonth - 1]} ${currentYear} für ${targetName} gespeichert! Förderfähig: ${totals.project.toFixed(1)}h, Fehlzeiten: ${totals.absence.toFixed(1)}h`);
       setTimeout(() => setSuccess(''), 5000);
     }
   };
@@ -753,6 +803,19 @@ export default function ZeiterfassungPage() {
       return allWorkPackages;
     }
     return workPackages;
+  };
+
+  // Name für Anzeige
+  const getDisplayName = () => {
+    if (selectedProfile) {
+      return selectedProfile.name;
+    }
+    return profile?.name;
+  };
+
+  const getDisplayPosition = () => {
+    const target = selectedProfile || profile;
+    return target?.job_function || (target?.role === 'admin' ? 'Projektleiter' : 'Mitarbeiter');
   };
 
   // Render
@@ -790,7 +853,7 @@ export default function ZeiterfassungPage() {
               </button>
             </div>
             <div className="flex items-center space-x-4">
-              {/* NEU: Änderungs-Indikator */}
+              {/* Änderungs-Indikator */}
               {hasChanges && (
                 <span className="flex items-center text-amber-600 text-sm">
                   <span className="w-2 h-2 bg-amber-500 rounded-full mr-2 animate-pulse"></span>
@@ -811,13 +874,41 @@ export default function ZeiterfassungPage() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold mb-1">🕐 Zeiterfassung</h1>
-              <p className="text-blue-100 text-lg">
-                für <span className="font-semibold text-white">{profile?.name}</span>
-              </p>
+              
+              {/* Admin: Mitarbeiter-Dropdown */}
+              {isAdmin && allEmployees.length > 0 ? (
+                <div className="mt-2">
+                  <label className="text-blue-200 text-sm block mb-1">Mitarbeiter auswählen:</label>
+                  <select
+                    value={selectedProfileId || profile?.id || ''}
+                    onChange={(e) => handleEmployeeChange(e.target.value)}
+                    className="bg-white/20 text-white border border-white/30 rounded-lg px-3 py-2 text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-white/50"
+                  >
+                    {allEmployees.map(emp => (
+                      <option key={emp.id} value={emp.id} className="text-gray-900">
+                        {emp.name} {emp.job_function ? `(${emp.job_function})` : ''} {emp.id === profile?.id ? '(Sie)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedProfile && selectedProfile.id !== profile?.id && (
+                    <div className="mt-2 text-yellow-200 text-sm flex items-center">
+                      <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      Sie bearbeiten die Zeiterfassung von {selectedProfile.name}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-blue-100 text-lg">
+                  für <span className="font-semibold text-white">{getDisplayName()}</span>
+                </p>
+              )}
+              
               <p className="text-blue-200 text-sm mt-1">
                 {workPackages.length} Arbeitspaket{workPackages.length !== 1 ? 'e' : ''} zugeordnet
-                {(profile?.weekly_hours_contract || profile?.contract_hours_per_week) && (
-                  <span className="ml-2">• {profile?.weekly_hours_contract || profile?.contract_hours_per_week}h/Woche</span>
+                {getMaxMonthlyHours() && (
+                  <span className="ml-2">• {(selectedProfile || profile)?.weekly_hours_contract || (selectedProfile || profile)?.contract_hours_per_week || 40}h/Woche</span>
                 )}
               </p>
             </div>
@@ -831,7 +922,7 @@ export default function ZeiterfassungPage() {
           </div>
         </div>
 
-        {/* Validierungs-Warnung - NEU: Jetzt nur für förderfähige Stunden */}
+        {/* Validierungs-Warnung */}
         {overMax && (
           <div className="mb-4 bg-red-100 border-2 border-red-500 text-red-800 px-4 py-3 rounded-lg flex items-center">
             <svg className="w-6 h-6 mr-3 text-red-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -951,7 +1042,7 @@ export default function ZeiterfassungPage() {
               </button>
             </div>
           </div>
-          {/* NEU: Auto-Save Hinweis */}
+          {/* Auto-Save Hinweis */}
           <div className="mt-3 text-xs text-gray-500 flex items-center">
             <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -1034,16 +1125,10 @@ export default function ZeiterfassungPage() {
                           }`}
                         >
                           <input
-                            key={`${rowIndex}-${day}-${value ?? ''}`}
                             type="text"
                             inputMode="decimal"
-                            defaultValue={typeof value === 'number' ? value : ''}
-                            onBlur={(e) => handleHoursChange(rowIndex, day, e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.currentTarget.blur();
-                              }
-                            }}
+                            value={typeof value === 'number' ? value : ''}
+                            onChange={(e) => handleHoursChange(rowIndex, day, e.target.value)}
                             disabled={isNonWorking || !!hasAbsence}
                             className={`w-full text-center text-sm rounded border px-1 py-1 ${
                               isNonWorking || hasAbsence
@@ -1146,7 +1231,7 @@ export default function ZeiterfassungPage() {
                   <td className="sticky right-0 z-10 bg-green-50 px-2 py-2 border-b"></td>
                 </tr>
 
-                {/* NEU: Editierbare Nicht-förderfähig Zeile */}
+                {/* Editierbare Nicht-förderfähig Zeile */}
                 <tr className="bg-gray-50">
                   <td className="sticky left-0 z-10 bg-gray-50 px-3 py-2 border-b border-r font-medium text-gray-700">
                     Nicht förderfähig
@@ -1167,16 +1252,13 @@ export default function ZeiterfassungPage() {
                         ) : (
                           <div className="relative">
                             <input
-                              key={`nb-${day}-${manualValue ?? ''}`}
-                              type="text"
+                              type="number"
                               inputMode="decimal"
-                              defaultValue={manualValue || ''}
-                              onBlur={(e) => handleNonBillableChange(day, e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.currentTarget.blur();
-                                }
-                              }}
+                              step="0.01"
+                              min="0"
+                              max="24"
+                              value={manualValue || ''}
+                              onChange={(e) => handleNonBillableChange(day, e.target.value)}
                               className="w-full text-center text-sm rounded border px-1 py-1 hover:border-gray-400 focus:border-gray-500 focus:ring-1 focus:ring-gray-500"
                               placeholder={autoValue > 0 ? `(${autoValue.toFixed(0)})` : ''}
                             />
@@ -1243,7 +1325,9 @@ export default function ZeiterfassungPage() {
 
         {/* Zusammenfassung */}
         <div className="mt-6 bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">Monatszusammenfassung</h3>
+          <h3 className="text-lg font-bold text-gray-900 mb-4">
+            Monatszusammenfassung {selectedProfile ? `für ${selectedProfile.name}` : ''}
+          </h3>
           
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div className={`rounded-lg p-4 text-center border-2 ${overMax ? 'bg-red-50 border-red-400' : 'bg-green-50 border-green-400'}`}>
@@ -1287,7 +1371,7 @@ export default function ZeiterfassungPage() {
             </div>
           </div>
 
-          {/* Fortschrittsbalken - nur für förderfähige Stunden */}
+          {/* Fortschrittsbalken */}
           <div className="mt-4">
             <div className="flex justify-between text-sm text-gray-600 mb-1">
               <span>Förderfähige Stunden (nur Projektarbeit)</span>
@@ -1302,6 +1386,14 @@ export default function ZeiterfassungPage() {
               ></div>
             </div>
           </div>
+
+          {/* Info-Box für Überstunden */}
+          {monthTotals.project > maxHours * 0.9 && !overMax && (
+            <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+              <strong>💡 Hinweis:</strong> Sie nähern sich dem Maximum von {maxHours.toFixed(1)}h förderfähigen Stunden. 
+              Weitere Arbeitsstunden können in der Zeile "Nicht förderfähig" erfasst werden.
+            </div>
+          )}
 
           {/* Feiertage-Liste */}
           {holidays.length > 0 && (

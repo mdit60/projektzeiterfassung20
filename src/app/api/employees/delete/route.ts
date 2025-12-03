@@ -1,4 +1,8 @@
-// src/app/api/employees/delete/route.ts
+// ==================================================
+// Datei: src/app/api/employees/delete/route.ts
+// Rolle: admin (statt company_admin)
+// ==================================================
+
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
@@ -36,21 +40,21 @@ export async function POST(request: Request) {
       );
     }
 
-    // Admin-Rechte prüfen
+    // Admin-Rechte prüfen - GEÄNDERT: admin statt company_admin
     const { data: adminProfile } = await supabase
       .from('user_profiles')
       .select('role')
       .eq('user_id', user.id)
       .single();
 
-    if (adminProfile?.role !== 'company_admin') {
+    if (adminProfile?.role !== 'admin') {
       return NextResponse.json(
-        { error: 'Keine Berechtigung. Nur Company-Admins können Mitarbeiter löschen.' },
+        { error: 'Keine Berechtigung. Nur Admins können Mitarbeiter löschen.' },
         { status: 403 }
       );
     }
 
-    // ⭐ NEU: Prüfen ob Mitarbeiter gelöscht werden kann
+    // Prüfen ob Mitarbeiter gelöscht werden kann
     const { data: deleteCheck } = await supabase
       .rpc('can_delete_employee', { employee_id: employeeId });
 
@@ -70,7 +74,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // ⭐ NEU: Wenn nur Check, hier beenden
+    // Wenn nur Check, hier beenden
     if (checkOnly) {
       return NextResponse.json({
         canDelete: true,
@@ -92,18 +96,14 @@ export async function POST(request: Request) {
       );
     }
 
-    // ⭐ Nur löschen wenn KEINE Zuordnungen existieren
-    // (wird durch ON DELETE RESTRICT automatisch verhindert)
-    
-    // 1. Profil löschen (CASCADE zu auth.users)
+    // Profil löschen
     const { error: profileError } = await supabase
       .from('user_profiles')
       .delete()
       .eq('id', employeeId);
 
     if (profileError) {
-      // Wenn RESTRICT greift, bekommen wir hier einen Fehler
-      if (profileError.code === '23503') { // Foreign key violation
+      if (profileError.code === '23503') {
         return NextResponse.json({
           error: 'Mitarbeiter kann nicht gelöscht werden: Hat noch Arbeitspaket-Zuordnungen',
           suggestion: 'Verwenden Sie "Anonymisieren" oder entfernen Sie zuerst alle Zuordnungen',
@@ -114,7 +114,7 @@ export async function POST(request: Request) {
       throw profileError;
     }
 
-    // 2. Auth-User mit Service Role Key löschen
+    // Auth-User mit Service Role Key löschen
     const supabaseAdmin = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,

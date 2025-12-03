@@ -77,7 +77,7 @@ const defaultEmployee: EmployeeData = {
   id: '',
   name: '',
   email: '',
-  role: 'employee',
+  role: 'user',
   is_active: true,
   salutation: 'Herr',
   first_name: '',
@@ -186,7 +186,7 @@ export default function MitarbeiterDetailPage() {
         contract_end_date: empData.contract_end_date || '',
         tvoed_group: empData.tvoed_group || '',
         tvoed_level: empData.tvoed_level || '',
-        role: empData.role || 'employee',
+        role: empData.role || 'user',
         // Boolean-Felder
         is_active: empData.is_active ?? true,
         is_publicly_funded: empData.is_publicly_funded ?? false,
@@ -269,7 +269,7 @@ export default function MitarbeiterDetailPage() {
 
       if (updateError) throw updateError;
 
-      // 🆕 Prüfen ob Gehaltsdaten vorhanden sind
+      // 🎉†• Prüfen ob Gehaltsdaten vorhanden sind
       if (salaryComponents.length === 0) {
         setSuccess('Persönliche Daten gespeichert! Bitte nun die Gehaltsdaten erfassen.');
         setActiveTab('salary');
@@ -328,7 +328,7 @@ export default function MitarbeiterDetailPage() {
           .insert([salaryData]);
         if (error) throw error;
 
-        // 🆕 Automatisch Folgejahre anlegen (2 weitere Jahre)
+        // 🎉†• Automatisch Folgejahre anlegen (2 weitere Jahre)
         const followYears = [editingSalary.year + 1, editingSalary.year + 2];
         
         for (const year of followYears) {
@@ -341,7 +341,7 @@ export default function MitarbeiterDetailPage() {
             .maybeSingle();
 
           if (!existing) {
-            // Jahr existiert noch nicht → anlegen mit gleichen Daten
+            // Jahr existiert noch nicht â†’ anlegen mit gleichen Daten
             await supabase
               .from('salary_components')
               .insert([{ ...salaryData, year }]);
@@ -693,13 +693,12 @@ export default function MitarbeiterDetailPage() {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Rolle im System *</label>
                     <select
-                      value={employee.role || 'employee'}
+                      value={employee.role || 'user'}
                       onChange={(e) => setEmployee({...employee, role: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     >
-                      <option value="employee">Mitarbeiter</option>
-                      <option value="manager">Manager</option>
-                      <option value="company_admin">Administrator</option>
+                      <option value="user">Mitarbeiter (nur eigene Zeiterfassung)</option>
+                      <option value="admin">Projektleiter (volle Verwaltungsrechte)</option>
                     </select>
                   </div>
                 </div>
@@ -958,21 +957,21 @@ export default function MitarbeiterDetailPage() {
                             <span className="font-semibold text-gray-900">{salary.year}</span>
                           </td>
                           <td className="px-4 py-3 text-right text-gray-700">
-                            {salary.monthly_gross_salary?.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
+                            {salary.monthly_gross_salary?.toLocaleString('de-DE', { minimumFractionDigits: 2 })} â‚¬
                           </td>
                           <td className="px-4 py-3 text-right text-gray-500">
-                            + {salary.additional_components_total?.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
+                            + {salary.additional_components_total?.toLocaleString('de-DE', { minimumFractionDigits: 2 })} â‚¬
                           </td>
                           <td className="px-4 py-3 text-right font-semibold text-gray-900">
-                            {salary.annual_gross_salary?.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
+                            {salary.annual_gross_salary?.toLocaleString('de-DE', { minimumFractionDigits: 2 })} â‚¬
                           </td>
                           <td className="px-4 py-3 text-right">
                             <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded font-semibold">
-                              {salary.hourly_rate?.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €/h
+                              {salary.hourly_rate?.toLocaleString('de-DE', { minimumFractionDigits: 2 })} â‚¬/h
                             </span>
                           </td>
                           <td className="px-4 py-3 text-right text-gray-700">
-                            {salary.monthly_personnel_cost?.toLocaleString('de-DE', { minimumFractionDigits: 0 })} €
+                            {salary.monthly_personnel_cost?.toLocaleString('de-DE', { minimumFractionDigits: 0 })} â‚¬
                           </td>
                           <td className="px-4 py-3 text-center">
                             <button
@@ -1003,7 +1002,7 @@ export default function MitarbeiterDetailPage() {
 
               <div className="mt-4 p-4 bg-yellow-50 rounded-lg">
                 <p className="text-sm text-yellow-800">
-                  <strong>💡 Hinweis:</strong> Bei Gehaltserhöhungen im Projektverlauf ändert sich der Stundensatz. 
+                  <strong>🎉’¡ Hinweis:</strong> Bei Gehaltserhöhungen im Projektverlauf ändert sich der Stundensatz. 
                   Dadurch verringert sich die Anzahl der förderfähigen Stunden, um im Rahmen des bewilligten Budgets zu bleiben.
                 </p>
               </div>
@@ -1046,7 +1045,7 @@ export default function MitarbeiterDetailPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Fix-Monatsbruttolohn (€) *
+                    Fix-Monatsbruttolohn (â‚¬) *
                   </label>
                   <input
                     type="number"
@@ -1064,7 +1063,7 @@ export default function MitarbeiterDetailPage() {
                   {/* Weihnachtsgeld */}
                   <div className="grid grid-cols-3 gap-3 mb-3">
                     <div className="col-span-2">
-                      <label className="block text-xs text-gray-600 mb-1">Weihnachtsgeld / 13. Gehalt (€)</label>
+                      <label className="block text-xs text-gray-600 mb-1">Weihnachtsgeld / 13. Gehalt (â‚¬)</label>
                       <input
                         type="number"
                         step="0.01"
@@ -1088,7 +1087,7 @@ export default function MitarbeiterDetailPage() {
                   {/* Urlaubsgeld */}
                   <div className="grid grid-cols-3 gap-3 mb-3">
                     <div className="col-span-2">
-                      <label className="block text-xs text-gray-600 mb-1">Urlaubsgeld (€)</label>
+                      <label className="block text-xs text-gray-600 mb-1">Urlaubsgeld (â‚¬)</label>
                       <input
                         type="number"
                         step="0.01"
@@ -1112,7 +1111,7 @@ export default function MitarbeiterDetailPage() {
                   {/* VWL */}
                   <div className="grid grid-cols-3 gap-3 mb-3">
                     <div className="col-span-2">
-                      <label className="block text-xs text-gray-600 mb-1">AG-Anteil VWL (€)</label>
+                      <label className="block text-xs text-gray-600 mb-1">AG-Anteil VWL (â‚¬)</label>
                       <input
                         type="number"
                         step="0.01"
@@ -1136,7 +1135,7 @@ export default function MitarbeiterDetailPage() {
                   {/* bAV */}
                   <div className="grid grid-cols-3 gap-3 mb-3">
                     <div className="col-span-2">
-                      <label className="block text-xs text-gray-600 mb-1">AG-Anteil betr. Altersvorsorge (€)</label>
+                      <label className="block text-xs text-gray-600 mb-1">AG-Anteil betr. Altersvorsorge (â‚¬)</label>
                       <input
                         type="number"
                         step="0.01"
@@ -1160,7 +1159,7 @@ export default function MitarbeiterDetailPage() {
                   {/* Sonstige */}
                   <div className="grid grid-cols-3 gap-3">
                     <div className="col-span-2">
-                      <label className="block text-xs text-gray-600 mb-1">Sonstige (€)</label>
+                      <label className="block text-xs text-gray-600 mb-1">Sonstige (â‚¬)</label>
                       <input
                         type="number"
                         step="0.01"
@@ -1185,7 +1184,7 @@ export default function MitarbeiterDetailPage() {
               {/* Rechte Spalte: Berechnungen */}
               <div>
                 <div className="bg-gray-50 rounded-lg p-6">
-                  <h4 className="font-semibold text-gray-900 mb-4">📊 Berechnete Werte</h4>
+                  <h4 className="font-semibold text-gray-900 mb-4">🎉“Š Berechnete Werte</h4>
                   
                   {(() => {
                     const calc = calculateSalaryPreview(editingSalary);
@@ -1194,21 +1193,21 @@ export default function MitarbeiterDetailPage() {
                         <div className="flex justify-between py-2 border-b">
                           <span className="text-gray-600">Fix-Monatsbrutto × 12</span>
                           <span className="font-medium">
-                            {(editingSalary.monthly_gross_salary * 12).toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
+                            {(editingSalary.monthly_gross_salary * 12).toLocaleString('de-DE', { minimumFractionDigits: 2 })} â‚¬
                           </span>
                         </div>
                         
                         <div className="flex justify-between py-2 border-b">
                           <span className="text-gray-600">+ Weitere Bestandteile</span>
                           <span className="font-medium">
-                            {calc.additionalTotal.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
+                            {calc.additionalTotal.toLocaleString('de-DE', { minimumFractionDigits: 2 })} â‚¬
                           </span>
                         </div>
                         
                         <div className="flex justify-between py-2 border-b bg-blue-50 -mx-2 px-2 rounded">
                           <span className="font-semibold text-blue-900">= Jahresbrutto</span>
                           <span className="font-bold text-blue-900">
-                            {calc.annualGross.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
+                            {calc.annualGross.toLocaleString('de-DE', { minimumFractionDigits: 2 })} â‚¬
                           </span>
                         </div>
 
@@ -1228,14 +1227,14 @@ export default function MitarbeiterDetailPage() {
                           <div className="flex justify-between py-2 bg-green-50 -mx-2 px-2 rounded">
                             <span className="font-semibold text-green-900">Stundensatz</span>
                             <span className="font-bold text-green-900">
-                              {calc.hourlyRate.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €/h
+                              {calc.hourlyRate.toLocaleString('de-DE', { minimumFractionDigits: 2 })} â‚¬/h
                             </span>
                           </div>
                           
                           <div className="flex justify-between py-2 mt-2">
                             <span className="text-gray-600">Personalkosten je PM</span>
                             <span className="font-medium">
-                              {calc.monthlyPersonnelCost.toLocaleString('de-DE', { minimumFractionDigits: 0 })} €
+                              {calc.monthlyPersonnelCost.toLocaleString('de-DE', { minimumFractionDigits: 0 })} â‚¬
                             </span>
                           </div>
                         </div>

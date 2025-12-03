@@ -1,11 +1,15 @@
-// src/app/api/employees/anonymize/route.ts
+// ==================================================
+// Datei: src/app/api/employees/anonymize/route.ts
+// Rolle: admin (statt company_admin)
+// ==================================================
+
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
   try {
-    const { employeeId, reason } = await request.json();
+    const { employeeId } = await request.json();
 
     if (!employeeId) {
       return NextResponse.json(
@@ -36,25 +40,26 @@ export async function POST(request: Request) {
       );
     }
 
-    // Admin-Rechte prüfen
+    // Admin-Rechte prüfen - GEÄNDERT: admin statt company_admin
     const { data: adminProfile } = await supabase
       .from('user_profiles')
-      .select('role')
+      .select('role, company_id')
       .eq('user_id', user.id)
       .single();
 
-    if (adminProfile?.role !== 'company_admin') {
+    if (adminProfile?.role !== 'admin') {
       return NextResponse.json(
-        { error: 'Keine Berechtigung. Nur Company-Admins können Mitarbeiter anonymisieren.' },
+        { error: 'Keine Berechtigung. Nur Admins können Mitarbeiter anonymisieren.' },
         { status: 403 }
       );
     }
 
-    // Mitarbeiter-Daten laden (vor Anonymisierung)
+    // Mitarbeiter-Daten laden
     const { data: employee } = await supabase
       .from('user_profiles')
       .select('user_id, name, email')
       .eq('id', employeeId)
+      .eq('company_id', adminProfile.company_id)
       .single();
 
     if (!employee) {
@@ -64,26 +69,41 @@ export async function POST(request: Request) {
       );
     }
 
-    // Prüfen ob bereits anonymisiert
-    if (employee.name.startsWith('Ehemaliger Mitarbeiter')) {
-      return NextResponse.json(
-        { error: 'Mitarbeiter wurde bereits anonymisiert' },
-        { status: 400 }
-      );
+    // Anonymisierte Daten generieren
+    const anonymizedId = `anon_${Date.now()}`;
+    const anonymizedEmail = `${anonymizedId}@deleted.local`;
+
+    // Mitarbeiter anonymisieren (DSGVO-konform)
+    const { error: updateError } = await supabase
+      .from('user_profiles')
+      .update({
+        name: 'Gelöschter Mitarbeiter',
+        first_name: null,
+        last_name: null,
+        email: anonymizedEmail,
+        phone: null,
+        birth_date: null,
+        street: null,
+        house_number: null,
+        postal_code: null,
+        city: null,
+        country: null,
+        qualification: null,
+        job_function: null,
+        department: null,
+        personnel_number: null,
+        is_active: false,
+        deactivated_at: new Date().toISOString(),
+        is_anonymized: true,
+        anonymized_at: new Date().toISOString()
+      })
+      .eq('id', employeeId);
+
+    if (updateError) {
+      throw updateError;
     }
 
-    // Anonymisierung durchführen
-    const { data: result, error: anonymizeError } = await supabase
-      .rpc('anonymize_employee', { 
-        employee_id: employeeId,
-        reason: reason || 'DSGVO-Löschungsanfrage'
-      });
-
-    if (anonymizeError) {
-      throw anonymizeError;
-    }
-
-    // Auth-User mit Service Role Key löschen
+    // Auth-User deaktivieren (Login verhindern)
     const supabaseAdmin = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -96,18 +116,15 @@ export async function POST(request: Request) {
       }
     );
 
-    await supabaseAdmin.auth.admin.deleteUser(employee.user_id);
+    // E-Mail ändern damit Login nicht mehr möglich
+    await supabaseAdmin.auth.admin.updateUserById(employee.user_id, {
+      email: anonymizedEmail,
+      email_confirm: true
+    });
 
     return NextResponse.json({
       success: true,
-      message: `${employee.name} wurde erfolgreich anonymisiert`,
-      details: {
-        originalName: employee.name,
-        originalEmail: employee.email,
-        anonymizedAt: new Date().toISOString(),
-        reason: reason || 'DSGVO-Löschungsanfrage',
-        note: 'Projektdaten und Arbeitspakete bleiben erhalten'
-      }
+      message: `${employee.name} wurde DSGVO-konform anonymisiert. Zeiterfassungsdaten bleiben erhalten.`
     });
 
   } catch (error: any) {

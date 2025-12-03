@@ -39,7 +39,7 @@ export default function RegisterPage() {
   });
 
   const germanStates = [
-    { code: 'DE-BW', name: 'Baden-Württemberg' },
+    { code: 'DE-BW', name: 'Baden-WÃ¼rttemberg' },
     { code: 'DE-BY', name: 'Bayern' },
     { code: 'DE-BE', name: 'Berlin' },
     { code: 'DE-BB', name: 'Brandenburg' },
@@ -54,10 +54,10 @@ export default function RegisterPage() {
     { code: 'DE-SN', name: 'Sachsen' },
     { code: 'DE-ST', name: 'Sachsen-Anhalt' },
     { code: 'DE-SH', name: 'Schleswig-Holstein' },
-    { code: 'DE-TH', name: 'Thüringen' }
+    { code: 'DE-TH', name: 'ThÃ¼ringen' }
   ];
 
-  const legalForms = ['GmbH', 'GmbH & Co. KG', 'UG', 'UG & Co. KG', 'AG', 'GbR', 'OHG', 'KG', 'e.K.', 'Einzelunternehmen', 'Sonstige'];
+  const legalForms = ['GmbH', 'UG', 'AG', 'GbR', 'OHG', 'KG', 'e.K.', 'Einzelunternehmen', 'Sonstige'];
 
   const handleStep1Submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -177,7 +177,7 @@ export default function RegisterPage() {
         .insert([{
           user_id: authData.user.id,
           company_id: newCompany.id,
-          role: 'company_admin',
+          role: 'admin',
           name: adminData.name.trim(),
           email: adminData.email.toLowerCase(),
           is_active: true

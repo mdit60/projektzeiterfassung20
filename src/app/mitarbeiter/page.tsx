@@ -1,6 +1,6 @@
 // ==================================================
 // Datei: src/app/mitarbeiter/page.tsx
-// Mitarbeiter-Verwaltung mit verbessertem Modal-Feedback
+// Mitarbeiter-Verwaltung mit Rollen admin/user und Position
 // ==================================================
 
 'use client';
@@ -14,7 +14,9 @@ interface Employee {
   user_id: string;
   name: string;
   email: string;
-  role: 'company_admin' | 'manager' | 'employee';
+  role: 'admin' | 'user';
+  job_function: string | null;
+  department: string | null;
   is_active: boolean;
   created_at: string;
   deactivated_at: string | null;
@@ -44,7 +46,9 @@ export default function MitarbeiterPage() {
     lastName: '',
     emailPrefix: '',
     password: '',
-    role: 'employee'
+    position: '',
+    department: '',
+    role: 'user'
   });
   const [companyDomain, setCompanyDomain] = useState('');
 
@@ -82,7 +86,8 @@ export default function MitarbeiterPage() {
         }
       }
 
-      if (profileData.role === 'employee') {
+      // Nur Admin darf Mitarbeiter verwalten
+      if (profileData.role === 'user') {
         router.push('/dashboard');
         return;
       }
@@ -186,7 +191,9 @@ export default function MitarbeiterPage() {
       lastName: '',
       emailPrefix: '',
       password: '',
-      role: 'employee'
+      position: '',
+      department: '',
+      role: 'user'
     });
   };
 
@@ -277,6 +284,8 @@ export default function MitarbeiterPage() {
           first_name: inviteData.firstName.trim(),
           last_name: inviteData.lastName.trim(),
           email: fullEmail,
+          job_function: inviteData.position.trim() || null,
+          department: inviteData.department.trim() || null,
           is_active: true
         }]);
 
@@ -292,7 +301,9 @@ export default function MitarbeiterPage() {
         lastName: '',
         emailPrefix: '',
         password: '',
-        role: 'employee'
+        position: '',
+        department: '',
+        role: 'user'
       });
 
       // Modal nach 2 Sekunden schließen und Daten neu laden
@@ -320,22 +331,19 @@ export default function MitarbeiterPage() {
     }
   };
 
-  const getRoleName = (role: string) => {
-    switch (role) {
-      case 'company_admin': return 'Administrator';
-      case 'manager': return 'Manager';
-      case 'employee': return 'Mitarbeiter';
-      default: return role;
+  // Position oder Fallback auf Rolle anzeigen
+  const getDisplayPosition = (employee: Employee) => {
+    if (employee.job_function) {
+      return employee.job_function;
     }
+    // Fallback auf Rolle wenn keine Position gesetzt
+    return employee.role === 'admin' ? 'Administrator' : 'Mitarbeiter';
   };
 
   const getRoleBadgeColor = (role: string) => {
-    switch (role) {
-      case 'company_admin': return 'bg-green-100 text-green-800';
-      case 'manager': return 'bg-blue-100 text-blue-800';
-      case 'employee': return 'bg-gray-100 text-gray-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
+    return role === 'admin' 
+      ? 'bg-green-100 text-green-800' 
+      : 'bg-gray-100 text-gray-800';
   };
 
   if (loading) {
@@ -380,7 +388,7 @@ export default function MitarbeiterPage() {
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Mitarbeiter</h1>
             <p className="text-gray-600">Verwalten Sie Ihr Team und Rollen</p>
           </div>
-          {(profile?.role === 'company_admin' || profile?.role === 'manager') && (
+          {profile?.role === 'admin' && (
             <button
               onClick={() => setShowInviteModal(true)}
               className="flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors"
@@ -452,11 +460,12 @@ export default function MitarbeiterPage() {
 
                     {/* Actions */}
                     <div className="flex items-center space-x-3">
+                      {/* Position statt Rolle anzeigen */}
                       <span className={`px-3 py-1 rounded-full text-sm font-medium ${getRoleBadgeColor(employee.role)}`}>
-                        {getRoleName(employee.role)}
+                        {getDisplayPosition(employee)}
                       </span>
                       
-                      {(profile?.role === 'company_admin' || profile?.role === 'manager') && employee.user_id !== user.id && (
+                      {profile?.role === 'admin' && employee.user_id !== user.id && (
                         <div className="flex items-center space-x-2">
                           {/* Bearbeiten */}
                           <button
@@ -491,8 +500,8 @@ export default function MitarbeiterPage() {
                             )}
                           </button>
 
-                          {/* Löschen (nur Company Admin) */}
-                          {profile?.role === 'company_admin' && (
+                          {/* Löschen (nur Admin) */}
+                          {profile?.role === 'admin' && (
                             <button
                               onClick={() => handleDeleteClick(employee)}
                               disabled={actionLoading}
@@ -510,6 +519,7 @@ export default function MitarbeiterPage() {
                   </div>
                   
                   <div className="mt-2 text-xs text-gray-500 ml-16">
+                    {employee.department && <span className="mr-3">{employee.department}</span>}
                     Mitglied seit {new Date(employee.created_at).toLocaleDateString('de-DE')}
                     {!employee.is_active && employee.deactivated_at && (
                       <span className="ml-3">
@@ -574,7 +584,7 @@ export default function MitarbeiterPage() {
         </div>
       )}
 
-      {/* Invite Modal - mit Domain-Vorausfüllung und Feedback im Modal */}
+      {/* Invite Modal - mit Position und Abteilung */}
       {showInviteModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
@@ -685,20 +695,46 @@ export default function MitarbeiterPage() {
                 </p>
               </div>
 
+              {/* Neue Felder: Position und Abteilung */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Position / Funktion</label>
+                  <input
+                    type="text"
+                    value={inviteData.position}
+                    onChange={(e) => setInviteData({ ...inviteData, position: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="z.B. Entwickler"
+                    disabled={!!success}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Abteilung</label>
+                  <input
+                    type="text"
+                    value={inviteData.department}
+                    onChange={(e) => setInviteData({ ...inviteData, department: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="z.B. Entwicklung"
+                    disabled={!!success}
+                  />
+                </div>
+              </div>
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Rolle *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Berechtigung *</label>
                 <select
                   value={inviteData.role}
                   onChange={(e) => setInviteData({ ...inviteData, role: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   disabled={!!success}
                 >
-                  <option value="employee">Mitarbeiter</option>
-                  <option value="manager">Manager</option>
-                  {profile?.role === 'company_admin' && (
-                    <option value="company_admin">Administrator</option>
-                  )}
+                  <option value="user">Mitarbeiter (nur eigene Zeiterfassung)</option>
+                  <option value="admin">Projektleiter (volle Verwaltungsrechte)</option>
                 </select>
+                <p className="mt-1 text-xs text-gray-500">
+                  Projektleiter können Projekte, Mitarbeiter und alle Zeiterfassungen verwalten
+                </p>
               </div>
 
               <div className="flex space-x-3 pt-4">
