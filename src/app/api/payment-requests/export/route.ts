@@ -1007,7 +1007,7 @@ async function calculatePaymentRequestData(
   // Stundensätze laden - für alle relevanten Jahre im Zeitraum
   const startYear = parseInt(periodStart.substring(0, 4))
   const endYear = parseInt(periodEnd.substring(0, 4))
-  const years = []
+  const years: number[] = []
   for (let y = startYear; y <= endYear; y++) {
     years.push(y)
   }
