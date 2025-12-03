@@ -5,7 +5,7 @@
 
 'use client';
 
-import { useEffect, useState, Suspense } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createBrowserClient } from '@supabase/ssr';
 
@@ -120,7 +120,7 @@ const defaultSalary: SalaryComponent = {
   other_fixed_description: ''
 };
 
-  function MitarbeiterDetailContent() {
+export default function MitarbeiterDetailPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const employeeId = searchParams.get('id');
@@ -1273,21 +1273,4 @@ const defaultSalary: SalaryComponent = {
       )}
     </div>
   );
-// Loading Spinner für Suspense
-function LoadingSpinner() {
-  return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-    </div>
-  );
-}
-
-// Default export mit Suspense Boundary
-export default function MitarbeiterDetailPage() {
-  return (
-    <Suspense fallback={<LoadingSpinner />}>
-      <MitarbeiterDetailContent />
-    </Suspense>
-  );
-}
 }
