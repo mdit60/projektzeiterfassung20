@@ -9,6 +9,8 @@ import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createBrowserClient } from '@supabase/ssr';
 
+export const dynamic = 'force-dynamic'
+
 interface SalaryComponent {
   id?: string;
   year: number;
