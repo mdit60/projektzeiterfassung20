@@ -1,4 +1,8 @@
-// src/app/mitarbeiter/page.tsx
+// ==================================================
+// Datei: src/app/mitarbeiter/page.tsx
+// Mitarbeiter-Verwaltung mit verbessertem Modal-Feedback
+// ==================================================
+
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -172,6 +176,20 @@ export default function MitarbeiterPage() {
     }
   };
 
+  // Modal schließen und Meldungen zurücksetzen
+  const handleCloseInviteModal = () => {
+    setShowInviteModal(false);
+    setError('');
+    setSuccess('');
+    setInviteData({
+      firstName: '',
+      lastName: '',
+      emailPrefix: '',
+      password: '',
+      role: 'employee'
+    });
+  };
+
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -268,6 +286,7 @@ export default function MitarbeiterPage() {
 
       setSuccess(`${fullName} wurde erfolgreich eingeladen!`);
       
+      // Formular zurücksetzen
       setInviteData({
         firstName: '',
         lastName: '',
@@ -276,6 +295,7 @@ export default function MitarbeiterPage() {
         role: 'employee'
       });
 
+      // Modal nach 2 Sekunden schließen und Daten neu laden
       setTimeout(() => {
         setShowInviteModal(false);
         setSuccess('');
@@ -373,14 +393,14 @@ export default function MitarbeiterPage() {
           )}
         </div>
 
-        {/* Messages */}
-        {error && (
+        {/* Messages - nur außerhalb des Modals anzeigen wenn Modal geschlossen */}
+        {!showInviteModal && error && (
           <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
             {error}
           </div>
         )}
 
-        {success && (
+        {!showInviteModal && success && (
           <div className="mb-6 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg flex items-center">
             <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -554,14 +574,14 @@ export default function MitarbeiterPage() {
         </div>
       )}
 
-      {/* Invite Modal - mit Domain-Vorausfüllung */}
+      {/* Invite Modal - mit Domain-Vorausfüllung und Feedback im Modal */}
       {showInviteModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-xl font-bold text-gray-900">Mitarbeiter einladen</h3>
               <button
-                onClick={() => setShowInviteModal(false)}
+                onClick={handleCloseInviteModal}
                 className="text-gray-400 hover:text-gray-600"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -569,6 +589,21 @@ export default function MitarbeiterPage() {
                 </svg>
               </button>
             </div>
+
+            {/* Fehler/Erfolg IM Modal anzeigen */}
+            {error && (
+              <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+                {error}
+              </div>
+            )}
+            {success && (
+              <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm flex items-center">
+                <svg className="w-5 h-5 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                {success}
+              </div>
+            )}
 
             <form onSubmit={handleInvite} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -581,6 +616,7 @@ export default function MitarbeiterPage() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     placeholder="Max"
                     required
+                    disabled={!!success}
                   />
                 </div>
                 <div>
@@ -592,6 +628,7 @@ export default function MitarbeiterPage() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     placeholder="Mustermann"
                     required
+                    disabled={!!success}
                   />
                 </div>
               </div>
@@ -607,6 +644,7 @@ export default function MitarbeiterPage() {
                       className="flex-1 px-3 py-2 border border-gray-300 rounded-l-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       placeholder="max.mustermann"
                       required
+                      disabled={!!success}
                     />
                     <span className="inline-flex items-center px-3 py-2 border border-l-0 border-gray-300 bg-gray-100 text-gray-600 rounded-r-lg">
                       @{companyDomain}
@@ -620,6 +658,7 @@ export default function MitarbeiterPage() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     placeholder="max.mustermann@firma.de"
                     required
+                    disabled={!!success}
                   />
                 )}
                 {companyDomain && (
@@ -639,6 +678,7 @@ export default function MitarbeiterPage() {
                   placeholder="Mind. 6 Zeichen"
                   minLength={6}
                   required
+                  disabled={!!success}
                 />
                 <p className="mt-1 text-xs text-gray-500">
                   Teilen Sie dieses Passwort dem Mitarbeiter mit
@@ -651,6 +691,7 @@ export default function MitarbeiterPage() {
                   value={inviteData.role}
                   onChange={(e) => setInviteData({ ...inviteData, role: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  disabled={!!success}
                 >
                   <option value="employee">Mitarbeiter</option>
                   <option value="manager">Manager</option>
@@ -663,18 +704,20 @@ export default function MitarbeiterPage() {
               <div className="flex space-x-3 pt-4">
                 <button
                   type="button"
-                  onClick={() => setShowInviteModal(false)}
+                  onClick={handleCloseInviteModal}
                   className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium"
                 >
-                  Abbrechen
+                  {success ? 'Schließen' : 'Abbrechen'}
                 </button>
-                <button
-                  type="submit"
-                  disabled={inviting}
-                  className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium disabled:bg-gray-400"
-                >
-                  {inviting ? 'Wird eingeladen...' : 'Einladen'}
-                </button>
+                {!success && (
+                  <button
+                    type="submit"
+                    disabled={inviting}
+                    className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium disabled:bg-gray-400"
+                  >
+                    {inviting ? 'Wird eingeladen...' : 'Einladen'}
+                  </button>
+                )}
               </div>
             </form>
           </div>
