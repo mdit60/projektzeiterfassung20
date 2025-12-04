@@ -170,14 +170,14 @@ const getZAStatusColor = (status: string): string => {
 
 const getZAStatusLabel = (status: string): string => {
   const labels: Record<string, string> = {
-    draft: '📝 Entwurf',
-    calculated: '🔢 Berechnet',
-    submitted: '📤 Eingereicht',
-    in_review: '⏳ In Prüfung',
-    approved: '✅ Bewilligt',
-    paid: '💰 Ausgezahlt',
-    rejected: '❌ Abgelehnt',
-    partial: '📊 Teilweise',
+    draft: ' Entwurf',
+    calculated: ' Berechnet',
+    submitted: ' Eingereicht',
+    in_review: '³ In Prüfung',
+    approved: '… Bewilligt',
+    paid: ' Ausgezahlt',
+    rejected: 'Œ Abgelehnt',
+    partial: ' Teilweise',
   };
   return labels[status] || status;
 };
@@ -1215,8 +1215,8 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   // COMPUTED VALUES
   // ============================================
 
-  const isAdmin = profile?.role === 'company_admin';
-  const isManager = profile?.role === 'manager';
+  const isAdmin = profile?.role === 'admin';
+  const isManager = false; // Rolle existiert nicht mehr
   const canEdit = isAdmin || isManager;
 
   // Funding status calculation
@@ -1330,7 +1330,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                     )}
                     {project.funding_reference && (
                       <span className="px-2 py-0.5 bg-purple-100 text-purple-800 rounded text-sm font-medium">
-                        📋 {project.funding_reference}
+                         {project.funding_reference}
                       </span>
                     )}
                   </div>
@@ -1441,7 +1441,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Budget (€)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Budget (EUR)</label>
                     <input
                       type="number"
                       value={formData.budget}
@@ -1450,7 +1450,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Stundensatz (€)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Stundensatz (EUR)</label>
                     <input
                       type="number"
                       value={formData.hourly_rate}
@@ -1510,7 +1510,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                 {project.budget && (
                   <div>
                     <h3 className="text-sm font-medium text-gray-500 mb-1">Budget</h3>
-                    <p className="text-gray-900">{project.budget.toLocaleString('de-DE')} €</p>
+                    <p className="text-gray-900">{project.budget.toLocaleString('de-DE')} EUR</p>
                   </div>
                 )}
                 {project.hourly_rate && (
@@ -1545,7 +1545,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                     : 'text-gray-600 hover:bg-gray-100'
                 }`}
               >
-                📦 Arbeitspakete ({workPackages.length})
+                 Arbeitspakete ({workPackages.length})
               </button>
               <button
                 onClick={() => setActiveTab('projektmitarbeiter')}
@@ -1555,7 +1555,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                     : 'text-gray-600 hover:bg-gray-100'
                 }`}
               >
-                👥 Projektmitarbeiter ({projectAssignments.length})
+                 Projektmitarbeiter ({projectAssignments.length})
               </button>
               <button
                 onClick={() => setActiveTab('anlage5')}
@@ -1565,7 +1565,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                     : 'text-gray-600 hover:bg-gray-100'
                 }`}
               >
-                📋 Anlage 5
+                 Anlage 5
               </button>
               <button
                 onClick={() => setActiveTab('anlage62')}
@@ -1575,7 +1575,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                     : 'text-gray-600 hover:bg-gray-100'
                 }`}
               >
-                📊 Anlage 6.2
+                 Anlage 6.2
               </button>
               <button
                 onClick={() => setActiveTab('foerderung')}
@@ -1585,7 +1585,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                     : 'text-gray-600 hover:bg-gray-100'
                 }`}
               >
-                💰 Förderung
+                 Förderung
               </button>
               <button
                 onClick={() => setActiveTab('zahlungsanforderungen')}
@@ -1595,7 +1595,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                     : 'text-gray-600 hover:bg-gray-100'
                 }`}
               >
-                📄 Zahlungsanforderungen ({paymentRequests.length})
+                 Zahlungsanforderungen ({paymentRequests.length})
               </button>
             </div>
           </div>
@@ -1679,8 +1679,8 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                             <td className="px-4 py-4 text-right text-sm">{wp.estimated_hours ? `${wp.estimated_hours}h` : '-'}</td>
                             {canEdit && (
                               <td className="px-4 py-4 text-right text-sm">
-                                <button onClick={() => openAPModal(wp)} className="text-blue-600 hover:text-blue-800 mr-3">✏️</button>
-                                <button onClick={() => handleDeleteAP(wp)} className="text-red-600 hover:text-red-800">🗑️</button>
+                                <button onClick={() => openAPModal(wp)} className="text-blue-600 hover:text-blue-800 mr-3">ï¸</button>
+                                <button onClick={() => handleDeleteAP(wp)} className="text-red-600 hover:text-red-800"></button>
                               </td>
                             )}
                           </tr>
@@ -1722,7 +1722,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
             <div className="px-6 py-6">
               <div className="flex justify-between items-start mb-4">
                 <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg flex-1 mr-4">
-                  <h3 className="font-medium text-purple-800 mb-1">👥 Projektmitarbeiter verwalten</h3>
+                  <h3 className="font-medium text-purple-800 mb-1"> Projektmitarbeiter verwalten</h3>
                   <p className="text-sm text-purple-700">Nummern und Qualifikationsgruppen für ZIM-Anträge festlegen.</p>
                 </div>
                 {canEdit && (
@@ -1831,7 +1831,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                             <td className="px-4 py-4 text-right"><span className="font-medium text-gray-900">{empPM.toFixed(1)} PM</span></td>
                             {canEdit && (
                               <td className="px-4 py-4 text-right">
-                                <button onClick={() => handleRemoveFromProject(emp.id)} className="text-red-600 hover:text-red-800 text-sm">🗑️ Entfernen</button>
+                                <button onClick={() => handleRemoveFromProject(emp.id)} className="text-red-600 hover:text-red-800 text-sm"> Entfernen</button>
                               </td>
                             )}
                           </tr>
@@ -1856,7 +1856,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
           {activeTab === 'anlage5' && (
             <div className="px-6 py-6">
               <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-                <h3 className="font-medium text-green-800 mb-1">📋 ZIM Anlage 5 - Kontrollsummen</h3>
+                <h3 className="font-medium text-green-800 mb-1"> ZIM Anlage 5 - Kontrollsummen</h3>
                 <p className="text-sm text-green-700">Übersicht der Personenmonate je Arbeitspaket und je Mitarbeiter</p>
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -1946,7 +1946,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
           {activeTab === 'anlage62' && (
             <div className="px-6 py-6">
               <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                <h3 className="font-medium text-amber-800 mb-1">📊 ZIM Anlage 6.2 - Planung der Personalkapazität</h3>
+                <h3 className="font-medium text-amber-800 mb-1"> ZIM Anlage 6.2 - Planung der Personalkapazität</h3>
                 <p className="text-sm text-amber-700">PM-Kosten, Personenmonate pro Jahr und Personalkosten</p>
               </div>
               {anlage62Data.length === 0 ? (
@@ -1992,13 +1992,13 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                                     <td rowSpan={maRows.length + 1} className="px-3 py-2 text-sm font-bold text-blue-700 align-top">{row.ma_nr}</td>
                                     <td rowSpan={maRows.length + 1} className="px-3 py-2 align-top"><span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-sm">{row.qual_gruppe || 'A'}</span></td>
                                     <td rowSpan={maRows.length + 1} className="px-3 py-2 align-top"><div className="font-medium">{row.ma_name}</div><div className="text-xs text-gray-500">{row.qualifikation}</div></td>
-                                    <td rowSpan={maRows.length + 1} className="px-3 py-2 text-right text-sm align-top">{row.pm_kosten.toLocaleString('de-DE')} €</td>
+                                    <td rowSpan={maRows.length + 1} className="px-3 py-2 text-right text-sm align-top">{row.pm_kosten.toLocaleString('de-DE')} EUR</td>
                                     <td rowSpan={maRows.length + 1} className="px-3 py-2 text-right text-sm align-top">{row.teilzeit_faktor.toFixed(3)}</td>
                                   </>
                                 )}
                                 <td className="px-3 py-2 text-center text-sm"><span className="text-gray-500">{idx + 1}. Jahr</span> {row.year}</td>
                                 <td className="px-3 py-2 text-right text-sm font-medium">{row.person_monate > 0 ? row.person_monate.toFixed(1) : '-'}</td>
-                                <td className="px-3 py-2 text-right text-sm">{row.personalkosten > 0 ? `${row.personalkosten.toLocaleString('de-DE')} €` : '-'}</td>
+                                <td className="px-3 py-2 text-right text-sm">{row.personalkosten > 0 ? `${row.personalkosten.toLocaleString('de-DE')} EUR` : '-'}</td>
                               </tr>
                             );
                           });
@@ -2006,7 +2006,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                             <tr key={`${userId}-total`} className="bg-gray-50">
                               <td className="px-3 py-2 text-center text-sm font-medium text-gray-700">gesamt</td>
                               <td className="px-3 py-2 text-right text-sm font-bold">{maTotalPM.toFixed(1)}</td>
-                              <td className="px-3 py-2 text-right text-sm font-bold">{maTotalKosten.toLocaleString('de-DE')} €</td>
+                              <td className="px-3 py-2 text-right text-sm font-bold">{maTotalKosten.toLocaleString('de-DE')} EUR</td>
                             </tr>
                           );
                         });
@@ -2015,7 +2015,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                             <td colSpan={5} className="px-3 py-3 text-right font-bold text-amber-800">GESAMT</td>
                             <td className="px-3 py-3"></td>
                             <td className="px-3 py-3 text-right font-bold text-amber-900 text-lg">{totalPM.toFixed(1)} PM</td>
-                            <td className="px-3 py-3 text-right font-bold text-amber-900 text-lg">{totalKosten.toLocaleString('de-DE')} €</td>
+                            <td className="px-3 py-3 text-right font-bold text-amber-900 text-lg">{totalKosten.toLocaleString('de-DE')} EUR</td>
                           </tr>
                         );
                         return rows;
@@ -2031,7 +2031,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
           {activeTab === 'foerderung' && (
             <div className="px-6 py-6">
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-lg font-semibold">💰 Fördermittel-Einstellungen</h2>
+                <h2 className="text-lg font-semibold"> Fördermittel-Einstellungen</h2>
                 {canEdit && !foerderEditMode && (
                   <button onClick={() => setFoerderEditMode(true)} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Bearbeiten</button>
                 )}
@@ -2055,7 +2055,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                       <input type="text" value={foerderFormData.funding_reference} onChange={(e) => setFoerderFormData({ ...foerderFormData, funding_reference: e.target.value })} className="w-full border rounded-lg px-3 py-2" placeholder="z.B. 16KN123456" />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Bewilligte Fördersumme (€)</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Bewilligte Fördersumme (EUR)</label>
                       <input type="number" value={foerderFormData.funding_amount} onChange={(e) => setFoerderFormData({ ...foerderFormData, funding_amount: e.target.value })} className="w-full border rounded-lg px-3 py-2" step="0.01" />
                     </div>
                     <div>
@@ -2097,7 +2097,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                     </div>
                   </div>
                   <div className="border-t pt-6">
-                    <h3 className="text-md font-medium text-gray-900 mb-4">📊 Gesamtvorkalkulation (Kostenplan)</h3>
+                    <h3 className="text-md font-medium text-gray-900 mb-4"> Gesamtvorkalkulation (Kostenplan)</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">1. Personalkosten (Nr. 5.3.1 a)</label>
@@ -2150,8 +2150,8 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                       <h3 className="text-md font-medium text-gray-900 mb-4">Projektleiter</h3>
                       <div className="bg-gray-50 rounded-lg p-4">
                         <div className="font-medium">{project.project_manager}</div>
-                        {project.project_manager_phone && <div className="text-sm text-gray-600 mt-1">📞 {project.project_manager_phone}</div>}
-                        {project.project_manager_email && <div className="text-sm text-gray-600">✉️ {project.project_manager_email}</div>}
+                        {project.project_manager_phone && <div className="text-sm text-gray-600 mt-1"> {project.project_manager_phone}</div>}
+                        {project.project_manager_email && <div className="text-sm text-gray-600">‰ï¸ {project.project_manager_email}</div>}
                       </div>
                     </div>
                   )}
@@ -2164,7 +2164,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
           {activeTab === 'zahlungsanforderungen' && (
             <div className="px-6 py-6">
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-lg font-semibold">📄 Zahlungsanforderungen</h2>
+                <h2 className="text-lg font-semibold"> Zahlungsanforderungen</h2>
                 {canEdit && project.funding_program && (
                   <button onClick={() => setShowZAModal(true)} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center">
                     <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
@@ -2175,7 +2175,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
               {!project.funding_program && (
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
-                  <p className="text-yellow-800">⚠️ Bitte konfigurieren Sie zuerst die Förderdetails im Tab "Förderung".</p>
+                  <p className="text-yellow-800">ï¸ Bitte konfigurieren Sie zuerst die Förderdetails im Tab "Förderung".</p>
                 </div>
               )}
 
@@ -2229,9 +2229,9 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                           <td className="px-4 py-3 text-right text-green-600 font-medium">{pr.paid_amount ? formatCurrency(pr.paid_amount) : '-'}</td>
                           <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                             <div className="flex justify-end space-x-2">
-                              <button onClick={() => setSelectedZaId(pr.id)} className="text-blue-600 hover:text-blue-800 p-1" title="Details">👁️</button>
+                              <button onClick={() => setSelectedZaId(pr.id)} className="text-blue-600 hover:text-blue-800 p-1" title="Details">ï¸</button>
                               {pr.status === 'draft' && canEdit && (
-                                <button onClick={() => handleDeleteZA(pr.id)} className="text-red-600 hover:text-red-800 p-1" title="Löschen">🗑️</button>
+                                <button onClick={() => handleDeleteZA(pr.id)} className="text-red-600 hover:text-red-800 p-1" title="Löschen"></button>
                               )}
                             </div>
                           </td>
@@ -2286,7 +2286,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
               </div>
             ) : (
               <>
-                <div className="mb-4 p-3 bg-blue-50 rounded-lg text-sm text-blue-800"><strong>💡 Hinweis:</strong> 1 PM = Wochenstunden × 52 / 12</div>
+                <div className="mb-4 p-3 bg-blue-50 rounded-lg text-sm text-blue-800"><strong> Hinweis:</strong> 1 PM = Wochenstunden × 52 / 12</div>
                 <div className="space-y-3">
                   {companyEmployees
                     .filter(emp => emp.project_employee_number)
@@ -2301,7 +2301,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                           <div className="flex items-center flex-1">
                             <input type="checkbox" checked={assignments[emp.id]?.selected || false} onChange={(e) => setAssignments({ ...assignments, [emp.id]: { ...assignments[emp.id], selected: e.target.checked } })} className="w-5 h-5 text-blue-600 rounded mr-3" />
                             <span className="inline-flex items-center justify-center w-7 h-7 bg-blue-600 text-white rounded-full font-bold text-sm mr-3">{emp.project_employee_number}</span>
-                            <div><div className="font-medium text-gray-900">{emp.name}</div><div className="text-xs text-gray-500">{weeklyHours}h/Woche • Qual. {emp.qualification_group || 'A'}</div></div>
+                            <div><div className="font-medium text-gray-900">{emp.name}</div><div className="text-xs text-gray-500">{weeklyHours}h/Woche ¢ Qual. {emp.qualification_group || 'A'}</div></div>
                           </div>
                           {assignments[emp.id]?.selected && (
                             <div className="flex items-center space-x-2 ml-4">
@@ -2447,10 +2447,10 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
               <div className="bg-gray-50 rounded-lg p-4 mb-6">
                 <h4 className="font-medium text-gray-900 mb-2">Erwartetes Format:</h4>
                 <div className="text-sm text-gray-600 space-y-1">
-                  <p>• <strong>Spalte A:</strong> Nr. (z.B. 1, 2, 3.1, 3.1.1)</p>
-                  <p>• <strong>Spalte B:</strong> Arbeitspaket-Beschreibung</p>
-                  <p>• <strong>Spalte C:</strong> Startdatum (von)</p>
-                  <p>• <strong>Spalte D:</strong> Enddatum (bis)</p>
+                  <p>¢ <strong>Spalte A:</strong> Nr. (z.B. 1, 2, 3.1, 3.1.1)</p>
+                  <p>¢ <strong>Spalte B:</strong> Arbeitspaket-Beschreibung</p>
+                  <p>¢ <strong>Spalte C:</strong> Startdatum (von)</p>
+                  <p>¢ <strong>Spalte D:</strong> Enddatum (bis)</p>
                   <p className="text-xs text-gray-500 mt-2">Header in Zeile 2-3, Daten ab Zeile 4</p>
                 </div>
               </div>
@@ -2559,14 +2559,14 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Bis</label><input type="date" value={zaFormData.period_end} onChange={(e) => setZaFormData({ ...zaFormData, period_end: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg" /></div>
                 </div>
                 <button onClick={handleCalculateZA} disabled={zaCalculating || !zaFormData.period_start || !zaFormData.period_end} className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:bg-gray-400">
-                  {zaCalculating ? '🔄 Berechne...' : '🔢 Kosten berechnen'}
+                  {zaCalculating ? ' Berechne...' : ' Kosten berechnen'}
                 </button>
               </div>
 
               {zaCalculation && (
                 <>
                   <div className="mb-6">
-                    <h4 className="font-medium text-gray-900 mb-3">📋 Anlage 1a - Personenstunden</h4>
+                    <h4 className="font-medium text-gray-900 mb-3"> Anlage 1a - Personenstunden</h4>
                     <div className="overflow-x-auto border rounded-lg">
                       <table className="min-w-full divide-y divide-gray-200 text-sm">
                         <thead className="bg-gray-50">
@@ -2577,7 +2577,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                             {zaCalculation.items.length > 0 && Object.keys(zaCalculation.items[0].hours_by_month).sort().map(month => (
                               <th key={month} className="px-3 py-2 text-right font-medium text-gray-500">{new Date(month + '-01').toLocaleDateString('de-DE', { month: 'short', year: '2-digit' })}</th>
                             ))}
-                            <th className="px-3 py-2 text-right font-medium text-gray-900 bg-gray-100">Σ Stunden</th>
+                            <th className="px-3 py-2 text-right font-medium text-gray-900 bg-gray-100">Sum Stunden</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200">
@@ -2608,7 +2608,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                   </div>
 
                   <div className="mb-6">
-                    <h4 className="font-medium text-gray-900 mb-3">📋 Anlage 1b - Personalkosten</h4>
+                    <h4 className="font-medium text-gray-900 mb-3"> Anlage 1b - Personalkosten</h4>
                     <div className="overflow-x-auto border rounded-lg">
                       <table className="min-w-full divide-y divide-gray-200 text-sm">
                         <thead className="bg-gray-50">
@@ -2646,7 +2646,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                   </div>
 
                   <div className="bg-gradient-to-r from-green-50 to-blue-50 rounded-lg p-6">
-                    <h4 className="font-medium text-gray-900 mb-4">📊 Zusammenfassung</h4>
+                    <h4 className="font-medium text-gray-900 mb-4"> Zusammenfassung</h4>
                     <div className="space-y-3">
                       <div className="flex justify-between"><span className="text-gray-600">Personalkosten</span><span className="font-medium">{formatCurrency(zaCalculation.totals.personnel_costs)}</span></div>
                       {(project.overhead_rate || 0) > 0 && <div className="flex justify-between"><span className="text-gray-600">+ Gemeinkostenzuschlag ({project.overhead_rate}%)</span><span className="font-medium">{formatCurrency(zaCalculation.totals.overhead_costs)}</span></div>}
@@ -2719,14 +2719,14 @@ function ZADetailModal({ zaId, supabase, onClose, onUpdate, canEdit, formatCurre
 
   const getZAStatusConfig = (status: string) => {
     const configs: Record<string, { color: string; label: string; next: string[] }> = {
-      draft: { color: 'bg-gray-100 text-gray-800', label: '📝 Entwurf', next: ['submitted'] },
-      calculated: { color: 'bg-blue-100 text-blue-800', label: '🔢 Berechnet', next: ['submitted'] },
-      submitted: { color: 'bg-yellow-100 text-yellow-800', label: '📤 Eingereicht', next: ['draft', 'in_review', 'approved'] },
-      in_review: { color: 'bg-orange-100 text-orange-800', label: '⏳ In Prüfung', next: ['draft', 'approved', 'rejected'] },
-      approved: { color: 'bg-green-100 text-green-800', label: '✅ Bewilligt', next: ['paid'] },
-      paid: { color: 'bg-emerald-100 text-emerald-800', label: '💰 Ausgezahlt', next: [] },
-      rejected: { color: 'bg-red-100 text-red-800', label: '❌ Abgelehnt', next: ['draft'] },
-      partial: { color: 'bg-purple-100 text-purple-800', label: '📊 Teilweise', next: ['paid'] },
+      draft: { color: 'bg-gray-100 text-gray-800', label: ' Entwurf', next: ['submitted'] },
+      calculated: { color: 'bg-blue-100 text-blue-800', label: ' Berechnet', next: ['submitted'] },
+      submitted: { color: 'bg-yellow-100 text-yellow-800', label: ' Eingereicht', next: ['draft', 'in_review', 'approved'] },
+      in_review: { color: 'bg-orange-100 text-orange-800', label: '³ In Prüfung', next: ['draft', 'approved', 'rejected'] },
+      approved: { color: 'bg-green-100 text-green-800', label: '… Bewilligt', next: ['paid'] },
+      paid: { color: 'bg-emerald-100 text-emerald-800', label: ' Ausgezahlt', next: [] },
+      rejected: { color: 'bg-red-100 text-red-800', label: 'Œ Abgelehnt', next: ['draft'] },
+      partial: { color: 'bg-purple-100 text-purple-800', label: ' Teilweise', next: ['paid'] },
     };
     return configs[status] || configs.draft;
   };
@@ -2759,7 +2759,7 @@ function ZADetailModal({ zaId, supabase, onClose, onUpdate, canEdit, formatCurre
         <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-4 flex justify-between items-center">
           <div>
             <h2 className="text-xl font-bold">Zahlungsanforderung Nr. {za.request_number}</h2>
-            <p className="text-blue-100 text-sm">{za.project?.name} • {za.project?.funding_reference}</p>
+            <p className="text-blue-100 text-sm">{za.project?.name} ¢ {za.project?.funding_reference}</p>
           </div>
           <button onClick={onClose} className="text-white hover:text-blue-200 text-2xl">×</button>
         </div>
@@ -2782,7 +2782,7 @@ function ZADetailModal({ zaId, supabase, onClose, onUpdate, canEdit, formatCurre
                 return (
                   <button key={action} onClick={() => handleStatusChange(action)} disabled={saving}
                     className={`px-3 py-1.5 rounded-lg text-sm font-medium ${action === 'rejected' ? 'bg-red-100 text-red-700' : action === 'paid' ? 'bg-green-600 text-white' : action === 'draft' ? 'bg-gray-200 text-gray-700' : 'bg-blue-100 text-blue-700'}`}>
-                    {action === 'draft' ? '← Zurück zu ' : '→ '}{actionConfig.label.replace(/[📝🔢📤⏳✅💰❌📊]/, '').trim()}
+                    {action === 'draft' ? ' Zurück zu ' : '-> '}{actionConfig.label.replace(/[³…Œ]/, '').trim()}
                   </button>
                 );
               })}
@@ -2797,7 +2797,7 @@ function ZADetailModal({ zaId, supabase, onClose, onUpdate, canEdit, formatCurre
           </div>
 
           <div className="mb-6">
-            <h3 className="font-medium text-gray-900 mb-3">📋 Anlage 1a - Stunden</h3>
+            <h3 className="font-medium text-gray-900 mb-3"> Anlage 1a - Stunden</h3>
             <div className="overflow-x-auto border rounded-lg">
               <table className="min-w-full divide-y divide-gray-200 text-sm">
                 <thead className="bg-gray-50">
@@ -2806,7 +2806,7 @@ function ZADetailModal({ zaId, supabase, onClose, onUpdate, canEdit, formatCurre
                     <th className="px-3 py-2 text-left font-medium text-gray-500">Mitarbeiter</th>
                     <th className="px-3 py-2 text-left font-medium text-gray-500">Gruppe</th>
                     {months.map(month => <th key={month} className="px-3 py-2 text-right font-medium text-gray-500">{new Date(month + '-01').toLocaleDateString('de-DE', { month: 'short', year: '2-digit' })}</th>)}
-                    <th className="px-3 py-2 text-right font-medium text-gray-900 bg-gray-100">Σ</th>
+                    <th className="px-3 py-2 text-right font-medium text-gray-900 bg-gray-100">Sum</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
@@ -2824,7 +2824,7 @@ function ZADetailModal({ zaId, supabase, onClose, onUpdate, canEdit, formatCurre
 
           <div className="grid md:grid-cols-2 gap-6 mb-6">
             <div className="bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg p-6">
-              <h4 className="font-medium text-gray-900 mb-4">📊 Kostenübersicht</h4>
+              <h4 className="font-medium text-gray-900 mb-4"> Kostenübersicht</h4>
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between"><span>Personalkosten</span><span className="font-medium">{formatCurrency(za.personnel_costs)}</span></div>
                 {za.overhead_costs > 0 && <div className="flex justify-between text-gray-600"><span>+ Gemeinkostenzuschlag</span><span>{formatCurrency(za.overhead_costs)}</span></div>}
@@ -2834,7 +2834,7 @@ function ZADetailModal({ zaId, supabase, onClose, onUpdate, canEdit, formatCurre
               </div>
             </div>
             <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg p-6">
-              <h4 className="font-medium text-gray-900 mb-4">💰 Bewilligung & Auszahlung</h4>
+              <h4 className="font-medium text-gray-900 mb-4"> Bewilligung & Auszahlung</h4>
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between"><span>Bewilligter Betrag</span><span className="font-medium">{formatCurrency(za.approved_amount)}</span></div>
                 <div className="flex justify-between"><span>Ausgezahlter Betrag</span><span className="font-bold text-green-700">{formatCurrency(za.paid_amount)}</span></div>
