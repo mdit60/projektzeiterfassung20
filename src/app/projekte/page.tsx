@@ -1,8 +1,12 @@
+// ========================================
+// Datei: src/app/projekte/page.tsx
+// ========================================
+
 'use client';
 
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { createBrowserClient } from '@supabase/ssr';
+import { createClient } from '@/lib/supabase/client';
 
 interface Project {
   id: string;
@@ -26,10 +30,7 @@ interface UserProfile {
 
 export default function ProjectsPage() {
   const router = useRouter();
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  const supabase = createClient();
 
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -139,7 +140,7 @@ export default function ProjectsPage() {
     return <span className={`px-2 py-1 rounded-full text-xs font-medium ${badge.color}`}>{badge.text}</span>;
   };
 
-  const canEdit = profile?.role === 'company_admin' || profile?.role === 'manager';
+  const canEdit = profile?.role === 'admin' || profile?.role === 'manager';
 
   if (loading) {
     return (

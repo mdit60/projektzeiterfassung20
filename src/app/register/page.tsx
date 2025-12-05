@@ -1,15 +1,16 @@
+// ========================================
+// Datei: src/app/register/page.tsx
+// ========================================
+
 'use client';
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { createBrowserClient } from '@supabase/ssr';
+import { createClient } from '@/lib/supabase/client';
 
 export default function RegisterPage() {
   const router = useRouter();
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  const supabase = createClient();
 
   // Step 1: Admin-Daten, Step 2: Firmendaten
   const [step, setStep] = useState(1);
@@ -39,7 +40,7 @@ export default function RegisterPage() {
   });
 
   const germanStates = [
-    { code: 'DE-BW', name: 'Baden-WÃ¼rttemberg' },
+    { code: 'DE-BW', name: 'Baden-WÃƒÂ¼rttemberg' },
     { code: 'DE-BY', name: 'Bayern' },
     { code: 'DE-BE', name: 'Berlin' },
     { code: 'DE-BB', name: 'Brandenburg' },
@@ -54,7 +55,7 @@ export default function RegisterPage() {
     { code: 'DE-SN', name: 'Sachsen' },
     { code: 'DE-ST', name: 'Sachsen-Anhalt' },
     { code: 'DE-SH', name: 'Schleswig-Holstein' },
-    { code: 'DE-TH', name: 'ThÃ¼ringen' }
+    { code: 'DE-TH', name: 'ThÃƒÂ¼ringen' }
   ];
 
   const legalForms = ['GmbH', 'UG', 'AG', 'GbR', 'OHG', 'KG', 'e.K.', 'Einzelunternehmen', 'Sonstige'];
@@ -65,7 +66,7 @@ export default function RegisterPage() {
 
     // Validierung
     if (!adminData.name.trim() || !adminData.email.trim() || !adminData.password.trim()) {
-      setError('Bitte fÃ¼llen Sie alle Pflichtfelder aus');
+      setError('Bitte fÃƒÂ¼llen Sie alle Pflichtfelder aus');
       return;
     }
 
@@ -75,14 +76,14 @@ export default function RegisterPage() {
     }
 
     if (adminData.password !== adminData.passwordConfirm) {
-      setError('PasswÃ¶rter stimmen nicht Ã¼berein');
+      setError('PasswÃƒÂ¶rter stimmen nicht ÃƒÂ¼berein');
       return;
     }
 
-    // Email-Format prÃ¼fen
+    // Email-Format prÃƒÂ¼fen
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(adminData.email)) {
-      setError('Bitte geben Sie eine gÃ¼ltige E-Mail-Adresse ein');
+      setError('Bitte geben Sie eine gÃƒÂ¼ltige E-Mail-Adresse ein');
       return;
     }
 
@@ -99,12 +100,12 @@ export default function RegisterPage() {
       if (!companyData.name.trim() || !companyData.street.trim() || 
           !companyData.houseNumber.trim() || !companyData.zip.trim() || 
           !companyData.city.trim()) {
-        throw new Error('Bitte fÃ¼llen Sie alle Pflichtfelder aus');
+        throw new Error('Bitte fÃƒÂ¼llen Sie alle Pflichtfelder aus');
       }
 
-      console.log('ðŸš€ Starting registration process...');
+      console.log('Ã°Å¸Å¡ Starting registration process...');
 
-      // 1. PrÃ¼fen ob Firma bereits existiert
+      // 1. PrÃƒÂ¼fen ob Firma bereits existiert
       const { data: existingCompany } = await supabase
         .from('companies')
         .select('id')
@@ -112,11 +113,11 @@ export default function RegisterPage() {
         .maybeSingle();
 
       if (existingCompany) {
-        throw new Error('Eine Firma mit diesem Namen existiert bereits. Bitte wÃ¤hlen Sie einen anderen Namen.');
+        throw new Error('Eine Firma mit diesem Namen existiert bereits. Bitte wÃƒÂ¤hlen Sie einen anderen Namen.');
       }
 
       // 2. User in Supabase Auth erstellen
-      console.log('ðŸ“ Creating auth user...');
+      console.log('Ã°Å¸ Creating auth user...');
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: adminData.email,
         password: adminData.password,
@@ -128,7 +129,7 @@ export default function RegisterPage() {
       });
 
       if (authError) {
-        console.error('âŒ Auth error:', authError);
+        console.error('Ã¢ÂÅ’ Auth error:', authError);
         throw new Error(authError.message);
       }
 
@@ -136,14 +137,14 @@ export default function RegisterPage() {
         throw new Error('Benutzer konnte nicht erstellt werden');
       }
 
-      console.log('âœ… Auth user created:', authData.user.id);
+      console.log('Ã¢Å“ Auth user created:', authData.user.id);
 
       // 3. Warten bis Session aktiv ist
-      console.log('â³ Waiting for session...');
+      console.log('Ã¢ÂÂ³ Waiting for session...');
       await new Promise(resolve => setTimeout(resolve, 2000));
 
       // 4. Firma erstellen
-      console.log('ðŸ¢ Creating company...');
+      console.log('Ã°Å¸ÂÂ¢ Creating company...');
       const { data: newCompany, error: companyError } = await supabase
         .from('companies')
         .insert([{
@@ -164,14 +165,14 @@ export default function RegisterPage() {
         .single();
 
       if (companyError) {
-        console.error('âŒ Company error:', companyError);
+        console.error('Ã¢ÂÅ’ Company error:', companyError);
         throw new Error('Firma konnte nicht erstellt werden: ' + companyError.message);
       }
 
-      console.log('âœ… Company created:', newCompany.id);
+      console.log('Ã¢Å“ Company created:', newCompany.id);
 
       // 5. User-Profil erstellen
-      console.log('ðŸ‘¤ Creating user profile...');
+      console.log('Ã°Å¸ Creating user profile...');
       const { error: profileError } = await supabase
         .from('user_profiles')
         .insert([{
@@ -184,18 +185,18 @@ export default function RegisterPage() {
         }]);
 
       if (profileError) {
-        console.error('âŒ Profile error:', profileError);
+        console.error('Ã¢ÂÅ’ Profile error:', profileError);
         throw new Error('Benutzerprofil konnte nicht erstellt werden: ' + profileError.message);
       }
 
-      console.log('âœ… Profile created!');
-      console.log('ðŸŽ‰ Registration complete! Redirecting to dashboard...');
+      console.log('Ã¢Å“ Profile created!');
+      console.log('Ã°Å¸Å½ Registration complete! Redirecting to dashboard...');
 
       // 6. Weiterleitung zum Dashboard
       router.push('/dashboard');
 
     } catch (err: any) {
-      console.error('âŒ Registration error:', err);
+      console.error('Ã¢ÂÅ’ Registration error:', err);
       setError(err.message || 'Ein Fehler ist aufgetreten');
     } finally {
       setLoading(false);
@@ -285,7 +286,7 @@ export default function RegisterPage() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Passwort bestÃ¤tigen *
+                Passwort bestÃƒÂ¤tigen *
               </label>
               <input
                 type="password"
@@ -335,14 +336,14 @@ export default function RegisterPage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  StraÃŸe *
+                  StraÃƒÅ¸e *
                 </label>
                 <input
                   type="text"
                   value={companyData.street}
                   onChange={(e) => setCompanyData({ ...companyData, street: e.target.value })}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="MusterstraÃŸe"
+                  placeholder="MusterstraÃƒÅ¸e"
                   required
                   disabled={loading}
                 />
@@ -477,7 +478,7 @@ export default function RegisterPage() {
                 className="flex-1 py-3 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors"
                 disabled={loading}
               >
-                ZurÃ¼ck
+                ZurÃƒÂ¼ck
               </button>
               <button
                 type="submit"

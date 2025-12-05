@@ -3,7 +3,7 @@
 
 import { use, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { createBrowserClient } from '@supabase/ssr';
+import { createClient } from '@/lib/supabase/client';
 
 interface Employee {
   id: string;
@@ -22,10 +22,7 @@ export default function NewWorkPackagePage({ params }: { params: Promise<{ id: s
   const { id: projectId } = use(params);
   
   const router = useRouter();
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  const supabase = createClient();
 
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);

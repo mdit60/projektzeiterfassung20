@@ -16,7 +16,11 @@ export async function createClient() {
         setAll(cookiesToSet) {
           try {
             cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
+              cookieStore.set(name, value, {
+                ...options,
+                maxAge: undefined,  // Session-Cookie: kein maxAge
+                expires: undefined, // Session-Cookie: kein expires
+              })
             );
           } catch {
             // Wird von Server Components aufgerufen, die Cookies nicht setzen können

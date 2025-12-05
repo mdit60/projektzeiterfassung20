@@ -1,3 +1,4 @@
+// src/middleware.ts
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
@@ -15,15 +16,20 @@ export async function middleware(request: NextRequest) {
           return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) =>
+          cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           );
           supabaseResponse = NextResponse.next({
             request,
           });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          );
+          cookiesToSet.forEach(({ name, value, options }) => {
+            // Session-Cookie: KEIN maxAge = wird bei Browser-Close gelöscht
+            supabaseResponse.cookies.set(name, value, {
+              ...options,
+              maxAge: undefined,  // Entfernt maxAge → Session-Cookie
+              expires: undefined, // Entfernt expires → Session-Cookie
+            });
+          });
         },
       },
     }
@@ -41,10 +47,9 @@ export async function middleware(request: NextRequest) {
   const publicRoutes = [
     '/',
     '/login',
-    '/register',  // <-- WICHTIG: Register muss öffentlich sein!
+    '/register',
   ];
 
-  // Prüfe ob aktuelle Route öffentlich ist
   const isPublicRoute = publicRoutes.some(route => 
     pathname === route || pathname.startsWith(route + '/')
   );
@@ -69,7 +74,7 @@ export async function middleware(request: NextRequest) {
   // ==========================================
   // REDIRECT-LOGIK
   // ==========================================
-
+  
   // 1. Nicht eingeloggt + geschützte Route → Login
   if (!user && isProtectedRoute) {
     const url = request.nextUrl.clone();
@@ -78,7 +83,6 @@ export async function middleware(request: NextRequest) {
   }
 
   // 2. Eingeloggt + auf Login-Seite → Dashboard
-  //    ABER: Register bleibt erlaubt (für zusätzliche Firmen)
   if (user && pathname === '/login') {
     const url = request.nextUrl.clone();
     url.pathname = '/dashboard';
@@ -97,13 +101,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public folder
-     */
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };

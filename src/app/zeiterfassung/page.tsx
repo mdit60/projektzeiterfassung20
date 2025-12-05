@@ -1,14 +1,12 @@
-// ==================================================
+// ========================================
 // Datei: src/app/zeiterfassung/page.tsx
-// Zeiterfassung mit Admin-Dropdown für Mitarbeiterauswahl
-// Rollen: admin / user (statt company_admin / manager / employee)
-// ==================================================
+// ========================================
 
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { createBrowserClient } from '@supabase/ssr';
+import { createClient } from '@/lib/supabase/client';
 
 interface ProjectInfo {
   id: string;
@@ -61,10 +59,7 @@ const ABSENCE_TYPES: { [key: string]: { label: string; color: string; bgColor: s
 
 export default function ZeiterfassungPage() {
   const router = useRouter();
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  const supabase = createClient();
 
   // Helper: Extrahiert Project aus Array oder Object
   const getProject = (project: ProjectInfo | ProjectInfo[] | null | undefined): ProjectInfo | null => {

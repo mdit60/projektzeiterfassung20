@@ -1,15 +1,16 @@
+// ========================================
+// Datei: src/app/einstellungen/page.tsx
+// ========================================
+
 'use client';
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { createBrowserClient } from '@supabase/ssr';
+import { createClient } from '@/lib/supabase/client';
 
 export default function EinstellungenPage() {
   const router = useRouter();
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  const supabase = createClient();
 
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
@@ -64,9 +65,9 @@ export default function EinstellungenPage() {
 
         setProfile(profileData);
 
-        // 3. Prüfen ob User Company-Admin ist
-        if (profileData.role !== 'company_admin') {
-          setError('Keine Berechtigung. Nur Company-Admins können Firmendaten bearbeiten.');
+        // 3. Prüfen ob User Admin ist (geändert von company_admin zu admin)
+        if (profileData.role !== 'admin') {
+          setError('Keine Berechtigung. Nur Admins können Firmendaten bearbeiten.');
           setTimeout(() => router.push('/dashboard'), 2000);
           return;
         }
