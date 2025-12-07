@@ -8,6 +8,7 @@ import Link from 'next/link'
 // Types
 interface UserProfile {
   id: string
+  name: string  // FIX: Hinzugefügt
   first_name: string
   last_name: string
   email: string
@@ -31,6 +32,21 @@ interface Company {
   id: string
   name: string
   state_code: string
+}
+
+// FIX: Hilfsfunktion für Namen-Formatierung (Nachname, Vorname)
+function formatEmployeeName(emp: UserProfile): string {
+  if (emp.last_name && emp.first_name) {
+    return `${emp.last_name}, ${emp.first_name}`;
+  } else if (emp.name) {
+    // Name splitten: "Vorname Nachname" → "Nachname, Vorname"
+    const parts = emp.name.split(' ');
+    if (parts.length >= 2) {
+      return `${parts[parts.length - 1]}, ${parts.slice(0, -1).join(' ')}`;
+    }
+    return emp.name;
+  }
+  return emp.email || 'Unbekannt';
 }
 
 export default function BerichtePage() {
@@ -161,8 +177,9 @@ export default function BerichtePage() {
         setCompany(companyData)
       }
       
-      // Mitarbeiter laden (nur für Admins/Manager)
-      if (profile.role === 'company_admin' || profile.role === 'manager') {
+      // FIX: Mitarbeiter laden (nur für Admins)
+      // Geändert von 'company_admin' || 'manager' auf 'admin'
+      if (profile.role === 'admin') {
         const { data: employeesData } = await supabase
           .from('user_profiles')
           .select('*')
@@ -556,7 +573,7 @@ export default function BerichtePage() {
                   </select>
                 </div>
                 
-                {/* Mitarbeiter */}
+                {/* Mitarbeiter - FIX: Verwendet jetzt formatEmployeeName() */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Mitarbeiter *
@@ -569,7 +586,7 @@ export default function BerichtePage() {
                     <option value="">-- Mitarbeiter auswählen --</option>
                     {employees.map(emp => (
                       <option key={emp.id} value={emp.id}>
-                        {emp.last_name}, {emp.first_name}
+                        {formatEmployeeName(emp)}
                       </option>
                     ))}
                   </select>
@@ -727,7 +744,7 @@ export default function BerichtePage() {
                   )}
                 </div>
                 
-                {/* Mitarbeiter */}
+                {/* Mitarbeiter - FIX: Verwendet jetzt formatEmployeeName() */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Mitarbeiter *
@@ -740,7 +757,7 @@ export default function BerichtePage() {
                     <option value="">-- Mitarbeiter auswählen --</option>
                     {employees.map(emp => (
                       <option key={emp.id} value={emp.id}>
-                        {emp.last_name}, {emp.first_name}
+                        {formatEmployeeName(emp)}
                       </option>
                     ))}
                   </select>
