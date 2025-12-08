@@ -38,3 +38,4 @@ export default function RootLayout({
     </html>
   );
 }
+// Auto-Deploy Test Mo.  8 Dez. 2025 09:04:36 CET
