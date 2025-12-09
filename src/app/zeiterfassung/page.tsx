@@ -82,6 +82,7 @@ const COLORS = {
 const ABSENCE_BADGES: { [key: string]: { label: string; bgColor: string; textColor: string } } = {
   'U': { label: 'Urlaub', bgColor: '#bbdefb', textColor: '#1565c0' },
   'K': { label: 'Krankheit', bgColor: '#ffcdd2', textColor: '#c62828' },
+  'KA': { label: 'Kurzarbeit', bgColor: '#ffe0b2', textColor: '#e65100' },  // Orange
   'S': { label: 'Sonderurlaub', bgColor: '#e1bee7', textColor: '#7b1fa2' },
   'F': { label: 'Feiertag', bgColor: '#cfd8dc', textColor: '#455a64' },
 };
@@ -150,6 +151,9 @@ export default function ZeiterfassungPage() {
 
   // NEU: Auto-Fill Checkbox
   const [autoFillEnabled, setAutoFillEnabled] = useState(false);
+
+  // NEU: Aktuell bearbeitetes Eingabefeld (für K/KA/U/S Erkennung bei Enter)
+  const [editingCell, setEditingCell] = useState<{ entryIndex: number; day: number; value: string } | null>(null);
 
   const monthNames = [
     'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
@@ -582,6 +586,8 @@ export default function ZeiterfassungPage() {
             absences[day] = 'U';
           } else if (entry.category === 'sick_leave') {
             absences[day] = 'K';
+          } else if (entry.category === 'short_time_work') {
+            absences[day] = 'KA';
           } else if (entry.category === 'other_absence') {
             absences[day] = 'S';
           }
@@ -761,6 +767,7 @@ export default function ZeiterfassungPage() {
 
     // Leer = löschen
     if (value === '' || value === '-') {
+      setEditingCell(null);
       setEntries(prev => {
         const updated = [...prev];
         const newDays = { ...updated[entryIndex].days };
@@ -771,23 +778,16 @@ export default function ZeiterfassungPage() {
       return;
     }
 
-    // U/K/S Eingabe
+    // Buchstaben-Eingabe (potenzielle Fehlzeit) - nur im lokalen State speichern
     const upperValue = value.toUpperCase();
-    if (['U', 'K', 'S'].includes(upperValue)) {
-      // Fehlzeit global setzen
-      setGlobalAbsences(prev => ({ ...prev, [day]: upperValue }));
-      // Aus Entry entfernen
-      setEntries(prev => {
-        const updated = [...prev];
-        const newDays = { ...updated[entryIndex].days };
-        delete newDays[day];
-        updated[entryIndex] = { ...updated[entryIndex], days: newDays };
-        return updated;
-      });
+    if (/^[A-Z]+$/.test(upperValue)) {
+      // Buchstaben eingegeben - im editingCell speichern, NICHT sofort verarbeiten
+      setEditingCell({ entryIndex, day, value: upperValue });
       return;
     }
 
-    // Zahl parsen
+    // Zahl parsen - das kann sofort verarbeitet werden
+    setEditingCell(null);
     const normalizedValue = value.replace(',', '.');
     let hours = parseFloat(normalizedValue);
 
@@ -815,6 +815,36 @@ export default function ZeiterfassungPage() {
         return updated;
       });
     }
+  };
+
+  // NEU: Eingabe bestätigen (bei Enter oder Blur) - hier werden Fehlzeiten verarbeitet
+  const handleInputConfirm = (entryIndex: number, day: number) => {
+    if (!editingCell || editingCell.entryIndex !== entryIndex || editingCell.day !== day) {
+      return;
+    }
+
+    const value = editingCell.value;
+    setEditingCell(null);
+
+    // Prüfen ob es eine gültige Fehlzeit ist
+    if (['U', 'K', 'KA', 'S'].includes(value)) {
+      // Fehlzeit global setzen
+      setGlobalAbsences(prev => ({ ...prev, [day]: value }));
+      // Aus Entry entfernen
+      setEntries(prev => {
+        const updated = [...prev];
+        const newDays = { ...updated[entryIndex].days };
+        delete newDays[day];
+        updated[entryIndex] = { ...updated[entryIndex], days: newDays };
+        return updated;
+      });
+    }
+    // Ungültige Buchstaben werden einfach verworfen
+  };
+
+  // NEU: Eingabe abbrechen (bei Escape)
+  const handleInputCancel = () => {
+    setEditingCell(null);
   };
 
   // Fehlzeit löschen
@@ -1002,6 +1032,9 @@ export default function ZeiterfassungPage() {
         } else if (absence === 'K') {
           category = 'sick_leave';
           description = 'Krankheit';
+        } else if (absence === 'KA') {
+          category = 'short_time_work';
+          description = 'Kurzarbeit';
         }
 
         newEntries.push({
@@ -1306,7 +1339,7 @@ export default function ZeiterfassungPage() {
               <div className="flex flex-wrap gap-4 text-sm">
                 <span><strong>Eingabe:</strong></span>
                 <span className="text-green-700">🟢 Zahl (8 / 7,50) → Förderfähige Stunden</span>
-                <span className="text-blue-700">🔵 U/K/S → Fehlzeit (global)</span>
+                <span className="text-blue-700">🔵 U/K/KA/S + Enter → Fehlzeit (global)</span>
                 <span className="text-yellow-700">🟡 Leer → Nicht förderfähig (auto)</span>
                 <span className="text-red-700">🔴 0h verfügbar → Gesperrt</span>
               </div>
@@ -1319,7 +1352,7 @@ export default function ZeiterfassungPage() {
                   <thead>
                     {/* Verfügbarkeits-Zeile */}
                     <tr style={{ backgroundColor: '#f5f5f5' }}>
-                      <th className="sticky left-0 z-10 bg-gray-100 px-2 py-1 text-left text-xs font-medium text-gray-500 border-b">
+                      <th className="sticky left-0 z-10 bg-gray-100 px-2 py-1 text-left text-xs font-medium text-gray-500 border-b" style={{ minWidth: '200px' }}>
                         Verfügbar
                       </th>
                       {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
@@ -1349,7 +1382,7 @@ export default function ZeiterfassungPage() {
 
                     {/* Tag-Nummern */}
                     <tr style={{ backgroundColor: COLORS.header }}>
-                      <th className="sticky left-0 z-10 px-2 py-2 text-left text-xs font-medium text-white border-b" style={{ backgroundColor: COLORS.header }}>
+                      <th className="sticky left-0 z-10 px-2 py-2 text-left text-xs font-medium text-white border-b" style={{ backgroundColor: COLORS.header, minWidth: '200px' }}>
                         Tag
                       </th>
                       {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
@@ -1402,16 +1435,24 @@ export default function ZeiterfassungPage() {
                     ) : (
                       entries.map((entry, entryIndex) => (
                         <tr key={entry.work_package_id} style={{ backgroundColor: COLORS.gruen.hell }}>
-                          <td className="sticky left-0 z-10 px-2 py-1 text-xs border-b whitespace-nowrap" style={{ backgroundColor: COLORS.gruen.hell }}>
-                            <div className="flex items-center gap-1">
-                              <span className="text-gray-400">{entryIndex + 1}.{entryIndex + 1}</span>
-                              <span className="font-medium truncate max-w-32" title={entry.work_package_description}>
-                                {entry.work_package_code || entry.work_package_description}
-                              </span>
+                          {/* AP-Code und Beschreibung */}
+                          <td className="sticky left-0 z-10 px-2 py-1 text-xs border-b" style={{ backgroundColor: COLORS.gruen.hell, minWidth: '220px' }}>
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1 min-w-0">
+                                {/* AP-Code */}
+                                <div className="font-semibold text-gray-800">
+                                  {entry.work_package_code}
+                                </div>
+                                {/* AP-Beschreibung */}
+                                <div className="text-[11px] text-gray-600 truncate" title={entry.work_package_description || ''}>
+                                  {entry.work_package_description || '(keine Beschreibung)'}
+                                </div>
+                              </div>
+                              {/* Entfernen-Button */}
                               {entries.length > 1 && (
                                 <button
                                   onClick={() => removeEntry(entryIndex)}
-                                  className="text-red-400 hover:text-red-600 ml-1"
+                                  className="text-red-400 hover:text-red-600 ml-2 flex-shrink-0 text-base"
                                   title="Zeile entfernen"
                                 >
                                   ×
@@ -1489,6 +1530,12 @@ export default function ZeiterfassungPage() {
                             }
 
                             // Normale Eingabe
+                            // Prüfen ob dieses Feld gerade bearbeitet wird (Buchstaben-Eingabe)
+                            const isEditing = editingCell?.entryIndex === entryIndex && editingCell?.day === day;
+                            const displayValue = isEditing 
+                              ? editingCell.value 
+                              : (typeof value === 'number' ? value.toFixed(2).replace('.', ',') : '');
+                            
                             return (
                               <td
                                 key={`${entry.work_package_id}-${day}`}
@@ -1497,9 +1544,23 @@ export default function ZeiterfassungPage() {
                               >
                                 <input
                                   type="text"
-                                  value={typeof value === 'number' ? value.toFixed(2).replace('.', ',') : ''}
+                                  value={displayValue}
                                   onChange={(e) => handleHoursChange(entryIndex, day, e.target.value)}
-                                  className="w-10 text-center text-xs border border-green-300 rounded px-0.5 py-0.5 focus:border-green-500 focus:ring-1 focus:ring-green-200 bg-white"
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      handleInputConfirm(entryIndex, day);
+                                      (e.target as HTMLInputElement).blur();
+                                    } else if (e.key === 'Escape') {
+                                      handleInputCancel();
+                                      (e.target as HTMLInputElement).blur();
+                                    }
+                                  }}
+                                  onBlur={() => handleInputConfirm(entryIndex, day)}
+                                  className={`w-10 text-center text-xs border rounded px-0.5 py-0.5 focus:ring-1 bg-white ${
+                                    isEditing 
+                                      ? 'border-blue-400 focus:border-blue-500 focus:ring-blue-200' 
+                                      : 'border-green-300 focus:border-green-500 focus:ring-green-200'
+                                  }`}
                                   placeholder="-"
                                   disabled={saving}
                                 />
