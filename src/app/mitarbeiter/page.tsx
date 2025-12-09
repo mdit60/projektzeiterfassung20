@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import Header from '@/components/Header';
 
 interface Employee {
   id: string;
@@ -20,6 +21,73 @@ interface Employee {
   created_at: string;
   deactivated_at: string | null;
 }
+
+// Standardisierte Positionen nach Kategorien
+const POSITION_CATEGORIES = {
+  management: {
+    label: '👑 Geschäftsführung / Management',
+    positions: [
+      'Geschäftsführer/in',
+      'CEO (Chief Executive Officer)',
+      'CFO (Chief Financial Officer)',
+      'COO (Chief Operating Officer)',
+      'CTO (Chief Technology Officer)',
+      'Kaufmännischer Leiter/in',
+      'Finanzleiter/in',
+      'Betriebsleiter/in',
+      'Prokurist/in',
+      'Inhaber/in',
+      'Gesellschafter/in',
+    ]
+  },
+  projectLead: {
+    label: '⚙️ Projektleitung / Teamleitung',
+    positions: [
+      'Projektleiter/in',
+      'Entwicklungsleiter/in',
+      'Technischer Leiter/in',
+      'Teamleiter/in',
+      'Abteilungsleiter/in',
+      'Bereichsleiter/in',
+      'Gruppenleiter/in',
+    ]
+  },
+  specialist: {
+    label: '👤 Fachkräfte / Mitarbeiter',
+    positions: [
+      'Softwareentwickler/in',
+      'Entwickler/in',
+      'Ingenieur/in',
+      'Konstrukteur/in',
+      'Techniker/in',
+      'Wissenschaftlicher Mitarbeiter/in',
+      'Projektmitarbeiter/in',
+      'Sachbearbeiter/in',
+      'Buchhalter/in',
+      'Controller/in',
+      'Werkstudent/in',
+      'Praktikant/in',
+    ]
+  }
+};
+
+// Standardisierte Abteilungen
+const DEPARTMENTS = [
+  'Geschäftsführung',
+  'Forschung & Entwicklung',
+  'Entwicklung',
+  'Konstruktion',
+  'Produktion',
+  'Qualitätsmanagement',
+  'Finanzen & Controlling',
+  'Personal',
+  'Vertrieb',
+  'Marketing',
+  'IT',
+  'Einkauf',
+  'Logistik',
+  'Verwaltung',
+];
 
 export default function MitarbeiterPage() {
   const router = useRouter();
@@ -344,10 +412,13 @@ export default function MitarbeiterPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <div className="text-center">
-          <div className="text-lg font-medium text-gray-900 mb-2">Laden...</div>
-          <div className="text-sm text-gray-600">Mitarbeiter werden geladen</div>
+      <div className="min-h-screen bg-gray-50">
+        <Header />
+        <div className="flex items-center justify-center py-20">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <div className="text-lg font-medium text-gray-900 mb-2">Laden...</div>
+          </div>
         </div>
       </div>
     );
@@ -355,33 +426,14 @@ export default function MitarbeiterPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Navigation */}
-      <nav className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <button
-                onClick={() => router.push('/dashboard')}
-                className="flex items-center text-gray-600 hover:text-gray-900"
-              >
-                <svg className="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-                <span className="font-medium">Zurück zum Dashboard</span>
-              </button>
-            </div>
-            <div className="flex items-center">
-              <span className="text-sm text-gray-600">{profile?.name}</span>
-            </div>
-          </div>
-        </div>
-      </nav>
+      {/* Header-Komponente */}
+      <Header />
 
-      <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
-        {/* Header */}
+      <div className="max-w-[1800px] mx-auto py-8 px-4 sm:px-6 lg:px-8">
+        {/* Seiten-Header */}
         <div className="flex justify-between items-center mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Mitarbeiter</h1>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">👥 Mitarbeiter</h1>
             <p className="text-gray-600">Verwalten Sie Ihr Team und Rollen</p>
           </div>
           {profile?.role === 'admin' && (
@@ -691,29 +743,51 @@ export default function MitarbeiterPage() {
                 </p>
               </div>
 
-              {/* Neue Felder: Position und Abteilung */}
+              {/* Neue Felder: Position und Abteilung als Dropdowns */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Position / Funktion</label>
-                  <input
-                    type="text"
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Position / Funktion *</label>
+                  <select
                     value={inviteData.position}
                     onChange={(e) => setInviteData({ ...inviteData, position: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="z.B. Entwickler"
+                    required
                     disabled={!!success}
-                  />
+                  >
+                    <option value="">-- Position auswählen --</option>
+                    <optgroup label={POSITION_CATEGORIES.management.label}>
+                      {POSITION_CATEGORIES.management.positions.map(pos => (
+                        <option key={pos} value={pos}>{pos}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label={POSITION_CATEGORIES.projectLead.label}>
+                      {POSITION_CATEGORIES.projectLead.positions.map(pos => (
+                        <option key={pos} value={pos}>{pos}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label={POSITION_CATEGORIES.specialist.label}>
+                      {POSITION_CATEGORIES.specialist.positions.map(pos => (
+                        <option key={pos} value={pos}>{pos}</option>
+                      ))}
+                    </optgroup>
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Bestimmt Zugriffsrechte auf Unternehmensdaten
+                  </p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Abteilung</label>
-                  <input
-                    type="text"
+                  <select
                     value={inviteData.department}
                     onChange={(e) => setInviteData({ ...inviteData, department: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="z.B. Entwicklung"
                     disabled={!!success}
-                  />
+                  >
+                    <option value="">-- Abteilung auswählen --</option>
+                    {DEPARTMENTS.map(dept => (
+                      <option key={dept} value={dept}>{dept}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 

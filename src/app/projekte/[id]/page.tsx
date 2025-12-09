@@ -3,6 +3,7 @@
 import React, { useEffect, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import Header from '@/components/Header';
 
 // ============================================
 // INTERFACES
@@ -1232,6 +1233,11 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* ================================================ */}
+      {/* HEADER KOMPONENTE - NEU HINZUGEFÜGT             */}
+      {/* ================================================ */}
+      <Header />
+
       {/* ============================================ */}
       {/* STICKY HEADER - bleibt beim Scrollen oben */}
       {/* ============================================ */}
@@ -1741,39 +1747,38 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
             </div>
           )}
 
-          {/* ========== TAB: ANLAGE 5 ========== */}
+{/* ========== TAB: ANLAGE 5 ========== */}
           {activeTab === 'anlage5' && (
-            <div className="p-6">
+            <div className="px-6 py-6">
               <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-                <h3 className="font-semibold text-green-800 mb-1">📋 ZIM Anlage 5 - Kontrollsummen</h3>
+                <h3 className="font-medium text-green-800 mb-1">📋 ZIM Anlage 5 - Kontrollsummen</h3>
                 <p className="text-sm text-green-700">Übersicht der Personenmonate je Arbeitspaket und je Mitarbeiter</p>
               </div>
-              
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* a) PM je Arbeitspaket */}
                 <div className="lg:col-span-1">
-                  <h4 className="font-semibold text-gray-900 mb-3">a) PM je Arbeitspaket</h4>
-                  <table className="min-w-full divide-y divide-gray-200 border rounded-lg overflow-hidden text-sm">
+                  <h4 className="font-medium text-gray-900 mb-4">a) PM je Arbeitspaket</h4>
+                  <table className="min-w-full divide-y divide-gray-200 border">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="px-3 py-2 text-left font-semibold text-gray-600">AP Nr.</th>
-                        <th className="px-3 py-2 text-right font-semibold text-gray-600">PM</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">AP Nr.</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">PM</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                       {workPackages.sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true })).map(wp => {
                         const totalPM = wp.assignments?.reduce((sum, a) => sum + (a.person_months || 0), 0) || 0;
                         return (
-                          <tr key={wp.id} className="hover:bg-gray-50">
-                            <td className="px-3 py-2 font-medium">{wp.code}</td>
-                            <td className="px-3 py-2 text-right">{totalPM > 0 ? totalPM.toFixed(2) : '-'}</td>
+                          <tr key={wp.id}>
+                            <td className="px-4 py-2 text-sm font-medium">{wp.code}</td>
+                            <td className="px-4 py-2 text-sm text-right">{totalPM > 0 ? totalPM.toFixed(2) : '-'}</td>
                           </tr>
                         );
                       })}
                       <tr className="bg-gray-100 font-bold">
-                        <td className="px-3 py-3">Summe</td>
-                        <td className="px-3 py-3 text-right">
-                          {workPackages.reduce((sum, wp) => sum + (wp.assignments?.reduce((s, a) => s + (a.person_months || 0), 0) || 0), 0).toFixed(0)}
+                        <td className="px-4 py-3 text-sm">Summe</td>
+                        <td className="px-4 py-3 text-sm text-right">
+                          {workPackages.reduce((sum, wp) => sum + (wp.assignments?.reduce((s, a) => s + (a.person_months || 0), 0) || 0), 0).toFixed(2)}
                         </td>
                       </tr>
                     </tbody>
@@ -1782,13 +1787,13 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
                 {/* b) PM je Mitarbeiter */}
                 <div className="lg:col-span-2">
-                  <h4 className="font-semibold text-gray-900 mb-3">b) PM je Mitarbeiter</h4>
-                  <table className="min-w-full divide-y divide-gray-200 border rounded-lg overflow-hidden text-sm">
+                  <h4 className="font-medium text-gray-900 mb-4">b) PM je Mitarbeiter</h4>
+                  <table className="min-w-full divide-y divide-gray-200 border">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="px-3 py-2 text-left font-semibold text-gray-600">MA Nr.</th>
-                        <th className="px-3 py-2 text-right font-semibold text-gray-600">PM</th>
-                        <th className="px-3 py-2 text-left font-semibold text-gray-600">beteiligt an AP</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">MA Nr.</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">PM</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">beteiligt an AP</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
@@ -1813,17 +1818,17 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                             {sortedMAs.map(([maId, data]) => {
                               totalPM += data.pm;
                               return (
-                                <tr key={maId} className="hover:bg-gray-50">
-                                  <td className="px-3 py-2 font-medium">{data.maNum}</td>
-                                  <td className="px-3 py-2 text-right">{data.pm > 0 ? data.pm.toFixed(1) : '-'}</td>
-                                  <td className="px-3 py-2 text-gray-600">{data.aps.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join('; ') || '-'}</td>
+                                <tr key={maId}>
+                                  <td className="px-4 py-2 text-sm font-medium">{data.maNum}</td>
+                                  <td className="px-4 py-2 text-sm text-right">{data.pm > 0 ? data.pm.toFixed(2) : '-'}</td>
+                                  <td className="px-4 py-2 text-sm text-gray-600">{data.aps.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join('; ') || '-'}</td>
                                 </tr>
                               );
                             })}
                             <tr className="bg-gray-100 font-bold">
-                              <td className="px-3 py-3">Summe</td>
-                              <td className="px-3 py-3 text-right">{totalPM.toFixed(0)}</td>
-                              <td className="px-3 py-3"></td>
+                              <td className="px-4 py-3 text-sm">Summe</td>
+                              <td className="px-4 py-3 text-sm text-right">{totalPM.toFixed(2)}</td>
+                              <td className="px-4 py-3"></td>
                             </tr>
                           </>
                         );
@@ -1835,31 +1840,30 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
             </div>
           )}
 
-          {/* ========== TAB: ANLAGE 6.2 ========== */}
+{/* ========== TAB: ANLAGE 6.2 ========== */}
           {activeTab === 'anlage62' && (
-            <div className="p-6">
+            <div className="px-6 py-6">
               <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                <h3 className="font-semibold text-amber-800 mb-1">📊 ZIM Anlage 6.2 - Planung der Personalkapazität</h3>
+                <h3 className="font-medium text-amber-800 mb-1">📊 ZIM Anlage 6.2 - Planung der Personalkapazität</h3>
                 <p className="text-sm text-amber-700">PM-Kosten, Personenmonate pro Jahr und Personalkosten</p>
               </div>
-
               {anlage62Data.length === 0 ? (
-                <div className="text-center py-12 text-gray-500 bg-gray-50 rounded-xl">
+                <div className="text-center py-12 text-gray-500">
                   <p>Noch keine Daten. Weisen Sie MA Personenmonate in den Arbeitspaketen zu.</p>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200 border rounded-lg overflow-hidden text-sm">
+                  <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="px-3 py-3 text-left font-semibold text-gray-600">Nr.</th>
-                        <th className="px-3 py-3 text-left font-semibold text-gray-600">Qual.</th>
-                        <th className="px-3 py-3 text-left font-semibold text-gray-600">Mitarbeiter</th>
-                        <th className="px-3 py-3 text-right font-semibold text-gray-600">PM-Kosten</th>
-                        <th className="px-3 py-3 text-right font-semibold text-gray-600">TZ-Faktor</th>
-                        <th className="px-3 py-3 text-center font-semibold text-gray-600">Jahr</th>
-                        <th className="px-3 py-3 text-right font-semibold text-gray-600">PM</th>
-                        <th className="px-3 py-3 text-right font-semibold text-gray-600">Pers.-Kosten</th>
+                        <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nr.</th>
+                        <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Qual.</th>
+                        <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Mitarbeiter</th>
+                        <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase">PM-Kosten</th>
+                        <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase">TZ-Faktor</th>
+                        <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase">Jahr</th>
+                        <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase">PM</th>
+                        <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase">Pers.-Kosten</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
@@ -1873,6 +1877,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                         let totalPM = 0;
                         let totalKosten = 0;
                         Object.entries(groupedByMA).forEach(([userId, maRows]) => {
+                          const firstRow = maRows[0];
                           const maTotalPM = maRows.reduce((s, r) => s + r.person_monate, 0);
                           const maTotalKosten = maRows.reduce((s, r) => s + r.personalkosten, 0);
                           totalPM += maTotalPM;
@@ -1882,24 +1887,24 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                               <tr key={`${userId}-${row.year}`} className={idx === 0 ? 'border-t-2 border-gray-300' : ''}>
                                 {idx === 0 && (
                                   <>
-                                    <td rowSpan={maRows.length + 1} className="px-3 py-2 font-bold text-blue-700 align-top">{row.ma_nr}</td>
-                                    <td rowSpan={maRows.length + 1} className="px-3 py-2 align-top"><span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs font-medium">{row.qual_gruppe || 'A'}</span></td>
+                                    <td rowSpan={maRows.length + 1} className="px-3 py-2 text-sm font-bold text-blue-700 align-top">{row.ma_nr}</td>
+                                    <td rowSpan={maRows.length + 1} className="px-3 py-2 align-top"><span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-sm">{row.qual_gruppe || 'A'}</span></td>
                                     <td rowSpan={maRows.length + 1} className="px-3 py-2 align-top"><div className="font-medium">{row.ma_name}</div><div className="text-xs text-gray-500">{row.qualifikation}</div></td>
-                                    <td rowSpan={maRows.length + 1} className="px-3 py-2 text-right align-top">{row.pm_kosten.toLocaleString('de-DE')} €</td>
-                                    <td rowSpan={maRows.length + 1} className="px-3 py-2 text-right align-top">{row.teilzeit_faktor.toFixed(3)}</td>
+                                    <td rowSpan={maRows.length + 1} className="px-3 py-2 text-right text-sm align-top">{row.pm_kosten.toLocaleString('de-DE')} €</td>
+                                    <td rowSpan={maRows.length + 1} className="px-3 py-2 text-right text-sm align-top">{row.teilzeit_faktor.toFixed(3)}</td>
                                   </>
                                 )}
-                                <td className="px-3 py-2 text-center"><span className="text-gray-500 text-xs">{idx + 1}. Jahr</span> {row.year}</td>
-                                <td className="px-3 py-2 text-right font-medium">{row.person_monate > 0 ? row.person_monate.toFixed(1) : '-'}</td>
-                                <td className="px-3 py-2 text-right">{row.personalkosten > 0 ? `${row.personalkosten.toLocaleString('de-DE')} €` : '-'}</td>
+                                <td className="px-3 py-2 text-center text-sm"><span className="text-gray-500">{idx + 1}. Jahr</span> {row.year}</td>
+                                <td className="px-3 py-2 text-right text-sm font-medium">{row.person_monate > 0 ? row.person_monate.toFixed(2) : '-'}</td>
+                                <td className="px-3 py-2 text-right text-sm">{row.personalkosten > 0 ? `${row.personalkosten.toLocaleString('de-DE')} €` : '-'}</td>
                               </tr>
                             );
                           });
                           rows.push(
                             <tr key={`${userId}-total`} className="bg-gray-50">
-                              <td className="px-3 py-2 text-center font-semibold text-gray-700">gesamt</td>
-                              <td className="px-3 py-2 text-right font-bold">{maTotalPM.toFixed(1)}</td>
-                              <td className="px-3 py-2 text-right font-bold">{maTotalKosten.toLocaleString('de-DE')} €</td>
+                              <td className="px-3 py-2 text-center text-sm font-medium text-gray-700">gesamt</td>
+                              <td className="px-3 py-2 text-right text-sm font-bold">{maTotalPM.toFixed(2)}</td>
+                              <td className="px-3 py-2 text-right text-sm font-bold">{maTotalKosten.toLocaleString('de-DE')} €</td>
                             </tr>
                           );
                         });
@@ -1907,7 +1912,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                           <tr key="grand-total" className="bg-amber-100 border-t-2 border-amber-400">
                             <td colSpan={5} className="px-3 py-3 text-right font-bold text-amber-800">GESAMT</td>
                             <td className="px-3 py-3"></td>
-                            <td className="px-3 py-3 text-right font-bold text-amber-900 text-lg">{totalPM.toFixed(1)} PM</td>
+                            <td className="px-3 py-3 text-right font-bold text-amber-900 text-lg">{totalPM.toFixed(2)} PM</td>
                             <td className="px-3 py-3 text-right font-bold text-amber-900 text-lg">{totalKosten.toLocaleString('de-DE')} €</td>
                           </tr>
                         );
@@ -2322,7 +2327,166 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
           </div>
         </div>
       )}
+{/* ========== EXCEL IMPORT MODAL ========== */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center">
+              <h3 className="text-xl font-bold text-gray-900">📥 Arbeitspakete aus Excel importieren</h3>
+              <button 
+                onClick={() => { setShowImportModal(false); setImportFile(null); setImportPreview([]); }} 
+                className="text-gray-400 hover:text-gray-600 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+            <div className="p-6">
+              {/* Datei-Upload */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Excel-Datei auswählen</label>
+                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-400 transition-colors">
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setImportFile(file);
+                        setImportPreview([]);
+                        // Vorschau laden
+                        const formData = new FormData();
+                        formData.append('file', file);
+                        formData.append('projectId', project?.id || '');
+                        formData.append('previewOnly', 'true');
+                        try {
+                          const res = await fetch('/api/work-packages/import', { method: 'POST', body: formData });
+                          const data = await res.json();
+                          if (data.success && data.workPackages) {
+                            setImportPreview(data.workPackages);
+                          } else {
+                            setError(data.error || 'Fehler beim Lesen der Datei');
+                          }
+                        } catch (err) {
+                          setError('Fehler beim Lesen der Datei');
+                        }
+                      }
+                    }}
+                    className="hidden"
+                    id="excel-upload"
+                  />
+                  <label htmlFor="excel-upload" className="cursor-pointer">
+                    <svg className="w-12 h-12 mx-auto text-gray-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                    {importFile ? (
+                      <p className="text-blue-600 font-medium">{importFile.name}</p>
+                    ) : (
+                      <p className="text-gray-600">Klicken zum Auswählen oder Datei hierher ziehen</p>
+                    )}
+                    <p className="text-xs text-gray-500 mt-1">Excel-Dateien (.xlsx, .xls)</p>
+                  </label>
+                </div>
+              </div>
 
+              {/* Format-Hinweis */}
+              <div className="bg-gray-50 rounded-lg p-4 mb-6">
+                <h4 className="font-medium text-gray-900 mb-2">Erwartetes Format:</h4>
+                <div className="text-sm text-gray-600 space-y-1">
+                  <p><strong>Spalte A:</strong> Nr. (z.B. 1, 2, 3.1, 3.1.1)</p>
+                  <p><strong>Spalte B:</strong> Arbeitspaket-Beschreibung</p>
+                  <p><strong>Spalte C:</strong> Startdatum (von)</p>
+                  <p><strong>Spalte D:</strong> Enddatum (bis)</p>
+                  <p className="text-xs text-gray-500 mt-2">Header in Zeile 1-3, Daten ab Zeile 4</p>
+                </div>
+              </div>
+
+              {/* Vorschau */}
+              {importPreview.length > 0 && (
+                <div className="mb-6">
+                  <h4 className="font-medium text-gray-900 mb-3">Vorschau ({importPreview.length} Arbeitspakete)</h4>
+                  <div className="max-h-64 overflow-y-auto border rounded-lg">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50 sticky top-0">
+                        <tr>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Nr.</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Beschreibung</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Von</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Bis</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {importPreview.map((wp, idx) => (
+                          <tr key={idx} className={!wp.start_date ? 'bg-yellow-50' : ''}>
+                            <td className="px-3 py-2 text-sm font-mono font-bold text-blue-600">{wp.code}</td>
+                            <td className="px-3 py-2 text-sm text-gray-900">{wp.description}</td>
+                            <td className="px-3 py-2 text-sm text-gray-600">{wp.start_date ? new Date(wp.start_date).toLocaleDateString('de-DE') : '-'}</td>
+                            <td className="px-3 py-2 text-sm text-gray-600">{wp.end_date ? new Date(wp.end_date).toLocaleDateString('de-DE') : '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    <span className="inline-block w-3 h-3 bg-yellow-50 border mr-1"></span>
+                    Gelb = Übergeordnetes AP ohne eigene Zeitplanung
+                  </p>
+                </div>
+              )}
+
+              {/* Buttons */}
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={() => { setShowImportModal(false); setImportFile(null); setImportPreview([]); }}
+                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                >
+                  Abbrechen
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!importFile || importPreview.length === 0) return;
+                    setImporting(true);
+                    const formData = new FormData();
+                    formData.append('file', importFile);
+                    formData.append('projectId', project?.id || '');
+                    formData.append('previewOnly', 'false');
+                    try {
+                      const res = await fetch('/api/work-packages/import', { method: 'POST', body: formData });
+                      const data = await res.json();
+                      if (data.success) {
+                        setSuccess(`${data.imported} Arbeitspakete importiert${data.skipped > 0 ? `, ${data.skipped} übersprungen (existieren bereits)` : ''}`);
+                        setShowImportModal(false);
+                        setImportFile(null);
+                        setImportPreview([]);
+                        loadWorkPackages(project!.id);
+                      } else {
+                        setError(data.error || 'Import fehlgeschlagen');
+                      }
+                    } catch (err) {
+                      setError('Fehler beim Import');
+                    } finally {
+                      setImporting(false);
+                    }
+                  }}
+                  disabled={!importFile || importPreview.length === 0 || importing}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
+                >
+                  {importing ? (
+                    <>
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Importieren...
+                    </>
+                  ) : (
+                    <>📥 {importPreview.length} APs importieren</>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

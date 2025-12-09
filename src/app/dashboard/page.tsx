@@ -1,344 +1,363 @@
-// ========================================
-// Datei: src/app/dashboard/page.tsx
-// ========================================
+// src/app/dashboard/page.tsx
+'use client'
 
-'use client';
+import { useState, useEffect } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import Header from '@/components/Header'
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
-
-interface Company {
-  id: string;
-  name: string;
-  legal_form: string | null;
-  street: string | null;
-  house_number: string | null;
-  postal_code: string | null;
-  city: string | null;
-  website: string | null;
-  ust_id: string | null;
+interface DashboardStats {
+  activeProjects: number
+  totalEmployees: number
+  hoursThisMonth: number
+  pendingTimeEntries: number
 }
 
 interface UserProfile {
-  id: string;
-  user_id: string;
-  company_id: string;
-  name: string;
-  first_name: string | null;
-  last_name: string | null;
-  email: string;
-  role: 'admin' | 'user';
-  job_function: string | null;
-  department: string | null;
-  is_active: boolean;
+  id: string
+  name?: string
+  first_name?: string
+  last_name?: string
+  email: string
+  role: string
+  company_id: string
 }
 
 export default function DashboardPage() {
-  const router = useRouter();
-  const supabase = createClient();
-
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [company, setCompany] = useState<Company | null>(null);
-  const [loading, setLoading] = useState(true);
+  const supabase = createClient()
+  
+  const [loading, setLoading] = useState(true)
+  const [profile, setProfile] = useState<UserProfile | null>(null)
+  const [stats, setStats] = useState<DashboardStats>({
+    activeProjects: 0,
+    totalEmployees: 0,
+    hoursThisMonth: 0,
+    pendingTimeEntries: 0
+  })
 
   useEffect(() => {
-    loadData();
-  }, []);
+    loadData()
+  }, [])
 
-  const loadData = async () => {
+  async function loadData() {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        router.push('/login');
-        return;
-      }
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
 
       // Profil laden
-      const { data: profileData, error: profileError } = await supabase
-        .from('user_profiles')
+      const { data: profileData } = await supabase
+        .from('profiles')
         .select('*')
-        .eq('user_id', user.id)
-        .single();
+        .eq('id', user.id)
+        .single()
 
-      if (profileError || !profileData) {
-        console.error('Error loading profile:', profileError);
-        router.push('/login');
-        return;
+      if (profileData) {
+        setProfile(profileData)
+        
+        // Stats nur für Admins laden
+        if (profileData.role === 'admin') {
+          await loadAdminStats(profileData.company_id)
+        } else {
+          await loadUserStats(user.id, profileData.company_id)
+        }
       }
-
-      setProfile(profileData);
-
-      // Firma laden
-      const { data: companyData } = await supabase
-        .from('companies')
-        .select('*')
-        .eq('id', profileData.company_id)
-        .single();
-
-      if (companyData) {
-        setCompany(companyData);
-      }
-
     } catch (error) {
-      console.error('Error loading data:', error);
+      console.error('Error loading dashboard:', error)
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push('/login');
-  };
-
-  // Position oder Fallback anzeigen
-  const getDisplayPosition = () => {
-    if (profile?.job_function) {
-      return profile.job_function;
-    }
-    // Fallback auf Rolle wenn keine Position gesetzt
-    return profile?.role === 'admin' ? 'Projektleiter' : 'Mitarbeiter';
-  };
-
-  // Prüfen ob User Admin ist
-  const isAdmin = profile?.role === 'admin';
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <div className="mt-4 text-gray-600">Laden...</div>
-        </div>
-      </div>
-    );
   }
 
-  const firstName = profile?.first_name || profile?.name?.split(' ')[0] || 'User';
+  async function loadAdminStats(companyId: string) {
+    // Aktive Projekte
+    const { count: projectCount } = await supabase
+      .from('projects')
+      .select('*', { count: 'exact', head: true })
+      .eq('company_id', companyId)
+      .eq('status', 'active')
+
+    // Mitarbeiter
+    const { count: employeeCount } = await supabase
+      .from('profiles')
+      .select('*', { count: 'exact', head: true })
+      .eq('company_id', companyId)
+      .eq('is_active', true)
+
+    // Stunden diesen Monat
+    const now = new Date()
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0]
+
+    const { data: timeEntries } = await supabase
+      .from('time_entries')
+      .select('hours')
+      .eq('company_id', companyId)
+      .gte('date', firstDay)
+      .lte('date', lastDay)
+
+    const totalHours = timeEntries?.reduce((sum, entry) => sum + (entry.hours || 0), 0) || 0
+
+    setStats({
+      activeProjects: projectCount || 0,
+      totalEmployees: employeeCount || 0,
+      hoursThisMonth: Math.round(totalHours),
+      pendingTimeEntries: 0
+    })
+  }
+
+  async function loadUserStats(userId: string, companyId: string) {
+    // Nur eigene Stunden diesen Monat
+    const now = new Date()
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0]
+
+    const { data: timeEntries } = await supabase
+      .from('time_entries')
+      .select('hours')
+      .eq('employee_id', userId)
+      .gte('date', firstDay)
+      .lte('date', lastDay)
+
+    const totalHours = timeEntries?.reduce((sum, entry) => sum + (entry.hours || 0), 0) || 0
+
+    // Zugewiesene Projekte
+    const { count: projectCount } = await supabase
+      .from('project_assignments')
+      .select('*', { count: 'exact', head: true })
+      .eq('employee_id', userId)
+
+    setStats({
+      activeProjects: projectCount || 0,
+      totalEmployees: 0,
+      hoursThisMonth: Math.round(totalHours),
+      pendingTimeEntries: 0
+    })
+  }
+
+  // Formatiere Monatsnamen
+  function getCurrentMonthName(): string {
+    const months = [
+      'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
+      'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'
+    ]
+    return months[new Date().getMonth()]
+  }
+
+  const isAdmin = profile?.role === 'admin'
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            {/* Logo und Firmenname */}
-            <div className="flex items-center">
-              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center mr-3">
-                <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                </svg>
-              </div>
-              <div>
-                <h1 className="text-lg font-semibold text-gray-900">{company?.name || 'Firma'}</h1>
-                <p className="text-xs text-gray-500">Dashboard</p>
-              </div>
-            </div>
+      {/* Header Komponente */}
+      <Header />
 
-            {/* User Info */}
-            <div className="flex items-center space-x-4">
-              <div className="text-right">
-                <p className="text-sm font-medium text-gray-900">{profile?.name}</p>
-                {/* Position statt Rolle anzeigen */}
-                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
-                  {getDisplayPosition()}
-                </span>
-              </div>
-              <button
-                onClick={handleLogout}
-                className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-colors"
-              >
-                Logout
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
-        {/* Welcome */}
+      {/* Content */}
+      <main className="max-w-[1800px] mx-auto px-6 lg:px-8 py-8">
+        {/* Seitentitel */}
         <div className="mb-8">
-          <h2 className="text-3xl font-bold text-gray-900 italic">Willkommen, {firstName}!</h2>
-          <p className="text-gray-600 mt-1">Verwalten Sie Ihre Projekte, Mitarbeiter und Arbeitszeiten</p>
+          <h1 className="text-2xl font-bold text-gray-900">
+            {isAdmin ? 'Dashboard' : 'Mein Bereich'}
+          </h1>
+          <p className="text-gray-500 mt-1">
+            {isAdmin 
+              ? 'Übersicht über alle Projekte und Mitarbeiter'
+              : 'Übersicht über deine Zeiterfassung'
+            }
+          </p>
         </div>
 
-        {/* Navigation Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-          {/* Projekte - Nur für Admin */}
-          {isAdmin && (
-            <button
-              onClick={() => router.push('/projekte')}
-              className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md hover:border-blue-300 transition-all text-left group"
-            >
-              <div className="flex items-center">
-                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mr-4 group-hover:bg-blue-200 transition-colors">
-                  <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">Projekte</h3>
-                  <p className="text-sm text-gray-500">Projekte verwalten und erstellen</p>
-                </div>
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {[1, 2, 3, 4].map(i => (
+              <div key={i} className="bg-white p-6 rounded-xl shadow-sm border animate-pulse">
+                <div className="h-4 w-24 bg-gray-200 rounded mb-3"></div>
+                <div className="h-8 w-16 bg-gray-200 rounded"></div>
               </div>
-            </button>
-          )}
-
-          {/* Mitarbeiter - Nur für Admin */}
-          {isAdmin && (
-            <button
-              onClick={() => router.push('/mitarbeiter')}
-              className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md hover:border-teal-300 transition-all text-left group"
-            >
-              <div className="flex items-center">
-                <div className="w-12 h-12 bg-teal-100 rounded-lg flex items-center justify-center mr-4 group-hover:bg-teal-200 transition-colors">
-                  <svg className="w-6 h-6 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-                  </svg>
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">Mitarbeiter</h3>
-                  <p className="text-sm text-gray-500">Team verwalten und Rollen zuweisen</p>
-                </div>
-              </div>
-            </button>
-          )}
-
-          {/* Zeiterfassung - Für alle */}
-          <button
-            onClick={() => router.push('/zeiterfassung')}
-            className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md hover:border-red-300 transition-all text-left group"
-          >
-            <div className="flex items-center">
-              <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center mr-4 group-hover:bg-red-200 transition-colors">
-                <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">Zeiterfassung</h3>
-                <p className="text-sm text-gray-500">Arbeitszeiten erfassen und auswerten</p>
-              </div>
-            </div>
-          </button>
-
-          {/* Berichte - Nur für Admin */}
-          {isAdmin && (
-            <button
-              onClick={() => router.push('/berichte')}
-              className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md hover:border-orange-300 transition-all text-left group"
-            >
-              <div className="flex items-center">
-                <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center mr-4 group-hover:bg-orange-200 transition-colors">
-                  <svg className="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                  </svg>
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">Berichte</h3>
-                  <p className="text-sm text-gray-500">Auswertungen und Statistiken</p>
-                </div>
-              </div>
-            </button>
-          )}
-
-          {/* Unternehmensdaten - Nur für Admin */}
-          {isAdmin && (
-            <button
-              onClick={() => router.push('/einstellungen')}
-              className="bg-white rounded-xl shadow-sm border border-teal-200 p-6 hover:shadow-md hover:border-teal-400 transition-all text-left group"
-            >
-              <div className="flex items-center">
-                <div className="w-12 h-12 bg-teal-100 rounded-lg flex items-center justify-center mr-4 group-hover:bg-teal-200 transition-colors">
-                  <svg className="w-6 h-6 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                  </svg>
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">Unternehmensdaten</h3>
-                  <p className="text-sm text-gray-500">Firmendaten anzeigen und bearbeiten</p>
-                </div>
-              </div>
-            </button>
-          )}
-        </div>
-
-        {/* Firmeninformationen - Nur für Admin */}
-        {isAdmin && company && (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Firmeninformationen</h3>
-              <button
-                onClick={() => router.push('/einstellungen')}
-                className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center"
-              >
-                Bearbeiten
-                <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                </svg>
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div>
-                <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Firmenname</p>
-                <p className="text-sm font-medium text-gray-900">{company.name}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Rechtsform</p>
-                <p className="text-sm font-medium text-gray-900">{company.legal_form || '-'}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">UST-ID</p>
-                <p className="text-sm font-medium text-gray-900">{company.ust_id || '-'}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Adresse</p>
-                <p className="text-sm font-medium text-gray-900">
-                  {company.street && company.house_number 
-                    ? `${company.street} ${company.house_number}, ${company.postal_code} ${company.city}`
-                    : '-'
-                  }
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Website</p>
-                {company.website ? (
-                  <a 
-                    href={company.website} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-sm font-medium text-blue-600 hover:text-blue-700"
-                  >
-                    {company.website}
-                  </a>
-                ) : (
-                  <p className="text-sm font-medium text-gray-900">-</p>
-                )}
-              </div>
-            </div>
+            ))}
           </div>
-        )}
+        ) : (
+          <>
+            {/* Statistik-Karten */}
+            <div className={`grid gap-6 ${isAdmin ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4' : 'grid-cols-1 md:grid-cols-2'}`}>
+              
+              {/* Projekte */}
+              <div className="bg-white p-6 rounded-xl shadow-sm border hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-gray-500">
+                      {isAdmin ? 'Aktive Projekte' : 'Meine Projekte'}
+                    </p>
+                    <p className="text-3xl font-bold text-gray-900 mt-1">
+                      {stats.activeProjects}
+                    </p>
+                  </div>
+                  <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
+                    <span className="text-2xl">📁</span>
+                  </div>
+                </div>
+              </div>
 
-        {/* Hinweis für normale Mitarbeiter */}
-        {!isAdmin && (
-          <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
-            <div className="flex items-start">
-              <svg className="w-6 h-6 text-blue-600 mr-3 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <div>
-                <h4 className="text-sm font-medium text-blue-800">Ihre Zeiterfassung</h4>
-                <p className="text-sm text-blue-700 mt-1">
-                  Klicken Sie auf "Zeiterfassung" um Ihre Arbeitszeiten zu erfassen und zu verwalten.
-                </p>
+              {/* Mitarbeiter - nur Admin */}
+              {isAdmin && (
+                <div className="bg-white p-6 rounded-xl shadow-sm border hover:shadow-md transition-shadow">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-500">Mitarbeiter</p>
+                      <p className="text-3xl font-bold text-gray-900 mt-1">
+                        {stats.totalEmployees}
+                      </p>
+                    </div>
+                    <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
+                      <span className="text-2xl">👥</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Stunden diesen Monat */}
+              <div className="bg-white p-6 rounded-xl shadow-sm border hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-gray-500">
+                      Stunden ({getCurrentMonthName()})
+                    </p>
+                    <p className="text-3xl font-bold text-gray-900 mt-1">
+                      {stats.hoursThisMonth}h
+                    </p>
+                  </div>
+                  <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
+                    <span className="text-2xl">⏱️</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Schnellzugriff */}
+              <div className="bg-gradient-to-br from-blue-500 to-blue-600 p-6 rounded-xl shadow-sm text-white hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-blue-100">Schnellzugriff</p>
+                    <button 
+                      onClick={() => window.location.href = '/zeiterfassung'}
+                      className="text-lg font-semibold mt-1 hover:underline"
+                    >
+                      → Zeiten erfassen
+                    </button>
+                  </div>
+                  <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+                    <span className="text-2xl">✏️</span>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
+
+            {/* Weitere Inhalte für Admins */}
+            {isAdmin && (
+              <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Schnellzugriffe */}
+                <div className="bg-white p-6 rounded-xl shadow-sm border">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-4">
+                    Schnellzugriffe
+                  </h2>
+                  <div className="grid grid-cols-2 gap-4">
+                    <button
+                      onClick={() => window.location.href = '/projekte'}
+                      className="flex items-center space-x-3 p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors text-left"
+                    >
+                      <span className="text-2xl">📁</span>
+                      <div>
+                        <p className="font-medium text-gray-900">Projekte</p>
+                        <p className="text-xs text-gray-500">Verwalten</p>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => window.location.href = '/mitarbeiter'}
+                      className="flex items-center space-x-3 p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors text-left"
+                    >
+                      <span className="text-2xl">👥</span>
+                      <div>
+                        <p className="font-medium text-gray-900">Mitarbeiter</p>
+                        <p className="text-xs text-gray-500">Team verwalten</p>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => window.location.href = '/berichte'}
+                      className="flex items-center space-x-3 p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors text-left"
+                    >
+                      <span className="text-2xl">📊</span>
+                      <div>
+                        <p className="font-medium text-gray-900">Berichte</p>
+                        <p className="text-xs text-gray-500">Auswertungen</p>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => window.location.href = '/einstellungen'}
+                      className="flex items-center space-x-3 p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors text-left"
+                    >
+                      <span className="text-2xl">⚙️</span>
+                      <div>
+                        <p className="font-medium text-gray-900">Einstellungen</p>
+                        <p className="text-xs text-gray-500">Firmendaten</p>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Info-Box */}
+                <div className="bg-white p-6 rounded-xl shadow-sm border">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-4">
+                    Hinweise
+                  </h2>
+                  <div className="space-y-3">
+                    <div className="flex items-start space-x-3 p-3 bg-blue-50 rounded-lg">
+                      <span className="text-blue-600">ℹ️</span>
+                      <div>
+                        <p className="text-sm font-medium text-blue-900">Tipp</p>
+                        <p className="text-xs text-blue-700">
+                          Nutze die Navigation oben, um schnell zwischen den Bereichen zu wechseln.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-start space-x-3 p-3 bg-amber-50 rounded-lg">
+                      <span className="text-amber-600">📋</span>
+                      <div>
+                        <p className="text-sm font-medium text-amber-900">Berichte</p>
+                        <p className="text-xs text-amber-700">
+                          FZul-Jahresberichte und ZIM-Monatsnachweise findest du unter Berichte.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Info für User */}
+            {!isAdmin && (
+              <div className="mt-8">
+                <div className="bg-white p-6 rounded-xl shadow-sm border">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-4">
+                    Deine Aufgaben
+                  </h2>
+                  <div className="flex items-start space-x-3 p-4 bg-blue-50 rounded-lg">
+                    <span className="text-2xl">⏱️</span>
+                    <div>
+                      <p className="font-medium text-blue-900">Zeiterfassung</p>
+                      <p className="text-sm text-blue-700 mt-1">
+                        Trage deine Arbeitszeiten regelmäßig in der Zeiterfassung ein. 
+                        Wähle das passende Projekt und Arbeitspaket aus.
+                      </p>
+                      <button
+                        onClick={() => window.location.href = '/zeiterfassung'}
+                        className="mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+                      >
+                        Zur Zeiterfassung
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </main>
     </div>
-  );
+  )
 }

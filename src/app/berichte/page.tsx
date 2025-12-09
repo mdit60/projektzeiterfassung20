@@ -3,12 +3,12 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import Link from 'next/link'
+import Header from '@/components/Header'
 
 // Types
 interface UserProfile {
   id: string
-  name: string  // FIX: Hinzugefügt
+  name: string
   first_name: string
   last_name: string
   email: string
@@ -34,7 +34,7 @@ interface Company {
   state_code: string
 }
 
-// FIX: Hilfsfunktion für Namen-Formatierung (Nachname, Vorname)
+// Hilfsfunktion für Namen-Formatierung (Nachname, Vorname)
 function formatEmployeeName(emp: UserProfile): string {
   if (emp.last_name && emp.first_name) {
     return `${emp.last_name}, ${emp.first_name}`;
@@ -177,9 +177,8 @@ export default function BerichtePage() {
         setCompany(companyData)
       }
       
-      // FIX: Mitarbeiter laden (nur für Admins)
-      // Geändert von 'company_admin' || 'manager' auf 'admin'
-      if (profile.role === 'admin') {
+      // Mitarbeiter laden (nur für Admins)
+      if (profile.role === 'admin' || profile.role === 'company_admin') {
         const { data: employeesData } = await supabase
           .from('user_profiles')
           .select('*')
@@ -404,10 +403,13 @@ export default function BerichtePage() {
   
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Lade Daten...</p>
+      <div className="min-h-screen bg-gray-50">
+        <Header />
+        <div className="flex items-center justify-center py-20">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+            <p className="mt-4 text-gray-600">Lade Daten...</p>
+          </div>
         </div>
       </div>
     )
@@ -415,26 +417,16 @@ export default function BerichtePage() {
   
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-4">
-            <div className="flex items-center space-x-4">
-              <Link href="/dashboard" className="text-gray-500 hover:text-gray-700">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                </svg>
-              </Link>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">Berichte</h1>
-                <p className="text-sm text-gray-500">{company?.name}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
+      {/* Header-Komponente */}
+      <Header />
       
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Seiten-Titel */}
+        <div className="mb-6">
+          <h1 className="text-3xl font-bold text-gray-900">📊 Berichte</h1>
+          <p className="text-gray-600 mt-1">Stundennachweise und Zahlungsanforderungen exportieren</p>
+        </div>
+
         {/* Fehler/Erfolg Meldungen */}
         {error && (
           <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
@@ -573,7 +565,7 @@ export default function BerichtePage() {
                   </select>
                 </div>
                 
-                {/* Mitarbeiter - FIX: Verwendet jetzt formatEmployeeName() */}
+                {/* Mitarbeiter */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Mitarbeiter *
@@ -744,7 +736,7 @@ export default function BerichtePage() {
                   )}
                 </div>
                 
-                {/* Mitarbeiter - FIX: Verwendet jetzt formatEmployeeName() */}
+                {/* Mitarbeiter */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Mitarbeiter *
@@ -839,9 +831,7 @@ export default function BerichtePage() {
           </div>
         )}
         
-        {/* ============================================ */}
-        {/* NEUER TAB: ZAHLUNGSANFORDERUNG              */}
-        {/* ============================================ */}
+        {/* ZAHLUNGSANFORDERUNG TAB */}
         {activeTab === 'zahlungsanforderung' && (
           <div className="bg-white rounded-lg shadow-sm border p-6">
             <div className="mb-6">

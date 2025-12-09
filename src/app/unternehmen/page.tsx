@@ -1,5 +1,6 @@
 // ========================================
-// Datei: src/app/einstellungen/page.tsx
+// Datei: src/app/unternehmen/page.tsx
+// HINWEIS: Route von /einstellungen nach /unternehmen geändert!
 // ========================================
 
 'use client';
@@ -7,8 +8,60 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import Header from '@/components/Header';
 
-export default function EinstellungenPage() {
+// Hilfsfunktion: Ist der User ein Admin?
+function isAdminRole(role: string | undefined): boolean {
+  if (!role) return false;
+  return role === 'admin' || role === 'company_admin';
+}
+
+// Hilfsfunktion: Ist der User Geschäftsführer/Inhaber/Management?
+function isCompanyOwner(profile: any): boolean {
+  if (!profile) return false;
+  if (!isAdminRole(profile.role)) return false;
+  
+  // Management-Positionen mit Zugriff auf Unternehmensdaten
+  const ownerTitles = [
+    // Geschäftsführung
+    'geschäftsführer', 'geschaeftsfuehrer', 'gf',
+    'ceo', 'chief executive officer',
+    'managing director',
+    'vorstand', 'vorstandsvorsitzender',
+    // Technische Leitung (C-Level)
+    'cto', 'chief technology officer',
+    // Kaufmännische Leitung
+    'cfo', 'chief financial officer',
+    'kaufmännischer leiter', 'kaufmaennischer leiter',
+    'kaufmännische leitung', 'kaufmaennische leitung',
+    'kfm. leiter', 'kfm leiter',
+    'finanzleiter', 'finance director',
+    'controller', 'head of finance',
+    // Operative Leitung
+    'coo', 'chief operating officer',
+    'betriebsleiter', 'operations director',
+    // Eigentümer/Gesellschafter
+    'inhaber', 'inhaberin',
+    'owner', 'eigentümer', 'eigentuemer',
+    'gesellschafter', 'geschäftsführender gesellschafter',
+    // Prokura
+    'prokurist', 'prokuristin',
+    // Generelle Management-Bezeichnungen
+    'general manager', 'direktor', 'director'
+  ];
+  
+  const position = (profile.job_function || '').toLowerCase().trim();
+  
+  // Fallback: Wenn keine Position gesetzt, aber Admin → Zugriff erlauben
+  // (für bestehende Accounts ohne Position)
+  if (!position && isAdminRole(profile.role)) {
+    return true;
+  }
+  
+  return ownerTitles.some(title => position.includes(title));
+}
+
+export default function UnternehmenPage() {
   const router = useRouter();
   const supabase = createClient();
 
@@ -65,10 +118,10 @@ export default function EinstellungenPage() {
 
         setProfile(profileData);
 
-        // 3. Prüfen ob User Admin ist (geändert von company_admin zu admin)
-        if (profileData.role !== 'admin') {
-          setError('Keine Berechtigung. Nur Admins können Firmendaten bearbeiten.');
-          setTimeout(() => router.push('/dashboard'), 2000);
+        // 3. Prüfen ob User Geschäftsführer ist (nicht nur Admin!)
+        if (!isCompanyOwner(profileData)) {
+          setError('Keine Berechtigung. Nur Geschäftsführer können Unternehmensdaten bearbeiten.');
+          setTimeout(() => router.push('/dashboard'), 3000);
           return;
         }
 
@@ -80,7 +133,7 @@ export default function EinstellungenPage() {
           .single();
 
         if (companyError || !companyData) {
-          setError('Firmendaten konnten nicht geladen werden');
+          setError('Unternehmensdaten konnten nicht geladen werden');
           return;
         }
 
@@ -171,7 +224,7 @@ export default function EinstellungenPage() {
         throw updateError;
       }
 
-      setSuccess('Firmendaten erfolgreich aktualisiert!');
+      setSuccess('Unternehmensdaten erfolgreich aktualisiert!');
       
       // Nach 2 Sekunden zurück zum Dashboard
       setTimeout(() => {
@@ -189,10 +242,13 @@ export default function EinstellungenPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <div className="text-center">
-          <div className="text-lg font-medium text-gray-900 mb-2">Laden...</div>
-          <div className="text-sm text-gray-600">Daten werden geladen</div>
+      <div className="min-h-screen bg-gray-50">
+        <Header />
+        <div className="flex items-center justify-center py-20">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <div className="text-lg font-medium text-gray-900 mb-2">Laden...</div>
+          </div>
         </div>
       </div>
     );
@@ -200,14 +256,18 @@ export default function EinstellungenPage() {
 
   if (error && !company) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-6">
-          <div className="text-red-600 text-center">
-            <svg className="w-16 h-16 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-            <h2 className="text-xl font-bold mb-2">Fehler</h2>
-            <p className="text-gray-700">{error}</p>
+      <div className="min-h-screen bg-gray-50">
+        <Header />
+        <div className="flex items-center justify-center py-20">
+          <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-6">
+            <div className="text-red-600 text-center">
+              <svg className="w-16 h-16 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <h2 className="text-xl font-bold mb-2">Zugriff verweigert</h2>
+              <p className="text-gray-700 mb-4">{error}</p>
+              <p className="text-sm text-gray-500">Sie werden zum Dashboard weitergeleitet...</p>
+            </div>
           </div>
         </div>
       </div>
@@ -216,33 +276,14 @@ export default function EinstellungenPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Navigation */}
-      <nav className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <button
-                onClick={() => router.push('/dashboard')}
-                className="flex items-center text-gray-600 hover:text-gray-900"
-              >
-                <svg className="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-                <span className="font-medium">Zurück zum Dashboard</span>
-              </button>
-            </div>
-            <div className="flex items-center">
-              <span className="text-sm text-gray-600">{profile?.name}</span>
-            </div>
-          </div>
-        </div>
-      </nav>
+      {/* Header-Komponente */}
+      <Header />
 
       <div className="max-w-4xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
-        {/* Header */}
+        {/* Seiten-Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Firmendaten bearbeiten</h1>
-          <p className="text-gray-600">Aktualisieren Sie die Informationen zu Ihrem Unternehmen</p>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">🏢 Unternehmensdaten</h1>
+          <p className="text-gray-600">Aktualisieren Sie die Stammdaten Ihres Unternehmens</p>
         </div>
 
         {/* Success Message */}
@@ -261,6 +302,20 @@ export default function EinstellungenPage() {
             {error}
           </div>
         )}
+
+        {/* Info-Box für Geschäftsführer */}
+        <div className="mb-6 bg-purple-50 border border-purple-200 rounded-lg p-4">
+          <div className="flex items-start">
+            <span className="text-2xl mr-3">👑</span>
+            <div>
+              <h3 className="font-medium text-purple-900">Geschäftsführer-Bereich</h3>
+              <p className="text-sm text-purple-700 mt-1">
+                Diese Seite ist nur für Geschäftsführer zugänglich. Änderungen an den Unternehmensdaten 
+                wirken sich auf alle Berichte und Exporte aus.
+              </p>
+            </div>
+          </div>
+        </div>
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-md p-6 space-y-8">

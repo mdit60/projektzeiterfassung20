@@ -7,6 +7,7 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import Header from '@/components/Header';
 
 interface Project {
   id: string;
@@ -140,6 +141,11 @@ export default function ProjectsPage() {
     return <span className={`px-2 py-1 rounded-full text-xs font-medium ${badge.color}`}>{badge.text}</span>;
   };
 
+  const formatDate = (dateStr: string | null | undefined): string => {
+    if (!dateStr) return '';
+    return new Date(dateStr).toLocaleDateString('de-DE');
+  };
+
   const canEdit = profile?.role === 'admin' || profile?.role === 'manager';
 
   if (loading) {
@@ -155,33 +161,17 @@ export default function ProjectsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <nav className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <button
-                onClick={() => router.push('/dashboard')}
-                className="flex items-center text-gray-600 hover:text-gray-900"
-              >
-                <svg className="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-                Dashboard
-              </button>
-            </div>
-            <div className="flex items-center space-x-4">
-              <span className="text-sm text-gray-600">{profile?.name}</span>
-            </div>
-          </div>
-        </div>
-      </nav>
+      {/* Header Komponente */}
+      <Header />
 
       <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
-        {/* Header */}
+        {/* Seiten-Header */}
         <div className="flex justify-between items-center mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Projekte</h1>
+            <h1 className="text-3xl font-bold text-gray-900 flex items-center">
+              <span className="mr-3">📁</span>
+              Projekte
+            </h1>
             <p className="text-gray-600 mt-1">{projects.length} Projekte</p>
           </div>
           {canEdit && (
@@ -221,34 +211,29 @@ export default function ProjectsPage() {
                 onClick={() => router.push(`/projekte/${project.id}`)}
                 className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow cursor-pointer overflow-hidden"
               >
+                {/* Farbiger Balken oben */}
                 <div 
                   className="h-2"
                   style={{ backgroundColor: project.color || '#3B82F6' }}
                 />
+                
                 <div className="p-6">
-                  <div className="flex items-start justify-between mb-3">
+                  {/* Zeile 1: Icon + Projektname + Status */}
+                  <div className="flex items-start justify-between mb-4">
                     <div className="flex items-center">
                       <div
-                        className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold mr-3"
+                        className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold mr-3 flex-shrink-0"
                         style={{ backgroundColor: project.color || '#3B82F6' }}
                       >
                         {project.name.substring(0, 2).toUpperCase()}
                       </div>
-                      <div>
-                        <h3 className="font-semibold text-gray-900">{project.name}</h3>
-                        {project.project_number && (
-                          <p className="text-sm text-gray-500">#{project.project_number}</p>
-                        )}
-                      </div>
+                      <h3 className="font-semibold text-gray-900">{project.name}</h3>
                     </div>
                     {getStatusBadge(project.status)}
                   </div>
 
-                  {project.description && (
-                    <p className="text-sm text-gray-600 mb-3 line-clamp-2">{project.description}</p>
-                  )}
-
-                  <div className="flex flex-wrap gap-2 mt-3">
+                  {/* Zeile 2: Förderkennzeichen + Förderprogramm (immer anzeigen, auch wenn leer) */}
+                  <div className="flex flex-wrap gap-2 min-h-[28px]">
                     {project.funding_reference && (
                       <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs font-medium">
                         {project.funding_reference}
@@ -261,17 +246,21 @@ export default function ProjectsPage() {
                     )}
                   </div>
 
-                  {(project.start_date || project.end_date) && (
-                    <div className="mt-4 pt-3 border-t text-xs text-gray-500">
-                      {project.start_date && (
-                        <span>{new Date(project.start_date).toLocaleDateString('de-DE')}</span>
-                      )}
-                      {project.start_date && project.end_date && <span> - </span>}
-                      {project.end_date && (
-                        <span>{new Date(project.end_date).toLocaleDateString('de-DE')}</span>
+                  {/* Trennlinie (immer) */}
+                  <div className="border-t mt-4 pt-3">
+                    {/* Zeile 3: Projektdauer (immer anzeigen, auch wenn leer) */}
+                    <div className="text-xs text-gray-500 min-h-[16px]">
+                      {project.start_date || project.end_date ? (
+                        <>
+                          {formatDate(project.start_date)}
+                          {project.start_date && project.end_date && ' - '}
+                          {formatDate(project.end_date)}
+                        </>
+                      ) : (
+                        <span className="text-gray-300 italic">Zeitraum nicht definiert</span>
                       )}
                     </div>
-                  )}
+                  </div>
                 </div>
               </div>
             ))}
@@ -293,18 +282,7 @@ export default function ProjectsPage() {
                   value={newProject.name}
                   onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
                   className="w-full border rounded-lg px-3 py-2"
-                  placeholder="z.B. Website Redesign"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Projektnummer</label>
-                <input
-                  type="text"
-                  value={newProject.project_number}
-                  onChange={(e) => setNewProject({ ...newProject, project_number: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2"
-                  placeholder="z.B. P-2024-001"
+                  placeholder="z.B. VETIS"
                 />
               </div>
               
@@ -315,6 +293,7 @@ export default function ProjectsPage() {
                   value={newProject.description}
                   onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
                   className="w-full border rounded-lg px-3 py-2"
+                  placeholder="Kurze Projektbeschreibung..."
                 />
               </div>
               
@@ -324,8 +303,12 @@ export default function ProjectsPage() {
                   type="color"
                   value={newProject.color}
                   onChange={(e) => setNewProject({ ...newProject, color: e.target.value })}
-                  className="w-full h-10 border rounded-lg"
+                  className="w-full h-10 border rounded-lg cursor-pointer"
                 />
+              </div>
+
+              <div className="p-3 bg-blue-50 rounded-lg text-sm text-blue-700">
+                <strong>💡 Tipp:</strong> Förderkennzeichen, Förderprogramm und Projektdauer können Sie nach dem Erstellen im Tab "Förderung" eintragen.
               </div>
             </div>
 
