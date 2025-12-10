@@ -1,5 +1,5 @@
 // src/app/import/page.tsx
-// VERSION: v4.8 - Jahres-Kacheln zeigen gebucht + verfügbar
+// VERSION: v4.9 - Nur Super-Admin kann löschen
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
@@ -145,7 +145,7 @@ const SHEET_BLACKLIST_PATTERN = /^(Ermittl|Auswertung|Nav|PK|ZAZK|ZNZK|Planung|�
 
 export default function ImportPage() {
   // VERSION CHECK - in Browser-Konsole sichtbar
-  console.log('[Import] Version v4.8 - Jahres-Kacheln mit gebucht/frei');
+  console.log('[Import] Version v4.9 - Nur Super-Admin kann löschen');
   
   const router = useRouter();
   const supabase = createClient();
@@ -1232,6 +1232,9 @@ export default function ImportPage() {
   const renderProjectDetail = () => {
     if (!selectedProject) return null;
 
+    // Nur Super-Admin kann löschen
+    const isSuperAdmin = profile?.email?.toLowerCase() === 'm.ditscherlein@cubintec.com';
+
     const allTimesheets = getProjectTimesheets(selectedProject);
     const employeeNames = [...new Set(allTimesheets.map(ts => ts.employee_name))];
     const fkz = allTimesheets[0]?.funding_reference || '';
@@ -1296,12 +1299,14 @@ export default function ImportPage() {
           <button onClick={() => setSelectedProject(null)} className="text-blue-600 hover:underline">
             ← Zurück zur Übersicht
           </button>
-          <button
-            onClick={() => setShowDeleteConfirm({ type: 'project', projectName: selectedProject })}
-            className="px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 text-sm"
-          >
-            🗑️ Projekt löschen
-          </button>
+          {isSuperAdmin && (
+            <button
+              onClick={() => setShowDeleteConfirm({ type: 'project', projectName: selectedProject })}
+              className="px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 text-sm"
+            >
+              🗑️ Projekt löschen
+            </button>
+          )}
         </div>
 
         {/* Projekt-Header mit Jahresauswahl */}
@@ -1434,7 +1439,7 @@ export default function ImportPage() {
                             {absenceDays > 0 ? absenceDays : '-'}
                           </td>
                           <td className="px-3 py-2 text-center">
-                            {ts && (
+                            {ts && isSuperAdmin && (
                               <button
                                 onClick={() => setShowDeleteConfirm({ type: 'timesheet', id: ts.id })}
                                 className="text-red-500 hover:text-red-700"
