@@ -1,5 +1,5 @@
 // src/app/import/page.tsx
-// VERSION: v4.3 - Debug E-Mail-Check für Berechtigungen
+// VERSION: v4.4 - Jahresauswahl + korrigierte Jahr-Erkennung im Parser
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
@@ -145,7 +145,7 @@ const SHEET_BLACKLIST_PATTERN = /^(Ermittl|Auswertung|Nav|PK|ZAZK|ZNZK|Planung|�
 
 export default function ImportPage() {
   // VERSION CHECK - in Browser-Konsole sichtbar
-  console.log('[Import] Version v4.3 - Debug E-Mail-Check');
+  console.log('[Import] Version v4.4 - Jahresauswahl + korrigierte Jahr-Erkennung');
   
   const router = useRouter();
   const supabase = createClient();
@@ -182,6 +182,7 @@ export default function ImportPage() {
   // Auswertungs-States
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
   const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
+  const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
 
   // Modals
@@ -357,6 +358,12 @@ export default function ImportPage() {
 
   const getEmployeeTimesheets = (employeeName: string) =>
     savedTimesheets.filter(ts => ts.employee_name === employeeName);
+
+  const getAvailableYears = (employeeName: string): number[] => {
+    const timesheets = getEmployeeTimesheets(employeeName);
+    const years = [...new Set(timesheets.map(ts => ts.year))].sort((a, b) => a - b);
+    return years;
+  };
 
   const getEmployeeSettings = (name: string) =>
     savedEmployees.find(e => e.name === name) || {
@@ -698,6 +705,34 @@ export default function ImportPage() {
       return { year: date.getFullYear(), month: date.getMonth() + 1 };
     }
 
+    // SCHRITT 1: Erst alle gültigen Jahre sammeln, um Fallback zu bestimmen
+    const validYears: number[] = [];
+    for (let m = 0; m < 12; m++) {
+      const dateRowIndex = BMBF_DATE_ROW + (m * BMBF_MONTH_OFFSET);
+      const dateCell = maWs[XLSX.utils.encode_cell({ r: dateRowIndex, c: 0 })];
+      if (dateCell?.v && typeof dateCell.v === 'number') {
+        const parsed = excelDateToYearMonth(dateCell.v);
+        if (parsed.year >= 2015 && parsed.year <= 2030) {
+          validYears.push(parsed.year);
+        }
+      }
+    }
+    
+    // Fallback-Jahr: häufigstes Jahr oder aus projectYear berechnet
+    let fallbackYear: number;
+    if (validYears.length > 0) {
+      // Häufigstes Jahr verwenden
+      const yearCounts: Record<number, number> = {};
+      validYears.forEach(y => yearCounts[y] = (yearCounts[y] || 0) + 1);
+      fallbackYear = parseInt(Object.entries(yearCounts).sort((a, b) => b[1] - a[1])[0][0]);
+    } else {
+      // Kein gültiges Jahr gefunden - aus projectYear schätzen
+      // Annahme: Projekt startete ca. 2020 (kann angepasst werden)
+      fallbackYear = 2019 + sheet.projectYear;
+      console.log(`[Import] ⚠️ Kein gültiges Datum in ${sheet.sheetName}, verwende Fallback-Jahr: ${fallbackYear}`);
+    }
+
+    // SCHRITT 2: Monatsdaten extrahieren
     for (let m = 0; m < 12; m++) {
       const dateRowIndex = BMBF_DATE_ROW + (m * BMBF_MONTH_OFFSET);
       const projectRowIndex = BMBF_PROJECT_ROW + (m * BMBF_MONTH_OFFSET);
@@ -705,13 +740,16 @@ export default function ImportPage() {
 
       // Jahr und Monat aus Excel-Datum ermitteln (Spalte A)
       const dateCell = maWs[XLSX.utils.encode_cell({ r: dateRowIndex, c: 0 })];
-      let year = new Date().getFullYear();
+      let year = fallbackYear;  // Fallback statt new Date().getFullYear()
       let month = m + 1;
       
       if (dateCell?.v && typeof dateCell.v === 'number') {
         const parsed = excelDateToYearMonth(dateCell.v);
-        year = parsed.year;
-        month = parsed.month;
+        // Nur plausible Jahre akzeptieren (2015-2030)
+        if (parsed.year >= 2015 && parsed.year <= 2030) {
+          year = parsed.year;
+          month = parsed.month;
+        }
       }
 
       const dailyData: MonthData['dailyData'] = {};
@@ -1253,10 +1291,19 @@ export default function ImportPage() {
   const renderEmployeeDetail = () => {
     if (!selectedEmployee) return null;
 
-    const timesheets = getEmployeeTimesheets(selectedEmployee);
+    const allTimesheets = getEmployeeTimesheets(selectedEmployee);
+    const availableYears = getAvailableYears(selectedEmployee);
     const settings = getEmployeeSettings(selectedEmployee);
     const maxMonthly = getMaxMonthlyHours(settings.weekly_hours);
     const maxDaily = settings.weekly_hours / 5;
+
+    // Wenn kein Jahr ausgewählt, erstes verfügbares Jahr nehmen
+    const displayYear = selectedYear && availableYears.includes(selectedYear) 
+      ? selectedYear 
+      : availableYears[0] || new Date().getFullYear();
+
+    // Timesheets nach ausgewähltem Jahr filtern
+    const timesheets = allTimesheets.filter(ts => ts.year === displayYear);
 
     const projectGroups: Record<string, ImportedTimesheet[]> = {};
     for (const ts of timesheets) {
@@ -1264,7 +1311,7 @@ export default function ImportPage() {
       projectGroups[ts.project_name].push(ts);
     }
 
-    const yearData: Record<number, Record<number, { 
+    const monthData: Record<number, Record<number, { 
       used: number; 
       free: number; 
       projects: Record<string, number>;
@@ -1272,38 +1319,40 @@ export default function ImportPage() {
     }>> = {};
     
     for (const ts of timesheets) {
-      if (!yearData[ts.month]) yearData[ts.month] = {};
+      if (!monthData[ts.month]) monthData[ts.month] = {};
       
       const daily = ts.daily_data || {};
       for (let day = 1; day <= 31; day++) {
-        if (!yearData[ts.month][day]) {
-          yearData[ts.month][day] = { used: 0, free: maxDaily, projects: {}, absence: null };
+        if (!monthData[ts.month][day]) {
+          monthData[ts.month][day] = { used: 0, free: maxDaily, projects: {}, absence: null };
         }
         const dayData = daily[day.toString()] || daily[day];
         if (dayData) {
           if (dayData.hours) {
-            yearData[ts.month][day].used += dayData.hours;
-            yearData[ts.month][day].free = maxDaily - yearData[ts.month][day].used;
-            yearData[ts.month][day].projects[ts.project_name] = 
-              (yearData[ts.month][day].projects[ts.project_name] || 0) + dayData.hours;
+            monthData[ts.month][day].used += dayData.hours;
+            monthData[ts.month][day].free = maxDaily - monthData[ts.month][day].used;
+            monthData[ts.month][day].projects[ts.project_name] = 
+              (monthData[ts.month][day].projects[ts.project_name] || 0) + dayData.hours;
           }
           if (dayData.absence) {
-            yearData[ts.month][day].absence = dayData.absence;
+            monthData[ts.month][day].absence = dayData.absence;
           }
         }
       }
     }
 
-    const monthlySums: { month: number; used: number; free: number }[] = [];
+    const monthlySums: { month: number; year: number; used: number; free: number }[] = [];
     for (let m = 1; m <= 12; m++) {
       const monthTimesheets = timesheets.filter(ts => ts.month === m);
       const used = monthTimesheets.reduce((s, ts) => s + ts.total_billable_hours, 0);
-      monthlySums.push({ month: m, used, free: maxMonthly - used });
+      monthlySums.push({ month: m, year: displayYear, used, free: maxMonthly - used });
     }
 
     const totalUsed = timesheets.reduce((s, ts) => s + ts.total_billable_hours, 0);
     const totalFree = (maxMonthly * 12) - totalUsed;
-    const displayYear = timesheets[0]?.year || new Date().getFullYear();
+    
+    // Gesamtstunden über alle Jahre (für Info)
+    const totalAllYears = allTimesheets.reduce((s, ts) => s + ts.total_billable_hours, 0);
 
     return (
       <div className="space-y-6">
@@ -1334,8 +1383,33 @@ export default function ImportPage() {
         </div>
 
         <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-bold mb-2">👤 {selectedEmployee}</h2>
-          <p className="text-gray-500">{settings.weekly_hours}h/Woche • {settings.annual_leave_days} Urlaubstage</p>
+          <div className="flex justify-between items-start">
+            <div>
+              <h2 className="text-xl font-bold mb-2">👤 {selectedEmployee}</h2>
+              <p className="text-gray-500">{settings.weekly_hours}h/Woche • {settings.annual_leave_days} Urlaubstage</p>
+            </div>
+            
+            {/* Jahresauswahl */}
+            {availableYears.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-600">Jahr:</span>
+                <select
+                  value={displayYear}
+                  onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                  className="px-3 py-2 border rounded-lg bg-white font-medium"
+                >
+                  {availableYears.map(year => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
+                {availableYears.length > 1 && (
+                  <span className="text-xs text-gray-400">
+                    ({availableYears.length} Jahre)
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
           
           <div className="mt-4 flex flex-wrap gap-2">
             {Object.keys(projectGroups).map(proj => (
@@ -1349,19 +1423,19 @@ export default function ImportPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-blue-50 p-4 rounded-lg text-center">
             <div className="text-2xl font-bold text-blue-600">{totalUsed.toFixed(0)}h</div>
-            <div className="text-sm text-gray-600">Genutzt (alle Projekte)</div>
+            <div className="text-sm text-gray-600">Genutzt {displayYear}</div>
           </div>
           <div className="bg-green-50 p-4 rounded-lg text-center">
             <div className="text-2xl font-bold text-green-600">{totalFree.toFixed(0)}h</div>
-            <div className="text-sm text-gray-600">Frei verfügbar</div>
+            <div className="text-sm text-gray-600">Frei {displayYear}</div>
           </div>
           <div className="bg-yellow-50 p-4 rounded-lg text-center">
-            <div className="text-2xl font-bold text-yellow-600">{maxMonthly.toFixed(0)}h</div>
-            <div className="text-sm text-gray-600">Max. pro Monat</div>
+            <div className="text-2xl font-bold text-yellow-600">{totalAllYears.toFixed(0)}h</div>
+            <div className="text-sm text-gray-600">Gesamt alle Jahre</div>
           </div>
           <div className="bg-purple-50 p-4 rounded-lg text-center">
             <div className="text-2xl font-bold text-purple-600">{Object.keys(projectGroups).length}</div>
-            <div className="text-sm text-gray-600">Projekte</div>
+            <div className="text-sm text-gray-600">Projekte {displayYear}</div>
           </div>
         </div>
 
@@ -1498,7 +1572,7 @@ export default function ImportPage() {
                             );
                           }
                           
-                          const dayInfo = yearData[month]?.[day];
+                          const dayInfo = monthData[month]?.[day];
                           const used = dayInfo?.used || 0;
                           const absence = dayInfo?.absence;
                           
@@ -1615,7 +1689,7 @@ export default function ImportPage() {
                             );
                           }
                           
-                          const dayInfo = yearData[month]?.[day];
+                          const dayInfo = monthData[month]?.[day];
                           const used = dayInfo?.used || 0;
                           const absence = dayInfo?.absence;
                           
@@ -1739,7 +1813,7 @@ export default function ImportPage() {
               </button>
             </div>
 
-            {/* Debug: console.log zeigt E-Mail in Konsole */}
+            {/* Berechtigungen nur für Super-Admin */}
             {profile?.email?.toLowerCase() === 'm.ditscherlein@cubintec.com' && (
               <button
                 onClick={openAccessModal}
