@@ -1,5 +1,5 @@
 // src/app/import/page.tsx
-// VERSION: v4.2 - 2024-12-10 - Berechtigungen nur für Super-Admin sichtbar
+// VERSION: v4.3 - Debug E-Mail-Check für Berechtigungen
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
@@ -145,7 +145,7 @@ const SHEET_BLACKLIST_PATTERN = /^(Ermittl|Auswertung|Nav|PK|ZAZK|ZNZK|Planung|�
 
 export default function ImportPage() {
   // VERSION CHECK - in Browser-Konsole sichtbar
-  console.log('[Import] Version v4.2 - Berechtigungen nur für Super-Admin');
+  console.log('[Import] Version v4.3 - Debug E-Mail-Check');
   
   const router = useRouter();
   const supabase = createClient();
@@ -236,6 +236,9 @@ export default function ImportPage() {
         return;
       }
 
+      // DEBUG: E-Mail in Konsole anzeigen
+      console.log('[Import] Profil-E-Mail:', profileData.email);
+      
       setProfile(profileData);
       setHasAccess(profileData.has_import_access || false);
       if (!profileData.has_import_access) {
@@ -1736,7 +1739,8 @@ export default function ImportPage() {
               </button>
             </div>
 
-            {profile?.email === 'martin.ditscherlein@cubintec.de' && (
+            {/* Debug: console.log zeigt E-Mail in Konsole */}
+            {profile?.email?.toLowerCase() === 'm.ditscherlein@cubintec.com' && (
               <button
                 onClick={openAccessModal}
                 className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 flex items-center gap-2 text-sm font-medium"
