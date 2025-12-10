@@ -1,4 +1,5 @@
 // src/app/import/page.tsx
+// VERSION: v4.1 - 2024-12-10 - Robuste Regex-Blacklist für technische Sheets
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
@@ -19,13 +20,25 @@ interface UserProfile {
   role: string;
   company_id: string;
   has_import_access?: boolean;
+  is_super_admin?: boolean;
 }
+
+interface AdminUser {
+  id: string;
+  name: string;
+  email: string;
+  has_import_access: boolean;
+}
+
+// Förderprogramm-Typen
+type FundingFormat = 'ZIM' | 'BMBF_KMU' | 'FZUL' | 'UNKNOWN';
 
 interface ProjectInfo {
   projectName: string;
   companyName: string;
   fundingReference: string;
   fileName: string;
+  format: FundingFormat;
 }
 
 interface EmployeeSheet {
@@ -66,6 +79,7 @@ interface ImportedTimesheet {
   total_absence_days: number;
   original_filename: string;
   created_at: string;
+  funding_format?: FundingFormat;
 }
 
 interface ImportEmployee {
@@ -85,13 +99,54 @@ const MONTH_NAMES = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
 
 const MONTH_SHORT = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 
-const MONTH_ROW_OFFSET = 43;
+// Format-Beschreibungen
+const FORMAT_INFO: Record<FundingFormat, { name: string; color: string; description: string }> = {
+  'ZIM': { 
+    name: 'ZIM', 
+    color: 'bg-blue-100 text-blue-800 border-blue-300',
+    description: 'Zentrales Innovationsprogramm Mittelstand'
+  },
+  'BMBF_KMU': { 
+    name: 'BMBF/KMU-innovativ', 
+    color: 'bg-purple-100 text-purple-800 border-purple-300',
+    description: 'Bundesministerium für Bildung und Forschung'
+  },
+  'FZUL': { 
+    name: 'Forschungszulage', 
+    color: 'bg-green-100 text-green-800 border-green-300',
+    description: 'Steuerliche Forschungsförderung'
+  },
+  'UNKNOWN': { 
+    name: 'Unbekannt', 
+    color: 'bg-gray-100 text-gray-800 border-gray-300',
+    description: 'Format nicht erkannt'
+  }
+};
+
+// ============================================
+// BLACKLIST FÜR TECHNISCHE SHEETS
+// ============================================
+// Diese Regex matcht alle Sheet-Namen, die NICHT importiert werden sollen:
+// - Ermittl* (Ermittl.-Stunden)
+// - Auswertung*
+// - Nav*
+// - PK* (Personalkosten: PK Q1, PK Q2, etc.)
+// - ZAZK* (Zahlungsanforderung)
+// - ZNZK* (Zahlungsnachweise)
+// - Planung*
+// - Übersicht
+// - ZA (Zahlungsanforderung)
+// - MA + Zahl (MA6, MA 10, etc. - Platzhalter)
+const SHEET_BLACKLIST_PATTERN = /^(Ermittl|Auswertung|Nav|PK|ZAZK|ZNZK|Planung|Übersicht|ZA|MA\s*\d+)/i;
 
 // ============================================
 // HAUPTKOMPONENTE
 // ============================================
 
 export default function ImportPage() {
+  // VERSION CHECK - in Browser-Konsole sichtbar
+  console.log('[Import] Version v4.1 - Robuste Regex-Blacklist für technische Sheets');
+  
   const router = useRouter();
   const supabase = createClient();
 
@@ -112,6 +167,9 @@ export default function ImportPage() {
   const [employeeSheets, setEmployeeSheets] = useState<EmployeeSheet[]>([]);
   const [extractedData, setExtractedData] = useState<ExtractedEmployee[]>([]);
   const [importStep, setImportStep] = useState<'upload' | 'preview' | 'done'>('upload');
+
+  // Format-Override (falls Auto-Erkennung falsch)
+  const [selectedFormat, setSelectedFormat] = useState<FundingFormat | null>(null);
 
   // Stammdaten (Standard-Werte)
   const [defaultWeeklyHours, setDefaultWeeklyHours] = useState(40);
@@ -134,6 +192,12 @@ export default function ImportPage() {
     employeeName?: string;
     projectName?: string;
   } | null>(null);
+
+  // Berechtigungs-Modal States
+  const [showAccessModal, setShowAccessModal] = useState(false);
+  const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
+  const [loadingAdmins, setLoadingAdmins] = useState(false);
+  const [savingAccess, setSavingAccess] = useState(false);
 
   // Drag & Drop
   const [isDragging, setIsDragging] = useState(false);
@@ -212,35 +276,139 @@ export default function ImportPage() {
   }
 
   // ============================================
+  // BERECHTIGUNGS-FUNKTIONEN
+  // ============================================
+
+  async function loadAdminUsers() {
+    if (!profile) return;
+    
+    setLoadingAdmins(true);
+    try {
+      const { data: admins, error: adminsError } = await supabase
+        .from('user_profiles')
+        .select('id, name, email, has_import_access')
+        .eq('company_id', profile.company_id)
+        .eq('role', 'admin')
+        .eq('is_active', true)
+        .order('name');
+
+      if (adminsError) throw adminsError;
+
+      setAdminUsers(admins?.map(a => ({
+        id: a.id,
+        name: a.name || a.email,
+        email: a.email,
+        has_import_access: a.has_import_access || false
+      })) || []);
+    } catch (err) {
+      console.error('Fehler beim Laden der Admins:', err);
+      setError('Fehler beim Laden der Benutzer');
+    } finally {
+      setLoadingAdmins(false);
+    }
+  }
+
+  function toggleAdminAccess(adminId: string) {
+    setAdminUsers(prev => prev.map(admin => 
+      admin.id === adminId 
+        ? { ...admin, has_import_access: !admin.has_import_access }
+        : admin
+    ));
+  }
+
+  async function saveAccessChanges() {
+    setSavingAccess(true);
+    try {
+      for (const admin of adminUsers) {
+        await supabase
+          .from('user_profiles')
+          .update({ has_import_access: admin.has_import_access })
+          .eq('id', admin.id);
+      }
+
+      setSuccess('Berechtigungen gespeichert');
+      setShowAccessModal(false);
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      console.error('Fehler beim Speichern:', err);
+      setError('Fehler beim Speichern der Berechtigungen');
+    } finally {
+      setSavingAccess(false);
+    }
+  }
+
+  function openAccessModal() {
+    setShowAccessModal(true);
+    loadAdminUsers();
+  }
+
+  // ============================================
   // HILFSFUNKTIONEN
   // ============================================
 
-  // Alle Projekte aus den Timesheets
   const projects = [...new Set(savedTimesheets.map(ts => ts.project_name))].sort();
-  
-  // Alle Mitarbeiter
   const employees = [...new Set(savedTimesheets.map(ts => ts.employee_name))].sort();
 
-  // Timesheets für ein Projekt
   const getProjectTimesheets = (projectName: string) => 
     savedTimesheets.filter(ts => ts.project_name === projectName);
 
-  // Timesheets für einen MA
   const getEmployeeTimesheets = (employeeName: string) =>
     savedTimesheets.filter(ts => ts.employee_name === employeeName);
 
-  // MA-Einstellungen
   const getEmployeeSettings = (name: string) =>
     savedEmployees.find(e => e.name === name) || {
       weekly_hours: defaultWeeklyHours,
       annual_leave_days: defaultAnnualLeave
     };
 
-  // Max monatliche Stunden
   const getMaxMonthlyHours = (weeklyHours: number) => (weeklyHours * 52) / 12;
-
-  // Tage im Monat
   const getDaysInMonth = (year: number, month: number) => new Date(year, month, 0).getDate();
+
+  // ============================================
+  // FORMAT-ERKENNUNG
+  // ============================================
+
+  function detectFormat(wb: XLSX.WorkBook): FundingFormat {
+    // 1. BMBF/KMU-innovativ: Hat "Nav" Sheet mit FKZ beginnend mit "01"
+    if (wb.SheetNames.includes('Nav')) {
+      const navSheet = wb.Sheets['Nav'];
+      // FKZ in B6 prüfen
+      const fkzCell = navSheet['B6']?.v?.toString() || '';
+      if (fkzCell.match(/^01[A-Z]{2}\d/)) {
+        return 'BMBF_KMU';
+      }
+    }
+
+    // 2. ZIM: Hat "AP Übersicht" oder Sheets mit Arbeitspaketen (AP1, AP2, etc.)
+    if (wb.SheetNames.includes('AP Übersicht')) {
+      return 'ZIM';
+    }
+
+    // Arbeitspakete in Sheets suchen
+    for (const sheetName of wb.SheetNames) {
+      const ws = wb.Sheets[sheetName];
+      // Erste 50 Zeilen durchsuchen
+      for (let row = 1; row <= 50; row++) {
+        const cellA = ws[XLSX.utils.encode_cell({ r: row - 1, c: 0 })]?.v?.toString() || '';
+        if (cellA.match(/^AP\s?\d/i)) {
+          return 'ZIM';
+        }
+      }
+    }
+
+    // 3. FKZ-Muster prüfen (16K... = ZIM, 01... = BMBF)
+    for (const sheetName of wb.SheetNames) {
+      const ws = wb.Sheets[sheetName];
+      for (const cellRef of Object.keys(ws)) {
+        if (cellRef.startsWith('!')) continue;
+        const val = ws[cellRef]?.v?.toString() || '';
+        if (val.match(/16K[NI]\d{5,6}/)) return 'ZIM';
+        if (val.match(/01[A-Z]{2}\d{4,6}[A-Z]?/)) return 'BMBF_KMU';
+      }
+    }
+
+    return 'UNKNOWN';
+  }
 
   // ============================================
   // EXCEL VERARBEITUNG
@@ -274,6 +442,7 @@ export default function ImportPage() {
   async function handleFile(file: File) {
     setError('');
     setProcessing(true);
+    setSelectedFormat(null);
 
     if (!file.name.match(/\.xlsx?$/i)) {
       setError('Bitte nur Excel-Dateien (.xlsx) hochladen');
@@ -285,22 +454,28 @@ export default function ImportPage() {
       const arrayBuffer = await file.arrayBuffer();
       const wb = XLSX.read(arrayBuffer, { type: 'array' });
 
-      const info = extractProjectInfo(wb, file.name);
+      // Format erkennen
+      const detectedFormat = detectFormat(wb);
+      setSelectedFormat(detectedFormat);
+
+      // Projektinfo extrahieren (formatabhängig)
+      const info = extractProjectInfo(wb, file.name, detectedFormat);
       setProjectInfo(info);
 
-      const sheets = findEmployeeSheets(wb);
+      // Mitarbeiter-Sheets finden
+      const sheets = findEmployeeSheets(wb, detectedFormat);
       setEmployeeSheets(sheets);
 
       if (sheets.length === 0) {
-        setError('Keine Mitarbeiter-Blätter gefunden (Format: "[Name] J1")');
+        setError('Keine Mitarbeiter-Blätter gefunden (Format: "[Name] J1-J4")');
         setProcessing(false);
         return;
       }
 
-      // Alle MA-Daten extrahieren
+      // Daten extrahieren (formatabhängig)
       const extracted: ExtractedEmployee[] = [];
       for (const sheet of sheets) {
-        const data = extractEmployeeData(wb, sheet, info);
+        const data = extractEmployeeData(wb, sheet, info, detectedFormat);
         if (data) {
           extracted.push({ ...data, imported: false });
         }
@@ -318,73 +493,136 @@ export default function ImportPage() {
     }
   }
 
-  function extractProjectInfo(wb: XLSX.WorkBook, fileName: string): ProjectInfo {
+  // ============================================
+  // PROJEKT-INFO EXTRAHIEREN (Multi-Format)
+  // ============================================
+
+  function extractProjectInfo(wb: XLSX.WorkBook, fileName: string, format: FundingFormat): ProjectInfo {
     let projectName = '', companyName = '', fundingReference = '';
 
-    // Aus AP Übersicht
-    if (wb.SheetNames.includes('AP Übersicht')) {
-      const ws = wb.Sheets['AP Übersicht'];
-      projectName = ws['B1']?.v?.toString() || '';
-      fundingReference = ws['C2']?.v?.toString() || '';
-      companyName = ws['B2']?.v?.toString() || '';
+    if (format === 'BMBF_KMU') {
+      // BMBF: Aus Nav-Sheet lesen
+      if (wb.SheetNames.includes('Nav')) {
+        const navWs = wb.Sheets['Nav'];
+        
+        // B4: Projektname (kann sehr lang sein)
+        projectName = navWs['B4']?.v?.toString() || '';
+        
+        // B6: FKZ (z.B. "01LY1925A")
+        fundingReference = navWs['B6']?.v?.toString() || '';
+        
+        // B7: Unternehmen (z.B. "STOMA GmbH")
+        companyName = navWs['B7']?.v?.toString() || '';
+      }
+
+      // Fallback: Projektname aus erstem MA-Sheet (A8)
+      if (!projectName) {
+        for (const sheetName of wb.SheetNames) {
+          if (sheetName.match(/\s+J[1-4]$/)) {
+            const ws = wb.Sheets[sheetName];
+            projectName = ws['A8']?.v?.toString() || '';
+            if (projectName) break;
+          }
+        }
+      }
+    } else {
+      // ZIM: Aus AP Übersicht
+      if (wb.SheetNames.includes('AP Übersicht')) {
+        const ws = wb.Sheets['AP Übersicht'];
+        projectName = ws['B1']?.v?.toString() || '';
+        fundingReference = ws['C2']?.v?.toString() || '';
+        companyName = ws['B2']?.v?.toString() || '';
+      }
+
+      // Aus Nav (falls vorhanden)
+      if (wb.SheetNames.includes('Nav') && !projectName) {
+        const ws = wb.Sheets['Nav'];
+        projectName = ws['C3']?.v?.toString() || '';
+      }
     }
 
-    // Aus Nav
-    if (wb.SheetNames.includes('Nav')) {
-      const ws = wb.Sheets['Nav'];
-      if (!projectName) projectName = ws['C3']?.v?.toString() || '';
-    }
-
-    // Aus Dateiname
+    // Aus Dateiname (Fallback)
     if (!projectName || !companyName) {
       const parts = fileName.replace(/\.xlsx?$/i, '').split('_');
       if (!projectName && parts[1]) projectName = parts[1];
       if (!companyName && parts[2]) companyName = parts[2];
     }
 
-    // FKZ suchen
+    // FKZ suchen (falls noch nicht gefunden)
     if (!fundingReference) {
+      const fkzPatterns = [
+        /16K[NI]\d{5,6}/,           // ZIM
+        /01[A-Z]{2}\d{4,6}[A-Z]?/,  // BMBF
+      ];
+      
+      outer:
       for (const sheetName of wb.SheetNames) {
         const ws = wb.Sheets[sheetName];
-        for (const cell of Object.values(ws)) {
-          if (cell?.v) {
-            const match = String(cell.v).match(/16K[NI]\d{5,6}/);
+        for (const cellRef of Object.keys(ws)) {
+          if (cellRef.startsWith('!')) continue;
+          const val = String(ws[cellRef]?.v || '');
+          for (const pattern of fkzPatterns) {
+            const match = val.match(pattern);
             if (match) {
               fundingReference = match[0];
-              break;
+              break outer;
             }
           }
         }
-        if (fundingReference) break;
       }
     }
 
-    return { projectName, companyName, fundingReference, fileName };
+    return { projectName, companyName, fundingReference, fileName, format };
   }
 
-  function findEmployeeSheets(wb: XLSX.WorkBook): EmployeeSheet[] {
+  // ============================================
+  // MITARBEITER-SHEETS FINDEN (Multi-Format)
+  // ============================================
+
+  function findEmployeeSheets(wb: XLSX.WorkBook, format: FundingFormat): EmployeeSheet[] {
     const sheets: EmployeeSheet[] = [];
-    const pattern = /^(.+)\s+J(\d)$/;
+    
+    // NUR Sheets mit Pattern "[Name] J1" bis "[Name] J4" importieren
+    // J1-J4 = Projektjahr 1-4 (max. 4 Jahre Projektlaufzeit)
+    const pattern = /^(.+)\s+J([1-4])$/;
+
+    console.log('[Import] Suche Mitarbeiter-Sheets...');
 
     for (const sheetName of wb.SheetNames) {
       const match = sheetName.match(pattern);
       if (match) {
         const name = match[1].trim();
-        if (name.includes('Ermittl') || name.includes('Auswertung') || /^MA\d+$/.test(name)) {
+        
+        // ROBUSTE BLACKLIST-PRÜFUNG mit Regex
+        if (SHEET_BLACKLIST_PATTERN.test(name)) {
+          console.log(`[Import] ❌ Sheet ignoriert: "${sheetName}" (Blacklist-Match)`);
           continue;
         }
+
+        console.log(`[Import] ✅ Sheet akzeptiert: "${sheetName}"`);
 
         // Vollständigen Namen aus Blatt extrahieren
         let fullName = name;
         const ws = wb.Sheets[sheetName];
-        for (const cellRef of Object.keys(ws)) {
-          if (cellRef.startsWith('!')) continue;
-          const val = ws[cellRef]?.v?.toString() || '';
-          if (val.includes(',') && val.split(',').length === 2) {
-            const parts = val.split(',');
-            if (parts[0].trim().toLowerCase().includes(name.toLowerCase())) {
-              fullName = val.trim();
-              break;
+
+        if (format === 'BMBF_KMU') {
+          // BMBF: Name in J11 (0-basiert: Zeile 10, Spalte 9)
+          const nameCell = ws[XLSX.utils.encode_cell({ r: 10, c: 9 })]?.v?.toString() || '';
+          if (nameCell && !nameCell.includes('[')) {
+            // Ignoriere Template-Text "[Name, Vorname]"
+            fullName = nameCell.trim();
+          }
+        } else {
+          // ZIM: Name irgendwo mit Komma suchen
+          for (const cellRef of Object.keys(ws)) {
+            if (cellRef.startsWith('!')) continue;
+            const val = ws[cellRef]?.v?.toString() || '';
+            if (val.includes(',') && val.split(',').length === 2) {
+              const parts = val.split(',');
+              if (parts[0].trim().toLowerCase().includes(name.toLowerCase())) {
+                fullName = val.trim();
+                break;
+              }
             }
           }
         }
@@ -398,19 +636,162 @@ export default function ImportPage() {
       }
     }
 
+    console.log(`[Import] Gefunden: ${sheets.length} Mitarbeiter-Sheets`);
+
     return sheets.sort((a, b) => 
       a.employeeName.localeCompare(b.employeeName) || a.projectYear - b.projectYear
     );
   }
 
+  // ============================================
+  // MITARBEITER-DATEN EXTRAHIEREN (Multi-Format)
+  // ============================================
+
   function extractEmployeeData(
+    wb: XLSX.WorkBook, 
+    sheet: EmployeeSheet,
+    info: ProjectInfo,
+    format: FundingFormat
+  ): Omit<ExtractedEmployee, 'imported'> | null {
+    
+    if (format === 'BMBF_KMU') {
+      return extractBMBFData(wb, sheet, info);
+    } else {
+      return extractZIMData(wb, sheet, info);
+    }
+  }
+
+  // ============================================
+  // BMBF/KMU-INNOVATIV PARSER
+  // ============================================
+
+  function extractBMBFData(
+    wb: XLSX.WorkBook,
+    sheet: EmployeeSheet,
+    info: ProjectInfo
+  ): Omit<ExtractedEmployee, 'imported'> | null {
+    const maWs = wb.Sheets[sheet.sheetName];
+    if (!maWs) return null;
+
+    const months: MonthData[] = [];
+    let totalBillable = 0, totalAbsence = 0;
+
+    // BMBF-Struktur:
+    // - 12 Monatsblöcke pro Sheet, je 32 Zeilen
+    // - Zeile 11 + (monat * 32): Excel-Datum des Monats (0-basiert: Zeile 10)
+    // - Zeile 17 + (monat * 32): "Vorhabenbezogen" = Projektstunden (0-basiert: Zeile 16)
+    // - Zeile 21 + (monat * 32): "Fehlzeiten" (0-basiert: Zeile 20)
+    // - Spalten B-AF (Index 1-31): Tage 1-31
+    // - Spalte AG (Index 32): Monatssumme
+
+    const BMBF_MONTH_OFFSET = 32;  // Abstand zwischen Monatsblöcken
+    const BMBF_DATE_ROW = 10;      // Zeile 11 (0-basiert: 10) - Excel-Datum
+    const BMBF_PROJECT_ROW = 16;   // Zeile 17 (0-basiert: 16) - "Vorhabenbezogen"
+    const BMBF_ABSENCE_ROW = 20;   // Zeile 21 (0-basiert: 20) - "Fehlzeiten"
+
+    // Hilfsfunktion: Excel-Datum zu Jahr/Monat konvertieren
+    function excelDateToYearMonth(excelDate: number): { year: number; month: number } {
+      const date = new Date((excelDate - 25569) * 86400 * 1000);
+      return { year: date.getFullYear(), month: date.getMonth() + 1 };
+    }
+
+    for (let m = 0; m < 12; m++) {
+      const dateRowIndex = BMBF_DATE_ROW + (m * BMBF_MONTH_OFFSET);
+      const projectRowIndex = BMBF_PROJECT_ROW + (m * BMBF_MONTH_OFFSET);
+      const absenceRowIndex = BMBF_ABSENCE_ROW + (m * BMBF_MONTH_OFFSET);
+
+      // Jahr und Monat aus Excel-Datum ermitteln (Spalte A)
+      const dateCell = maWs[XLSX.utils.encode_cell({ r: dateRowIndex, c: 0 })];
+      let year = new Date().getFullYear();
+      let month = m + 1;
+      
+      if (dateCell?.v && typeof dateCell.v === 'number') {
+        const parsed = excelDateToYearMonth(dateCell.v);
+        year = parsed.year;
+        month = parsed.month;
+      }
+
+      const dailyData: MonthData['dailyData'] = {};
+      let monthHours = 0;
+      let monthAbsence = 0;
+
+      // Tageswerte lesen (Spalten B=1 bis AF=31)
+      for (let d = 1; d <= 31; d++) {
+        const colIndex = d; // B=1, C=2, ... AF=31
+        
+        // Projektstunden aus "Vorhabenbezogen"-Zeile
+        const hourCell = maWs[XLSX.utils.encode_cell({ r: projectRowIndex, c: colIndex })];
+        if (hourCell?.v !== undefined && hourCell?.v !== null) {
+          const hours = typeof hourCell.v === 'number' ? hourCell.v : parseFloat(hourCell.v) || 0;
+          if (hours > 0) {
+            dailyData[d] = { hours, absence: null };
+            monthHours += hours;
+          }
+        }
+
+        // Fehlzeiten aus "Fehlzeiten"-Zeile
+        const absenceCell = maWs[XLSX.utils.encode_cell({ r: absenceRowIndex, c: colIndex })];
+        if (absenceCell?.v !== undefined && absenceCell?.v !== null) {
+          const absVal = absenceCell.v;
+          
+          if (typeof absVal === 'number' && absVal >= 4) {
+            // Stundenwert als Fehlzeit (z.B. 8 = ganzer Tag)
+            if (!dailyData[d] || dailyData[d].hours === 0) {
+              dailyData[d] = { hours: 0, absence: 'F' };
+            }
+            monthAbsence += absVal;
+          } else if (typeof absVal === 'string') {
+            const code = absVal.toUpperCase().trim();
+            if (['U', 'K', 'KA', 'S', 'F'].includes(code)) {
+              dailyData[d] = { hours: 0, absence: code };
+              monthAbsence += 8;
+            }
+          }
+        }
+      }
+
+      // Monatssumme aus AG-Spalte als Prüfung/Fallback
+      const sumCell = maWs[XLSX.utils.encode_cell({ r: projectRowIndex, c: 32 })];
+      if (sumCell?.v && typeof sumCell.v === 'number') {
+        // Falls keine Tagesdaten gefunden, aber Summe vorhanden
+        if (monthHours === 0 && sumCell.v > 0) {
+          monthHours = sumCell.v;
+        }
+      }
+
+      months.push({
+        month: month,
+        year: year,
+        billableHours: monthHours,
+        absenceHours: monthAbsence,
+        dailyData
+      });
+
+      totalBillable += monthHours;
+      totalAbsence += monthAbsence;
+    }
+
+    return {
+      employeeName: sheet.employeeName,
+      projectYear: sheet.projectYear,
+      months,
+      totalBillableHours: totalBillable,
+      totalAbsenceHours: totalAbsence
+    };
+  }
+
+  // ============================================
+  // ZIM PARSER (bestehende Logik)
+  // ============================================
+
+  function extractZIMData(
     wb: XLSX.WorkBook, 
     sheet: EmployeeSheet,
     info: ProjectInfo
   ): Omit<ExtractedEmployee, 'imported'> | null {
     const summarySheet = `Ermittl.-Stunden J${sheet.projectYear}`;
     const summaryWs = wb.Sheets[summarySheet];
-    const maWs = wb.Sheets[sheet.sheetName]; // MA-Blatt für Tagesdaten
+    const maWs = wb.Sheets[sheet.sheetName];
     
     const months: MonthData[] = [];
     let totalBillable = 0, totalAbsence = 0;
@@ -426,7 +807,7 @@ export default function ImportPage() {
       
       // Tageswerte aus Summenzeile lesen (Spalte E=4 bis AI=34)
       for (let d = 1; d <= 31; d++) {
-        const dayColIndex = 3 + d; // Tag 1 = Spalte E = Index 4
+        const dayColIndex = 3 + d;
         const dayCell = ws[XLSX.utils.encode_cell({ r: sumRowIndex, c: dayColIndex })];
         
         if (dayCell?.v !== undefined && dayCell?.v !== null) {
@@ -437,7 +818,7 @@ export default function ImportPage() {
         }
       }
       
-      // Wenn keine Daten in Summenzeile, summiere AP-Zeilen (20-31 für Jan)
+      // Wenn keine Daten in Summenzeile, summiere AP-Zeilen
       if (Object.keys(dailyData).length === 0) {
         const apStartRow = 19 + (monthIndex * 43);
         const apEndRow = 30 + (monthIndex * 43);
@@ -466,7 +847,6 @@ export default function ImportPage() {
       for (let d = 1; d <= 31; d++) {
         const dayColIndex = 3 + d;
         
-        // Urlaub
         const urlaubCell = ws[XLSX.utils.encode_cell({ r: urlaubRowIndex, c: dayColIndex })];
         if (urlaubCell?.v) {
           const uVal = urlaubCell.v;
@@ -476,7 +856,6 @@ export default function ImportPage() {
           }
         }
         
-        // Krankheit
         const krankCell = ws[XLSX.utils.encode_cell({ r: krankRowIndex, c: dayColIndex })];
         if (krankCell?.v) {
           const kVal = krankCell.v;
@@ -490,9 +869,8 @@ export default function ImportPage() {
       return dailyData;
     };
 
-    // Weg 1: Aus Zusammenfassungs-Sheet (Monatssummen) + MA-Blatt (Tagesdaten)
+    // Weg 1: Aus Zusammenfassungs-Sheet + MA-Blatt
     if (summaryWs && maWs) {
-      // Finde MA-Zeile in Zusammenfassung
       let row = -1;
       for (let r = 1; r <= 100; r++) {
         const cell = summaryWs[XLSX.utils.encode_cell({ r: r - 1, c: 0 })];
@@ -510,10 +888,9 @@ export default function ImportPage() {
           const absenceCell = summaryWs[XLSX.utils.encode_cell({ r: row + 3, c: m })];
           const absence = typeof absenceCell?.v === 'number' ? absenceCell.v : 0;
 
-          // WICHTIG: Tagesdaten aus MA-Blatt laden!
           const dailyData = extractDailyDataFromSheet(maWs, m - 1);
           
-          // Fallback: Wenn keine Tagesdaten aber Stunden vorhanden, gleichmäßig verteilen
+          // Fallback: gleichmäßig verteilen
           if (Object.keys(dailyData).length === 0 && hours > 0) {
             const daysInMonth = new Date(year, m, 0).getDate();
             let workDays = 0;
@@ -546,7 +923,7 @@ export default function ImportPage() {
       }
     }
 
-    // Weg 2 (Fallback): Nur aus MA-Blatt lesen
+    // Weg 2 (Fallback): Nur aus MA-Blatt
     if (months.length === 0 && maWs) {
       for (let m = 0; m < 12; m++) {
         const sumRowIndex = 31 + (m * 43);
@@ -555,7 +932,6 @@ export default function ImportPage() {
 
         const dailyData = extractDailyDataFromSheet(maWs, m);
         
-        // Fallback: gleichmäßig verteilen
         if (Object.keys(dailyData).length === 0 && hours > 0) {
           const daysInMonth = new Date(year, m + 1, 0).getDate();
           let workDays = 0;
@@ -596,6 +972,40 @@ export default function ImportPage() {
   }
 
   // ============================================
+  // FORMAT WECHSELN UND NEU PARSEN
+  // ============================================
+
+  function reprocessWithFormat(newFormat: FundingFormat) {
+    if (!workbook || !projectInfo) return;
+
+    setProcessing(true);
+    setSelectedFormat(newFormat);
+
+    try {
+      const info = extractProjectInfo(workbook, projectInfo.fileName, newFormat);
+      setProjectInfo(info);
+
+      const sheets = findEmployeeSheets(workbook, newFormat);
+      setEmployeeSheets(sheets);
+
+      const extracted: ExtractedEmployee[] = [];
+      for (const sheet of sheets) {
+        const data = extractEmployeeData(workbook, sheet, info, newFormat);
+        if (data) {
+          extracted.push({ ...data, imported: false });
+        }
+      }
+
+      setExtractedData(extracted);
+    } catch (err) {
+      console.error(err);
+      setError('Fehler beim Neuverarbeiten');
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  // ============================================
   // IMPORT (ALLE MA AUF EINMAL)
   // ============================================
 
@@ -632,7 +1042,7 @@ export default function ImportPage() {
               daily_data: month.dailyData,
               total_billable_hours: month.billableHours,
               total_absence_days: Math.round(month.absenceHours / 8),
-              original_filename: projectInfo.fileName
+              original_filename: projectInfo.fileName,
             }, { onConflict: 'company_id,employee_name,project_name,year,month' });
           }
         }
@@ -732,6 +1142,8 @@ export default function ImportPage() {
           <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
             <span className="text-4xl">🔒</span>
             <h2 className="text-xl font-bold text-red-800 mt-4">Kein Zugang</h2>
+            <p className="text-gray-600 mt-2">Sie haben keine Berechtigung für das Import-Modul.</p>
+            <p className="text-gray-500 text-sm mt-4">Bitten Sie einen Administrator mit Import-Berechtigung, Ihnen Zugang zu gewähren.</p>
           </div>
         </div>
       </div>
@@ -768,7 +1180,6 @@ export default function ImportPage() {
           <p className="text-gray-500">FKZ: {fkz}</p>
         </div>
 
-        {/* Pro Mitarbeiter eine Tabelle */}
         {employeeNames.map(empName => {
           const empTimesheets = timesheets.filter(ts => ts.employee_name === empName)
             .sort((a, b) => a.year - b.year || a.month - b.month);
@@ -842,17 +1253,14 @@ export default function ImportPage() {
     const timesheets = getEmployeeTimesheets(selectedEmployee);
     const settings = getEmployeeSettings(selectedEmployee);
     const maxMonthly = getMaxMonthlyHours(settings.weekly_hours);
-    const maxDaily = settings.weekly_hours / 5; // 8h bei 40h/Woche
+    const maxDaily = settings.weekly_hours / 5;
 
-    // Gruppiere nach Projekt
     const projectGroups: Record<string, ImportedTimesheet[]> = {};
     for (const ts of timesheets) {
       if (!projectGroups[ts.project_name]) projectGroups[ts.project_name] = [];
       projectGroups[ts.project_name].push(ts);
     }
 
-    // Jahreskalender-Daten aufbauen (alle Projekte zusammen)
-    // Format: yearData[month][day] = { used, free, projects, absence }
     const yearData: Record<number, Record<number, { 
       used: number; 
       free: number; 
@@ -863,7 +1271,6 @@ export default function ImportPage() {
     for (const ts of timesheets) {
       if (!yearData[ts.month]) yearData[ts.month] = {};
       
-      // Tägliche Daten
       const daily = ts.daily_data || {};
       for (let day = 1; day <= 31; day++) {
         if (!yearData[ts.month][day]) {
@@ -884,7 +1291,6 @@ export default function ImportPage() {
       }
     }
 
-    // Monats-Summen
     const monthlySums: { month: number; used: number; free: number }[] = [];
     for (let m = 1; m <= 12; m++) {
       const monthTimesheets = timesheets.filter(ts => ts.month === m);
@@ -894,8 +1300,6 @@ export default function ImportPage() {
 
     const totalUsed = timesheets.reduce((s, ts) => s + ts.total_billable_hours, 0);
     const totalFree = (maxMonthly * 12) - totalUsed;
-
-    // Jahr ermitteln (aus ersten Timesheet oder aktuelles Jahr)
     const displayYear = timesheets[0]?.year || new Date().getFullYear();
 
     return (
@@ -926,12 +1330,10 @@ export default function ImportPage() {
           </div>
         </div>
 
-        {/* Header */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-xl font-bold mb-2">👤 {selectedEmployee}</h2>
           <p className="text-gray-500">{settings.weekly_hours}h/Woche • {settings.annual_leave_days} Urlaubstage</p>
           
-          {/* Projekte des MA */}
           <div className="mt-4 flex flex-wrap gap-2">
             {Object.keys(projectGroups).map(proj => (
               <span key={proj} className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm">
@@ -941,7 +1343,6 @@ export default function ImportPage() {
           </div>
         </div>
 
-        {/* Zusammenfassung */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-blue-50 p-4 rounded-lg text-center">
             <div className="text-2xl font-bold text-blue-600">{totalUsed.toFixed(0)}h</div>
@@ -961,7 +1362,6 @@ export default function ImportPage() {
           </div>
         </div>
 
-        {/* Ansicht-Umschalter */}
         <div className="flex gap-2">
           <button
             onClick={() => setViewMode('table')}
@@ -977,7 +1377,6 @@ export default function ImportPage() {
           </button>
         </div>
 
-        {/* Tabellen-Ansicht */}
         {viewMode === 'table' && (
           <div className="bg-white rounded-lg shadow p-6">
             <h3 className="font-bold mb-4">📊 Monatsübersicht</h3>
@@ -1026,20 +1425,16 @@ export default function ImportPage() {
           </div>
         )}
 
-        {/* ============================================ */}
-        {/* KALENDER-ANSICHT (FZul-Format) - ZWEI TABELLEN */}
-        {/* Monate VERTIKAL (Zeilen), Tage HORIZONTAL (Spalten) */}
-        {/* ============================================ */}
+        {/* Kalender-Ansicht */}
         {viewMode === 'calendar' && (
           <div className="space-y-8">
             
-            {/* ========== KALENDER 1: GENUTZTE STUNDEN ========== */}
+            {/* KALENDER 1: GENUTZTE STUNDEN */}
             <div className="bg-white rounded-lg shadow p-6 overflow-x-auto">
               <h3 className="font-bold mb-4 text-blue-800">
-                📋 FZul-Übersicht "Genutzte Stunden" - {selectedEmployee} ({displayYear})
+                📋 FZul-Übersicht &quot;Genutzte Stunden&quot; - {selectedEmployee} ({displayYear})
               </h3>
               
-              {/* Legende Genutzt */}
               <div className="mb-4 flex flex-wrap gap-4 text-xs">
                 <div className="flex items-center gap-1">
                   <div className="w-4 h-4 bg-blue-200 border"></div>
@@ -1092,7 +1487,6 @@ export default function ImportPage() {
                         </td>
                         
                         {Array.from({ length: 31 }, (_, i) => i + 1).map(day => {
-                          // Tag existiert nicht
                           if (day > daysInMonth) {
                             return (
                               <td key={day} className="px-0 py-1 text-center bg-gray-200 border text-gray-400 text-[10px]">
@@ -1107,7 +1501,6 @@ export default function ImportPage() {
                           
                           if (used > 0) monthTotal += used;
                           
-                          // Fehlzeit
                           if (absence) {
                             let bgColor = 'bg-gray-100';
                             if (absence === 'U') bgColor = 'bg-blue-100';
@@ -1123,7 +1516,6 @@ export default function ImportPage() {
                             );
                           }
                           
-                          // Stunden
                           return (
                             <td key={day} className={`px-0 py-1 text-center border text-[10px] ${used > 0 ? 'bg-blue-200 font-bold' : ''}`}>
                               {used > 0 ? used : '-'}
@@ -1147,13 +1539,12 @@ export default function ImportPage() {
               </table>
             </div>
 
-            {/* ========== KALENDER 2: FREIE STUNDEN ========== */}
+            {/* KALENDER 2: FREIE STUNDEN */}
             <div className="bg-white rounded-lg shadow p-6 overflow-x-auto">
               <h3 className="font-bold mb-4 text-green-800">
-                📊 FZul-Übersicht "Freie Projektstunden" - {selectedEmployee} ({displayYear})
+                📊 FZul-Übersicht &quot;Freie Projektstunden&quot; - {selectedEmployee} ({displayYear})
               </h3>
               
-              {/* Legende Frei */}
               <div className="mb-4 flex flex-wrap gap-4 text-xs">
                 <div className="flex items-center gap-1">
                   <div className="w-4 h-4 bg-green-300 border"></div>
@@ -1194,15 +1585,6 @@ export default function ImportPage() {
                     const month = monthIndex + 1;
                     const daysInMonth = getDaysInMonth(displayYear, month);
                     let monthFreeTotal = 0;
-                    let workDaysInMonth = 0;
-                    
-                    // Arbeitstage zählen (Mo-Fr, ohne Feiertage - vereinfacht)
-                    for (let d = 1; d <= daysInMonth; d++) {
-                      const date = new Date(displayYear, month - 1, d);
-                      if (date.getDay() !== 0 && date.getDay() !== 6) {
-                        workDaysInMonth++;
-                      }
-                    }
                     
                     return (
                       <tr key={month} className="border-b">
@@ -1211,7 +1593,6 @@ export default function ImportPage() {
                         </td>
                         
                         {Array.from({ length: 31 }, (_, i) => i + 1).map(day => {
-                          // Tag existiert nicht
                           if (day > daysInMonth) {
                             return (
                               <td key={day} className="px-0 py-1 text-center bg-gray-200 border text-gray-400 text-[10px]">
@@ -1220,7 +1601,6 @@ export default function ImportPage() {
                             );
                           }
                           
-                          // Wochenende prüfen
                           const date = new Date(displayYear, month - 1, day);
                           const isWeekend = date.getDay() === 0 || date.getDay() === 6;
                           
@@ -1236,7 +1616,6 @@ export default function ImportPage() {
                           const used = dayInfo?.used || 0;
                           const absence = dayInfo?.absence;
                           
-                          // Fehlzeit = nicht verfügbar
                           if (absence) {
                             return (
                               <td key={day} className="px-0 py-1 text-center bg-gray-300 border text-gray-500 text-[10px]">
@@ -1245,14 +1624,12 @@ export default function ImportPage() {
                             );
                           }
                           
-                          // Freie Stunden berechnen
                           const free = maxDaily - used;
                           monthFreeTotal += free;
                           
-                          // Farbkodierung
-                          let bgColor = 'bg-green-300'; // Voll frei
-                          if (free < maxDaily && free > 0) bgColor = 'bg-yellow-200'; // Teilweise
-                          else if (free <= 0) bgColor = 'bg-red-300'; // Nicht verfügbar
+                          let bgColor = 'bg-green-300';
+                          if (free < maxDaily && free > 0) bgColor = 'bg-yellow-200';
+                          else if (free <= 0) bgColor = 'bg-red-300';
                           
                           return (
                             <td key={day} className={`px-0 py-1 text-center ${bgColor} border font-bold text-[10px]`}>
@@ -1277,7 +1654,7 @@ export default function ImportPage() {
               </table>
             </div>
             
-            {/* Debug-Info für daily_data */}
+            {/* Debug-Info */}
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-xs">
               <h4 className="font-bold text-yellow-800 mb-2">🔍 Debug: Geladene Tagesdaten</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -1295,9 +1672,6 @@ export default function ImportPage() {
                   </div>
                 ))}
               </div>
-              <p className="mt-2 text-yellow-700">
-                Falls keine Tagesdaten angezeigt werden, sind die daily_data möglicherweise nicht korrekt importiert worden.
-              </p>
             </div>
           </div>
         )}
@@ -1314,13 +1688,11 @@ export default function ImportPage() {
       <Header />
 
       <main className="max-w-7xl mx-auto px-4 py-8">
-        {/* Titel */}
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-800">📥 Stundennachweis-Import</h1>
           <p className="text-gray-600">Projektabrechnungen importieren und Kapazitäten auswerten</p>
         </div>
 
-        {/* Meldungen */}
         {error && (
           <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex justify-between">
             {error}
@@ -1336,37 +1708,44 @@ export default function ImportPage() {
 
         {/* Tab-Navigation */}
         <div className="mb-6 border-b border-gray-200">
-          <nav className="flex gap-6">
+          <nav className="flex justify-between items-center">
+            <div className="flex gap-6">
+              <button
+                onClick={() => { setActiveTab('projects'); setSelectedProject(null); setSelectedEmployee(null); }}
+                className={`px-1 py-3 border-b-2 font-medium ${
+                  activeTab === 'projects' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'
+                }`}
+              >
+                📁 Projekte {projects.length > 0 && <span className="ml-1 text-xs bg-blue-100 px-2 py-0.5 rounded-full">{projects.length}</span>}
+              </button>
+              <button
+                onClick={() => { setActiveTab('employees'); setSelectedProject(null); setSelectedEmployee(null); }}
+                className={`px-1 py-3 border-b-2 font-medium ${
+                  activeTab === 'employees' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'
+                }`}
+              >
+                👥 Mitarbeiter {employees.length > 0 && <span className="ml-1 text-xs bg-blue-100 px-2 py-0.5 rounded-full">{employees.length}</span>}
+              </button>
+              <button
+                onClick={() => { setActiveTab('import'); setImportStep('upload'); }}
+                className={`px-1 py-3 border-b-2 font-medium ${
+                  activeTab === 'import' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'
+                }`}
+              >
+                ➕ Neuer Import
+              </button>
+            </div>
+
             <button
-              onClick={() => { setActiveTab('projects'); setSelectedProject(null); setSelectedEmployee(null); }}
-              className={`px-1 py-3 border-b-2 font-medium ${
-                activeTab === 'projects' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'
-              }`}
+              onClick={openAccessModal}
+              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 flex items-center gap-2 text-sm font-medium"
             >
-              📁 Projekte {projects.length > 0 && <span className="ml-1 text-xs bg-blue-100 px-2 py-0.5 rounded-full">{projects.length}</span>}
-            </button>
-            <button
-              onClick={() => { setActiveTab('employees'); setSelectedProject(null); setSelectedEmployee(null); }}
-              className={`px-1 py-3 border-b-2 font-medium ${
-                activeTab === 'employees' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'
-              }`}
-            >
-              👥 Mitarbeiter {employees.length > 0 && <span className="ml-1 text-xs bg-blue-100 px-2 py-0.5 rounded-full">{employees.length}</span>}
-            </button>
-            <button
-              onClick={() => { setActiveTab('import'); setImportStep('upload'); }}
-              className={`px-1 py-3 border-b-2 font-medium ${
-                activeTab === 'import' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'
-              }`}
-            >
-              ➕ Neuer Import
+              🔐 Berechtigungen
             </button>
           </nav>
         </div>
 
-        {/* ============================================ */}
         {/* TAB: PROJEKTE */}
-        {/* ============================================ */}
         {activeTab === 'projects' && !selectedProject && (
           <div className="space-y-4">
             {projects.length === 0 ? (
@@ -1414,9 +1793,7 @@ export default function ImportPage() {
 
         {activeTab === 'projects' && selectedProject && renderProjectDetail()}
 
-        {/* ============================================ */}
         {/* TAB: MITARBEITER */}
-        {/* ============================================ */}
         {activeTab === 'employees' && !selectedEmployee && (
           <div className="space-y-4">
             {employees.length === 0 ? (
@@ -1469,15 +1846,29 @@ export default function ImportPage() {
 
         {activeTab === 'employees' && selectedEmployee && renderEmployeeDetail()}
 
-        {/* ============================================ */}
         {/* TAB: NEUER IMPORT */}
-        {/* ============================================ */}
         {activeTab === 'import' && (
           <>
             {/* UPLOAD */}
             {importStep === 'upload' && (
               <div className="bg-white rounded-lg shadow p-6">
                 <h2 className="text-lg font-bold mb-4">Excel-Projektabrechnung hochladen</h2>
+                
+                {/* Unterstützte Formate */}
+                <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                  <h3 className="font-medium text-gray-700 mb-2">Unterstützte Formate:</h3>
+                  <div className="flex flex-wrap gap-2">
+                    <span className={`px-3 py-1 rounded-full border text-sm ${FORMAT_INFO.ZIM.color}`}>
+                      {FORMAT_INFO.ZIM.name}
+                    </span>
+                    <span className={`px-3 py-1 rounded-full border text-sm ${FORMAT_INFO.BMBF_KMU.color}`}>
+                      {FORMAT_INFO.BMBF_KMU.name}
+                    </span>
+                    <span className={`px-3 py-1 rounded-full border text-sm ${FORMAT_INFO.FZUL.color}`}>
+                      {FORMAT_INFO.FZUL.name} (geplant)
+                    </span>
+                  </div>
+                </div>
 
                 <div
                   onDragEnter={handleDragEnter}
@@ -1511,12 +1902,19 @@ export default function ImportPage() {
               </div>
             )}
 
-            {/* PREVIEW - ALLE MA */}
+            {/* PREVIEW */}
             {importStep === 'preview' && projectInfo && (
               <div className="space-y-6">
-                {/* Projekt-Info */}
+                {/* Projekt-Info mit Format-Badge */}
                 <div className="bg-white rounded-lg shadow p-6">
-                  <h2 className="text-lg font-bold mb-4">📁 {projectInfo.projectName}</h2>
+                  <div className="flex justify-between items-start mb-4">
+                    <h2 className="text-lg font-bold">📁 {projectInfo.projectName}</h2>
+                    {/* Format-Badge */}
+                    <span className={`px-3 py-1 rounded-full border text-sm font-medium ${FORMAT_INFO[projectInfo.format].color}`}>
+                      {FORMAT_INFO[projectInfo.format].name}
+                    </span>
+                  </div>
+                  
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                     <div>
                       <span className="text-gray-500">Firma:</span>
@@ -1533,6 +1931,27 @@ export default function ImportPage() {
                     <div>
                       <span className="text-gray-500">Mitarbeiter:</span>
                       <p className="font-medium">{extractedData.length} gefunden</p>
+                    </div>
+                  </div>
+
+                  {/* Format-Auswahl falls falsch erkannt */}
+                  <div className="mt-4 pt-4 border-t">
+                    <p className="text-sm text-gray-500 mb-2">Format falsch erkannt? Manuell auswählen:</p>
+                    <div className="flex gap-2">
+                      {(['ZIM', 'BMBF_KMU'] as FundingFormat[]).map(fmt => (
+                        <button
+                          key={fmt}
+                          onClick={() => reprocessWithFormat(fmt)}
+                          disabled={processing}
+                          className={`px-3 py-1 rounded border text-sm ${
+                            selectedFormat === fmt 
+                              ? FORMAT_INFO[fmt].color + ' font-bold'
+                              : 'bg-white text-gray-600 hover:bg-gray-50'
+                          }`}
+                        >
+                          {FORMAT_INFO[fmt].name}
+                        </button>
+                      ))}
                     </div>
                   </div>
                 </div>
@@ -1575,11 +1994,14 @@ export default function ImportPage() {
                         <div>
                           <div className="font-medium">{emp.employeeName}</div>
                           <div className="text-sm text-gray-500">
-                            Projektjahr {emp.projectYear} • {emp.months.filter(m => m.billableHours > 0).length} Monate
+                            Projektjahr {emp.projectYear} • {emp.months.filter(m => m.billableHours > 0).length} Monate mit Daten
                           </div>
                         </div>
                         <div className="text-right">
                           <div className="text-lg font-bold text-blue-600">{emp.totalBillableHours.toFixed(0)}h</div>
+                          {emp.totalAbsenceHours > 0 && (
+                            <div className="text-sm text-orange-600">{(emp.totalAbsenceHours / 8).toFixed(0)} Fehltage</div>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -1594,6 +2016,7 @@ export default function ImportPage() {
                       setProjectInfo(null);
                       setExtractedData([]);
                       setImportStep('upload');
+                      setSelectedFormat(null);
                     }}
                     className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                   >
@@ -1616,6 +2039,11 @@ export default function ImportPage() {
                 <span className="text-5xl">✅</span>
                 <h2 className="text-xl font-bold text-green-800 mt-4">Import abgeschlossen!</h2>
                 <p className="text-green-600 mt-2">{extractedData.length} Mitarbeiter wurden importiert.</p>
+                {projectInfo && (
+                  <p className="text-gray-500 text-sm mt-1">
+                    Format: {FORMAT_INFO[projectInfo.format].name}
+                  </p>
+                )}
                 <div className="mt-6 flex justify-center gap-4">
                   <button
                     onClick={() => { setActiveTab('projects'); setImportStep('upload'); }}
@@ -1635,6 +2063,7 @@ export default function ImportPage() {
                       setProjectInfo(null);
                       setExtractedData([]);
                       setImportStep('upload');
+                      setSelectedFormat(null);
                     }}
                     className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                   >
@@ -1646,9 +2075,7 @@ export default function ImportPage() {
           </>
         )}
 
-        {/* ============================================ */}
         {/* MODAL: STAMMDATEN */}
-        {/* ============================================ */}
         {editingEmployee && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
@@ -1691,9 +2118,7 @@ export default function ImportPage() {
           </div>
         )}
 
-        {/* ============================================ */}
         {/* MODAL: LÖSCHEN */}
-        {/* ============================================ */}
         {showDeleteConfirm && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
@@ -1710,6 +2135,86 @@ export default function ImportPage() {
                 <button onClick={handleDelete} className="px-4 py-2 bg-red-600 text-white rounded-lg">
                   Löschen
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL: BERECHTIGUNGEN */}
+        {showAccessModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-lg font-bold">🔐 Import-Berechtigungen verwalten</h3>
+                <button 
+                  onClick={() => setShowAccessModal(false)}
+                  className="text-gray-500 hover:text-gray-700 text-xl"
+                >
+                  ×
+                </button>
+              </div>
+
+              <p className="text-gray-600 mb-4">
+                Wählen Sie aus, welche Administratoren Zugriff auf das Import-Modul haben sollen:
+              </p>
+
+              {loadingAdmins ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                  <span className="ml-3 text-gray-500">Lade Benutzer...</span>
+                </div>
+              ) : adminUsers.length === 0 ? (
+                <div className="py-8 text-center text-gray-500">
+                  Keine Administratoren gefunden
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-80 overflow-y-auto">
+                  {adminUsers.map(admin => (
+                    <label 
+                      key={admin.id}
+                      className={`flex items-center p-4 border rounded-lg cursor-pointer transition-colors ${
+                        admin.has_import_access 
+                          ? 'border-green-300 bg-green-50' 
+                          : 'border-gray-200 hover:bg-gray-50'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={admin.has_import_access}
+                        onChange={() => toggleAdminAccess(admin.id)}
+                        className="w-5 h-5 text-green-600 rounded focus:ring-green-500"
+                      />
+                      <div className="ml-4 flex-1">
+                        <div className="font-medium">{admin.name}</div>
+                        <div className="text-sm text-gray-500">{admin.email}</div>
+                      </div>
+                      {admin.has_import_access && (
+                        <span className="text-green-600 text-sm font-medium">✓ Berechtigt</span>
+                      )}
+                    </label>
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-6 pt-4 border-t flex justify-between items-center">
+                <p className="text-sm text-gray-500">
+                  {adminUsers.filter(a => a.has_import_access).length} von {adminUsers.length} Admins berechtigt
+                </p>
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => setShowAccessModal(false)} 
+                    className="px-4 py-2 border rounded-lg hover:bg-gray-50"
+                  >
+                    Abbrechen
+                  </button>
+                  <button 
+                    onClick={saveAccessChanges}
+                    disabled={savingAccess}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {savingAccess ? 'Speichert...' : 'Speichern'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
