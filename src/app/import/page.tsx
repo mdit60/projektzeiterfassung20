@@ -1,5 +1,5 @@
 // src/app/import/page.tsx
-// VERSION: v4.4 - Jahresauswahl + korrigierte Jahr-Erkennung im Parser
+// VERSION: v4.8 - Jahres-Kacheln zeigen gebucht + verfügbar
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
@@ -145,7 +145,7 @@ const SHEET_BLACKLIST_PATTERN = /^(Ermittl|Auswertung|Nav|PK|ZAZK|ZNZK|Planung|�
 
 export default function ImportPage() {
   // VERSION CHECK - in Browser-Konsole sichtbar
-  console.log('[Import] Version v4.4 - Jahresauswahl + korrigierte Jahr-Erkennung');
+  console.log('[Import] Version v4.8 - Jahres-Kacheln mit gebucht/frei');
   
   const router = useRouter();
   const supabase = createClient();
@@ -159,7 +159,7 @@ export default function ImportPage() {
   const [processing, setProcessing] = useState(false);
 
   // Navigation
-  const [activeTab, setActiveTab] = useState<'import' | 'projects' | 'employees'>('projects');
+  const [activeTab, setActiveTab] = useState<'import' | 'projects'>('projects');
 
   // Import States
   const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
@@ -686,18 +686,12 @@ export default function ImportPage() {
     const months: MonthData[] = [];
     let totalBillable = 0, totalAbsence = 0;
 
-    // BMBF-Struktur:
-    // - 12 Monatsblöcke pro Sheet, je 32 Zeilen
-    // - Zeile 11 + (monat * 32): Excel-Datum des Monats (0-basiert: Zeile 10)
-    // - Zeile 17 + (monat * 32): "Vorhabenbezogen" = Projektstunden (0-basiert: Zeile 16)
-    // - Zeile 21 + (monat * 32): "Fehlzeiten" (0-basiert: Zeile 20)
-    // - Spalten B-AF (Index 1-31): Tage 1-31
-    // - Spalte AG (Index 32): Monatssumme
+    // NEUER ANSATZ: Suche nach "Vorhabenbezogen" in Spalte A
+    // - Vorhabenbezogen-Zeile: Projektstunden in Spalten B-AF (1-31)
+    // - 4 Zeilen darunter: Fehlzeiten
+    // - 6 Zeilen darüber: Monat/Jahr (als Excel-Datum oder Text)
 
-    const BMBF_MONTH_OFFSET = 32;  // Abstand zwischen Monatsblöcken
-    const BMBF_DATE_ROW = 10;      // Zeile 11 (0-basiert: 10) - Excel-Datum
-    const BMBF_PROJECT_ROW = 16;   // Zeile 17 (0-basiert: 16) - "Vorhabenbezogen"
-    const BMBF_ABSENCE_ROW = 20;   // Zeile 21 (0-basiert: 20) - "Fehlzeiten"
+    console.log(`[BMBF-Parser] Analysiere Sheet: ${sheet.sheetName}`);
 
     // Hilfsfunktion: Excel-Datum zu Jahr/Monat konvertieren
     function excelDateToYearMonth(excelDate: number): { year: number; month: number } {
@@ -705,52 +699,80 @@ export default function ImportPage() {
       return { year: date.getFullYear(), month: date.getMonth() + 1 };
     }
 
-    // SCHRITT 1: Erst alle gültigen Jahre sammeln, um Fallback zu bestimmen
-    const validYears: number[] = [];
-    for (let m = 0; m < 12; m++) {
-      const dateRowIndex = BMBF_DATE_ROW + (m * BMBF_MONTH_OFFSET);
-      const dateCell = maWs[XLSX.utils.encode_cell({ r: dateRowIndex, c: 0 })];
-      if (dateCell?.v && typeof dateCell.v === 'number') {
-        const parsed = excelDateToYearMonth(dateCell.v);
-        if (parsed.year >= 2015 && parsed.year <= 2030) {
-          validYears.push(parsed.year);
-        }
+    // Hilfsfunktion: Monat aus Text extrahieren (z.B. "01 / 2021" oder "Januar 2021")
+    function parseMonthFromText(text: string): { year: number; month: number } | null {
+      // Format "01 / 2021" oder "01/2021"
+      const slashMatch = text.match(/(\d{1,2})\s*\/\s*(\d{4})/);
+      if (slashMatch) {
+        return { month: parseInt(slashMatch[1]), year: parseInt(slashMatch[2]) };
       }
-    }
-    
-    // Fallback-Jahr: häufigstes Jahr oder aus projectYear berechnet
-    let fallbackYear: number;
-    if (validYears.length > 0) {
-      // Häufigstes Jahr verwenden
-      const yearCounts: Record<number, number> = {};
-      validYears.forEach(y => yearCounts[y] = (yearCounts[y] || 0) + 1);
-      fallbackYear = parseInt(Object.entries(yearCounts).sort((a, b) => b[1] - a[1])[0][0]);
-    } else {
-      // Kein gültiges Jahr gefunden - aus projectYear schätzen
-      // Annahme: Projekt startete ca. 2020 (kann angepasst werden)
-      fallbackYear = 2019 + sheet.projectYear;
-      console.log(`[Import] ⚠️ Kein gültiges Datum in ${sheet.sheetName}, verwende Fallback-Jahr: ${fallbackYear}`);
-    }
-
-    // SCHRITT 2: Monatsdaten extrahieren
-    for (let m = 0; m < 12; m++) {
-      const dateRowIndex = BMBF_DATE_ROW + (m * BMBF_MONTH_OFFSET);
-      const projectRowIndex = BMBF_PROJECT_ROW + (m * BMBF_MONTH_OFFSET);
-      const absenceRowIndex = BMBF_ABSENCE_ROW + (m * BMBF_MONTH_OFFSET);
-
-      // Jahr und Monat aus Excel-Datum ermitteln (Spalte A)
-      const dateCell = maWs[XLSX.utils.encode_cell({ r: dateRowIndex, c: 0 })];
-      let year = fallbackYear;  // Fallback statt new Date().getFullYear()
-      let month = m + 1;
       
-      if (dateCell?.v && typeof dateCell.v === 'number') {
-        const parsed = excelDateToYearMonth(dateCell.v);
-        // Nur plausible Jahre akzeptieren (2015-2030)
-        if (parsed.year >= 2015 && parsed.year <= 2030) {
-          year = parsed.year;
-          month = parsed.month;
+      // Format "Januar 2021" etc.
+      const monthNames: Record<string, number> = {
+        'januar': 1, 'februar': 2, 'märz': 3, 'april': 4, 'mai': 5, 'juni': 6,
+        'juli': 7, 'august': 8, 'september': 9, 'oktober': 10, 'november': 11, 'dezember': 12
+      };
+      const textLower = text.toLowerCase();
+      for (const [name, num] of Object.entries(monthNames)) {
+        if (textLower.includes(name)) {
+          const yearMatch = text.match(/(\d{4})/);
+          if (yearMatch) {
+            return { month: num, year: parseInt(yearMatch[1]) };
+          }
         }
       }
+      
+      return null;
+    }
+
+    // Alle Zeilen durchsuchen wo "Vorhabenbezogen" in Spalte A steht
+    const vorhabenbezogenRows: number[] = [];
+    
+    // Sheet-Range ermitteln
+    const range = XLSX.utils.decode_range(maWs['!ref'] || 'A1:AG500');
+    
+    for (let r = range.s.r; r <= range.e.r; r++) {
+      const cellA = maWs[XLSX.utils.encode_cell({ r, c: 0 })];
+      const cellVal = cellA?.v?.toString().trim().toLowerCase() || '';
+      
+      if (cellVal === 'vorhabenbezogen') {
+        vorhabenbezogenRows.push(r);
+        console.log(`[BMBF-Parser] Gefunden: "Vorhabenbezogen" in Zeile ${r + 1}`);
+      }
+    }
+
+    console.log(`[BMBF-Parser] ${vorhabenbezogenRows.length} Monatsblöcke gefunden`);
+
+    // Für jede gefundene "Vorhabenbezogen"-Zeile die Daten extrahieren
+    for (const projectRow of vorhabenbezogenRows) {
+      const absenceRow = projectRow + 4;  // Fehlzeiten 4 Zeilen darunter
+      const dateRow = projectRow - 6;     // Datum 6 Zeilen darüber
+
+      // Jahr und Monat ermitteln
+      let year = 2020 + sheet.projectYear - 1;  // Fallback aus Projektjahr
+      let month = 1;
+
+      // Versuche Datum aus Zelle zu lesen
+      const dateCell = maWs[XLSX.utils.encode_cell({ r: dateRow, c: 0 })];
+      if (dateCell?.v) {
+        if (typeof dateCell.v === 'number') {
+          // Excel-Datum
+          const parsed = excelDateToYearMonth(dateCell.v);
+          if (parsed.year >= 2015 && parsed.year <= 2030) {
+            year = parsed.year;
+            month = parsed.month;
+          }
+        } else if (typeof dateCell.v === 'string') {
+          // Text wie "01 / 2021"
+          const parsed = parseMonthFromText(dateCell.v);
+          if (parsed) {
+            year = parsed.year;
+            month = parsed.month;
+          }
+        }
+      }
+
+      console.log(`[BMBF-Parser] Monat: ${month}/${year} (projectRow=${projectRow + 1}, dateRow=${dateRow + 1})`);
 
       const dailyData: MonthData['dailyData'] = {};
       let monthHours = 0;
@@ -761,17 +783,24 @@ export default function ImportPage() {
         const colIndex = d; // B=1, C=2, ... AF=31
         
         // Projektstunden aus "Vorhabenbezogen"-Zeile
-        const hourCell = maWs[XLSX.utils.encode_cell({ r: projectRowIndex, c: colIndex })];
+        const hourCell = maWs[XLSX.utils.encode_cell({ r: projectRow, c: colIndex })];
         if (hourCell?.v !== undefined && hourCell?.v !== null) {
-          const hours = typeof hourCell.v === 'number' ? hourCell.v : parseFloat(hourCell.v) || 0;
-          if (hours > 0) {
-            dailyData[d] = { hours, absence: null };
-            monthHours += hours;
+          const cellVal = hourCell.v;
+          // "x" oder leere Zellen ignorieren
+          if (typeof cellVal === 'number' && cellVal > 0) {
+            dailyData[d] = { hours: cellVal, absence: null };
+            monthHours += cellVal;
+          } else if (typeof cellVal === 'string') {
+            const parsed = parseFloat(cellVal.replace(',', '.'));
+            if (!isNaN(parsed) && parsed > 0) {
+              dailyData[d] = { hours: parsed, absence: null };
+              monthHours += parsed;
+            }
           }
         }
 
-        // Fehlzeiten aus "Fehlzeiten"-Zeile
-        const absenceCell = maWs[XLSX.utils.encode_cell({ r: absenceRowIndex, c: colIndex })];
+        // Fehlzeiten aus Zeile 4 unter "Vorhabenbezogen"
+        const absenceCell = maWs[XLSX.utils.encode_cell({ r: absenceRow, c: colIndex })];
         if (absenceCell?.v !== undefined && absenceCell?.v !== null) {
           const absVal = absenceCell.v;
           
@@ -791,18 +820,21 @@ export default function ImportPage() {
         }
       }
 
-      // Monatssumme aus AG-Spalte als Prüfung/Fallback
-      const sumCell = maWs[XLSX.utils.encode_cell({ r: projectRowIndex, c: 32 })];
-      if (sumCell?.v && typeof sumCell.v === 'number') {
-        // Falls keine Tagesdaten gefunden, aber Summe vorhanden
-        if (monthHours === 0 && sumCell.v > 0) {
-          monthHours = sumCell.v;
-        }
+      // Monatssumme aus AG-Spalte (Index 32) als Prüfung
+      const sumCell = maWs[XLSX.utils.encode_cell({ r: projectRow, c: 32 })];
+      const excelSum = (sumCell?.v && typeof sumCell.v === 'number') ? sumCell.v : 0;
+      
+      console.log(`[BMBF-Parser] ${month}/${year}: berechnet=${monthHours.toFixed(2)}h, Excel-Summe=${excelSum}h, Tage=${Object.keys(dailyData).length}`);
+
+      // Falls unsere Berechnung abweicht, Excel-Summe als Fallback
+      if (monthHours === 0 && excelSum > 0) {
+        monthHours = excelSum;
+        console.log(`[BMBF-Parser] Verwende Excel-Summe als Fallback`);
       }
 
       months.push({
-        month: month,
-        year: year,
+        month,
+        year,
         billableHours: monthHours,
         absenceHours: monthAbsence,
         dailyData
@@ -811,6 +843,8 @@ export default function ImportPage() {
       totalBillable += monthHours;
       totalAbsence += monthAbsence;
     }
+
+    console.log(`[BMBF-Parser] ${sheet.employeeName}: ${months.length} Monate, ${totalBillable.toFixed(0)}h gesamt`);
 
     return {
       employeeName: sheet.employeeName,
@@ -1198,9 +1232,63 @@ export default function ImportPage() {
   const renderProjectDetail = () => {
     if (!selectedProject) return null;
 
-    const timesheets = getProjectTimesheets(selectedProject);
-    const employeeNames = [...new Set(timesheets.map(ts => ts.employee_name))];
-    const fkz = timesheets[0]?.funding_reference || '';
+    const allTimesheets = getProjectTimesheets(selectedProject);
+    const employeeNames = [...new Set(allTimesheets.map(ts => ts.employee_name))];
+    const fkz = allTimesheets[0]?.funding_reference || '';
+    
+    // Verfügbare Jahre ermitteln
+    const availableYears = [...new Set(allTimesheets.map(ts => ts.year))].sort((a, b) => a - b);
+    
+    // Wenn kein Jahr ausgewählt, erstes verfügbares Jahr nehmen
+    const displayYear = selectedYear && availableYears.includes(selectedYear) 
+      ? selectedYear 
+      : availableYears[0] || new Date().getFullYear();
+    
+    // Timesheets nach Jahr filtern
+    const timesheets = allTimesheets.filter(ts => ts.year === displayYear);
+    
+    // Mitarbeiter die in diesem Jahr Daten haben
+    const employeesInYear = [...new Set(timesheets.map(ts => ts.employee_name))];
+    
+    // Hilfsfunktion: Arbeitstage im Jahr zählen (ohne WE)
+    const getWorkdaysInYear = (year: number): number => {
+      let workdays = 0;
+      for (let m = 0; m < 12; m++) {
+        const daysInMonth = new Date(year, m + 1, 0).getDate();
+        for (let d = 1; d <= daysInMonth; d++) {
+          const date = new Date(year, m, d);
+          const dayOfWeek = date.getDay();
+          if (dayOfWeek !== 0 && dayOfWeek !== 6) workdays++;
+        }
+      }
+      return workdays;
+    };
+    
+    // Gesamtstunden pro Jahr berechnen (gebucht + verfügbar)
+    const yearTotals = availableYears.map(year => {
+      const yearTimesheets = allTimesheets.filter(ts => ts.year === year);
+      const yearEmployees = [...new Set(yearTimesheets.map(ts => ts.employee_name))];
+      const usedHours = yearTimesheets.reduce((s, ts) => s + ts.total_billable_hours, 0);
+      
+      // Verfügbare Stunden = (Arbeitstage * max Stunden/Tag) für alle MA
+      const workdays = getWorkdaysInYear(year);
+      let maxHours = 0;
+      for (const empName of yearEmployees) {
+        const settings = getEmployeeSettings(empName);
+        const maxDaily = settings.weekly_hours / 5;
+        maxHours += workdays * maxDaily;
+      }
+      
+      return {
+        year,
+        usedHours,
+        freeHours: maxHours - usedHours,
+        maxHours
+      };
+    });
+    const totalAllYears = allTimesheets.reduce((s, ts) => s + ts.total_billable_hours, 0);
+    const totalMaxAllYears = yearTotals.reduce((s, yt) => s + yt.maxHours, 0);
+    const totalFreeAllYears = totalMaxAllYears - totalAllYears;
 
     return (
       <div className="space-y-6">
@@ -1216,29 +1304,102 @@ export default function ImportPage() {
           </button>
         </div>
 
+        {/* Projekt-Header mit Jahresauswahl */}
         <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-bold mb-2">📁 {selectedProject}</h2>
-          <p className="text-gray-500">FKZ: {fkz}</p>
+          <div className="flex justify-between items-start">
+            <div>
+              <h2 className="text-xl font-bold mb-2">📁 {selectedProject}</h2>
+              <p className="text-gray-500">FKZ: {fkz}</p>
+              <p className="text-sm text-gray-400 mt-1">
+                {employeeNames.length} Mitarbeiter • {availableYears.length > 0 ? `${availableYears[0]} - ${availableYears[availableYears.length - 1]}` : ''}
+              </p>
+            </div>
+            
+            {/* Jahresauswahl - nur Dropdown */}
+            {availableYears.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-600">Jahr:</span>
+                <select
+                  value={displayYear}
+                  onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                  className="px-4 py-2 border rounded-lg bg-white font-medium text-lg"
+                >
+                  {availableYears.map(year => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+          
+          {/* Jahresübersicht */}
+          <div className="mt-4 grid grid-cols-2 md:grid-cols-5 gap-3">
+            {yearTotals.map(({ year, usedHours, freeHours }) => (
+              <div 
+                key={year} 
+                className={`p-3 rounded-lg text-center cursor-pointer transition-colors ${
+                  year === displayYear 
+                    ? 'bg-blue-100 border-2 border-blue-500' 
+                    : 'bg-gray-50 hover:bg-gray-100'
+                }`}
+                onClick={() => setSelectedYear(year)}
+              >
+                <div className="text-sm text-gray-600 font-medium">{year}</div>
+                <div className="font-bold text-blue-600">{usedHours.toFixed(0)}h</div>
+                <div className="text-xs text-green-600">{freeHours.toFixed(0)}h frei</div>
+              </div>
+            ))}
+            <div className="p-3 rounded-lg text-center bg-purple-50">
+              <div className="text-sm text-gray-600 font-medium">Gesamt</div>
+              <div className="font-bold text-purple-600">{totalAllYears.toFixed(0)}h</div>
+              <div className="text-xs text-green-600">{totalFreeAllYears.toFixed(0)}h frei</div>
+            </div>
+          </div>
         </div>
 
-        {employeeNames.map(empName => {
+        {/* Ansichts-Toggle */}
+        <div className="flex gap-2">
+          <button
+            onClick={() => setViewMode('table')}
+            className={`px-4 py-2 rounded ${viewMode === 'table' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}
+          >
+            📊 Monatstabelle
+          </button>
+          <button
+            onClick={() => setViewMode('calendar')}
+            className={`px-4 py-2 rounded ${viewMode === 'calendar' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}
+          >
+            📅 FZul-Kalender
+          </button>
+        </div>
+
+        {/* Mitarbeiter-Liste für ausgewähltes Jahr */}
+        {viewMode === 'table' && employeesInYear.map(empName => {
           const empTimesheets = timesheets.filter(ts => ts.employee_name === empName)
-            .sort((a, b) => a.year - b.year || a.month - b.month);
+            .sort((a, b) => a.month - b.month);
           const settings = getEmployeeSettings(empName);
           const maxMonthly = getMaxMonthlyHours(settings.weekly_hours);
-          const totalUsed = empTimesheets.reduce((s, ts) => s + ts.total_billable_hours, 0);
-          const totalFree = (maxMonthly * 12) - totalUsed;
+          const yearUsed = empTimesheets.reduce((s, ts) => s + ts.total_billable_hours, 0);
+          const yearMax = maxMonthly * 12;
+          const yearFree = yearMax - yearUsed;
 
           return (
             <div key={empName} className="bg-white rounded-lg shadow overflow-hidden">
               <div className="bg-gray-100 px-6 py-4 flex justify-between items-center">
-                <div>
+                <div className="flex-1">
                   <h3 className="font-bold">👤 {empName}</h3>
                   <p className="text-sm text-gray-500">{settings.weekly_hours}h/Woche</p>
                 </div>
-                <div className="text-right">
-                  <div className="text-lg font-bold text-blue-600">{totalUsed.toFixed(0)}h genutzt</div>
-                  <div className="text-sm text-green-600">{totalFree.toFixed(0)}h frei</div>
+                <div className="flex-1 text-center">
+                  <div className="text-2xl font-bold text-gray-700">{displayYear}</div>
+                </div>
+                <div className="flex-1 text-right">
+                  <div className="text-lg font-bold">
+                    <span className="text-blue-600">{yearUsed.toFixed(0)}h</span>
+                    <span className="text-gray-400 mx-1">/</span>
+                    <span className="text-green-600">{yearFree.toFixed(0)}h frei</span>
+                  </div>
+                  <div className="text-xs text-gray-500">gebucht / verfügbar</div>
                 </div>
               </div>
 
@@ -1255,506 +1416,262 @@ export default function ImportPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {empTimesheets.map(ts => (
-                      <tr key={ts.id} className="border-b">
-                        <td className="px-3 py-2">{MONTH_NAMES[ts.month - 1]} {ts.year}</td>
-                        <td className="px-3 py-2 text-right">{ts.total_billable_hours.toFixed(2)}</td>
-                        <td className="px-3 py-2 text-right text-gray-500">{maxMonthly.toFixed(2)}</td>
-                        <td className="px-3 py-2 text-right text-green-600 font-bold">
-                          {(maxMonthly - ts.total_billable_hours).toFixed(2)}
-                        </td>
-                        <td className="px-3 py-2 text-right text-orange-600">
-                          {ts.total_absence_days || '-'}
-                        </td>
-                        <td className="px-3 py-2 text-center">
-                          <button
-                            onClick={() => setShowDeleteConfirm({ type: 'timesheet', id: ts.id })}
-                            className="text-red-500 hover:text-red-700"
-                          >🗑️</button>
-                        </td>
-                      </tr>
-                    ))}
+                    {/* Alle 12 Monate anzeigen, auch leere */}
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map(month => {
+                      const ts = empTimesheets.find(t => t.month === month);
+                      const hours = ts?.total_billable_hours || 0;
+                      const absenceDays = ts?.total_absence_days || 0;
+                      
+                      return (
+                        <tr key={month} className={`border-b ${hours === 0 ? 'text-gray-400' : ''}`}>
+                          <td className="px-3 py-2">{MONTH_NAMES[month - 1]}</td>
+                          <td className="px-3 py-2 text-right">{hours > 0 ? hours.toFixed(2) : '-'}</td>
+                          <td className="px-3 py-2 text-right text-gray-500">{maxMonthly.toFixed(2)}</td>
+                          <td className="px-3 py-2 text-right text-green-600 font-bold">
+                            {(maxMonthly - hours).toFixed(2)}
+                          </td>
+                          <td className="px-3 py-2 text-right text-orange-600">
+                            {absenceDays > 0 ? absenceDays : '-'}
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            {ts && (
+                              <button
+                                onClick={() => setShowDeleteConfirm({ type: 'timesheet', id: ts.id })}
+                                className="text-red-500 hover:text-red-700"
+                              >🗑️</button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {/* Jahres-Summenzeile */}
+                    <tr className="bg-blue-50 font-bold">
+                      <td className="px-3 py-2">Summe</td>
+                      <td className="px-3 py-2 text-right text-blue-600">{yearUsed.toFixed(2)}</td>
+                      <td className="px-3 py-2 text-right text-gray-500">{yearMax.toFixed(2)}</td>
+                      <td className="px-3 py-2 text-right text-green-600">{yearFree.toFixed(2)}</td>
+                      <td className="px-3 py-2"></td>
+                      <td className="px-3 py-2"></td>
+                    </tr>
                   </tbody>
                 </table>
               </div>
             </div>
           );
         })}
-      </div>
-    );
-  };
 
-  // ============================================
-  // RENDER: MA-DETAIL MIT JAHRESÜBERSICHT
-  // ============================================
+        {/* Kalender-Ansicht für ausgewähltes Jahr */}
+        {viewMode === 'calendar' && employeesInYear.map(empName => {
+          const empTimesheets = timesheets.filter(ts => ts.employee_name === empName);
+          const settings = getEmployeeSettings(empName);
+          const maxDaily = settings.weekly_hours / 5;
+          const yearUsed = empTimesheets.reduce((s, ts) => s + ts.total_billable_hours, 0);
 
-  const renderEmployeeDetail = () => {
-    if (!selectedEmployee) return null;
-
-    const allTimesheets = getEmployeeTimesheets(selectedEmployee);
-    const availableYears = getAvailableYears(selectedEmployee);
-    const settings = getEmployeeSettings(selectedEmployee);
-    const maxMonthly = getMaxMonthlyHours(settings.weekly_hours);
-    const maxDaily = settings.weekly_hours / 5;
-
-    // Wenn kein Jahr ausgewählt, erstes verfügbares Jahr nehmen
-    const displayYear = selectedYear && availableYears.includes(selectedYear) 
-      ? selectedYear 
-      : availableYears[0] || new Date().getFullYear();
-
-    // Timesheets nach ausgewähltem Jahr filtern
-    const timesheets = allTimesheets.filter(ts => ts.year === displayYear);
-
-    const projectGroups: Record<string, ImportedTimesheet[]> = {};
-    for (const ts of timesheets) {
-      if (!projectGroups[ts.project_name]) projectGroups[ts.project_name] = [];
-      projectGroups[ts.project_name].push(ts);
-    }
-
-    const monthData: Record<number, Record<number, { 
-      used: number; 
-      free: number; 
-      projects: Record<string, number>;
-      absence: string | null;
-    }>> = {};
-    
-    for (const ts of timesheets) {
-      if (!monthData[ts.month]) monthData[ts.month] = {};
-      
-      const daily = ts.daily_data || {};
-      for (let day = 1; day <= 31; day++) {
-        if (!monthData[ts.month][day]) {
-          monthData[ts.month][day] = { used: 0, free: maxDaily, projects: {}, absence: null };
-        }
-        const dayData = daily[day.toString()] || daily[day];
-        if (dayData) {
-          if (dayData.hours) {
-            monthData[ts.month][day].used += dayData.hours;
-            monthData[ts.month][day].free = maxDaily - monthData[ts.month][day].used;
-            monthData[ts.month][day].projects[ts.project_name] = 
-              (monthData[ts.month][day].projects[ts.project_name] || 0) + dayData.hours;
+          // Tagesansicht aufbauen
+          const dayData: Record<number, Record<number, { hours: number; absence: string | null }>> = {};
+          for (let m = 1; m <= 12; m++) {
+            dayData[m] = {};
+            for (let d = 1; d <= 31; d++) {
+              dayData[m][d] = { hours: 0, absence: null };
+            }
           }
-          if (dayData.absence) {
-            monthData[ts.month][day].absence = dayData.absence;
-          }
-        }
-      }
-    }
-
-    const monthlySums: { month: number; year: number; used: number; free: number }[] = [];
-    for (let m = 1; m <= 12; m++) {
-      const monthTimesheets = timesheets.filter(ts => ts.month === m);
-      const used = monthTimesheets.reduce((s, ts) => s + ts.total_billable_hours, 0);
-      monthlySums.push({ month: m, year: displayYear, used, free: maxMonthly - used });
-    }
-
-    const totalUsed = timesheets.reduce((s, ts) => s + ts.total_billable_hours, 0);
-    const totalFree = (maxMonthly * 12) - totalUsed;
-    
-    // Gesamtstunden über alle Jahre (für Info)
-    const totalAllYears = allTimesheets.reduce((s, ts) => s + ts.total_billable_hours, 0);
-
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <button onClick={() => setSelectedEmployee(null)} className="text-blue-600 hover:underline">
-            ← Zurück zur Übersicht
-          </button>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setEditingEmployee({
-                id: savedEmployees.find(e => e.name === selectedEmployee)?.id || '',
-                company_id: profile!.company_id,
-                name: selectedEmployee,
-                weekly_hours: settings.weekly_hours,
-                annual_leave_days: settings.annual_leave_days
-              })}
-              className="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-sm"
-            >
-              ✏️ Stammdaten
-            </button>
-            <button
-              onClick={() => setShowDeleteConfirm({ type: 'employee', employeeName: selectedEmployee })}
-              className="px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 text-sm"
-            >
-              🗑️ Löschen
-            </button>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex justify-between items-start">
-            <div>
-              <h2 className="text-xl font-bold mb-2">👤 {selectedEmployee}</h2>
-              <p className="text-gray-500">{settings.weekly_hours}h/Woche • {settings.annual_leave_days} Urlaubstage</p>
-            </div>
-            
-            {/* Jahresauswahl */}
-            {availableYears.length > 0 && (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-600">Jahr:</span>
-                <select
-                  value={displayYear}
-                  onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                  className="px-3 py-2 border rounded-lg bg-white font-medium"
-                >
-                  {availableYears.map(year => (
-                    <option key={year} value={year}>{year}</option>
-                  ))}
-                </select>
-                {availableYears.length > 1 && (
-                  <span className="text-xs text-gray-400">
-                    ({availableYears.length} Jahre)
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
           
-          <div className="mt-4 flex flex-wrap gap-2">
-            {Object.keys(projectGroups).map(proj => (
-              <span key={proj} className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm">
-                {proj}
-              </span>
-            ))}
-          </div>
-        </div>
+          for (const ts of empTimesheets) {
+            const daily = ts.daily_data || {};
+            for (const [dayStr, data] of Object.entries(daily)) {
+              const day = parseInt(dayStr);
+              if (day >= 1 && day <= 31 && dayData[ts.month]) {
+                if (data.hours) dayData[ts.month][day].hours += data.hours;
+                if (data.absence) dayData[ts.month][day].absence = data.absence;
+              }
+            }
+          }
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-blue-50 p-4 rounded-lg text-center">
-            <div className="text-2xl font-bold text-blue-600">{totalUsed.toFixed(0)}h</div>
-            <div className="text-sm text-gray-600">Genutzt {displayYear}</div>
-          </div>
-          <div className="bg-green-50 p-4 rounded-lg text-center">
-            <div className="text-2xl font-bold text-green-600">{totalFree.toFixed(0)}h</div>
-            <div className="text-sm text-gray-600">Frei {displayYear}</div>
-          </div>
-          <div className="bg-yellow-50 p-4 rounded-lg text-center">
-            <div className="text-2xl font-bold text-yellow-600">{totalAllYears.toFixed(0)}h</div>
-            <div className="text-sm text-gray-600">Gesamt alle Jahre</div>
-          </div>
-          <div className="bg-purple-50 p-4 rounded-lg text-center">
-            <div className="text-2xl font-bold text-purple-600">{Object.keys(projectGroups).length}</div>
-            <div className="text-sm text-gray-600">Projekte {displayYear}</div>
-          </div>
-        </div>
+          return (
+            <div key={empName} className="bg-white rounded-lg shadow overflow-hidden">
+              <div className="bg-gray-100 px-6 py-4 flex justify-between items-center">
+                <div className="flex-1">
+                  <h3 className="font-bold">👤 {empName}</h3>
+                  <p className="text-sm text-gray-500">{settings.weekly_hours}h/Woche • Max {maxDaily}h/Tag</p>
+                </div>
+                <div className="flex-1 text-center">
+                  <div className="text-2xl font-bold text-gray-700">{displayYear}</div>
+                </div>
+                <div className="flex-1 text-right">
+                  <div className="text-lg font-bold">
+                    <span className="text-blue-600">{yearUsed.toFixed(0)}h</span>
+                    <span className="text-gray-400 mx-1">/</span>
+                    <span className="text-green-600">{(() => {
+                      // Verfügbare Stunden berechnen (nur Arbeitstage)
+                      let availableHours = 0;
+                      for (let m = 1; m <= 12; m++) {
+                        const daysInMonth = getDaysInMonth(displayYear, m);
+                        for (let d = 1; d <= daysInMonth; d++) {
+                          const date = new Date(displayYear, m - 1, d);
+                          const dayOfWeek = date.getDay();
+                          if (dayOfWeek !== 0 && dayOfWeek !== 6) { // Kein WE
+                            const data = dayData[m]?.[d];
+                            if (!data?.absence) {
+                              availableHours += maxDaily - (data?.hours || 0);
+                            }
+                          }
+                        }
+                      }
+                      return availableHours.toFixed(0);
+                    })()}h frei</span>
+                  </div>
+                  <div className="text-xs text-gray-500">gebucht / verfügbar</div>
+                </div>
+              </div>
 
-        <div className="flex gap-2">
-          <button
-            onClick={() => setViewMode('table')}
-            className={`px-4 py-2 rounded ${viewMode === 'table' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}
-          >
-            📊 Tabelle
-          </button>
-          <button
-            onClick={() => setViewMode('calendar')}
-            className={`px-4 py-2 rounded ${viewMode === 'calendar' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}
-          >
-            📅 Kalender (FZul)
-          </button>
-        </div>
+              <div className="p-4 overflow-x-auto">
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="px-2 py-1 border text-left w-24">Monat</th>
+                      {Array.from({ length: 31 }, (_, i) => (
+                        <th key={i} className="px-1 py-1 border text-center w-8">{i + 1}</th>
+                      ))}
+                      <th className="px-2 py-1 border text-center w-16 bg-blue-50">Genutzt</th>
+                      <th className="px-2 py-1 border text-center w-16 bg-green-50">Frei</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map(month => {
+                      const daysInMonth = getDaysInMonth(displayYear, month);
+                      const monthTs = empTimesheets.find(t => t.month === month);
+                      const monthHours = monthTs?.total_billable_hours || 0;
+                      
+                      // Verfügbare Stunden im Monat berechnen (nur Arbeitstage)
+                      let monthFree = 0;
+                      for (let d = 1; d <= daysInMonth; d++) {
+                        const date = new Date(displayYear, month - 1, d);
+                        const dayOfWeek = date.getDay();
+                        if (dayOfWeek !== 0 && dayOfWeek !== 6) { // Kein WE
+                          const data = dayData[month]?.[d];
+                          if (!data?.absence) {
+                            monthFree += maxDaily - (data?.hours || 0);
+                          }
+                        }
+                      }
 
-        {viewMode === 'table' && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="font-bold mb-4">📊 Monatsübersicht</h3>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-100">
-                  <th className="px-3 py-2 text-left">Monat</th>
-                  {Object.keys(projectGroups).map(p => (
-                    <th key={p} className="px-3 py-2 text-right">{p}</th>
-                  ))}
-                  <th className="px-3 py-2 text-right font-bold">Gesamt</th>
-                  <th className="px-3 py-2 text-right">Max</th>
-                  <th className="px-3 py-2 text-right text-green-700">Frei</th>
-                </tr>
-              </thead>
-              <tbody>
-                {monthlySums.map(({ month, used, free }) => (
-                  <tr key={month} className="border-b">
-                    <td className="px-3 py-2 font-medium">{MONTH_NAMES[month - 1]}</td>
-                    {Object.entries(projectGroups).map(([proj, tss]) => {
-                      const monthTs = tss.find(ts => ts.month === month);
                       return (
-                        <td key={proj} className="px-3 py-2 text-right">
-                          {monthTs ? monthTs.total_billable_hours.toFixed(0) : '-'}
-                        </td>
+                        <tr key={month}>
+                          <td className="px-2 py-1 border font-medium bg-gray-50">
+                            {MONTH_NAMES[month - 1].substring(0, 3)}
+                          </td>
+                          {Array.from({ length: 31 }, (_, d) => d + 1).map(day => {
+                            const data = dayData[month]?.[day];
+                            const isValidDay = day <= daysInMonth;
+                            
+                            if (!isValidDay) {
+                              return <td key={day} className="px-1 py-1 border bg-gray-100"></td>;
+                            }
+
+                            // Wochenende prüfen
+                            const date = new Date(displayYear, month - 1, day);
+                            const dayOfWeek = date.getDay();
+                            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                            
+                            if (isWeekend) {
+                              return <td key={day} className="px-1 py-1 border bg-gray-200 text-gray-400 text-center">-</td>;
+                            }
+
+                            // AMPEL-LOGIK: Verfügbarkeit anzeigen
+                            // Grün = voll verfügbar (8h)
+                            // Gelb = teilverfügbar (zeigt freie Stunden)
+                            // Rot = belegt (0h frei)
+                            // Orange = Abwesenheit (ohne Text)
+                            // Grau = Wochenende/Feiertag
+                            
+                            let bgColor = 'bg-green-200';  // Default: voll verfügbar
+                            let textColor = 'text-green-800';
+                            let content: string = maxDaily.toString();  // Zeigt verfügbare Stunden
+                            
+                            if (data?.absence) {
+                              // Abwesenheit - nur orange, kein Text
+                              bgColor = 'bg-orange-200';
+                              textColor = 'text-orange-800';
+                              content = '';
+                            } else if (data?.hours > 0) {
+                              const freeHours = maxDaily - data.hours;
+                              
+                              if (freeHours <= 0) {
+                                // Voll belegt
+                                bgColor = 'bg-red-300';
+                                textColor = 'text-red-900 font-bold';
+                                content = '0';
+                              } else if (freeHours < maxDaily) {
+                                // Teilverfügbar
+                                bgColor = 'bg-yellow-200';
+                                textColor = 'text-yellow-800';
+                                content = freeHours.toFixed(1).replace('.0', '');
+                              }
+                            }
+
+                            return (
+                              <td 
+                                key={day} 
+                                className={`px-1 py-1 border text-center ${bgColor} ${textColor}`}
+                                title={`${day}. ${MONTH_NAMES[month - 1]}: ${data?.hours || 0}h genutzt, ${maxDaily - (data?.hours || 0)}h frei`}
+                              >
+                                {content}
+                              </td>
+                            );
+                          })}
+                          <td className="px-2 py-1 border text-center font-bold bg-blue-50 text-blue-700">
+                            {monthHours > 0 ? monthHours.toFixed(0) : '-'}
+                          </td>
+                          <td className="px-2 py-1 border text-center font-bold bg-green-50 text-green-700">
+                            {monthFree > 0 ? monthFree.toFixed(0) : '-'}
+                          </td>
+                        </tr>
                       );
                     })}
-                    <td className="px-3 py-2 text-right font-bold">{used > 0 ? used.toFixed(0) : '-'}</td>
-                    <td className="px-3 py-2 text-right text-gray-500">{maxMonthly.toFixed(0)}</td>
-                    <td className="px-3 py-2 text-right text-green-600 font-bold">{free.toFixed(0)}</td>
-                  </tr>
-                ))}
-                <tr className="bg-gray-100 font-bold">
-                  <td className="px-3 py-2">SUMME</td>
-                  {Object.values(projectGroups).map((tss, i) => (
-                    <td key={i} className="px-3 py-2 text-right">
-                      {tss.reduce((s, ts) => s + ts.total_billable_hours, 0).toFixed(0)}
-                    </td>
-                  ))}
-                  <td className="px-3 py-2 text-right">{totalUsed.toFixed(0)}</td>
-                  <td className="px-3 py-2 text-right text-gray-500">{(maxMonthly * 12).toFixed(0)}</td>
-                  <td className="px-3 py-2 text-right text-green-600">{totalFree.toFixed(0)}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Kalender-Ansicht */}
-        {viewMode === 'calendar' && (
-          <div className="space-y-8">
-            
-            {/* KALENDER 1: GENUTZTE STUNDEN */}
-            <div className="bg-white rounded-lg shadow p-6 overflow-x-auto">
-              <h3 className="font-bold mb-4 text-blue-800">
-                📋 FZul-Übersicht &quot;Genutzte Stunden&quot; - {selectedEmployee} ({displayYear})
-              </h3>
-              
-              <div className="mb-4 flex flex-wrap gap-4 text-xs">
-                <div className="flex items-center gap-1">
-                  <div className="w-4 h-4 bg-blue-200 border"></div>
-                  <span>Projektstunden</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <div className="w-4 h-4 bg-blue-100 border"></div>
-                  <span>U = Urlaub</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <div className="w-4 h-4 bg-red-200 border"></div>
-                  <span>K = Krank</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <div className="w-4 h-4 bg-orange-200 border"></div>
-                  <span>KA = Kurzarbeit</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <div className="w-4 h-4 bg-gray-300 border"></div>
-                  <span>- = nicht vorhanden</span>
+                  </tbody>
+                </table>
+                
+                {/* Legende - Ampel für Verfügbarkeit */}
+                <div className="mt-3 flex gap-6 text-xs items-center">
+                  <span className="font-medium text-gray-600">Verfügbarkeit:</span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-4 h-4 bg-green-200 border rounded"></span> 
+                    <span>Frei ({maxDaily}h)</span>
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-4 h-4 bg-yellow-200 border rounded"></span> 
+                    <span>Teilweise</span>
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-4 h-4 bg-red-300 border rounded"></span> 
+                    <span>Belegt</span>
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-4 h-4 bg-orange-200 border rounded"></span> 
+                    <span>Abwesend</span>
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-4 h-4 bg-gray-200 border rounded"></span> 
+                    <span>Wochenende</span>
+                  </span>
                 </div>
               </div>
-
-              <table className="w-full text-xs border-collapse">
-                <thead>
-                  <tr className="bg-blue-50">
-                    <th className="px-2 py-2 text-left sticky left-0 bg-blue-50 z-10 border font-bold min-w-[50px]">
-                      Monat
-                    </th>
-                    {Array.from({ length: 31 }, (_, i) => i + 1).map(day => (
-                      <th key={day} className="px-0 py-2 text-center border font-medium w-[26px] min-w-[26px]">
-                        {day}
-                      </th>
-                    ))}
-                    <th className="px-2 py-2 text-center border font-bold bg-blue-100 min-w-[45px]">
-                      Insg.
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {MONTH_SHORT.map((monthName, monthIndex) => {
-                    const month = monthIndex + 1;
-                    const daysInMonth = getDaysInMonth(displayYear, month);
-                    let monthTotal = 0;
-                    
-                    return (
-                      <tr key={month} className="border-b">
-                        <td className="px-2 py-1 font-medium sticky left-0 bg-white z-10 border">
-                          {monthName}
-                        </td>
-                        
-                        {Array.from({ length: 31 }, (_, i) => i + 1).map(day => {
-                          if (day > daysInMonth) {
-                            return (
-                              <td key={day} className="px-0 py-1 text-center bg-gray-200 border text-gray-400 text-[10px]">
-                                -
-                              </td>
-                            );
-                          }
-                          
-                          const dayInfo = monthData[month]?.[day];
-                          const used = dayInfo?.used || 0;
-                          const absence = dayInfo?.absence;
-                          
-                          if (used > 0) monthTotal += used;
-                          
-                          if (absence) {
-                            let bgColor = 'bg-gray-100';
-                            if (absence === 'U') bgColor = 'bg-blue-100';
-                            else if (absence === 'K') bgColor = 'bg-red-200';
-                            else if (absence === 'KA') bgColor = 'bg-orange-200';
-                            else if (absence === 'S') bgColor = 'bg-purple-100';
-                            else if (absence === 'F') bgColor = 'bg-gray-300';
-                            
-                            return (
-                              <td key={day} className={`px-0 py-1 text-center ${bgColor} border font-bold text-[10px]`}>
-                                {absence}
-                              </td>
-                            );
-                          }
-                          
-                          return (
-                            <td key={day} className={`px-0 py-1 text-center border text-[10px] ${used > 0 ? 'bg-blue-200 font-bold' : ''}`}>
-                              {used > 0 ? used : '-'}
-                            </td>
-                          );
-                        })}
-                        
-                        <td className="px-2 py-1 text-center font-bold bg-blue-100 border">
-                          {monthTotal > 0 ? monthTotal.toFixed(0) : '0'}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  
-                  <tr className="bg-blue-200 font-bold">
-                    <td className="px-2 py-2 sticky left-0 bg-blue-200 z-10 border">GESAMT</td>
-                    <td colSpan={31} className="border"></td>
-                    <td className="px-2 py-2 text-center border">{totalUsed.toFixed(0)}</td>
-                  </tr>
-                </tbody>
-              </table>
             </div>
+          );
+        })}
 
-            {/* KALENDER 2: FREIE STUNDEN */}
-            <div className="bg-white rounded-lg shadow p-6 overflow-x-auto">
-              <h3 className="font-bold mb-4 text-green-800">
-                📊 FZul-Übersicht &quot;Freie Projektstunden&quot; - {selectedEmployee} ({displayYear})
-              </h3>
-              
-              <div className="mb-4 flex flex-wrap gap-4 text-xs">
-                <div className="flex items-center gap-1">
-                  <div className="w-4 h-4 bg-green-300 border"></div>
-                  <span>Voll verfügbar ({maxDaily}h)</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <div className="w-4 h-4 bg-yellow-200 border"></div>
-                  <span>Teilweise verfügbar</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <div className="w-4 h-4 bg-red-300 border"></div>
-                  <span>Nicht verfügbar (0h)</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <div className="w-4 h-4 bg-gray-300 border"></div>
-                  <span>Fehlzeit/kein Tag</span>
-                </div>
-              </div>
-
-              <table className="w-full text-xs border-collapse">
-                <thead>
-                  <tr className="bg-green-50">
-                    <th className="px-2 py-2 text-left sticky left-0 bg-green-50 z-10 border font-bold min-w-[50px]">
-                      Monat
-                    </th>
-                    {Array.from({ length: 31 }, (_, i) => i + 1).map(day => (
-                      <th key={day} className="px-0 py-2 text-center border font-medium w-[26px] min-w-[26px]">
-                        {day}
-                      </th>
-                    ))}
-                    <th className="px-2 py-2 text-center border font-bold bg-green-100 min-w-[45px]">
-                      Insg.
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {MONTH_SHORT.map((monthName, monthIndex) => {
-                    const month = monthIndex + 1;
-                    const daysInMonth = getDaysInMonth(displayYear, month);
-                    let monthFreeTotal = 0;
-                    
-                    return (
-                      <tr key={month} className="border-b">
-                        <td className="px-2 py-1 font-medium sticky left-0 bg-white z-10 border">
-                          {monthName}
-                        </td>
-                        
-                        {Array.from({ length: 31 }, (_, i) => i + 1).map(day => {
-                          if (day > daysInMonth) {
-                            return (
-                              <td key={day} className="px-0 py-1 text-center bg-gray-200 border text-gray-400 text-[10px]">
-                                -
-                              </td>
-                            );
-                          }
-                          
-                          const date = new Date(displayYear, month - 1, day);
-                          const isWeekend = date.getDay() === 0 || date.getDay() === 6;
-                          
-                          if (isWeekend) {
-                            return (
-                              <td key={day} className="px-0 py-1 text-center bg-gray-200 border text-gray-400 text-[10px]">
-                                -
-                              </td>
-                            );
-                          }
-                          
-                          const dayInfo = monthData[month]?.[day];
-                          const used = dayInfo?.used || 0;
-                          const absence = dayInfo?.absence;
-                          
-                          if (absence) {
-                            return (
-                              <td key={day} className="px-0 py-1 text-center bg-gray-300 border text-gray-500 text-[10px]">
-                                {absence}
-                              </td>
-                            );
-                          }
-                          
-                          const free = maxDaily - used;
-                          monthFreeTotal += free;
-                          
-                          let bgColor = 'bg-green-300';
-                          if (free < maxDaily && free > 0) bgColor = 'bg-yellow-200';
-                          else if (free <= 0) bgColor = 'bg-red-300';
-                          
-                          return (
-                            <td key={day} className={`px-0 py-1 text-center ${bgColor} border font-bold text-[10px]`}>
-                              {free > 0 ? free : '0'}
-                            </td>
-                          );
-                        })}
-                        
-                        <td className="px-2 py-1 text-center font-bold bg-green-100 border">
-                          {monthFreeTotal > 0 ? monthFreeTotal.toFixed(0) : '0'}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  
-                  <tr className="bg-green-200 font-bold">
-                    <td className="px-2 py-2 sticky left-0 bg-green-200 z-10 border">GESAMT</td>
-                    <td colSpan={31} className="border"></td>
-                    <td className="px-2 py-2 text-center border">{totalFree.toFixed(0)}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            
-            {/* Debug-Info */}
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-xs">
-              <h4 className="font-bold text-yellow-800 mb-2">🔍 Debug: Geladene Tagesdaten</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                {timesheets.slice(0, 4).map((ts, idx) => (
-                  <div key={idx} className="bg-white p-2 rounded border">
-                    <div className="font-medium">{MONTH_NAMES[ts.month - 1]} {ts.year}</div>
-                    <div className="text-gray-500">
-                      daily_data: {ts.daily_data ? Object.keys(ts.daily_data).length + ' Einträge' : 'KEINE'}
-                    </div>
-                    {ts.daily_data && (
-                      <div className="text-[10px] text-gray-600 mt-1">
-                        Keys: {Object.keys(ts.daily_data).slice(0, 5).join(', ')}...
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
+        {employeesInYear.length === 0 && (
+          <div className="bg-yellow-50 p-6 rounded-lg text-center">
+            <p className="text-yellow-700">Keine Daten für {displayYear} vorhanden.</p>
+            <p className="text-sm text-gray-500 mt-2">
+              Verfügbare Jahre: {availableYears.join(', ')}
+            </p>
           </div>
         )}
       </div>
     );
   };
+
 
   // ============================================
   // RENDER: HAUPTSEITE
@@ -1794,14 +1711,6 @@ export default function ImportPage() {
                 }`}
               >
                 📁 Projekte {projects.length > 0 && <span className="ml-1 text-xs bg-blue-100 px-2 py-0.5 rounded-full">{projects.length}</span>}
-              </button>
-              <button
-                onClick={() => { setActiveTab('employees'); setSelectedProject(null); setSelectedEmployee(null); }}
-                className={`px-1 py-3 border-b-2 font-medium ${
-                  activeTab === 'employees' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'
-                }`}
-              >
-                👥 Mitarbeiter {employees.length > 0 && <span className="ml-1 text-xs bg-blue-100 px-2 py-0.5 rounded-full">{employees.length}</span>}
               </button>
               <button
                 onClick={() => { setActiveTab('import'); setImportStep('upload'); }}
@@ -1872,59 +1781,6 @@ export default function ImportPage() {
         )}
 
         {activeTab === 'projects' && selectedProject && renderProjectDetail()}
-
-        {/* TAB: MITARBEITER */}
-        {activeTab === 'employees' && !selectedEmployee && (
-          <div className="space-y-4">
-            {employees.length === 0 ? (
-              <div className="bg-white rounded-lg shadow p-12 text-center">
-                <span className="text-5xl">📭</span>
-                <h2 className="text-xl font-bold mt-4">Keine Mitarbeiter</h2>
-                <button
-                  onClick={() => setActiveTab('import')}
-                  className="mt-4 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                >
-                  ➕ Import starten
-                </button>
-              </div>
-            ) : (
-              employees.map(emp => {
-                const tss = getEmployeeTimesheets(emp);
-                const settings = getEmployeeSettings(emp);
-                const projs = [...new Set(tss.map(ts => ts.project_name))];
-                const totalUsed = tss.reduce((s, ts) => s + ts.total_billable_hours, 0);
-                const maxYearly = getMaxMonthlyHours(settings.weekly_hours) * 12;
-                const totalFree = maxYearly - totalUsed;
-
-                return (
-                  <div
-                    key={emp}
-                    onClick={() => setSelectedEmployee(emp)}
-                    className="bg-white rounded-lg shadow p-6 cursor-pointer hover:shadow-lg transition-shadow"
-                  >
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h3 className="text-lg font-bold">👤 {emp}</h3>
-                        <p className="text-gray-500 text-sm">{settings.weekly_hours}h/Woche</p>
-                        <div className="flex flex-wrap gap-1 mt-2">
-                          {projs.map(p => (
-                            <span key={p} className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">{p}</span>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-lg font-bold text-blue-600">{totalUsed.toFixed(0)}h genutzt</div>
-                        <div className="text-lg font-bold text-green-600">{totalFree.toFixed(0)}h frei</div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        )}
-
-        {activeTab === 'employees' && selectedEmployee && renderEmployeeDetail()}
 
         {/* TAB: NEUER IMPORT */}
         {activeTab === 'import' && (
@@ -2130,12 +1986,6 @@ export default function ImportPage() {
                     className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                   >
                     📁 Zu Projekten
-                  </button>
-                  <button
-                    onClick={() => { setActiveTab('employees'); setImportStep('upload'); }}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                  >
-                    👥 Zu Mitarbeitern
                   </button>
                   <button
                     onClick={() => {
