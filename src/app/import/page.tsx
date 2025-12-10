@@ -1,5 +1,5 @@
 // src/app/import/page.tsx
-// VERSION: v4.1 - 2024-12-10 - Robuste Regex-Blacklist für technische Sheets
+// VERSION: v4.2 - 2024-12-10 - Berechtigungen nur für Super-Admin sichtbar
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
@@ -145,7 +145,7 @@ const SHEET_BLACKLIST_PATTERN = /^(Ermittl|Auswertung|Nav|PK|ZAZK|ZNZK|Planung|�
 
 export default function ImportPage() {
   // VERSION CHECK - in Browser-Konsole sichtbar
-  console.log('[Import] Version v4.1 - Robuste Regex-Blacklist für technische Sheets');
+  console.log('[Import] Version v4.2 - Berechtigungen nur für Super-Admin');
   
   const router = useRouter();
   const supabase = createClient();
@@ -1736,12 +1736,14 @@ export default function ImportPage() {
               </button>
             </div>
 
-            <button
-              onClick={openAccessModal}
-              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 flex items-center gap-2 text-sm font-medium"
-            >
-              🔐 Berechtigungen
-            </button>
+            {profile?.email === 'martin.ditscherlein@cubintec.de' && (
+              <button
+                onClick={openAccessModal}
+                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 flex items-center gap-2 text-sm font-medium"
+              >
+                🔐 Berechtigungen
+              </button>
+            )}
           </nav>
         </div>
 
