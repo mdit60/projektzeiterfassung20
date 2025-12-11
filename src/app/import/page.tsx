@@ -298,7 +298,7 @@ export default function ImportPage() {
 
       if (adminsError) throw adminsError;
 
-      setAdminUsers(admins?.map(a => ({
+      setAdminUsers(admins?.map((a: { id: string; name?: string; email: string; has_import_access?: boolean }) => ({
         id: a.id,
         name: a.name || a.email,
         email: a.email,

@@ -18,13 +18,12 @@ export async function createClient() {
             cookiesToSet.forEach(({ name, value, options }) =>
               cookieStore.set(name, value, {
                 ...options,
-                maxAge: undefined,  // Session-Cookie: kein maxAge
-                expires: undefined, // Session-Cookie: kein expires
+                maxAge: undefined,
+                expires: undefined,
               })
             );
           } catch {
-            // Wird von Server Components aufgerufen, die Cookies nicht setzen können
-            // Ignorieren - die Cookies werden von Middleware/Route Handlers gesetzt
+            // Ignorieren
           }
         },
       },

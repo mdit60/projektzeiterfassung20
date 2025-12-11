@@ -23,11 +23,10 @@ export async function middleware(request: NextRequest) {
             request,
           });
           cookiesToSet.forEach(({ name, value, options }) => {
-            // Session-Cookie: KEIN maxAge = wird bei Browser-Close gelöscht
             supabaseResponse.cookies.set(name, value, {
               ...options,
-              maxAge: undefined,  // Entfernt maxAge → Session-Cookie
-              expires: undefined, // Entfernt expires → Session-Cookie
+              maxAge: undefined,
+              expires: undefined,
             });
           });
         },
@@ -41,55 +40,31 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
 
-  // ==========================================
-  // ÖFFENTLICHE ROUTEN - KEIN LOGIN ERFORDERLICH
-  // ==========================================
-  const publicRoutes = [
-    '/',
-    '/login',
-    '/register',
-  ];
-
+  const publicRoutes = ['/', '/login', '/register'];
   const isPublicRoute = publicRoutes.some(route => 
     pathname === route || pathname.startsWith(route + '/')
   );
 
-  // ==========================================
-  // GESCHÜTZTE ROUTEN - LOGIN ERFORDERLICH
-  // ==========================================
   const protectedRoutes = [
-    '/dashboard',
-    '/projekte',
-    '/mitarbeiter',
-    '/arbeitsplaene',
-    '/zeiterfassung',
-    '/berichte',
-    '/einstellungen'
+    '/dashboard', '/projekte', '/mitarbeiter', '/arbeitsplaene',
+    '/zeiterfassung', '/berichte', '/einstellungen', '/import'
   ];
-
   const isProtectedRoute = protectedRoutes.some(route => 
     pathname === route || pathname.startsWith(route + '/')
   );
 
-  // ==========================================
-  // REDIRECT-LOGIK
-  // ==========================================
-  
-  // 1. Nicht eingeloggt + geschützte Route → Login
   if (!user && isProtectedRoute) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     return NextResponse.redirect(url);
   }
 
-  // 2. Eingeloggt + auf Login-Seite → Dashboard
   if (user && pathname === '/login') {
     const url = request.nextUrl.clone();
     url.pathname = '/dashboard';
     return NextResponse.redirect(url);
   }
 
-  // 3. Root → Redirect basierend auf Login-Status
   if (pathname === '/') {
     const url = request.nextUrl.clone();
     url.pathname = user ? '/dashboard' : '/login';
