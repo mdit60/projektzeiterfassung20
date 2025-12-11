@@ -1,5 +1,5 @@
 // src/app/import/page.tsx
-// VERSION: v5.12 - Abwesenheiten in Monatstabelle
+// VERSION: v5.15 - Unterkanten ausgerichtet
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
@@ -1465,9 +1465,14 @@ export default function ImportPage() {
     const timesheets = allTimesheets.filter(ts => ts.year === displayYear);
     
     // Mitarbeiter die in diesem Jahr Daten haben
-    const employeesInYear = allEmployeeNames; // NEU v5.0: Alle MA anzeigen
+    const employeesInYear = allEmployeeNames;
     
-    // Hilfsfunktion: Arbeitstage im Jahr zählen (ohne WE)
+    // NEU v5.13: Erster Mitarbeiter als Default
+    const displayEmployee = selectedEmployee && employeesInYear.includes(selectedEmployee)
+      ? selectedEmployee
+      : employeesInYear[0] || null;
+    
+    // Hilfsfunktion: Arbeitstage im Jahr zählen (ohne WE und Feiertage)
     const getWorkdaysInYear = (year: number): number => {
       let workdays = 0;
       const holidays = getGermanHolidays(year);
@@ -1477,35 +1482,29 @@ export default function ImportPage() {
           const date = new Date(year, m, d);
           const dayOfWeek = date.getDay();
           const dateStr = `${year}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-          // Wochenenden und Feiertage nicht zählen
           if (dayOfWeek !== 0 && dayOfWeek !== 6 && !holidays.has(dateStr)) workdays++;
         }
       }
       return workdays;
     };
 
-    // NEU v5.11: Arbeitstage pro Monat berechnen (für konsistente Berechnung)
     const getWorkdaysInMonth = (year: number, month: number): number => {
       let workdays = 0;
       const holidays = getGermanHolidays(year);
-      const daysInMonth = new Date(year, month, 0).getDate(); // month ist 1-12
+      const daysInMonth = new Date(year, month, 0).getDate();
       for (let d = 1; d <= daysInMonth; d++) {
         const date = new Date(year, month - 1, d);
         const dayOfWeek = date.getDay();
         const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-        // Wochenenden und Feiertage nicht zählen
         if (dayOfWeek !== 0 && dayOfWeek !== 6 && !holidays.has(dateStr)) workdays++;
       }
       return workdays;
     };
     
-    // Gesamtstunden pro Jahr berechnen (gebucht + verfügbar)
+    // Gesamtstunden pro Jahr berechnen
     const yearTotals = availableYears.map(year => {
       const yearTimesheets = allTimesheets.filter(ts => ts.year === year);
-      // NEU v5.0: Verwende allEmployeeNames statt yearEmployees
       const usedHours = yearTimesheets.reduce((s, ts) => s + ts.total_billable_hours, 0);
-      
-      // Verfügbare Stunden = (Arbeitstage * max Stunden/Tag) für alle MA
       const workdays = getWorkdaysInYear(year);
       let maxHours = 0;
       for (const empName of allEmployeeNames) {
@@ -1513,479 +1512,394 @@ export default function ImportPage() {
         const maxDaily = settings.weekly_hours / 5;
         maxHours += workdays * maxDaily;
       }
-      const hasData = usedHours > 0; // NEU v5.0
-      
-      return {
-        year,
-        usedHours,
-        freeHours: maxHours - usedHours,
-        maxHours,
-        hasData
-      };
+      return { year, usedHours, freeHours: maxHours - usedHours, maxHours, hasData: usedHours > 0 };
     });
     const totalAllYears = allTimesheets.reduce((s, ts) => s + ts.total_billable_hours, 0);
     const totalMaxAllYears = yearTotals.reduce((s, yt) => s + yt.maxHours, 0);
     const totalFreeAllYears = totalMaxAllYears - totalAllYears;
 
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <button onClick={() => setSelectedProject(null)} className="text-blue-600 hover:underline">
-            ← Zurück zur Übersicht
-          </button>
-          <button
-            onClick={() => setShowDeleteConfirm({ type: 'project', projectName: selectedProject })}
-            className="px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 text-sm"
-          >
-            🗑️ Projekt löschen
-          </button>
-        </div>
+    // Funktion zum Rendern der Monatstabelle für einen MA
+    const renderMonthTable = (empName: string) => {
+      const empTimesheets = timesheets.filter(ts => ts.employee_name === empName).sort((a, b) => a.month - b.month);
+      const settings = getEmployeeSettings(empName);
+      const maxDaily = settings.weekly_hours / 5;
+      const yearUsed = empTimesheets.reduce((s, ts) => s + ts.total_billable_hours, 0);
+      
+      // Tagesansicht für Abwesenheiten
+      const holidays = getGermanHolidays(displayYear);
+      const tableDayData: Record<number, Record<number, { hours: number; absence: string | null }>> = {};
+      for (let m = 1; m <= 12; m++) {
+        tableDayData[m] = {};
+        for (let d = 1; d <= 31; d++) {
+          tableDayData[m][d] = { hours: 0, absence: null };
+        }
+      }
+      for (const ts of empTimesheets) {
+        const daily = ts.daily_data || {};
+        for (const [dayStr, data] of Object.entries(daily)) {
+          const day = parseInt(dayStr);
+          if (day >= 1 && day <= 31 && tableDayData[ts.month]) {
+            if ((data as any).hours) tableDayData[ts.month][day].hours += (data as any).hours;
+            if ((data as any).absence) tableDayData[ts.month][day].absence = (data as any).absence;
+          }
+        }
+      }
+      
+      // yearFree berechnen
+      let yearFree = 0;
+      for (let m = 1; m <= 12; m++) {
+        const daysInMonth = getDaysInMonth(displayYear, m);
+        for (let d = 1; d <= daysInMonth; d++) {
+          const date = new Date(displayYear, m - 1, d);
+          const dayOfWeek = date.getDay();
+          const dateStr = `${displayYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+          if (dayOfWeek !== 0 && dayOfWeek !== 6 && !holidays.has(dateStr)) {
+            const data = tableDayData[m]?.[d];
+            if (!data?.absence) {
+              yearFree += maxDaily - (data?.hours || 0);
+            }
+          }
+        }
+      }
 
-        {/* Projekt-Header mit Jahresauswahl */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex justify-between items-start">
+      return (
+        <div className="bg-white rounded-lg shadow overflow-hidden h-full flex flex-col">
+          <div className="bg-gray-100 px-3 py-2 flex justify-between items-center">
             <div>
-              <h2 className="text-xl font-bold mb-2">📁 {selectedProject}</h2>
-              <p className="text-gray-500">FKZ: {fkz}</p>
-              <p className="text-sm text-gray-400 mt-1">
-                {allEmployeeNames.length} Mitarbeiter • {availableYears.length > 0 ? `${availableYears[0]} - ${availableYears[availableYears.length - 1]}` : ''}
-              </p>
+              <h3 className="font-bold text-sm">📊 Monatstabelle</h3>
+              <p className="text-xs text-gray-500">{settings.weekly_hours}h/Woche</p>
+            </div>
+            <div className="text-right">
+              <span className="text-blue-600 font-bold">{yearUsed.toFixed(0)}h</span>
+              <span className="text-gray-400 mx-1">/</span>
+              <span className="text-green-600 font-bold">{yearFree.toFixed(0)}h frei</span>
+            </div>
+          </div>
+          <div className="p-1 flex-1">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-gray-50">
+                  <th className="px-1 py-1 text-left">Monat</th>
+                  <th className="px-1 py-1 text-right">Std</th>
+                  <th className="px-1 py-1 text-right text-green-700">Frei</th>
+                  <th className="px-1 py-1 text-right">Fehl</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from({ length: 12 }, (_, i) => i + 1).map(month => {
+                  const ts = empTimesheets.find(t => t.month === month);
+                  const hours = ts?.total_billable_hours || 0;
+                  const absenceDays = ts?.total_absence_days || 0;
+                  
+                  // Monatliche Frei-Berechnung
+                  const daysInMonth = getDaysInMonth(displayYear, month);
+                  let monthFree = 0;
+                  for (let d = 1; d <= daysInMonth; d++) {
+                    const date = new Date(displayYear, month - 1, d);
+                    const dayOfWeek = date.getDay();
+                    const dateStr = `${displayYear}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                    if (dayOfWeek !== 0 && dayOfWeek !== 6 && !holidays.has(dateStr)) {
+                      const data = tableDayData[month]?.[d];
+                      if (!data?.absence) {
+                        monthFree += maxDaily - (data?.hours || 0);
+                      }
+                    }
+                  }
+                  
+                  return (
+                    <tr key={month} className={`border-b ${hours === 0 ? 'text-gray-400' : ''}`}>
+                      <td className="px-1 py-0.5">{MONTH_NAMES[month - 1].substring(0, 3)}</td>
+                      <td className="px-1 py-0.5 text-right">{hours > 0 ? hours.toFixed(1) : '-'}</td>
+                      <td className="px-1 py-0.5 text-right text-green-600">{monthFree.toFixed(1)}</td>
+                      <td className="px-1 py-0.5 text-right text-orange-600">{absenceDays > 0 ? absenceDays : '-'}</td>
+                    </tr>
+                  );
+                })}
+                <tr className="bg-blue-50 font-bold">
+                  <td className="px-1 py-0.5">Σ</td>
+                  <td className="px-1 py-0.5 text-right text-blue-600">{yearUsed.toFixed(1)}</td>
+                  <td className="px-1 py-0.5 text-right text-green-600">{yearFree.toFixed(1)}</td>
+                  <td className="px-1 py-0.5"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div className="px-2 py-2 border-t mt-auto">
+            <button
+              onClick={() => exportFzulExcel(empName, displayYear, empTimesheets, settings)}
+              className="w-full px-2 py-1.5 bg-green-600 text-white text-xs rounded hover:bg-green-700 flex items-center justify-center gap-1"
+            >
+              📥 Excel
+            </button>
+          </div>
+        </div>
+      );
+    };
+
+    // Funktion zum Rendern des FZul-Kalenders für einen MA
+    const renderCalendar = (empName: string) => {
+      const empTimesheets = timesheets.filter(ts => ts.employee_name === empName);
+      const settings = getEmployeeSettings(empName);
+      const maxDaily = settings.weekly_hours / 5;
+      const yearUsed = empTimesheets.reduce((s, ts) => s + ts.total_billable_hours, 0);
+      const holidays = getGermanHolidays(displayYear);
+
+      // Tagesansicht aufbauen
+      const dayData: Record<number, Record<number, { hours: number; absence: string | null }>> = {};
+      for (let m = 1; m <= 12; m++) {
+        dayData[m] = {};
+        for (let d = 1; d <= 31; d++) {
+          dayData[m][d] = { hours: 0, absence: null };
+        }
+      }
+      for (const ts of empTimesheets) {
+        const daily = ts.daily_data || {};
+        for (const [dayStr, data] of Object.entries(daily)) {
+          const day = parseInt(dayStr);
+          if (day >= 1 && day <= 31 && dayData[ts.month]) {
+            if ((data as any).hours) dayData[ts.month][day].hours += (data as any).hours;
+            if ((data as any).absence) dayData[ts.month][day].absence = (data as any).absence;
+          }
+        }
+      }
+
+      // Verfügbare Stunden berechnen
+      let availableHours = 0;
+      for (let m = 1; m <= 12; m++) {
+        const daysInMonth = getDaysInMonth(displayYear, m);
+        for (let d = 1; d <= daysInMonth; d++) {
+          const date = new Date(displayYear, m - 1, d);
+          const dayOfWeek = date.getDay();
+          const dateStr = `${displayYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+          if (dayOfWeek !== 0 && dayOfWeek !== 6 && !holidays.has(dateStr)) {
+            const data = dayData[m]?.[d];
+            if (!data?.absence) {
+              availableHours += maxDaily - (data?.hours || 0);
+            }
+          }
+        }
+      }
+
+      return (
+        <div className="bg-white rounded-lg shadow overflow-hidden flex-1 flex flex-col">
+          <div className="bg-gray-100 px-3 py-3 flex justify-between items-center">
+            <div>
+              <h3 className="font-bold text-sm">📅 FZul-Kalender {displayYear}</h3>
+              <p className="text-xs text-gray-500">{settings.weekly_hours}h/Woche • Max {maxDaily}h/Tag</p>
+            </div>
+            <div className="text-right">
+              <span className="text-blue-600 font-bold">{yearUsed.toFixed(0)}h</span>
+              <span className="text-gray-400 mx-1">/</span>
+              <span className="text-green-600 font-bold">{availableHours.toFixed(0)}h frei</span>
+            </div>
+          </div>
+          <div className="p-1 pt-3 overflow-x-auto flex-1">
+            <table className="text-xs border-collapse w-full">
+              <thead>
+                <tr>
+                  <th className="px-1 py-1 border bg-gray-50 sticky left-0">Mon</th>
+                  {Array.from({ length: 31 }, (_, d) => d + 1).map(day => (
+                    <th key={day} className="px-0 py-1 border bg-gray-50 w-5 text-center text-[10px]">{day}</th>
+                  ))}
+                  <th className="px-1 py-1 border bg-gray-100 text-blue-700">Σ</th>
+                  <th className="px-1 py-1 border bg-gray-100 text-green-700">Frei</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from({ length: 12 }, (_, i) => i + 1).map(month => {
+                  const daysInMonth = getDaysInMonth(displayYear, month);
+                  const monthTs = empTimesheets.find(t => t.month === month);
+                  const monthHours = monthTs?.total_billable_hours || 0;
+                  
+                  let monthFree = 0;
+                  for (let d = 1; d <= daysInMonth; d++) {
+                    const date = new Date(displayYear, month - 1, d);
+                    const dayOfWeek = date.getDay();
+                    const dateStr = `${displayYear}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                    if (dayOfWeek !== 0 && dayOfWeek !== 6 && !holidays.has(dateStr)) {
+                      const data = dayData[month]?.[d];
+                      if (!data?.absence) {
+                        monthFree += maxDaily - (data?.hours || 0);
+                      }
+                    }
+                  }
+
+                  return (
+                    <tr key={month}>
+                      <td className="px-1 py-1 border font-medium bg-gray-50 sticky left-0">
+                        {MONTH_NAMES[month - 1].substring(0, 3)}
+                      </td>
+                      {Array.from({ length: 31 }, (_, d) => d + 1).map(day => {
+                        const data = dayData[month]?.[day];
+                        const isValidDay = day <= daysInMonth;
+                        
+                        if (!isValidDay) {
+                          return <td key={day} className="border bg-gray-100"></td>;
+                        }
+                        
+                        const date = new Date(displayYear, month - 1, day);
+                        const dayOfWeek = date.getDay();
+                        const dateStr = `${displayYear}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                        const isHoliday = holidays.has(dateStr);
+                        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                        const isSunday = dayOfWeek === 0;
+                        
+                        let bgColor = 'bg-green-100';
+                        let textColor = 'text-gray-600';
+                        let content = '';
+                        
+                        if (isWeekend) {
+                          bgColor = 'bg-gray-200';
+                          textColor = isSunday ? 'text-red-400' : 'text-gray-400';
+                          content = '-';
+                        } else if (isHoliday) {
+                          bgColor = 'bg-red-100';
+                          textColor = 'text-red-600';
+                          content = 'F';
+                        } else if (data?.absence) {
+                          bgColor = 'bg-yellow-100';
+                          textColor = 'text-yellow-700';
+                          content = data.absence.charAt(0).toUpperCase();
+                        } else {
+                          const freeHours = maxDaily - (data?.hours || 0);
+                          if (freeHours <= 0) {
+                            bgColor = 'bg-red-200';
+                            textColor = 'text-red-800';
+                            content = (data?.hours || 0).toString();
+                          } else if (freeHours < maxDaily) {
+                            bgColor = 'bg-yellow-100';
+                            textColor = 'text-yellow-800';
+                            content = freeHours.toFixed(1).replace('.0', '');
+                          } else {
+                            bgColor = 'bg-green-100';
+                            textColor = 'text-green-700';
+                            content = maxDaily.toString();
+                          }
+                        }
+                        
+                        return (
+                          <td
+                            key={day}
+                            className={`border text-center w-5 h-5 text-[10px] ${bgColor} ${textColor}`}
+                            title={`${day}. ${MONTH_NAMES[month - 1]}: ${data?.hours || 0}h genutzt`}
+                          >
+                            {content}
+                          </td>
+                        );
+                      })}
+                      <td className="px-1 py-1 border bg-blue-50 text-blue-700 font-bold text-center">
+                        {monthHours > 0 ? monthHours.toFixed(0) : '-'}
+                      </td>
+                      <td className="px-1 py-1 border bg-green-50 text-green-700 font-bold text-center">
+                        {monthFree > 0 ? monthFree.toFixed(0) : '-'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            
+            {/* Legende - kompakt */}
+            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-gray-600">
+              <span className="flex items-center gap-0.5"><span className="w-2 h-2 bg-green-100 border"></span>Frei</span>
+              <span className="flex items-center gap-0.5"><span className="w-2 h-2 bg-yellow-100 border"></span>Teil</span>
+              <span className="flex items-center gap-0.5"><span className="w-2 h-2 bg-red-200 border"></span>Voll</span>
+              <span className="flex items-center gap-0.5"><span className="w-2 h-2 bg-gray-200 border"></span>WE</span>
+              <span className="flex items-center gap-0.5"><span className="w-2 h-2 bg-red-100 border"></span>Feiertag</span>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    return (
+      <div className="flex flex-col h-[calc(100vh-200px)]">
+        {/* STICKY HEADER */}
+        <div className="sticky top-0 z-10 bg-gray-50 pb-4 space-y-4">
+          {/* Zurück + Löschen */}
+          <div className="flex items-center justify-between">
+            <button onClick={() => { setSelectedProject(null); setSelectedEmployee(null); }} className="text-blue-600 hover:underline">
+              ← Zurück zur Übersicht
+            </button>
+            <button
+              onClick={() => setShowDeleteConfirm({ type: 'project', projectName: selectedProject })}
+              className="px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 text-sm"
+            >
+              🗑️ Projekt löschen
+            </button>
+          </div>
+
+          {/* Projekt-Info + Jahre */}
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="flex justify-between items-start mb-3">
+              <div>
+                <h2 className="text-lg font-bold">📁 {selectedProject}</h2>
+                <p className="text-sm text-gray-500">FKZ: {fkz} • {allEmployeeNames.length} MA • {availableYears[0]}-{availableYears[availableYears.length - 1]}</p>
+              </div>
             </div>
             
-            {/* Jahresauswahl - nur Dropdown */}
-            {availableYears.length > 0 && (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-600">Jahr:</span>
-                <select
-                  value={displayYear}
-                  onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                  className="px-4 py-2 border rounded-lg bg-white font-medium text-lg"
+            {/* Jahresübersicht - kompakter */}
+            <div className="flex flex-wrap gap-2 mb-3">
+              {yearTotals.map(({ year, usedHours, freeHours }) => (
+                <button 
+                  key={year} 
+                  className={`px-3 py-2 rounded text-center text-sm transition-colors ${
+                    year === displayYear 
+                      ? 'bg-blue-600 text-white' 
+                      : 'bg-gray-100 hover:bg-gray-200'
+                  }`}
+                  onClick={() => setSelectedYear(year)}
                 >
-                  {availableYears.map(year => (
-                    <option key={year} value={year}>{year}</option>
-                  ))}
-                </select>
+                  <div className="font-bold">{year}</div>
+                  <div className="text-xs opacity-80">{usedHours.toFixed(0)}h / {freeHours.toFixed(0)}h</div>
+                </button>
+              ))}
+              <div className="px-3 py-2 rounded text-center text-sm bg-purple-100">
+                <div className="font-bold text-purple-700">Gesamt</div>
+                <div className="text-xs text-purple-600">{totalAllYears.toFixed(0)}h / {totalFreeAllYears.toFixed(0)}h</div>
               </div>
-            )}
-          </div>
-          
-          {/* Jahresübersicht */}
-          <div className="mt-4 grid grid-cols-2 md:grid-cols-5 gap-3">
-            {yearTotals.map(({ year, usedHours, freeHours, hasData }) => (
-              <div 
-                key={year} 
-                className={`p-3 rounded-lg text-center cursor-pointer transition-colors ${
-                  year === displayYear 
-                    ? 'bg-blue-100 border-2 border-blue-500' 
-                    : 'bg-gray-50 hover:bg-gray-100'
-                }`}
-                onClick={() => setSelectedYear(year)}
-              >
-                <div className="text-sm text-gray-600 font-medium">{year}</div>
-                <div className="font-bold text-blue-600">{usedHours.toFixed(0)}h</div>
-                <div className="text-xs text-green-600">{freeHours.toFixed(0)}h frei</div>
-              </div>
-            ))}
-            <div className="p-3 rounded-lg text-center bg-purple-50">
-              <div className="text-sm text-gray-600 font-medium">Gesamt</div>
-              <div className="font-bold text-purple-600">{totalAllYears.toFixed(0)}h</div>
-              <div className="text-xs text-green-600">{totalFreeAllYears.toFixed(0)}h frei</div>
+            </div>
+
+            {/* Mitarbeiter-Buttons */}
+            <div className="flex flex-wrap gap-2">
+              {employeesInYear.map(empName => {
+                const empTs = timesheets.filter(ts => ts.employee_name === empName);
+                const empHours = empTs.reduce((s, ts) => s + ts.total_billable_hours, 0);
+                return (
+                  <button
+                    key={empName}
+                    onClick={() => setSelectedEmployee(empName)}
+                    className={`px-3 py-2 rounded text-sm transition-colors ${
+                      empName === displayEmployee
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 hover:bg-gray-200'
+                    }`}
+                  >
+                    <span className="font-medium">👤 {empName}</span>
+                    <span className="ml-2 text-xs opacity-80">{empHours.toFixed(0)}h</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
 
-        {/* Ansichts-Toggle */}
-        <div className="flex gap-2">
-          <button
-            onClick={() => setViewMode('table')}
-            className={`px-4 py-2 rounded ${viewMode === 'table' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}
-          >
-            📊 Monatstabelle
-          </button>
-          <button
-            onClick={() => setViewMode('calendar')}
-            className={`px-4 py-2 rounded ${viewMode === 'calendar' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}
-          >
-            📅 FZul-Kalender
-          </button>
+        {/* SCROLLABLE CONTENT - Monatstabelle + Kalender nebeneinander */}
+        <div className="flex-1 overflow-auto pr-2">
+          {displayEmployee && (
+            <div className="flex gap-2 items-stretch">
+              {/* Monatstabelle - schmal links */}
+              <div className="w-56 flex-shrink-0">
+                {renderMonthTable(displayEmployee)}
+              </div>
+              
+              {/* Kalender - Rest des Platzes */}
+              <div className="flex-1 min-w-0">
+                {renderCalendar(displayEmployee)}
+              </div>
+            </div>
+          )}
         </div>
-
-        {/* Mitarbeiter-Liste für ausgewähltes Jahr */}
-        {viewMode === 'table' && employeesInYear.map(empName => {
-          const empTimesheets = timesheets.filter(ts => ts.employee_name === empName)
-            .sort((a, b) => a.month - b.month);
-          const settings = getEmployeeSettings(empName);
-          const maxMonthly = getMaxMonthlyHours(settings.weekly_hours);
-          const maxDaily = settings.weekly_hours / 5;
-          const yearUsed = empTimesheets.reduce((s, ts) => s + ts.total_billable_hours, 0);
-          
-          // NEU v5.12: yearFree exakt wie Kalender berechnen (mit Abwesenheiten)
-          const holidays = getGermanHolidays(displayYear);
-          // Tagesansicht aufbauen (wie im Kalender)
-          const tableDayData: Record<number, Record<number, { hours: number; absence: string | null }>> = {};
-          for (let m = 1; m <= 12; m++) {
-            tableDayData[m] = {};
-            for (let d = 1; d <= 31; d++) {
-              tableDayData[m][d] = { hours: 0, absence: null };
-            }
-          }
-          for (const ts of empTimesheets) {
-            const daily = ts.daily_data || {};
-            for (const [dayStr, data] of Object.entries(daily)) {
-              const day = parseInt(dayStr);
-              if (day >= 1 && day <= 31 && tableDayData[ts.month]) {
-                if ((data as any).hours) tableDayData[ts.month][day].hours += (data as any).hours;
-                if ((data as any).absence) tableDayData[ts.month][day].absence = (data as any).absence;
-              }
-            }
-          }
-          // Verfügbare Stunden berechnen (exakt wie Kalender)
-          let yearFree = 0;
-          for (let m = 1; m <= 12; m++) {
-            const daysInMonth = getDaysInMonth(displayYear, m);
-            for (let d = 1; d <= daysInMonth; d++) {
-              const date = new Date(displayYear, m - 1, d);
-              const dayOfWeek = date.getDay();
-              const dateStr = `${displayYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-              const isHoliday = holidays.has(dateStr);
-              if (dayOfWeek !== 0 && dayOfWeek !== 6 && !isHoliday) {
-                const data = tableDayData[m]?.[d];
-                if (!data?.absence) {
-                  yearFree += maxDaily - (data?.hours || 0);
-                }
-              }
-            }
-          }
-          const yearMax = yearUsed + yearFree; // Für Anzeige
-
-          return (
-            <div key={empName} className="bg-white rounded-lg shadow overflow-hidden">
-              <div className="bg-gray-100 px-6 py-4 flex justify-between items-center">
-                <div className="flex-1">
-                  <h3 className="font-bold">👤 {empName}</h3>
-                  <p className="text-sm text-gray-500">{settings.weekly_hours}h/Woche</p>
-                </div>
-                <div className="flex-1 text-center">
-                  <div className="text-2xl font-bold text-gray-700">{displayYear}</div>
-                </div>
-                <div className="flex-1 text-right">
-                  <div className="text-lg font-bold">
-                    <span className="text-blue-600">{yearUsed.toFixed(0)}h</span>
-                    <span className="text-gray-400 mx-1">/</span>
-                    <span className="text-green-600">{yearFree.toFixed(0)}h frei</span>
-                  </div>
-                  <div className="text-xs text-gray-500">gebucht / verfügbar</div>
-                </div>
-                {/* Download Button */}
-                <div className="ml-4">
-                  <button
-                    onClick={() => exportFzulExcel(empName, displayYear, empTimesheets, settings)}
-                    className="px-3 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 flex items-center gap-2"
-                  >
-                    📥 Excel
-                  </button>
-                </div>
-              </div>
-
-              <div className="p-4 overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-gray-50">
-                      <th className="px-3 py-2 text-left">Monat</th>
-                      <th className="px-3 py-2 text-right">Stunden</th>
-                      <th className="px-3 py-2 text-right">Max</th>
-                      <th className="px-3 py-2 text-right text-green-700">Frei</th>
-                      <th className="px-3 py-2 text-right">Fehltage</th>
-                      <th className="px-3 py-2"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {/* Alle 12 Monate anzeigen, auch leere */}
-                    {Array.from({ length: 12 }, (_, i) => i + 1).map(month => {
-                      const ts = empTimesheets.find(t => t.month === month);
-                      const hours = ts?.total_billable_hours || 0;
-                      const absenceDays = ts?.total_absence_days || 0;
-                      
-                      // NEU v5.12: Monatliche Frei-Berechnung mit Abwesenheiten
-                      const daysInMonth = getDaysInMonth(displayYear, month);
-                      let monthFree = 0;
-                      for (let d = 1; d <= daysInMonth; d++) {
-                        const date = new Date(displayYear, month - 1, d);
-                        const dayOfWeek = date.getDay();
-                        const dateStr = `${displayYear}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                        const isHoliday = holidays.has(dateStr);
-                        if (dayOfWeek !== 0 && dayOfWeek !== 6 && !isHoliday) {
-                          const data = tableDayData[month]?.[d];
-                          if (!data?.absence) {
-                            monthFree += maxDaily - (data?.hours || 0);
-                          }
-                        }
-                      }
-                      
-                      return (
-                        <tr key={month} className={`border-b ${hours === 0 ? 'text-gray-400' : ''}`}>
-                          <td className="px-3 py-2">{MONTH_NAMES[month - 1]}</td>
-                          <td className="px-3 py-2 text-right">{hours > 0 ? hours.toFixed(2) : '-'}</td>
-                          <td className="px-3 py-2 text-right text-gray-500">{(hours + monthFree).toFixed(2)}</td>
-                          <td className="px-3 py-2 text-right text-green-600 font-bold">
-                            {monthFree.toFixed(2)}
-                          </td>
-                          <td className="px-3 py-2 text-right text-orange-600">
-                            {absenceDays > 0 ? absenceDays : '-'}
-                          </td>
-                          <td className="px-3 py-2 text-center">
-                            {ts && (
-                              <button
-                                onClick={() => setShowDeleteConfirm({ type: 'timesheet', id: ts.id })}
-                                className="text-red-500 hover:text-red-700"
-                              >🗑️</button>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    {/* Jahres-Summenzeile */}
-                    <tr className="bg-blue-50 font-bold">
-                      <td className="px-3 py-2">Summe</td>
-                      <td className="px-3 py-2 text-right text-blue-600">{yearUsed.toFixed(2)}</td>
-                      <td className="px-3 py-2 text-right text-gray-500">{yearMax.toFixed(2)}</td>
-                      <td className="px-3 py-2 text-right text-green-600">{yearFree.toFixed(2)}</td>
-                      <td className="px-3 py-2"></td>
-                      <td className="px-3 py-2"></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        })}
-
-        {/* Kalender-Ansicht für ausgewähltes Jahr */}
-        {viewMode === 'calendar' && employeesInYear.map(empName => {
-          const empTimesheets = timesheets.filter(ts => ts.employee_name === empName);
-          const settings = getEmployeeSettings(empName);
-          const maxDaily = settings.weekly_hours / 5;
-          const yearUsed = empTimesheets.reduce((s, ts) => s + ts.total_billable_hours, 0);
-
-          // Tagesansicht aufbauen
-          const dayData: Record<number, Record<number, { hours: number; absence: string | null }>> = {};
-          for (let m = 1; m <= 12; m++) {
-            dayData[m] = {};
-            for (let d = 1; d <= 31; d++) {
-              dayData[m][d] = { hours: 0, absence: null };
-            }
-          }
-          
-          for (const ts of empTimesheets) {
-            const daily = ts.daily_data || {};
-            for (const [dayStr, data] of Object.entries(daily)) {
-              const day = parseInt(dayStr);
-              if (day >= 1 && day <= 31 && dayData[ts.month]) {
-                if (data.hours) dayData[ts.month][day].hours += data.hours;
-                if (data.absence) dayData[ts.month][day].absence = data.absence;
-              }
-            }
-          }
-
-          return (
-            <div key={empName} className="bg-white rounded-lg shadow overflow-hidden">
-              <div className="bg-gray-100 px-6 py-4 flex justify-between items-center">
-                <div className="flex-1">
-                  <h3 className="font-bold">👤 {empName}</h3>
-                  <p className="text-sm text-gray-500">{settings.weekly_hours}h/Woche • Max {maxDaily}h/Tag</p>
-                </div>
-                <div className="flex-1 text-center">
-                  <div className="text-2xl font-bold text-gray-700">{displayYear}</div>
-                </div>
-                <div className="flex-1 text-right">
-                  <div className="text-lg font-bold">
-                    <span className="text-blue-600">{yearUsed.toFixed(0)}h</span>
-                    <span className="text-gray-400 mx-1">/</span>
-                    <span className="text-green-600">{(() => {
-                      // NEU v5.11: Verfügbare Stunden berechnen (ohne WE und Feiertage)
-                      const holidays = getGermanHolidays(displayYear);
-                      let availableHours = 0;
-                      for (let m = 1; m <= 12; m++) {
-                        const daysInMonth = getDaysInMonth(displayYear, m);
-                        for (let d = 1; d <= daysInMonth; d++) {
-                          const date = new Date(displayYear, m - 1, d);
-                          const dayOfWeek = date.getDay();
-                          const dateStr = `${displayYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                          const isHoliday = holidays.has(dateStr);
-                          // Kein WE und kein Feiertag
-                          if (dayOfWeek !== 0 && dayOfWeek !== 6 && !isHoliday) {
-                            const data = dayData[m]?.[d];
-                            if (!data?.absence) {
-                              availableHours += maxDaily - (data?.hours || 0);
-                            }
-                          }
-                        }
-                      }
-                      return availableHours.toFixed(0);
-                    })()}h frei</span>
-                  </div>
-                  <div className="text-xs text-gray-500">gebucht / verfügbar</div>
-                </div>
-                {/* Download Button */}
-                <div className="ml-4">
-                  <button
-                    onClick={() => exportFzulExcel(empName, displayYear, empTimesheets, settings)}
-                    className="px-3 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 flex items-center gap-2"
-                  >
-                    📥 Excel
-                  </button>
-                </div>
-              </div>
-
-              <div className="p-4 overflow-x-auto">
-                <table className="w-full text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-gray-50">
-                      <th className="px-2 py-1 border text-left w-24">Monat</th>
-                      {Array.from({ length: 31 }, (_, i) => (
-                        <th key={i} className="px-1 py-1 border text-center w-8">{i + 1}</th>
-                      ))}
-                      <th className="px-2 py-1 border text-center w-16 bg-blue-50">Genutzt</th>
-                      <th className="px-2 py-1 border text-center w-16 bg-green-50">Frei</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Array.from({ length: 12 }, (_, i) => i + 1).map(month => {
-                      const daysInMonth = getDaysInMonth(displayYear, month);
-                      const monthTs = empTimesheets.find(t => t.month === month);
-                      const monthHours = monthTs?.total_billable_hours || 0;
-                      
-                      // NEU v5.11: Verfügbare Stunden im Monat berechnen (ohne WE und Feiertage)
-                      const monthHolidays = getGermanHolidays(displayYear);
-                      let monthFree = 0;
-                      for (let d = 1; d <= daysInMonth; d++) {
-                        const date = new Date(displayYear, month - 1, d);
-                        const dayOfWeek = date.getDay();
-                        const dateStr = `${displayYear}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                        const isHoliday = monthHolidays.has(dateStr);
-                        // Kein WE und kein Feiertag
-                        if (dayOfWeek !== 0 && dayOfWeek !== 6 && !isHoliday) {
-                          const data = dayData[month]?.[d];
-                          if (!data?.absence) {
-                            monthFree += maxDaily - (data?.hours || 0);
-                          }
-                        }
-                      }
-
-                      return (
-                        <tr key={month}>
-                          <td className="px-2 py-1 border font-medium bg-gray-50">
-                            {MONTH_NAMES[month - 1].substring(0, 3)}
-                          </td>
-                          {Array.from({ length: 31 }, (_, d) => d + 1).map(day => {
-                            const data = dayData[month]?.[day];
-                            const isValidDay = day <= daysInMonth;
-                            
-                            if (!isValidDay) {
-                              return <td key={day} className="px-1 py-1 border bg-gray-100"></td>;
-                            }
-
-                            // Wochenende und Feiertage prüfen
-                            const date = new Date(displayYear, month - 1, day);
-                            const dayOfWeek = date.getDay();
-                            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-                            const isHolidayDay = isHoliday(displayYear, month, day);
-                            
-                            if (isWeekend || isHolidayDay) {
-                              return <td key={day} className="px-1 py-1 border bg-gray-200 text-gray-400 text-center">{isHolidayDay && !isWeekend ? 'F' : '-'}</td>;
-                            }
-
-                            // AMPEL-LOGIK: Verfügbarkeit anzeigen
-                            // Grün = voll verfügbar (8h)
-                            // Gelb = teilverfügbar (zeigt freie Stunden)
-                            // Rot = belegt (0h frei)
-                            // Orange = Abwesenheit (ohne Text)
-                            // Grau = Wochenende/Feiertag
-                            
-                            let bgColor = 'bg-green-200';  // Default: voll verfügbar
-                            let textColor = 'text-green-800';
-                            let content: string = maxDaily.toString();  // Zeigt verfügbare Stunden
-                            
-                            if (data?.absence) {
-                              // Abwesenheit - nur orange, kein Text
-                              bgColor = 'bg-orange-200';
-                              textColor = 'text-orange-800';
-                              content = '';
-                            } else if (data?.hours > 0) {
-                              const freeHours = maxDaily - data.hours;
-                              
-                              if (freeHours <= 0) {
-                                // Voll belegt
-                                bgColor = 'bg-red-300';
-                                textColor = 'text-red-900 font-bold';
-                                content = '0';
-                              } else if (freeHours < maxDaily) {
-                                // Teilverfügbar
-                                bgColor = 'bg-yellow-200';
-                                textColor = 'text-yellow-800';
-                                content = freeHours.toFixed(1).replace('.0', '');
-                              }
-                            }
-
-                            return (
-                              <td 
-                                key={day} 
-                                className={`px-1 py-1 border text-center ${bgColor} ${textColor}`}
-                                title={`${day}. ${MONTH_NAMES[month - 1]}: ${data?.hours || 0}h genutzt, ${maxDaily - (data?.hours || 0)}h frei`}
-                              >
-                                {content}
-                              </td>
-                            );
-                          })}
-                          <td className="px-2 py-1 border text-center font-bold bg-blue-50 text-blue-700">
-                            {monthHours > 0 ? monthHours.toFixed(0) : '-'}
-                          </td>
-                          <td className="px-2 py-1 border text-center font-bold bg-green-50 text-green-700">
-                            {monthFree > 0 ? monthFree.toFixed(0) : '-'}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                
-                {/* Legende - Ampel für Verfügbarkeit */}
-                <div className="mt-3 flex gap-6 text-xs items-center">
-                  <span className="font-medium text-gray-600">Verfügbarkeit:</span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-4 h-4 bg-green-200 border rounded"></span> 
-                    <span>Frei ({maxDaily}h)</span>
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-4 h-4 bg-yellow-200 border rounded"></span> 
-                    <span>Teilweise</span>
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-4 h-4 bg-red-300 border rounded"></span> 
-                    <span>Belegt</span>
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-4 h-4 bg-orange-200 border rounded"></span> 
-                    <span>Abwesend</span>
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-4 h-4 bg-gray-200 border rounded"></span> 
-                    <span>Wochenende</span>
-                  </span>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-
-        {employeesInYear.length === 0 && (
-          <div className="bg-yellow-50 p-6 rounded-lg text-center">
-            <p className="text-yellow-700">Keine Daten für {displayYear} vorhanden.</p>
-            <p className="text-sm text-gray-500 mt-2">
-              Verfügbare Jahre: {availableYears.join(', ')}
-            </p>
-          </div>
-        )}
       </div>
     );
   };
