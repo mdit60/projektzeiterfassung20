@@ -1,5 +1,5 @@
 // src/app/import/page.tsx
-// VERSION: v5.19 - Zeitzonen-Bug in Feiertags-Berechnung behoben
+// VERSION: v5.21 - Feste Seitenhöhe ohne Scroll
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
@@ -1930,9 +1930,9 @@ export default function ImportPage() {
     };
 
     return (
-      <div className="flex flex-col h-[calc(100vh-200px)]">
-        {/* STICKY HEADER */}
-        <div className="sticky top-0 z-10 bg-gray-50 pb-4 space-y-4">
+      <div className="flex flex-col h-full overflow-hidden">
+        {/* HEADER (fix, nicht scrollbar) */}
+        <div className="bg-gray-50 pb-4 space-y-4 flex-shrink-0">
           {/* Zurück + Löschen */}
           <div className="flex items-center justify-between">
             <button onClick={() => { setSelectedProject(null); setSelectedEmployee(null); }} className="text-blue-600 hover:underline">
@@ -2041,30 +2041,30 @@ export default function ImportPage() {
   // ============================================
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="h-screen bg-gray-50 overflow-hidden flex flex-col">
       <Header />
 
-      <main className="max-w-7xl mx-auto px-4 py-8">
-        <div className="mb-6">
+      <main className="flex-1 overflow-hidden max-w-7xl mx-auto px-4 py-4 w-full flex flex-col">
+        <div className="mb-4 flex-shrink-0">
           <h1 className="text-2xl font-bold text-gray-800">📊 Analyse - Stundennachweise</h1>
           <p className="text-gray-600">Projektabrechnungen importieren und Kapazitäten auswerten</p>
         </div>
 
         {error && (
-          <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex justify-between">
+          <div className="mb-4 flex-shrink-0 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex justify-between">
             {error}
             <button onClick={() => setError('')}>×</button>
           </div>
         )}
         {success && (
-          <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg flex justify-between">
+          <div className="mb-4 flex-shrink-0 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg flex justify-between">
             {success}
             <button onClick={() => setSuccess('')}>×</button>
           </div>
         )}
 
         {/* Tab-Navigation */}
-        <div className="mb-6 border-b border-gray-200">
+        <div className="mb-4 border-b border-gray-200 flex-shrink-0">
           <nav className="flex justify-between items-center">
             <div className="flex gap-6">
               <button
@@ -2097,9 +2097,11 @@ export default function ImportPage() {
           </nav>
         </div>
 
-        {/* TAB: PROJEKTE */}
-        {activeTab === 'projects' && !selectedProject && (
-          <div className="space-y-4">
+        {/* TAB CONTENT - nimmt restlichen Platz ein */}
+        <div className="flex-1 overflow-hidden">
+          {/* TAB: PROJEKTE */}
+          {activeTab === 'projects' && !selectedProject && (
+            <div className="space-y-4 overflow-auto h-full">
             {projects.length === 0 ? (
               <div className="bg-white rounded-lg shadow p-12 text-center">
                 <span className="text-5xl">📭</span>
@@ -2529,6 +2531,7 @@ export default function ImportPage() {
             </div>
           </div>
         )}
+        </div>{/* Ende Tab-Content Container */}
       </main>
     </div>
   );

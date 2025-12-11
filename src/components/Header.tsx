@@ -23,47 +23,59 @@ interface Company {
   name: string
 }
 
-// Hilfsfunktion: Ist der User ein Admin?
 function isAdminRole(role: string | undefined): boolean {
   if (!role) return false
   return role === 'admin' || role === 'company_admin'
 }
 
-// Hilfsfunktion: Prüft auf ungespeicherte Änderungen vor Navigation
 function checkUnsavedChanges(): boolean {
   if (typeof window !== 'undefined' && (window as any).hasUnsavedChanges) {
-    return window.confirm('Sie haben ungespeicherte Änderungen. Ohne Speichern verlassen?')
+    return window.confirm('Sie haben ungespeicherte Aenderungen. Ohne Speichern verlassen?')
   }
   return true
 }
 
-// Hilfsfunktion: Ist der User Geschäftsführer/Inhaber/Management?
 function isCompanyOwner(profile: UserProfile | null): boolean {
   if (!profile) return false
   if (!isAdminRole(profile.role)) return false
   
   const ownerTitles = [
-    'geschäftsführer', 'geschaeftsfuehrer', 'gf',
+    // Geschaeftsfuehrung
+    'geschaeftsfuehrer', 'gf',
     'ceo', 'chief executive officer',
     'managing director',
     'vorstand', 'vorstandsvorsitzender',
+    // Technische Leitung (C-Level)
     'cto', 'chief technology officer',
+    // Kaufmaennische Leitung
     'cfo', 'chief financial officer',
-    'kaufmännischer leiter', 'kaufmaennischer leiter',
-    'kaufmännische leitung', 'kaufmaennische leitung',
+    'kaufmaennischer leiter',
+    'kaufmaennische leitung',
     'kfm. leiter', 'kfm leiter',
     'finanzleiter', 'finance director',
     'controller', 'head of finance',
+    // Operative Leitung
     'coo', 'chief operating officer',
     'betriebsleiter', 'operations director',
+    // Eigentuemer/Gesellschafter
     'inhaber', 'inhaberin',
-    'owner', 'eigentümer', 'eigentuemer',
-    'gesellschafter', 'geschäftsführender gesellschafter',
+    'owner', 'eigentuemer',
+    'gesellschafter',
+    // Prokura
     'prokurist', 'prokuristin',
+    // Generelle Management-Bezeichnungen
     'general manager', 'direktor', 'director'
   ]
   
-  const position = (profile.job_function || '').toLowerCase().trim()
+  // Normalisiere Umlaute fuer Vergleich
+  const normalizeUmlauts = (str: string): string => {
+    return str
+      .replace(/\u00e4/g, 'ae').replace(/\u00f6/g, 'oe').replace(/\u00fc/g, 'ue')
+      .replace(/\u00df/g, 'ss')
+      .replace(/\u00c4/g, 'ae').replace(/\u00d6/g, 'oe').replace(/\u00dc/g, 'ue')
+  }
+  
+  const position = normalizeUmlauts((profile.job_function || '').toLowerCase().trim())
   
   if (!position && isAdminRole(profile.role)) {
     return true
@@ -72,64 +84,13 @@ function isCompanyOwner(profile: UserProfile | null): boolean {
   return ownerTitles.some(title => position.includes(title))
 }
 
-// Navigation Items mit Rollen-Berechtigung
 const navigationItems = [
-  { 
-    name: 'Dashboard', 
-    href: '/dashboard', 
-    icon: '🏠',
-    adminOnly: false,
-    ownerOnly: false,
-    importAccess: false,
-  },
-  { 
-    name: 'Zeiterfassung', 
-    href: '/zeiterfassung', 
-    icon: '⏱️',
-    adminOnly: false,
-    ownerOnly: false,
-    importAccess: false,
-  },
-  { 
-    name: 'Projekte', 
-    href: '/projekte', 
-    icon: '📁',
-    adminOnly: true,
-    ownerOnly: false,
-    importAccess: false,
-  },
-  { 
-    name: 'Mitarbeiter', 
-    href: '/mitarbeiter', 
-    icon: '👥',
-    adminOnly: true,
-    ownerOnly: false,
-    importAccess: false,
-  },
-  { 
-    name: 'Berichte', 
-    href: '/berichte', 
-    icon: '📊',
-    adminOnly: true,
-    ownerOnly: false,
-    importAccess: false,
-  },
-  { 
-    name: 'Analyse', 
-    href: '/import', 
-    icon: '📈',
-    adminOnly: false,
-    ownerOnly: false,
-    importAccess: true,  // Nur für User mit Import-Berechtigung
-  },
-  { 
-    name: 'Unternehmen', 
-    href: '/unternehmen', 
-    icon: '🏢',
-    adminOnly: true,
-    ownerOnly: true,
-    importAccess: false,
-  },
+  { name: 'Dashboard', href: '/dashboard', icon: 'H', adminOnly: false, ownerOnly: false },
+  { name: 'Zeiterfassung', href: '/zeiterfassung', icon: 'Z', adminOnly: false, ownerOnly: false },
+  { name: 'Projekte', href: '/projekte', icon: 'P', adminOnly: true, ownerOnly: false },
+  { name: 'Mitarbeiter', href: '/mitarbeiter', icon: 'M', adminOnly: true, ownerOnly: false },
+  { name: 'Berichte', href: '/berichte', icon: 'B', adminOnly: true, ownerOnly: false },
+  { name: 'Unternehmen', href: '/unternehmen', icon: 'U', adminOnly: true, ownerOnly: true },
 ]
 
 export default function Header() {
@@ -148,10 +109,7 @@ export default function Header() {
   async function loadUserData() {
     try {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        console.log('Header: Kein User gefunden')
-        return
-      }
+      if (!user) return
 
       const { data: profileData, error: profileError } = await supabase
         .from('user_profiles')
@@ -165,7 +123,6 @@ export default function Header() {
       }
 
       if (profileData) {
-        console.log('Header: Profil geladen:', profileData.name, 'Rolle:', profileData.role, 'Position:', profileData.job_function, 'Import-Zugang:', profileData.has_import_access)
         setProfile(profileData)
         
         if (profileData.company_id) {
@@ -214,45 +171,38 @@ export default function Header() {
 
   function getRoleDisplay(): string {
     if (!profile) return ''
-    if (profile.job_function) {
-      return profile.job_function
-    }
-    if (isAdminRole(profile.role)) {
-      return 'Administrator'
-    }
+    if (profile.job_function) return profile.job_function
+    if (isAdminRole(profile.role)) return 'Administrator'
     return 'Mitarbeiter'
   }
 
   const isAdmin = isAdminRole(profile?.role)
   const isOwner = isCompanyOwner(profile)
-  const hasImportAccess = profile?.has_import_access || false
-  
-  // Super-Admin Check (für Analyse-Zugang)
-  const isSuperAdmin = profile?.email?.toLowerCase() === 'm.ditscherlein@cubintec.com'
 
-  // Filtere Navigation nach Rolle, Position und Import-Berechtigung
   const visibleNavItems = navigationItems.filter(item => {
-    // Import/Analyse nur für berechtigte User
-    if (item.importAccess) {
-      return hasImportAccess || isSuperAdmin
-    }
-    // Owner-Only Items nur für Geschäftsführer
-    if (item.ownerOnly) {
-      return isOwner
-    }
-    // Admin-Only Items für alle Admins
-    if (item.adminOnly) {
-      return isAdmin
-    }
+    if (item.ownerOnly) return isOwner
+    if (item.adminOnly) return isAdmin
     return true
   })
 
   function isActive(href: string): boolean {
-    if (href === '/dashboard') {
-      return pathname === '/dashboard'
-    }
+    if (href === '/dashboard') return pathname === '/dashboard'
     return pathname === href || pathname.startsWith(href + '/')
   }
+
+  // Icon-Komponente
+  const NavIcon = ({ type }: { type: string }) => {
+    switch(type) {
+      case 'H': return <span>&#x1F3E0;</span>; // Haus
+      case 'Z': return <span>&#x23F1;</span>;  // Stoppuhr
+      case 'P': return <span>&#x1F4C1;</span>; // Ordner
+      case 'M': return <span>&#x1F465;</span>; // Personen
+      case 'B': return <span>&#x1F4CA;</span>; // Diagramm
+      case 'U': return <span>&#x1F3E2;</span>; // Gebaeude
+      case 'A': return <span>&#x1F4C8;</span>; // Chart
+      default: return <span>{type}</span>;
+    }
+  };
 
   if (loading) {
     return (
@@ -285,7 +235,7 @@ export default function Header() {
           
           {/* Links: Logo + Firmenname */}
           <div className="flex items-center space-x-3 min-w-0">
-            <span className="text-2xl flex-shrink-0">⏱️</span>
+            <span className="text-2xl flex-shrink-0">&#x23F1;</span>
             <div className="min-w-0">
               <h1 className="text-lg font-bold text-gray-900 truncate">
                 Projektzeiterfassung
@@ -315,14 +265,38 @@ export default function Header() {
                   }
                 `}
               >
-                <span className="text-base">{item.icon}</span>
+                <span className="text-base"><NavIcon type={item.icon} /></span>
                 <span>{item.name}</span>
               </button>
             ))}
           </nav>
 
-          {/* Rechts: User Info + Logout */}
+          {/* Rechts: Analyse-Button + User Info + Logout */}
           <div className="flex items-center space-x-4">
+            
+            {/* Analyse-Button - nur fuer berechtigte Admins */}
+            {profile?.has_import_access && (
+              <button
+                onClick={() => {
+                  if (checkUnsavedChanges()) {
+                    router.push('/import')
+                  }
+                }}
+                className={`
+                  hidden md:flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-medium
+                  transition-all duration-200 border
+                  ${isActive('/import')
+                    ? 'bg-orange-100 text-orange-700 border-orange-300' 
+                    : 'text-gray-500 border-gray-200 hover:bg-orange-50 hover:text-orange-600 hover:border-orange-200'
+                  }
+                `}
+                title="Analyse-Modul (Import)"
+              >
+                <span className="text-base"><NavIcon type="A" /></span>
+                <span>Analyse</span>
+              </button>
+            )}
+            
             {/* User Info - Desktop */}
             <div className="hidden sm:flex items-center space-x-3">
               <div className="text-right">
@@ -330,7 +304,7 @@ export default function Header() {
                   {formatUserName()}
                 </p>
                 <p className="text-xs text-gray-500">
-                  {isOwner ? '👑 ' : isAdmin ? '⚙️ ' : '👤 '}
+                  {isOwner ? '* ' : isAdmin ? '# ' : ''}
                   {getRoleDisplay()}
                 </p>
               </div>
@@ -382,10 +356,32 @@ export default function Header() {
                 }
               `}
             >
-              <span>{item.icon}</span>
+              <NavIcon type={item.icon} />
               <span>{item.name}</span>
             </button>
           ))}
+          
+          {/* Analyse-Button fuer Mobile */}
+          {profile?.has_import_access && (
+            <button
+              onClick={() => {
+                if (checkUnsavedChanges()) {
+                  router.push('/import')
+                }
+              }}
+              className={`
+                flex items-center space-x-1 px-3 py-2 rounded-lg text-sm whitespace-nowrap
+                transition-colors border
+                ${isActive('/import')
+                  ? 'bg-orange-100 text-orange-700 border-orange-300' 
+                  : 'bg-white text-gray-500 border-gray-200 hover:bg-orange-50'
+                }
+              `}
+            >
+              <NavIcon type="A" />
+              <span>Analyse</span>
+            </button>
+          )}
         </div>
       </div>
     </header>
