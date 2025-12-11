@@ -22,6 +22,11 @@ interface UserProfile {
   company_id: string
 }
 
+// TypeScript Interface für TimeEntry
+interface TimeEntry {
+  hours?: number
+}
+
 export default function DashboardPage() {
   const supabase = createClient()
   
@@ -94,7 +99,7 @@ export default function DashboardPage() {
       .gte('date', firstDay)
       .lte('date', lastDay)
 
-    const totalHours = timeEntries?.reduce((sum, entry) => sum + (entry.hours || 0), 0) || 0
+    const totalHours = timeEntries?.reduce((sum: number, entry: TimeEntry) => sum + (entry.hours || 0), 0) || 0
 
     setStats({
       activeProjects: projectCount || 0,
@@ -117,7 +122,7 @@ export default function DashboardPage() {
       .gte('date', firstDay)
       .lte('date', lastDay)
 
-    const totalHours = timeEntries?.reduce((sum, entry) => sum + (entry.hours || 0), 0) || 0
+    const totalHours = timeEntries?.reduce((sum: number, entry: TimeEntry) => sum + (entry.hours || 0), 0) || 0
 
     // Zugewiesene Projekte
     const { count: projectCount } = await supabase
