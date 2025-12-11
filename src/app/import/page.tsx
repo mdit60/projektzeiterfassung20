@@ -1,5 +1,5 @@
 // src/app/import/page.tsx
-// VERSION: v5.11 - Konsistente Arbeitstage-Berechnung
+// VERSION: v5.12 - Abwesenheiten in Monatstabelle
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
@@ -1616,11 +1616,47 @@ export default function ImportPage() {
             .sort((a, b) => a.month - b.month);
           const settings = getEmployeeSettings(empName);
           const maxMonthly = getMaxMonthlyHours(settings.weekly_hours);
-          const maxDaily = settings.weekly_hours / 5; // NEU v5.11
+          const maxDaily = settings.weekly_hours / 5;
           const yearUsed = empTimesheets.reduce((s, ts) => s + ts.total_billable_hours, 0);
-          // NEU v5.11: yearMax basiert auf Arbeitstagen (konsistent mit Kalender)
-          const yearMax = getWorkdaysInYear(displayYear) * maxDaily;
-          const yearFree = yearMax - yearUsed;
+          
+          // NEU v5.12: yearFree exakt wie Kalender berechnen (mit Abwesenheiten)
+          const holidays = getGermanHolidays(displayYear);
+          // Tagesansicht aufbauen (wie im Kalender)
+          const tableDayData: Record<number, Record<number, { hours: number; absence: string | null }>> = {};
+          for (let m = 1; m <= 12; m++) {
+            tableDayData[m] = {};
+            for (let d = 1; d <= 31; d++) {
+              tableDayData[m][d] = { hours: 0, absence: null };
+            }
+          }
+          for (const ts of empTimesheets) {
+            const daily = ts.daily_data || {};
+            for (const [dayStr, data] of Object.entries(daily)) {
+              const day = parseInt(dayStr);
+              if (day >= 1 && day <= 31 && tableDayData[ts.month]) {
+                if ((data as any).hours) tableDayData[ts.month][day].hours += (data as any).hours;
+                if ((data as any).absence) tableDayData[ts.month][day].absence = (data as any).absence;
+              }
+            }
+          }
+          // Verfügbare Stunden berechnen (exakt wie Kalender)
+          let yearFree = 0;
+          for (let m = 1; m <= 12; m++) {
+            const daysInMonth = getDaysInMonth(displayYear, m);
+            for (let d = 1; d <= daysInMonth; d++) {
+              const date = new Date(displayYear, m - 1, d);
+              const dayOfWeek = date.getDay();
+              const dateStr = `${displayYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+              const isHoliday = holidays.has(dateStr);
+              if (dayOfWeek !== 0 && dayOfWeek !== 6 && !isHoliday) {
+                const data = tableDayData[m]?.[d];
+                if (!data?.absence) {
+                  yearFree += maxDaily - (data?.hours || 0);
+                }
+              }
+            }
+          }
+          const yearMax = yearUsed + yearFree; // Für Anzeige
 
           return (
             <div key={empName} className="bg-white rounded-lg shadow overflow-hidden">
@@ -1669,16 +1705,30 @@ export default function ImportPage() {
                       const ts = empTimesheets.find(t => t.month === month);
                       const hours = ts?.total_billable_hours || 0;
                       const absenceDays = ts?.total_absence_days || 0;
-                      // NEU v5.11: Max pro Monat basiert auf Arbeitstagen
-                      const monthMax = getWorkdaysInMonth(displayYear, month) * maxDaily;
+                      
+                      // NEU v5.12: Monatliche Frei-Berechnung mit Abwesenheiten
+                      const daysInMonth = getDaysInMonth(displayYear, month);
+                      let monthFree = 0;
+                      for (let d = 1; d <= daysInMonth; d++) {
+                        const date = new Date(displayYear, month - 1, d);
+                        const dayOfWeek = date.getDay();
+                        const dateStr = `${displayYear}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                        const isHoliday = holidays.has(dateStr);
+                        if (dayOfWeek !== 0 && dayOfWeek !== 6 && !isHoliday) {
+                          const data = tableDayData[month]?.[d];
+                          if (!data?.absence) {
+                            monthFree += maxDaily - (data?.hours || 0);
+                          }
+                        }
+                      }
                       
                       return (
                         <tr key={month} className={`border-b ${hours === 0 ? 'text-gray-400' : ''}`}>
                           <td className="px-3 py-2">{MONTH_NAMES[month - 1]}</td>
                           <td className="px-3 py-2 text-right">{hours > 0 ? hours.toFixed(2) : '-'}</td>
-                          <td className="px-3 py-2 text-right text-gray-500">{monthMax.toFixed(2)}</td>
+                          <td className="px-3 py-2 text-right text-gray-500">{(hours + monthFree).toFixed(2)}</td>
                           <td className="px-3 py-2 text-right text-green-600 font-bold">
-                            {(monthMax - hours).toFixed(2)}
+                            {monthFree.toFixed(2)}
                           </td>
                           <td className="px-3 py-2 text-right text-orange-600">
                             {absenceDays > 0 ? absenceDays : '-'}
