@@ -1,5 +1,5 @@
 // src/app/import/page.tsx
-// VERSION: v5.16 - NRW-Feiertage (Allerheiligen + Fronleichnam)
+// VERSION: v5.19 - Zeitzonen-Bug in Feiertags-Berechnung behoben
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
@@ -99,6 +99,26 @@ const MONTH_NAMES = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
 
 const MONTH_SHORT = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 
+// NEU v5.18: Bundesländer mit Codes
+const BUNDESLAENDER = [
+  { code: 'DE-BW', name: 'Baden-Württemberg' },
+  { code: 'DE-BY', name: 'Bayern' },
+  { code: 'DE-BE', name: 'Berlin' },
+  { code: 'DE-BB', name: 'Brandenburg' },
+  { code: 'DE-HB', name: 'Bremen' },
+  { code: 'DE-HH', name: 'Hamburg' },
+  { code: 'DE-HE', name: 'Hessen' },
+  { code: 'DE-MV', name: 'Mecklenburg-Vorpommern' },
+  { code: 'DE-NI', name: 'Niedersachsen' },
+  { code: 'DE-NW', name: 'Nordrhein-Westfalen' },
+  { code: 'DE-RP', name: 'Rheinland-Pfalz' },
+  { code: 'DE-SL', name: 'Saarland' },
+  { code: 'DE-SN', name: 'Sachsen' },
+  { code: 'DE-ST', name: 'Sachsen-Anhalt' },
+  { code: 'DE-SH', name: 'Schleswig-Holstein' },
+  { code: 'DE-TH', name: 'Thüringen' },
+];
+
 // Format-Beschreibungen
 const FORMAT_INFO: Record<FundingFormat, { name: string; color: string; description: string }> = {
   'ZIM': { 
@@ -174,10 +194,15 @@ export default function ImportPage() {
   // Stammdaten (Standard-Werte)
   const [defaultWeeklyHours, setDefaultWeeklyHours] = useState(40);
   const [defaultAnnualLeave, setDefaultAnnualLeave] = useState(30);
+  const [importStateCode, setImportStateCode] = useState('DE-NW'); // NEU v5.18: Bundesland für Import
 
   // Gespeicherte Daten
   const [savedTimesheets, setSavedTimesheets] = useState<ImportedTimesheet[]>([]);
   const [savedEmployees, setSavedEmployees] = useState<ImportEmployee[]>([]);
+  
+  // NEU v5.17: Feiertage aus Datenbank
+  const [companyStateCode, setCompanyStateCode] = useState<string>('DE-NW');
+  const [holidayDates, setHolidayDates] = useState<Set<string>>(new Set());
 
   // Auswertungs-States
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
@@ -227,7 +252,7 @@ export default function ImportPage() {
 
       const { data: profileData } = await supabase
         .from('user_profiles')
-        .select('*')
+        .select('*, companies(id, name, state_code)')
         .eq('user_id', user.id)
         .single();
 
@@ -241,6 +266,15 @@ export default function ImportPage() {
       console.log('[Import] Profil-E-Mail:', profileData.email);
       
       setProfile(profileData);
+      
+      // NEU v5.17: Bundesland aus Company laden
+      const stateCode = (profileData.companies as any)?.state_code || 'DE-NW';
+      setCompanyStateCode(stateCode);
+      console.log('[Import] Bundesland:', stateCode);
+      
+      // Feiertage laden (alle Jahre von 2020-2030)
+      await loadHolidays(stateCode);
+      
       setHasAccess(profileData.has_import_access || false);
       if (!profileData.has_import_access) {
         setError('Kein Zugang zu diesem Modul');
@@ -250,6 +284,34 @@ export default function ImportPage() {
       setError('Fehler beim Laden');
     } finally {
       setLoading(false);
+    }
+  }
+
+  // NEU v5.17: Feiertage aus Datenbank laden
+  async function loadHolidays(stateCode: string) {
+    try {
+      const { data: holidaysData } = await supabase
+        .from('public_holidays')
+        .select('holiday_date, name, state_code, is_regional_only')
+        .eq('country', 'DE')
+        .gte('holiday_date', '2020-01-01')
+        .lte('holiday_date', '2030-12-31');
+
+      // Filtern: bundesweite + landesspezifische Feiertage
+      const filteredHolidays = (holidaysData || []).filter(h =>
+        h.state_code === null || h.state_code === stateCode
+      );
+
+      // In Set umwandeln für schnellen Zugriff
+      const holidaySet = new Set<string>();
+      for (const h of filteredHolidays) {
+        holidaySet.add(h.holiday_date);
+      }
+      
+      setHolidayDates(holidaySet);
+      console.log('[Import] Feiertage geladen:', holidaySet.size);
+    } catch (err) {
+      console.error('[Import] Fehler beim Laden der Feiertage:', err);
     }
   }
 
@@ -396,46 +458,88 @@ export default function ImportPage() {
     return new Date(year, month - 1, day);
   };
   
-  const getGermanHolidays = (year: number): Set<string> => {
+  // NEU v5.17: Feiertage aus DB-Set filtern (statt lokale Berechnung)
+  // NEU v5.18: Feiertage mit Bundesland-Unterstützung
+  const getGermanHolidays = (year: number, stateCode?: string): Set<string> => {
+    const state = stateCode || importStateCode || 'DE-NW';
     const holidays = new Set<string>();
     
-    // Feste Feiertage (bundesweit)
+    // Hilfsfunktion für Oster-abhängige Feiertage
+    const easter = getEasterSunday(year);
+    
+    // WICHTIG: Lokale Formatierung statt toISOString() (Zeitzonen-Problem!)
+    const formatDate = (d: Date): string => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+    
+    const addDays = (d: Date, days: number): string => {
+      const r = new Date(d);
+      r.setDate(d.getDate() + days);
+      return formatDate(r);
+    };
+    
+    // === BUNDESWEITE FEIERTAGE (alle 16 Bundesländer) ===
     holidays.add(`${year}-01-01`);  // Neujahr
+    holidays.add(addDays(easter, -2));   // Karfreitag
+    holidays.add(addDays(easter, 1));    // Ostermontag
     holidays.add(`${year}-05-01`);  // Tag der Arbeit
+    holidays.add(addDays(easter, 39));   // Christi Himmelfahrt
+    holidays.add(addDays(easter, 50));   // Pfingstmontag
     holidays.add(`${year}-10-03`);  // Tag der Deutschen Einheit
     holidays.add(`${year}-12-25`);  // 1. Weihnachtstag
     holidays.add(`${year}-12-26`);  // 2. Weihnachtstag
     
-    // NRW-spezifische Feiertage
-    holidays.add(`${year}-11-01`);  // Allerheiligen (NRW, BW, BY, RP, SL)
+    // === LANDESSPEZIFISCHE FEIERTAGE ===
     
-    // Bewegliche Feiertage (abhängig von Ostern)
-    const easter = getEasterSunday(year);
+    // Heilige Drei Könige (6.1.): BW, BY, ST
+    if (['DE-BW', 'DE-BY', 'DE-ST'].includes(state)) {
+      holidays.add(`${year}-01-06`);
+    }
     
-    // Karfreitag: 2 Tage vor Ostern
-    const karfreitag = new Date(easter);
-    karfreitag.setDate(easter.getDate() - 2);
-    holidays.add(karfreitag.toISOString().split('T')[0]);
+    // Internationaler Frauentag (8.3.): BE, MV
+    if (['DE-BE', 'DE-MV'].includes(state)) {
+      holidays.add(`${year}-03-08`);
+    }
     
-    // Ostermontag: 1 Tag nach Ostern
-    const ostermontag = new Date(easter);
-    ostermontag.setDate(easter.getDate() + 1);
-    holidays.add(ostermontag.toISOString().split('T')[0]);
+    // Fronleichnam (Ostern + 60): BW, BY, HE, NW, RP, SL
+    if (['DE-BW', 'DE-BY', 'DE-HE', 'DE-NW', 'DE-RP', 'DE-SL'].includes(state)) {
+      holidays.add(addDays(easter, 60));
+    }
     
-    // Christi Himmelfahrt: 39 Tage nach Ostern
-    const himmelfahrt = new Date(easter);
-    himmelfahrt.setDate(easter.getDate() + 39);
-    holidays.add(himmelfahrt.toISOString().split('T')[0]);
+    // Mariä Himmelfahrt (15.8.): SL (und BY in kath. Gemeinden - hier vereinfacht für SL)
+    if (['DE-SL'].includes(state)) {
+      holidays.add(`${year}-08-15`);
+    }
     
-    // Pfingstmontag: 50 Tage nach Ostern
-    const pfingstmontag = new Date(easter);
-    pfingstmontag.setDate(easter.getDate() + 50);
-    holidays.add(pfingstmontag.toISOString().split('T')[0]);
+    // Weltkindertag (20.9.): TH
+    if (['DE-TH'].includes(state)) {
+      holidays.add(`${year}-09-20`);
+    }
     
-    // Fronleichnam: 60 Tage nach Ostern (NRW, BW, BY, HE, RP, SL)
-    const fronleichnam = new Date(easter);
-    fronleichnam.setDate(easter.getDate() + 60);
-    holidays.add(fronleichnam.toISOString().split('T')[0]);
+    // Reformationstag (31.10.): BB, HB, HH, MV, NI, SN, ST, SH, TH
+    if (['DE-BB', 'DE-HB', 'DE-HH', 'DE-MV', 'DE-NI', 'DE-SN', 'DE-ST', 'DE-SH', 'DE-TH'].includes(state)) {
+      holidays.add(`${year}-10-31`);
+    }
+    
+    // Allerheiligen (1.11.): BW, BY, NW, RP, SL
+    if (['DE-BW', 'DE-BY', 'DE-NW', 'DE-RP', 'DE-SL'].includes(state)) {
+      holidays.add(`${year}-11-01`);
+    }
+    
+    // Buß- und Bettag (Mittwoch vor 23.11.): SN
+    if (['DE-SN'].includes(state)) {
+      // Berechnung: Mittwoch vor dem 23. November
+      const nov23 = new Date(year, 10, 23); // Monat 10 = November
+      const dayOfWeek = nov23.getDay();
+      // Tage zurück bis Mittwoch (3)
+      const daysBack = (dayOfWeek + 7 - 3) % 7;
+      const bussUndBettag = new Date(nov23);
+      bussUndBettag.setDate(nov23.getDate() - (daysBack === 0 ? 7 : daysBack));
+      holidays.add(formatDate(bussUndBettag));
+    }
     
     return holidays;
   };
@@ -479,6 +583,10 @@ export default function ImportPage() {
       }
     }
     
+    // NEU v5.17: Feiertage für dieses Jahr an API senden
+    const yearHolidays = getGermanHolidays(year);
+    const holidaysArray = Array.from(yearHolidays);
+    
     try {
       // API aufrufen
       const response = await fetch('/api/export/fzul', {
@@ -488,7 +596,8 @@ export default function ImportPage() {
           empName,
           year,
           dayData,
-          settings
+          settings,
+          holidays: holidaysArray  // NEU v5.17: Feiertage aus DB
         })
       });
       
@@ -1847,7 +1956,7 @@ export default function ImportPage() {
             </div>
             
             {/* Jahresübersicht - kompakter */}
-            <div className="flex flex-wrap gap-2 mb-3">
+            <div className="flex flex-wrap gap-2 mb-3 items-center">
               {yearTotals.map(({ year, usedHours, freeHours }) => (
                 <button 
                   key={year} 
@@ -1865,6 +1974,20 @@ export default function ImportPage() {
               <div className="px-3 py-2 rounded text-center text-sm bg-purple-100">
                 <div className="font-bold text-purple-700">Gesamt</div>
                 <div className="text-xs text-purple-600">{totalAllYears.toFixed(0)}h / {totalFreeAllYears.toFixed(0)}h</div>
+              </div>
+              
+              {/* NEU v5.18: Bundesland-Auswahl */}
+              <div className="ml-auto flex items-center gap-2 px-3 py-1 bg-yellow-100 rounded border border-yellow-300">
+                <span className="text-xs text-yellow-800">🏴</span>
+                <select
+                  value={importStateCode}
+                  onChange={(e) => setImportStateCode(e.target.value)}
+                  className="text-xs border-0 bg-transparent font-medium text-yellow-800 cursor-pointer"
+                >
+                  {BUNDESLAENDER.map(bl => (
+                    <option key={bl.code} value={bl.code}>{bl.name}</option>
+                  ))}
+                </select>
               </div>
             </div>
 
@@ -2135,7 +2258,7 @@ export default function ImportPage() {
                 {/* Standard-Werte */}
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                   <h3 className="font-bold text-yellow-800 mb-3">⚙️ Standard-Stammdaten (für alle MA)</h3>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-3 gap-4">
                     <div>
                       <label className="block text-sm font-medium mb-1">Wochenarbeitszeit</label>
                       <input
@@ -2156,7 +2279,24 @@ export default function ImportPage() {
                       />
                       <span className="ml-2 text-gray-500">Tage</span>
                     </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1 text-red-700">
+                        🏴 Bundesland <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={importStateCode}
+                        onChange={(e) => setImportStateCode(e.target.value)}
+                        className="border border-red-300 rounded px-3 py-2 bg-white font-medium"
+                      >
+                        {BUNDESLAENDER.map(bl => (
+                          <option key={bl.code} value={bl.code}>{bl.name}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
+                  <p className="mt-3 text-xs text-yellow-700">
+                    * Das Bundesland bestimmt die Feiertage für die Kapazitätsberechnung
+                  </p>
                 </div>
 
                 {/* MA-Übersicht */}

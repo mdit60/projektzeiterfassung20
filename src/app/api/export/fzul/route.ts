@@ -1,4 +1,5 @@
 // src/app/api/export/fzul/route.ts
+// VERSION: v2.2 - Zeitzonen-Bug behoben
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 
@@ -28,26 +29,34 @@ const getEasterSunday = (year: number): Date => {
 const getGermanHolidays = (year: number): Set<string> => {
   const holidays = new Set<string>();
   
-  // Feste Feiertage
+  // Feste Feiertage (bundesweit)
   holidays.add(`${year}-01-01`);  // Neujahr
   holidays.add(`${year}-05-01`);  // Tag der Arbeit
   holidays.add(`${year}-10-03`);  // Tag der Deutschen Einheit
   holidays.add(`${year}-12-25`);  // 1. Weihnachtstag
   holidays.add(`${year}-12-26`);  // 2. Weihnachtstag
   
+  // NRW-spezifische Feiertage
+  holidays.add(`${year}-11-01`);  // Allerheiligen (NRW, BW, BY, RP, SL)
+  
   // Bewegliche Feiertage
   const easter = getEasterSunday(year);
   
+  // WICHTIG: Lokale Formatierung statt toISOString() (Zeitzonen-Problem!)
   const addDays = (date: Date, days: number): string => {
     const result = new Date(date);
     result.setDate(date.getDate() + days);
-    return result.toISOString().split('T')[0];
+    const y = result.getFullYear();
+    const m = String(result.getMonth() + 1).padStart(2, '0');
+    const d = String(result.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
   };
   
   holidays.add(addDays(easter, -2));   // Karfreitag
   holidays.add(addDays(easter, 1));    // Ostermontag
   holidays.add(addDays(easter, 39));   // Christi Himmelfahrt
   holidays.add(addDays(easter, 50));   // Pfingstmontag
+  holidays.add(addDays(easter, 60));   // Fronleichnam (NRW, BW, BY, HE, RP, SL)
   
   return holidays;
 };
@@ -55,10 +64,19 @@ const getGermanHolidays = (year: number): Set<string> => {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { empName, year, dayData, settings } = body;
+    const { empName, year, dayData, settings, holidays: clientHolidays } = body;
     
     const maxDaily = settings.weekly_hours / 5;
-    const holidays = getGermanHolidays(year);
+    
+    // NEU v2.1: Feiertage vom Client verwenden (aus DB geladen), Fallback auf lokale Berechnung
+    let holidays: Set<string>;
+    if (clientHolidays && Array.isArray(clientHolidays) && clientHolidays.length > 0) {
+      holidays = new Set(clientHolidays);
+      console.log('[API] Feiertage vom Client:', holidays.size);
+    } else {
+      holidays = getGermanHolidays(year);
+      console.log('[API] Feiertage lokal berechnet:', holidays.size);
+    }
     
     // Name splitten
     const nameParts = empName.split(',').map((p: string) => p.trim());
