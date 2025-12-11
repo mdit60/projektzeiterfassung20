@@ -374,8 +374,8 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
         .eq('is_active', true)
         .order('name');
 
-      const employeesWithNumber = (employeesData || []).map(emp => {
-        const assignment = projectAssignData?.find(pa => pa.user_profile_id === emp.id);
+      const employeesWithNumber = (employeesData || []).map((emp: any) => {
+        const assignment = projectAssignData?.find((pa: any) => pa.user_profile_id === emp.id);
         return {
           ...emp,
           project_employee_number: assignment?.project_employee_number
