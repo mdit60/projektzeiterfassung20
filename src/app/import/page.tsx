@@ -1,5 +1,5 @@
 // src/app/import/page.tsx
-// VERSION: v5.15 - Unterkanten ausgerichtet
+// VERSION: v5.16 - NRW-Feiertage (Allerheiligen + Fronleichnam)
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
@@ -399,12 +399,15 @@ export default function ImportPage() {
   const getGermanHolidays = (year: number): Set<string> => {
     const holidays = new Set<string>();
     
-    // Feste Feiertage
+    // Feste Feiertage (bundesweit)
     holidays.add(`${year}-01-01`);  // Neujahr
     holidays.add(`${year}-05-01`);  // Tag der Arbeit
     holidays.add(`${year}-10-03`);  // Tag der Deutschen Einheit
     holidays.add(`${year}-12-25`);  // 1. Weihnachtstag
     holidays.add(`${year}-12-26`);  // 2. Weihnachtstag
+    
+    // NRW-spezifische Feiertage
+    holidays.add(`${year}-11-01`);  // Allerheiligen (NRW, BW, BY, RP, SL)
     
     // Bewegliche Feiertage (abhängig von Ostern)
     const easter = getEasterSunday(year);
@@ -428,6 +431,11 @@ export default function ImportPage() {
     const pfingstmontag = new Date(easter);
     pfingstmontag.setDate(easter.getDate() + 50);
     holidays.add(pfingstmontag.toISOString().split('T')[0]);
+    
+    // Fronleichnam: 60 Tage nach Ostern (NRW, BW, BY, HE, RP, SL)
+    const fronleichnam = new Date(easter);
+    fronleichnam.setDate(easter.getDate() + 60);
+    holidays.add(fronleichnam.toISOString().split('T')[0]);
     
     return holidays;
   };
