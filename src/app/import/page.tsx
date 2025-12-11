@@ -1,5 +1,5 @@
 // src/app/import/page.tsx
-// VERSION: v5.8 - Feiertage + Summenformeln
+// VERSION: v5.11 - Konsistente Arbeitstage-Berechnung
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
@@ -145,7 +145,7 @@ const SHEET_BLACKLIST_PATTERN = /^(Ermittl|Auswertung|Nav|PK|ZAZK|ZNZK|Planung|�
 
 export default function ImportPage() {
   // VERSION CHECK - in Browser-Konsole sichtbar
-  console.log('[Import] Version v5.8 - Feiertage + Summenformeln');
+  console.log('[Import] Version v5.9 - TypeScript Fix');
   
   const router = useRouter();
   const supabase = createClient();
@@ -1434,8 +1434,8 @@ export default function ImportPage() {
           <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
             <span className="text-4xl">🔒</span>
             <h2 className="text-xl font-bold text-red-800 mt-4">Kein Zugang</h2>
-            <p className="text-gray-600 mt-2">Sie haben keine Berechtigung für das Import-Modul.</p>
-            <p className="text-gray-500 text-sm mt-4">Bitten Sie einen Administrator mit Import-Berechtigung, Ihnen Zugang zu gewähren.</p>
+            <p className="text-gray-600 mt-2">Sie haben keine Berechtigung für das Analyse-Modul.</p>
+            <p className="text-gray-500 text-sm mt-4">Bitten Sie einen Administrator mit Analyse-Berechtigung, Ihnen Zugang zu gewähren.</p>
           </div>
         </div>
       </div>
@@ -1480,6 +1480,21 @@ export default function ImportPage() {
           // Wochenenden und Feiertage nicht zählen
           if (dayOfWeek !== 0 && dayOfWeek !== 6 && !holidays.has(dateStr)) workdays++;
         }
+      }
+      return workdays;
+    };
+
+    // NEU v5.11: Arbeitstage pro Monat berechnen (für konsistente Berechnung)
+    const getWorkdaysInMonth = (year: number, month: number): number => {
+      let workdays = 0;
+      const holidays = getGermanHolidays(year);
+      const daysInMonth = new Date(year, month, 0).getDate(); // month ist 1-12
+      for (let d = 1; d <= daysInMonth; d++) {
+        const date = new Date(year, month - 1, d);
+        const dayOfWeek = date.getDay();
+        const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        // Wochenenden und Feiertage nicht zählen
+        if (dayOfWeek !== 0 && dayOfWeek !== 6 && !holidays.has(dateStr)) workdays++;
       }
       return workdays;
     };
@@ -1601,8 +1616,10 @@ export default function ImportPage() {
             .sort((a, b) => a.month - b.month);
           const settings = getEmployeeSettings(empName);
           const maxMonthly = getMaxMonthlyHours(settings.weekly_hours);
+          const maxDaily = settings.weekly_hours / 5; // NEU v5.11
           const yearUsed = empTimesheets.reduce((s, ts) => s + ts.total_billable_hours, 0);
-          const yearMax = maxMonthly * 12;
+          // NEU v5.11: yearMax basiert auf Arbeitstagen (konsistent mit Kalender)
+          const yearMax = getWorkdaysInYear(displayYear) * maxDaily;
           const yearFree = yearMax - yearUsed;
 
           return (
@@ -1652,14 +1669,16 @@ export default function ImportPage() {
                       const ts = empTimesheets.find(t => t.month === month);
                       const hours = ts?.total_billable_hours || 0;
                       const absenceDays = ts?.total_absence_days || 0;
+                      // NEU v5.11: Max pro Monat basiert auf Arbeitstagen
+                      const monthMax = getWorkdaysInMonth(displayYear, month) * maxDaily;
                       
                       return (
                         <tr key={month} className={`border-b ${hours === 0 ? 'text-gray-400' : ''}`}>
                           <td className="px-3 py-2">{MONTH_NAMES[month - 1]}</td>
                           <td className="px-3 py-2 text-right">{hours > 0 ? hours.toFixed(2) : '-'}</td>
-                          <td className="px-3 py-2 text-right text-gray-500">{maxMonthly.toFixed(2)}</td>
+                          <td className="px-3 py-2 text-right text-gray-500">{monthMax.toFixed(2)}</td>
                           <td className="px-3 py-2 text-right text-green-600 font-bold">
-                            {(maxMonthly - hours).toFixed(2)}
+                            {(monthMax - hours).toFixed(2)}
                           </td>
                           <td className="px-3 py-2 text-right text-orange-600">
                             {absenceDays > 0 ? absenceDays : '-'}
@@ -1733,14 +1752,18 @@ export default function ImportPage() {
                     <span className="text-blue-600">{yearUsed.toFixed(0)}h</span>
                     <span className="text-gray-400 mx-1">/</span>
                     <span className="text-green-600">{(() => {
-                      // Verfügbare Stunden berechnen (nur Arbeitstage)
+                      // NEU v5.11: Verfügbare Stunden berechnen (ohne WE und Feiertage)
+                      const holidays = getGermanHolidays(displayYear);
                       let availableHours = 0;
                       for (let m = 1; m <= 12; m++) {
                         const daysInMonth = getDaysInMonth(displayYear, m);
                         for (let d = 1; d <= daysInMonth; d++) {
                           const date = new Date(displayYear, m - 1, d);
                           const dayOfWeek = date.getDay();
-                          if (dayOfWeek !== 0 && dayOfWeek !== 6) { // Kein WE
+                          const dateStr = `${displayYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                          const isHoliday = holidays.has(dateStr);
+                          // Kein WE und kein Feiertag
+                          if (dayOfWeek !== 0 && dayOfWeek !== 6 && !isHoliday) {
                             const data = dayData[m]?.[d];
                             if (!data?.absence) {
                               availableHours += maxDaily - (data?.hours || 0);
@@ -1782,12 +1805,16 @@ export default function ImportPage() {
                       const monthTs = empTimesheets.find(t => t.month === month);
                       const monthHours = monthTs?.total_billable_hours || 0;
                       
-                      // Verfügbare Stunden im Monat berechnen (nur Arbeitstage)
+                      // NEU v5.11: Verfügbare Stunden im Monat berechnen (ohne WE und Feiertage)
+                      const monthHolidays = getGermanHolidays(displayYear);
                       let monthFree = 0;
                       for (let d = 1; d <= daysInMonth; d++) {
                         const date = new Date(displayYear, month - 1, d);
                         const dayOfWeek = date.getDay();
-                        if (dayOfWeek !== 0 && dayOfWeek !== 6) { // Kein WE
+                        const dateStr = `${displayYear}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                        const isHoliday = monthHolidays.has(dateStr);
+                        // Kein WE und kein Feiertag
+                        if (dayOfWeek !== 0 && dayOfWeek !== 6 && !isHoliday) {
                           const data = dayData[month]?.[d];
                           if (!data?.absence) {
                             monthFree += maxDaily - (data?.hours || 0);
@@ -1924,7 +1951,7 @@ export default function ImportPage() {
 
       <main className="max-w-7xl mx-auto px-4 py-8">
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-800">📥 Stundennachweis-Import</h1>
+          <h1 className="text-2xl font-bold text-gray-800">📊 Analyse - Stundennachweise</h1>
           <p className="text-gray-600">Projektabrechnungen importieren und Kapazitäten auswerten</p>
         </div>
 
@@ -2316,7 +2343,7 @@ export default function ImportPage() {
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg">
               <div className="flex justify-between items-center mb-6">
-                <h3 className="text-lg font-bold">🔐 Import-Berechtigungen verwalten</h3>
+                <h3 className="text-lg font-bold">🔐 Analyse-Berechtigungen verwalten</h3>
                 <button 
                   onClick={() => setShowAccessModal(false)}
                   className="text-gray-500 hover:text-gray-700 text-xl"

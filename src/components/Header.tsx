@@ -15,7 +15,7 @@ interface UserProfile {
   role: string
   job_function?: string
   company_id: string
-  has_import_access?: boolean  // NEU: Import-Berechtigung
+  has_import_access?: boolean
 }
 
 interface Company {
@@ -38,46 +38,35 @@ function checkUnsavedChanges(): boolean {
 }
 
 // Hilfsfunktion: Ist der User Geschäftsführer/Inhaber/Management?
-// Prüft ob die Position typische Management-Bezeichnungen enthält
 function isCompanyOwner(profile: UserProfile | null): boolean {
   if (!profile) return false
   if (!isAdminRole(profile.role)) return false
   
-  // Management-Positionen mit Zugriff auf Unternehmensdaten
   const ownerTitles = [
-    // Geschäftsführung
     'geschäftsführer', 'geschaeftsfuehrer', 'gf',
     'ceo', 'chief executive officer',
     'managing director',
     'vorstand', 'vorstandsvorsitzender',
-    // Technische Leitung (C-Level)
     'cto', 'chief technology officer',
-    // Kaufmännische Leitung
     'cfo', 'chief financial officer',
     'kaufmännischer leiter', 'kaufmaennischer leiter',
     'kaufmännische leitung', 'kaufmaennische leitung',
     'kfm. leiter', 'kfm leiter',
     'finanzleiter', 'finance director',
     'controller', 'head of finance',
-    // Operative Leitung
     'coo', 'chief operating officer',
     'betriebsleiter', 'operations director',
-    // Eigentümer/Gesellschafter
     'inhaber', 'inhaberin',
     'owner', 'eigentümer', 'eigentuemer',
     'gesellschafter', 'geschäftsführender gesellschafter',
-    // Prokura
     'prokurist', 'prokuristin',
-    // Generelle Management-Bezeichnungen
     'general manager', 'direktor', 'director'
   ]
   
   const position = (profile.job_function || '').toLowerCase().trim()
   
-  // Wenn keine Position gesetzt ist, geben wir trotzdem Zugriff für Admins
-  // (Fallback für bestehende Accounts ohne Position)
   if (!position && isAdminRole(profile.role)) {
-    return true // TODO: Später einschränken wenn alle Positionen gepflegt sind
+    return true
   }
   
   return ownerTitles.some(title => position.includes(title))
@@ -91,7 +80,7 @@ const navigationItems = [
     icon: '🏠',
     adminOnly: false,
     ownerOnly: false,
-    importOnly: false,
+    importAccess: false,
   },
   { 
     name: 'Zeiterfassung', 
@@ -99,7 +88,7 @@ const navigationItems = [
     icon: '⏱️',
     adminOnly: false,
     ownerOnly: false,
-    importOnly: false,
+    importAccess: false,
   },
   { 
     name: 'Projekte', 
@@ -107,7 +96,7 @@ const navigationItems = [
     icon: '📁',
     adminOnly: true,
     ownerOnly: false,
-    importOnly: false,
+    importAccess: false,
   },
   { 
     name: 'Mitarbeiter', 
@@ -115,7 +104,7 @@ const navigationItems = [
     icon: '👥',
     adminOnly: true,
     ownerOnly: false,
-    importOnly: false,
+    importAccess: false,
   },
   { 
     name: 'Berichte', 
@@ -123,24 +112,23 @@ const navigationItems = [
     icon: '📊',
     adminOnly: true,
     ownerOnly: false,
-    importOnly: false,
+    importAccess: false,
+  },
+  { 
+    name: 'Analyse', 
+    href: '/import', 
+    icon: '📈',
+    adminOnly: false,
+    ownerOnly: false,
+    importAccess: true,  // Nur für User mit Import-Berechtigung
   },
   { 
     name: 'Unternehmen', 
     href: '/unternehmen', 
     icon: '🏢',
     adminOnly: true,
-    ownerOnly: true, // Nur für Geschäftsführer!
-    importOnly: false,
-  },
-  // NEU: Import-Modul (nur für User mit has_import_access)
-  { 
-    name: 'Import', 
-    href: '/import', 
-    icon: '📥',
-    adminOnly: false,  // Wird durch importOnly gesteuert
-    ownerOnly: false,
-    importOnly: true,  // Nur für User mit Import-Berechtigung!
+    ownerOnly: true,
+    importAccess: false,
   },
 ]
 
@@ -165,7 +153,6 @@ export default function Header() {
         return
       }
 
-      // user_profiles Tabelle mit user_id - inkl. has_import_access
       const { data: profileData, error: profileError } = await supabase
         .from('user_profiles')
         .select('*')
@@ -181,7 +168,6 @@ export default function Header() {
         console.log('Header: Profil geladen:', profileData.name, 'Rolle:', profileData.role, 'Position:', profileData.job_function, 'Import-Zugang:', profileData.has_import_access)
         setProfile(profileData)
         
-        // Firma laden
         if (profileData.company_id) {
           const { data: companyData } = await supabase
             .from('companies')
@@ -207,70 +193,84 @@ export default function Header() {
     router.push('/login')
   }
 
-  // Formatiere Benutzername
   function formatUserName(): string {
     if (!profile) return ''
     if (profile.last_name && profile.first_name) {
       return `${profile.first_name} ${profile.last_name}`
     }
     if (profile.name) return profile.name
-    return profile.email.split('@')[0]
-  }
-  
-  // Formatiere Position für Anzeige
-  function formatPosition(): string {
-    if (!profile) return ''
-    return profile.job_function || ''
+    return profile.email || ''
   }
 
-  // Initialen für Avatar
   function getInitials(): string {
-    if (!profile) return '?'
-    if (profile.first_name && profile.last_name) {
-      return `${profile.first_name[0]}${profile.last_name[0]}`.toUpperCase()
+    const name = formatUserName()
+    if (!name || name.length === 0) return '??'
+    const parts = name.trim().split(' ')
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
     }
-    if (profile.name) {
-      const parts = profile.name.split(' ')
-      if (parts.length >= 2) {
-        return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
-      }
-      return profile.name.substring(0, 2).toUpperCase()
-    }
-    return profile.email.substring(0, 2).toUpperCase()
+    return name.substring(0, 2).toUpperCase()
   }
 
-  // Navigiere mit Prüfung auf ungespeicherte Änderungen
-  function handleNavigation(href: string) {
-    if (!checkUnsavedChanges()) return
-    router.push(href)
+  function getRoleDisplay(): string {
+    if (!profile) return ''
+    if (profile.job_function) {
+      return profile.job_function
+    }
+    if (isAdminRole(profile.role)) {
+      return 'Administrator'
+    }
+    return 'Mitarbeiter'
   }
 
-  // Filter Navigation basierend auf Benutzerrolle
-  const filteredNavigation = navigationItems.filter(item => {
-    // Import-Only Items: Nur wenn has_import_access = true
-    if (item.importOnly) {
-      return profile?.has_import_access === true
+  const isAdmin = isAdminRole(profile?.role)
+  const isOwner = isCompanyOwner(profile)
+  const hasImportAccess = profile?.has_import_access || false
+  
+  // Super-Admin Check (für Analyse-Zugang)
+  const isSuperAdmin = profile?.email?.toLowerCase() === 'm.ditscherlein@cubintec.com'
+
+  // Filtere Navigation nach Rolle, Position und Import-Berechtigung
+  const visibleNavItems = navigationItems.filter(item => {
+    // Import/Analyse nur für berechtigte User
+    if (item.importAccess) {
+      return hasImportAccess || isSuperAdmin
     }
-    // Owner-Only Items: Nur für Geschäftsführer
+    // Owner-Only Items nur für Geschäftsführer
     if (item.ownerOnly) {
-      return isCompanyOwner(profile)
+      return isOwner
     }
-    // Admin-Only Items: Für Admins
+    // Admin-Only Items für alle Admins
     if (item.adminOnly) {
-      return isAdminRole(profile?.role)
+      return isAdmin
     }
-    // Alle anderen Items: Für alle sichtbar
     return true
   })
 
+  function isActive(href: string): boolean {
+    if (href === '/dashboard') {
+      return pathname === '/dashboard'
+    }
+    return pathname === href || pathname.startsWith(href + '/')
+  }
+
   if (loading) {
     return (
-      <header className="bg-slate-800 text-white shadow-lg">
-        <div className="max-w-7xl mx-auto px-4">
+      <header className="bg-white border-b shadow-sm sticky top-0 z-50">
+        <div className="max-w-[1800px] mx-auto px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
-            <div className="flex items-center space-x-3">
-              <span className="text-2xl">⏱️</span>
-              <span className="font-bold text-lg">Projektzeiterfassung</span>
+            <div className="animate-pulse flex items-center space-x-4">
+              <div className="w-8 h-8 bg-gray-200 rounded"></div>
+              <div className="h-6 w-40 bg-gray-200 rounded"></div>
+            </div>
+            <div className="animate-pulse flex space-x-2">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="h-10 w-24 bg-gray-200 rounded-lg"></div>
+              ))}
+            </div>
+            <div className="animate-pulse flex items-center space-x-3">
+              <div className="h-10 w-32 bg-gray-200 rounded"></div>
+              <div className="w-10 h-10 bg-gray-200 rounded-full"></div>
             </div>
           </div>
         </div>
@@ -279,93 +279,113 @@ export default function Header() {
   }
 
   return (
-    <header className="bg-slate-800 text-white shadow-lg">
-      <div className="max-w-7xl mx-auto px-4">
+    <header className="bg-white border-b shadow-sm sticky top-0 z-50">
+      <div className="max-w-[1800px] mx-auto px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
-          {/* Logo und Firmenname */}
-          <div className="flex items-center space-x-3">
-            <span className="text-2xl">⏱️</span>
-            <div>
-              <span className="font-bold text-lg">Projektzeiterfassung</span>
+          
+          {/* Links: Logo + Firmenname */}
+          <div className="flex items-center space-x-3 min-w-0">
+            <span className="text-2xl flex-shrink-0">⏱️</span>
+            <div className="min-w-0">
+              <h1 className="text-lg font-bold text-gray-900 truncate">
+                Projektzeiterfassung
+              </h1>
               {company && (
-                <span className="text-slate-400 text-sm ml-2">{company.name}</span>
+                <p className="text-xs text-gray-500 truncate">{company.name}</p>
               )}
             </div>
           </div>
 
-          {/* Navigation */}
+          {/* Mitte: Navigation - Desktop */}
           <nav className="hidden md:flex items-center space-x-1">
-            {filteredNavigation.map(item => {
-              const isActive = pathname === item.href || 
-                (item.href !== '/dashboard' && pathname?.startsWith(item.href))
-              
-              return (
-                <button
-                  key={item.href}
-                  onClick={() => handleNavigation(item.href)}
-                  className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                    isActive
-                      ? 'bg-slate-700 text-white'
-                      : 'text-slate-300 hover:bg-slate-700 hover:text-white'
-                  }`}
-                >
-                  <span className="mr-1">{item.icon}</span>
-                  {item.name}
-                </button>
-              )
-            })}
+            {visibleNavItems.map((item) => (
+              <button
+                key={item.href}
+                onClick={() => {
+                  if (checkUnsavedChanges()) {
+                    router.push(item.href)
+                  }
+                }}
+                className={`
+                  flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium
+                  transition-all duration-200
+                  ${isActive(item.href)
+                    ? 'bg-blue-600 text-white shadow-md' 
+                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                  }
+                `}
+              >
+                <span className="text-base">{item.icon}</span>
+                <span>{item.name}</span>
+              </button>
+            ))}
           </nav>
 
-          {/* User-Bereich */}
+          {/* Rechts: User Info + Logout */}
           <div className="flex items-center space-x-4">
-            {/* User Info */}
+            {/* User Info - Desktop */}
             <div className="hidden sm:flex items-center space-x-3">
               <div className="text-right">
-                <div className="text-sm font-medium">{formatUserName()}</div>
-                <div className="text-xs text-slate-400">
-                  {formatPosition() || (isAdminRole(profile?.role) ? 'Projektleiter' : 'Mitarbeiter')}
-                </div>
+                <p className="text-sm font-medium text-gray-900 truncate max-w-[150px]">
+                  {formatUserName()}
+                </p>
+                <p className="text-xs text-gray-500">
+                  {isOwner ? '👑 ' : isAdmin ? '⚙️ ' : '👤 '}
+                  {getRoleDisplay()}
+                </p>
               </div>
-              {/* Avatar */}
-              <div className="w-10 h-10 rounded-full bg-emerald-600 flex items-center justify-center text-sm font-bold">
-                {getInitials()}
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
+                isOwner ? 'bg-purple-100' : isAdmin ? 'bg-blue-100' : 'bg-green-100'
+              }`}>
+                <span className={`font-semibold text-sm ${
+                  isOwner ? 'text-purple-600' : isAdmin ? 'text-blue-600' : 'text-green-600'
+                }`}>
+                  {getInitials()}
+                </span>
               </div>
             </div>
 
-            {/* Abmelden Button */}
+            {/* Logout Button */}
             <button
               onClick={handleLogout}
-              className="flex items-center space-x-1 px-3 py-2 rounded-md text-sm text-slate-300 hover:bg-slate-700 hover:text-white transition-colors"
+              className="flex items-center space-x-2 px-3 py-2 text-gray-600 hover:text-red-600 
+                         hover:bg-red-50 rounded-lg transition-colors text-sm font-medium"
+              title="Abmelden"
             >
-              <span>🚪</span>
-              <span className="hidden sm:inline">Abmelden</span>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                      d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+              <span className="hidden lg:inline">Abmelden</span>
             </button>
           </div>
         </div>
       </div>
 
       {/* Mobile Navigation */}
-      <div className="md:hidden border-t border-slate-700">
-        <div className="px-2 py-2 space-y-1">
-          {filteredNavigation.map(item => {
-            const isActive = pathname === item.href || 
-              (item.href !== '/dashboard' && pathname?.startsWith(item.href))
-            
-            return (
-              <button
-                key={item.href}
-                onClick={() => handleNavigation(item.href)}
-                className={`block w-full text-left px-3 py-2 rounded-md text-sm font-medium ${
-                  isActive
-                    ? 'bg-slate-700 text-white'
-                    : 'text-slate-300 hover:bg-slate-700 hover:text-white'
-                }`}
-              >
-                <span className="mr-2">{item.icon}</span>
-                {item.name}
-              </button>
-            )
-          })}
+      <div className="md:hidden border-t bg-gray-50 px-4 py-2 overflow-x-auto">
+        <div className="flex space-x-2">
+          {visibleNavItems.map((item) => (
+            <button
+              key={item.href}
+              onClick={() => {
+                if (checkUnsavedChanges()) {
+                  router.push(item.href)
+                }
+              }}
+              className={`
+                flex items-center space-x-1 px-3 py-2 rounded-lg text-sm whitespace-nowrap
+                transition-colors
+                ${isActive(item.href)
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-white text-gray-600 border hover:bg-gray-100'
+                }
+              `}
+            >
+              <span>{item.icon}</span>
+              <span>{item.name}</span>
+            </button>
+          ))}
         </div>
       </div>
     </header>
