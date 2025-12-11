@@ -1,5 +1,5 @@
 // src/app/import/page.tsx
-// VERSION: v4.9 - Nur Super-Admin kann löschen
+// VERSION: v5.8 - Feiertage + Summenformeln
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
@@ -137,7 +137,7 @@ const FORMAT_INFO: Record<FundingFormat, { name: string; color: string; descript
 // - Übersicht
 // - ZA (Zahlungsanforderung)
 // - MA + Zahl (MA6, MA 10, etc. - Platzhalter)
-const SHEET_BLACKLIST_PATTERN = /^(Ermittl|Auswertung|Nav|PK|ZAZK|ZNZK|Planung|Übersicht|ZA|MA\s*\d+)/i;
+const SHEET_BLACKLIST_PATTERN = /^(Ermittl|Auswertung|Nav|PK|ZAZK|ZNZK|Planung|Übersicht|Uebersicht|AP|ZA|MA\s*\d+)/i;
 
 // ============================================
 // HAUPTKOMPONENTE
@@ -145,7 +145,7 @@ const SHEET_BLACKLIST_PATTERN = /^(Ermittl|Auswertung|Nav|PK|ZAZK|ZNZK|Planung|�
 
 export default function ImportPage() {
   // VERSION CHECK - in Browser-Konsole sichtbar
-  console.log('[Import] Version v4.9 - Nur Super-Admin kann löschen');
+  console.log('[Import] Version v5.8 - Feiertage + Summenformeln');
   
   const router = useRouter();
   const supabase = createClient();
@@ -373,7 +373,151 @@ export default function ImportPage() {
 
   const getMaxMonthlyHours = (weeklyHours: number) => (weeklyHours * 52) / 12;
   const getDaysInMonth = (year: number, month: number) => new Date(year, month, 0).getDate();
+  // ============================================
+  // DEUTSCHE FEIERTAGE (bundesweit)
+  // ============================================
+  
+  const getEasterSunday = (year: number): Date => {
+    // Gauss-Algorithmus für Ostersonntag
+    const a = year % 19;
+    const b = Math.floor(year / 100);
+    const c = year % 100;
+    const d = Math.floor(b / 4);
+    const e = b % 4;
+    const f = Math.floor((b + 8) / 25);
+    const g = Math.floor((b - f + 1) / 3);
+    const h = (19 * a + b - d - g + 15) % 30;
+    const i = Math.floor(c / 4);
+    const k = c % 4;
+    const l = (32 + 2 * e + 2 * i - h - k) % 7;
+    const m = Math.floor((a + 11 * h + 22 * l) / 451);
+    const month = Math.floor((h + l - 7 * m + 114) / 31);
+    const day = ((h + l - 7 * m + 114) % 31) + 1;
+    return new Date(year, month - 1, day);
+  };
+  
+  const getGermanHolidays = (year: number): Set<string> => {
+    const holidays = new Set<string>();
+    
+    // Feste Feiertage
+    holidays.add(`${year}-01-01`);  // Neujahr
+    holidays.add(`${year}-05-01`);  // Tag der Arbeit
+    holidays.add(`${year}-10-03`);  // Tag der Deutschen Einheit
+    holidays.add(`${year}-12-25`);  // 1. Weihnachtstag
+    holidays.add(`${year}-12-26`);  // 2. Weihnachtstag
+    
+    // Bewegliche Feiertage (abhängig von Ostern)
+    const easter = getEasterSunday(year);
+    
+    // Karfreitag: 2 Tage vor Ostern
+    const karfreitag = new Date(easter);
+    karfreitag.setDate(easter.getDate() - 2);
+    holidays.add(karfreitag.toISOString().split('T')[0]);
+    
+    // Ostermontag: 1 Tag nach Ostern
+    const ostermontag = new Date(easter);
+    ostermontag.setDate(easter.getDate() + 1);
+    holidays.add(ostermontag.toISOString().split('T')[0]);
+    
+    // Christi Himmelfahrt: 39 Tage nach Ostern
+    const himmelfahrt = new Date(easter);
+    himmelfahrt.setDate(easter.getDate() + 39);
+    holidays.add(himmelfahrt.toISOString().split('T')[0]);
+    
+    // Pfingstmontag: 50 Tage nach Ostern
+    const pfingstmontag = new Date(easter);
+    pfingstmontag.setDate(easter.getDate() + 50);
+    holidays.add(pfingstmontag.toISOString().split('T')[0]);
+    
+    return holidays;
+  };
+  
+  const isHoliday = (year: number, month: number, day: number): boolean => {
+    const holidays = getGermanHolidays(year);
+    const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return holidays.has(dateStr);
+  };
 
+
+  // ============================================
+  // FZul Excel Export (via API für Formatierung)
+  // ============================================
+  
+  const exportFzulExcel = async (
+    empName: string, 
+    year: number, 
+    empTimesheets: ImportedTimesheet[],
+    settings: { weekly_hours: number; annual_leave_days: number }
+  ) => {
+    // Tagesweise Daten aufbereiten
+    const dayData: Record<number, Record<number, { hours: number; absence: string | null }>> = {};
+    for (let m = 1; m <= 12; m++) {
+      dayData[m] = {};
+      for (let d = 1; d <= 31; d++) {
+        dayData[m][d] = { hours: 0, absence: null };
+      }
+    }
+    
+    for (const ts of empTimesheets) {
+      const daily = ts.daily_data || {};
+      for (const [dayStr, data] of Object.entries(daily)) {
+        const day = parseInt(dayStr);
+        if (day >= 1 && day <= 31 && dayData[ts.month]) {
+          if (typeof data === 'object' && data !== null) {
+            if ((data as { hours?: number }).hours) dayData[ts.month][day].hours = (data as { hours: number }).hours;
+            if ((data as { absence?: string }).absence) dayData[ts.month][day].absence = (data as { absence: string }).absence;
+          }
+        }
+      }
+    }
+    
+    try {
+      // API aufrufen
+      const response = await fetch('/api/export/fzul', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          empName,
+          year,
+          dayData,
+          settings
+        })
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Export fehlgeschlagen');
+      }
+      
+      // Blob aus Response erstellen
+      const blob = await response.blob();
+      
+      // Download auslösen
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      
+      // Dateiname aus Header oder Standard
+      const contentDisposition = response.headers.get('Content-Disposition');
+      let fileName = `FZul_Export_${year}.xlsx`;
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename="(.+)"/);
+        if (match) fileName = match[1];
+      }
+      
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      console.log('[Export] FZul Excel erfolgreich exportiert');
+      
+    } catch (error) {
+      console.error('[Export] Fehler:', error);
+      alert('Export fehlgeschlagen: ' + (error instanceof Error ? error.message : 'Unbekannter Fehler'));
+    }
+  };
   // ============================================
   // FORMAT-ERKENNUNG
   // ============================================
@@ -598,28 +742,52 @@ export default function ImportPage() {
 
     console.log('[Import] Suche Mitarbeiter-Sheets...');
 
+    // NEU v5.0: Erst alle Sheets sammeln, dann Namen konsistent zuweisen
+    const tempSheets: { sheetName: string; baseName: string; projectYear: number }[] = [];
+
     for (const sheetName of wb.SheetNames) {
       const match = sheetName.match(pattern);
       if (match) {
-        const name = match[1].trim();
+        const baseName = match[1].trim();
         
         // ROBUSTE BLACKLIST-PRÜFUNG mit Regex
-        if (SHEET_BLACKLIST_PATTERN.test(name)) {
+        if (SHEET_BLACKLIST_PATTERN.test(baseName)) {
           console.log(`[Import] ❌ Sheet ignoriert: "${sheetName}" (Blacklist-Match)`);
           continue;
         }
 
         console.log(`[Import] ✅ Sheet akzeptiert: "${sheetName}"`);
+        tempSheets.push({
+          sheetName,
+          baseName,
+          projectYear: parseInt(match[2])
+        });
+      }
+    }
 
-        // Vollständigen Namen aus Blatt extrahieren
-        let fullName = name;
-        const ws = wb.Sheets[sheetName];
+    // NEU v5.0: Für jeden Basis-Namen den vollständigen Namen NUR EINMAL ermitteln
+    // Der Name wird im ersten Sheet mit Daten gefunden und dann für alle Sheets verwendet
+    const nameCache = new Map<string, string>();
+
+    // Sortieren nach Projektjahr, damit J1 (mit wahrscheinlich vorhandenen Daten) zuerst kommt
+    tempSheets.sort((a, b) => a.projectYear - b.projectYear);
+
+    for (const temp of tempSheets) {
+      // Basis-Name normalisieren (für Cache-Lookup)
+      // "Matzke, Re" und "Matzke, Reinhard" haben beide "matzke" als ersten Teil
+      const normalizedBase = temp.baseName.toLowerCase().replace(/\s+/g, "");
+      
+      let fullName: string | undefined = nameCache.get(normalizedBase);
+      
+      if (!fullName) {
+        // Noch nicht im Cache - versuche vollständigen Namen zu extrahieren
+        fullName = temp.baseName; // Fallback
+        const ws = wb.Sheets[temp.sheetName];
 
         if (format === 'BMBF_KMU') {
           // BMBF: Name in J11 (0-basiert: Zeile 10, Spalte 9)
           const nameCell = ws[XLSX.utils.encode_cell({ r: 10, c: 9 })]?.v?.toString() || '';
-          if (nameCell && !nameCell.includes('[')) {
-            // Ignoriere Template-Text "[Name, Vorname]"
+          if (nameCell && !nameCell.includes('[') && nameCell.length > 2) {
             fullName = nameCell.trim();
           }
         } else {
@@ -629,21 +797,35 @@ export default function ImportPage() {
             const val = ws[cellRef]?.v?.toString() || '';
             if (val.includes(',') && val.split(',').length === 2) {
               const parts = val.split(',');
-              if (parts[0].trim().toLowerCase().includes(name.toLowerCase())) {
+              // NEU v5.0: Prüfen ob gefundener Name zum Basis-Namen passt
+              // Basis-Name: "Matzke, Re" -> parts = ["Matzke", "Re"]
+              // Gefundener Name: "Matzke, Reinhard" -> parts = ["Matzke", "Reinhard"]
+              // Match wenn: Nachname gleich UND Vorname beginnt mit Präfix
+              const baseNameParts = temp.baseName.split(',').map((p: string) => p.trim().toLowerCase());
+              const foundNameParts = parts.map((p: string) => p.trim().toLowerCase());
+              const nachnameMatch = foundNameParts[0] === baseNameParts[0];
+              const vornameMatch = baseNameParts.length < 2 || 
+                                   foundNameParts.length < 2 || 
+                                   foundNameParts[1].startsWith(baseNameParts[1]);
+              if (nachnameMatch && vornameMatch) {
                 fullName = val.trim();
                 break;
               }
             }
           }
         }
-
-        sheets.push({
-          sheetName,
-          employeeName: fullName,
-          projectYear: parseInt(match[2]),
-          selected: true
-        });
+        
+        // Im Cache speichern
+        nameCache.set(normalizedBase, fullName || temp.baseName);
+        console.log(`[Import] Name-Cache: "${normalizedBase}" → "${fullName || temp.baseName}"`);
       }
+
+      sheets.push({
+        sheetName: temp.sheetName,
+        employeeName: fullName || temp.baseName,
+        projectYear: temp.projectYear,
+        selected: true
+      });
     }
 
     console.log(`[Import] Gefunden: ${sheets.length} Mitarbeiter-Sheets`);
@@ -1093,6 +1275,31 @@ export default function ImportPage() {
     try {
       let importCount = 0;
 
+      // NEU v5.0: Zuerst das Basis-Kalenderjahr ermitteln aus allen extrahierten Daten
+      let baseCalendarYear: number | null = null;
+      let baseProjectYear: number | null = null;
+      
+      for (const emp of extractedData) {
+        for (const month of emp.months) {
+          if (month.year && month.billableHours > 0) {
+            if (!baseCalendarYear) {
+              baseCalendarYear = month.year;
+              baseProjectYear = emp.projectYear;
+            }
+            break;
+          }
+        }
+        if (baseCalendarYear) break;
+      }
+      
+      // Fallback: Aktuelles Jahr als J1
+      if (!baseCalendarYear) {
+        baseCalendarYear = new Date().getFullYear();
+        baseProjectYear = 1;
+      }
+      
+      console.log(`[Import] Basis: Kalenderjahr ${baseCalendarYear} = Projektjahr J${baseProjectYear}`);
+
       for (const emp of extractedData) {
         // MA-Stammdaten
         await supabase.from('import_employees').upsert({
@@ -1103,29 +1310,41 @@ export default function ImportPage() {
           updated_at: new Date().toISOString()
         }, { onConflict: 'company_id,name' });
 
-        // Monatsdaten
+        // Kalenderjahr für diesen MA berechnen basierend auf Projektjahr
+        const yearOffset = emp.projectYear - (baseProjectYear || 1);
+        const calendarYear = (baseCalendarYear || new Date().getFullYear()) + yearOffset;
+        
+        console.log(`[Import] ${emp.employeeName} J${emp.projectYear} -> Kalenderjahr ${calendarYear}`);
+
+        // NEU v5.0: ALLE 12 Monate für dieses Jahr speichern
+        const monthsMap = new Map<number, typeof emp.months[0]>();
         for (const month of emp.months) {
-          if (month.billableHours > 0 || Object.keys(month.dailyData).length > 0) {
-            await supabase.from('imported_timesheets').upsert({
-              company_id: profile.company_id,
-              uploaded_by: profile.id,
-              employee_name: emp.employeeName,
-              project_name: projectInfo.projectName,
-              funding_reference: projectInfo.fundingReference,
-              year: month.year,
-              month: month.month,
-              daily_data: month.dailyData,
-              total_billable_hours: month.billableHours,
-              total_absence_days: Math.round(month.absenceHours / 8),
-              original_filename: projectInfo.fileName,
-            }, { onConflict: 'company_id,employee_name,project_name,year,month' });
-          }
+          monthsMap.set(month.month, month);
+        }
+        
+        // Alle 12 Monate durchgehen und speichern
+        for (let m = 1; m <= 12; m++) {
+          const existingMonth = monthsMap.get(m);
+          
+          await supabase.from('imported_timesheets').upsert({
+            company_id: profile.company_id,
+            uploaded_by: profile.id,
+            employee_name: emp.employeeName,
+            project_name: projectInfo.projectName,
+            funding_reference: projectInfo.fundingReference,
+            year: existingMonth?.year || calendarYear,
+            month: m,
+            daily_data: existingMonth?.dailyData || {},
+            total_billable_hours: existingMonth?.billableHours || 0,
+            total_absence_days: Math.round((existingMonth?.absenceHours || 0) / 8),
+            original_filename: projectInfo.fileName,
+          }, { onConflict: 'company_id,employee_name,project_name,year,month' });
         }
 
         importCount++;
       }
 
-      setSuccess(`${importCount} Mitarbeiter erfolgreich importiert!`);
+      setSuccess(`${importCount} Mitarbeiter erfolgreich importiert (je 12 Monate)!`);
       setImportStep('done');
       loadSavedData();
 
@@ -1136,8 +1355,6 @@ export default function ImportPage() {
       setProcessing(false);
     }
   }
-
-  // ============================================
   // LÖSCHEN
   // ============================================
 
@@ -1232,11 +1449,8 @@ export default function ImportPage() {
   const renderProjectDetail = () => {
     if (!selectedProject) return null;
 
-    // Nur Super-Admin kann löschen
-    const isSuperAdmin = profile?.email?.toLowerCase() === 'm.ditscherlein@cubintec.com';
-
     const allTimesheets = getProjectTimesheets(selectedProject);
-    const employeeNames = [...new Set(allTimesheets.map(ts => ts.employee_name))];
+    const allEmployeeNames = [...new Set(allTimesheets.map(ts => ts.employee_name))];
     const fkz = allTimesheets[0]?.funding_reference || '';
     
     // Verfügbare Jahre ermitteln
@@ -1251,17 +1465,20 @@ export default function ImportPage() {
     const timesheets = allTimesheets.filter(ts => ts.year === displayYear);
     
     // Mitarbeiter die in diesem Jahr Daten haben
-    const employeesInYear = [...new Set(timesheets.map(ts => ts.employee_name))];
+    const employeesInYear = allEmployeeNames; // NEU v5.0: Alle MA anzeigen
     
     // Hilfsfunktion: Arbeitstage im Jahr zählen (ohne WE)
     const getWorkdaysInYear = (year: number): number => {
       let workdays = 0;
+      const holidays = getGermanHolidays(year);
       for (let m = 0; m < 12; m++) {
         const daysInMonth = new Date(year, m + 1, 0).getDate();
         for (let d = 1; d <= daysInMonth; d++) {
           const date = new Date(year, m, d);
           const dayOfWeek = date.getDay();
-          if (dayOfWeek !== 0 && dayOfWeek !== 6) workdays++;
+          const dateStr = `${year}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+          // Wochenenden und Feiertage nicht zählen
+          if (dayOfWeek !== 0 && dayOfWeek !== 6 && !holidays.has(dateStr)) workdays++;
         }
       }
       return workdays;
@@ -1270,23 +1487,25 @@ export default function ImportPage() {
     // Gesamtstunden pro Jahr berechnen (gebucht + verfügbar)
     const yearTotals = availableYears.map(year => {
       const yearTimesheets = allTimesheets.filter(ts => ts.year === year);
-      const yearEmployees = [...new Set(yearTimesheets.map(ts => ts.employee_name))];
+      // NEU v5.0: Verwende allEmployeeNames statt yearEmployees
       const usedHours = yearTimesheets.reduce((s, ts) => s + ts.total_billable_hours, 0);
       
       // Verfügbare Stunden = (Arbeitstage * max Stunden/Tag) für alle MA
       const workdays = getWorkdaysInYear(year);
       let maxHours = 0;
-      for (const empName of yearEmployees) {
+      for (const empName of allEmployeeNames) {
         const settings = getEmployeeSettings(empName);
         const maxDaily = settings.weekly_hours / 5;
         maxHours += workdays * maxDaily;
       }
+      const hasData = usedHours > 0; // NEU v5.0
       
       return {
         year,
         usedHours,
         freeHours: maxHours - usedHours,
-        maxHours
+        maxHours,
+        hasData
       };
     });
     const totalAllYears = allTimesheets.reduce((s, ts) => s + ts.total_billable_hours, 0);
@@ -1297,16 +1516,14 @@ export default function ImportPage() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <button onClick={() => setSelectedProject(null)} className="text-blue-600 hover:underline">
-            ← Zurück zur Übersicht
+            ← Zurück zur Übersicht
           </button>
-          {isSuperAdmin && (
-            <button
-              onClick={() => setShowDeleteConfirm({ type: 'project', projectName: selectedProject })}
-              className="px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 text-sm"
-            >
-              🗑️ Projekt löschen
-            </button>
-          )}
+          <button
+            onClick={() => setShowDeleteConfirm({ type: 'project', projectName: selectedProject })}
+            className="px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 text-sm"
+          >
+            🗑️ Projekt löschen
+          </button>
         </div>
 
         {/* Projekt-Header mit Jahresauswahl */}
@@ -1316,7 +1533,7 @@ export default function ImportPage() {
               <h2 className="text-xl font-bold mb-2">📁 {selectedProject}</h2>
               <p className="text-gray-500">FKZ: {fkz}</p>
               <p className="text-sm text-gray-400 mt-1">
-                {employeeNames.length} Mitarbeiter • {availableYears.length > 0 ? `${availableYears[0]} - ${availableYears[availableYears.length - 1]}` : ''}
+                {allEmployeeNames.length} Mitarbeiter • {availableYears.length > 0 ? `${availableYears[0]} - ${availableYears[availableYears.length - 1]}` : ''}
               </p>
             </div>
             
@@ -1339,7 +1556,7 @@ export default function ImportPage() {
           
           {/* Jahresübersicht */}
           <div className="mt-4 grid grid-cols-2 md:grid-cols-5 gap-3">
-            {yearTotals.map(({ year, usedHours, freeHours }) => (
+            {yearTotals.map(({ year, usedHours, freeHours, hasData }) => (
               <div 
                 key={year} 
                 className={`p-3 rounded-lg text-center cursor-pointer transition-colors ${
@@ -1406,6 +1623,15 @@ export default function ImportPage() {
                   </div>
                   <div className="text-xs text-gray-500">gebucht / verfügbar</div>
                 </div>
+                {/* Download Button */}
+                <div className="ml-4">
+                  <button
+                    onClick={() => exportFzulExcel(empName, displayYear, empTimesheets, settings)}
+                    className="px-3 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 flex items-center gap-2"
+                  >
+                    📥 Excel
+                  </button>
+                </div>
               </div>
 
               <div className="p-4 overflow-x-auto">
@@ -1439,7 +1665,7 @@ export default function ImportPage() {
                             {absenceDays > 0 ? absenceDays : '-'}
                           </td>
                           <td className="px-3 py-2 text-center">
-                            {ts && isSuperAdmin && (
+                            {ts && (
                               <button
                                 onClick={() => setShowDeleteConfirm({ type: 'timesheet', id: ts.id })}
                                 className="text-red-500 hover:text-red-700"
@@ -1527,6 +1753,15 @@ export default function ImportPage() {
                   </div>
                   <div className="text-xs text-gray-500">gebucht / verfügbar</div>
                 </div>
+                {/* Download Button */}
+                <div className="ml-4">
+                  <button
+                    onClick={() => exportFzulExcel(empName, displayYear, empTimesheets, settings)}
+                    className="px-3 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 flex items-center gap-2"
+                  >
+                    📥 Excel
+                  </button>
+                </div>
               </div>
 
               <div className="p-4 overflow-x-auto">
@@ -1573,13 +1808,14 @@ export default function ImportPage() {
                               return <td key={day} className="px-1 py-1 border bg-gray-100"></td>;
                             }
 
-                            // Wochenende prüfen
+                            // Wochenende und Feiertage prüfen
                             const date = new Date(displayYear, month - 1, day);
                             const dayOfWeek = date.getDay();
                             const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                            const isHolidayDay = isHoliday(displayYear, month, day);
                             
-                            if (isWeekend) {
-                              return <td key={day} className="px-1 py-1 border bg-gray-200 text-gray-400 text-center">-</td>;
+                            if (isWeekend || isHolidayDay) {
+                              return <td key={day} className="px-1 py-1 border bg-gray-200 text-gray-400 text-center">{isHolidayDay && !isWeekend ? 'F' : '-'}</td>;
                             }
 
                             // AMPEL-LOGIK: Verfügbarkeit anzeigen
@@ -1899,7 +2135,7 @@ export default function ImportPage() {
 
                 {/* Standard-Werte */}
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                  <h3 className="font-bold text-yellow-800 mb-3">⚙️ Standard-Stammdaten (für alle MA)</h3>
+                  <h3 className="font-bold text-yellow-800 mb-3">⚙️ Standard-Stammdaten (für alle MA)</h3>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium mb-1">Wochenarbeitszeit</label>
@@ -1961,7 +2197,7 @@ export default function ImportPage() {
                     }}
                     className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                   >
-                    ← Andere Datei
+                    ← Andere Datei
                   </button>
                   <button
                     onClick={importAllEmployees}
