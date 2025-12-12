@@ -1,5 +1,5 @@
 // src/app/import/page.tsx
-// VERSION: v5.21 - Feste Seitenhöhe ohne Scroll
+// VERSION: v6.0b - Bundesland synchron überall
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
@@ -90,6 +90,35 @@ interface ImportEmployee {
   annual_leave_days: number;
 }
 
+// NEU v6.0: FZul-spezifische Interfaces
+interface FzulEmployeeSettings {
+  id: string;
+  company_id: string;
+  employee_name: string;
+  weekly_hours: number;
+  annual_leave_days: number;
+  federal_state: string;
+  position_title?: string;
+  notes?: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+interface FzulPdfArchive {
+  id: string;
+  company_id: string;
+  timesheet_id: string;
+  filename: string;
+  file_size?: number;
+  employee_name: string;
+  year: number;
+  project_short_name?: string;
+  project_id?: string;
+  created_by?: string;
+  created_at: string;
+}
+
 // ============================================
 // KONSTANTEN
 // ============================================
@@ -99,7 +128,7 @@ const MONTH_NAMES = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
 
 const MONTH_SHORT = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 
-// NEU v5.18: Bundesländer mit Codes
+// Bundesländer mit Codes
 const BUNDESLAENDER = [
   { code: 'DE-BW', name: 'Baden-Württemberg' },
   { code: 'DE-BY', name: 'Bayern' },
@@ -118,6 +147,26 @@ const BUNDESLAENDER = [
   { code: 'DE-SH', name: 'Schleswig-Holstein' },
   { code: 'DE-TH', name: 'Thüringen' },
 ];
+
+// NEU v6.0: Bundesländer für FZul (kurze Codes)
+const FEDERAL_STATES: Record<string, string> = {
+  'BW': 'Baden-Württemberg',
+  'BY': 'Bayern',
+  'BE': 'Berlin',
+  'BB': 'Brandenburg',
+  'HB': 'Bremen',
+  'HH': 'Hamburg',
+  'HE': 'Hessen',
+  'MV': 'Mecklenburg-Vorpommern',
+  'NI': 'Niedersachsen',
+  'NW': 'Nordrhein-Westfalen',
+  'RP': 'Rheinland-Pfalz',
+  'SL': 'Saarland',
+  'SN': 'Sachsen',
+  'ST': 'Sachsen-Anhalt',
+  'SH': 'Schleswig-Holstein',
+  'TH': 'Thüringen'
+};
 
 // Format-Beschreibungen
 const FORMAT_INFO: Record<FundingFormat, { name: string; color: string; description: string }> = {
@@ -143,20 +192,7 @@ const FORMAT_INFO: Record<FundingFormat, { name: string; color: string; descript
   }
 };
 
-// ============================================
 // BLACKLIST FÜR TECHNISCHE SHEETS
-// ============================================
-// Diese Regex matcht alle Sheet-Namen, die NICHT importiert werden sollen:
-// - Ermittl* (Ermittl.-Stunden)
-// - Auswertung*
-// - Nav*
-// - PK* (Personalkosten: PK Q1, PK Q2, etc.)
-// - ZAZK* (Zahlungsanforderung)
-// - ZNZK* (Zahlungsnachweise)
-// - Planung*
-// - Übersicht
-// - ZA (Zahlungsanforderung)
-// - MA + Zahl (MA6, MA 10, etc. - Platzhalter)
 const SHEET_BLACKLIST_PATTERN = /^(Ermittl|Auswertung|Nav|PK|ZAZK|ZNZK|Planung|Übersicht|Uebersicht|AP|ZA|MA\s*\d+)/i;
 
 // ============================================
@@ -165,7 +201,7 @@ const SHEET_BLACKLIST_PATTERN = /^(Ermittl|Auswertung|Nav|PK|ZAZK|ZNZK|Planung|�
 
 export default function ImportPage() {
   // VERSION CHECK - in Browser-Konsole sichtbar
-  console.log('[Import] Version v5.9 - TypeScript Fix');
+  console.log('[Import] Version v6.0a - FZul Online-Editor, Bundesland auf Firmenebene');
   
   const router = useRouter();
   const supabase = createClient();
@@ -178,8 +214,8 @@ export default function ImportPage() {
   const [success, setSuccess] = useState('');
   const [processing, setProcessing] = useState(false);
 
-  // Navigation
-  const [activeTab, setActiveTab] = useState<'import' | 'projects'>('projects');
+  // Navigation - NEU v6.0: erweitert für FZul-Tabs
+  const [activeTab, setActiveTab] = useState<'import' | 'projects' | 'fzul-employees' | 'fzul-editor' | 'fzul-archive'>('projects');
 
   // Import States
   const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
@@ -194,13 +230,13 @@ export default function ImportPage() {
   // Stammdaten (Standard-Werte)
   const [defaultWeeklyHours, setDefaultWeeklyHours] = useState(40);
   const [defaultAnnualLeave, setDefaultAnnualLeave] = useState(30);
-  const [importStateCode, setImportStateCode] = useState('DE-NW'); // NEU v5.18: Bundesland für Import
+  const [importStateCode, setImportStateCode] = useState('DE-NW');
 
   // Gespeicherte Daten
   const [savedTimesheets, setSavedTimesheets] = useState<ImportedTimesheet[]>([]);
   const [savedEmployees, setSavedEmployees] = useState<ImportEmployee[]>([]);
   
-  // NEU v5.17: Feiertage aus Datenbank
+  // Feiertage aus Datenbank
   const [companyStateCode, setCompanyStateCode] = useState<string>('DE-NW');
   const [holidayDates, setHolidayDates] = useState<Set<string>>(new Set());
 
@@ -227,6 +263,33 @@ export default function ImportPage() {
 
   // Drag & Drop
   const [isDragging, setIsDragging] = useState(false);
+
+  // NEU v6.0: FZul MA-Stammdaten States
+  const [fzulEmployees, setFzulEmployees] = useState<FzulEmployeeSettings[]>([]);
+  const [loadingFzulEmployees, setLoadingFzulEmployees] = useState(false);
+  const [showFzulEmployeeModal, setShowFzulEmployeeModal] = useState(false);
+  const [editingFzulEmployee, setEditingFzulEmployee] = useState<FzulEmployeeSettings | null>(null);
+  const [fzulEmployeeForm, setFzulEmployeeForm] = useState({
+    employee_name: '',
+    weekly_hours: 40,
+    annual_leave_days: 30,
+    position_title: '',
+    notes: '',
+    is_active: true
+  });
+  
+  // NEU v6.0: Firmen-Bundesland bearbeiten
+  const [showCompanyStateModal, setShowCompanyStateModal] = useState(false);
+  const [newCompanyStateCode, setNewCompanyStateCode] = useState('DE-NW');
+  const [savingFzulEmployee, setSavingFzulEmployee] = useState(false);
+
+  // FZul PDF-Archiv States
+  const [fzulPdfs, setFzulPdfs] = useState<FzulPdfArchive[]>([]);
+  const [loadingPdfs, setLoadingPdfs] = useState(false);
+
+  // FZul Editor States
+  const [fzulSelectedEmployee, setFzulSelectedEmployee] = useState<string | null>(null);
+  const [fzulSelectedYear, setFzulSelectedYear] = useState<number>(new Date().getFullYear());
 
   // ============================================
   // INITIALISIERUNG
@@ -262,17 +325,14 @@ export default function ImportPage() {
         return;
       }
 
-      // DEBUG: E-Mail in Konsole anzeigen
       console.log('[Import] Profil-E-Mail:', profileData.email);
       
       setProfile(profileData);
       
-      // NEU v5.17: Bundesland aus Company laden
       const stateCode = (profileData.companies as any)?.state_code || 'DE-NW';
       setCompanyStateCode(stateCode);
       console.log('[Import] Bundesland:', stateCode);
       
-      // Feiertage laden (alle Jahre von 2020-2030)
       await loadHolidays(stateCode);
       
       setHasAccess(profileData.has_import_access || false);
@@ -287,7 +347,6 @@ export default function ImportPage() {
     }
   }
 
-  // NEU v5.17: Feiertage aus Datenbank laden
   async function loadHolidays(stateCode: string) {
     try {
       const { data: holidaysData } = await supabase
@@ -297,12 +356,10 @@ export default function ImportPage() {
         .gte('holiday_date', '2020-01-01')
         .lte('holiday_date', '2030-12-31');
 
-      // Filtern: bundesweite + landesspezifische Feiertage
       const filteredHolidays = (holidaysData || []).filter(h =>
         h.state_code === null || h.state_code === stateCode
       );
 
-      // In Set umwandeln für schnellen Zugriff
       const holidaySet = new Set<string>();
       for (const h of filteredHolidays) {
         holidaySet.add(h.holiday_date);
@@ -336,9 +393,222 @@ export default function ImportPage() {
         .eq('company_id', profile.company_id);
 
       setSavedEmployees(employees || []);
+      
+      // NEU v6.0: FZul-Daten laden
+      await loadFzulEmployees();
+      await loadFzulPdfs();
     } catch (err) {
       console.error(err);
     }
+  }
+
+  // ============================================
+  // NEU v6.0: FZUL MA-STAMMDATEN FUNKTIONEN
+  // ============================================
+
+  async function loadFzulEmployees() {
+    if (!profile) return;
+    
+    setLoadingFzulEmployees(true);
+    try {
+      const { data, error } = await supabase
+        .from('fzul_employee_settings')
+        .select('*')
+        .eq('company_id', profile.company_id)
+        .order('employee_name');
+
+      if (error) throw error;
+      setFzulEmployees(data || []);
+    } catch (err) {
+      console.error('Fehler beim Laden der FZul-MA-Daten:', err);
+    } finally {
+      setLoadingFzulEmployees(false);
+    }
+  }
+
+  async function loadFzulPdfs() {
+    if (!profile) return;
+    
+    setLoadingPdfs(true);
+    try {
+      const { data, error } = await supabase
+        .from('fzul_pdf_archive')
+        .select('*')
+        .eq('company_id', profile.company_id)
+        .order('year', { ascending: false })
+        .order('employee_name');
+
+      if (error) throw error;
+      setFzulPdfs(data || []);
+    } catch (err) {
+      console.error('Fehler beim Laden der FZul-PDFs:', err);
+    } finally {
+      setLoadingPdfs(false);
+    }
+  }
+
+  function openNewFzulEmployeeModal() {
+    setEditingFzulEmployee(null);
+    setFzulEmployeeForm({
+      employee_name: '',
+      weekly_hours: 40,
+      annual_leave_days: 30,
+      position_title: '',
+      notes: '',
+      is_active: true
+    });
+    setShowFzulEmployeeModal(true);
+  }
+
+  function openEditFzulEmployeeModal(emp: FzulEmployeeSettings) {
+    setEditingFzulEmployee(emp);
+    setFzulEmployeeForm({
+      employee_name: emp.employee_name,
+      weekly_hours: emp.weekly_hours,
+      annual_leave_days: emp.annual_leave_days,
+      position_title: emp.position_title || '',
+      notes: emp.notes || '',
+      is_active: emp.is_active
+    });
+    setShowFzulEmployeeModal(true);
+  }
+
+  async function saveFzulEmployee() {
+    if (!profile || !fzulEmployeeForm.employee_name.trim()) {
+      setError('Bitte geben Sie einen Mitarbeiternamen ein');
+      return;
+    }
+
+    setSavingFzulEmployee(true);
+    try {
+      if (editingFzulEmployee) {
+        const { error } = await supabase
+          .from('fzul_employee_settings')
+          .update({
+            employee_name: fzulEmployeeForm.employee_name.trim(),
+            weekly_hours: fzulEmployeeForm.weekly_hours,
+            annual_leave_days: fzulEmployeeForm.annual_leave_days,
+            position_title: fzulEmployeeForm.position_title || null,
+            notes: fzulEmployeeForm.notes || null,
+            is_active: fzulEmployeeForm.is_active
+          })
+          .eq('id', editingFzulEmployee.id);
+
+        if (error) throw error;
+        setSuccess('Mitarbeiter aktualisiert');
+      } else {
+        const { error } = await supabase
+          .from('fzul_employee_settings')
+          .insert({
+            company_id: profile.company_id,
+            employee_name: fzulEmployeeForm.employee_name.trim(),
+            weekly_hours: fzulEmployeeForm.weekly_hours,
+            annual_leave_days: fzulEmployeeForm.annual_leave_days,
+            federal_state: companyStateCode.replace('DE-', ''), // Firmen-Bundesland als Default
+            position_title: fzulEmployeeForm.position_title || null,
+            notes: fzulEmployeeForm.notes || null,
+            is_active: fzulEmployeeForm.is_active
+          });
+
+        if (error) {
+          if (error.code === '23505') {
+            setError('Ein Mitarbeiter mit diesem Namen existiert bereits');
+            return;
+          }
+          throw error;
+        }
+        setSuccess('Mitarbeiter angelegt');
+      }
+
+      setShowFzulEmployeeModal(false);
+      await loadFzulEmployees();
+    } catch (err) {
+      console.error('Fehler beim Speichern:', err);
+      setError('Fehler beim Speichern: ' + (err as Error).message);
+    } finally {
+      setSavingFzulEmployee(false);
+    }
+  }
+
+  async function deleteFzulEmployee(emp: FzulEmployeeSettings) {
+    if (!confirm(`Mitarbeiter "${emp.employee_name}" wirklich löschen?`)) return;
+
+    try {
+      const { error } = await supabase
+        .from('fzul_employee_settings')
+        .delete()
+        .eq('id', emp.id);
+
+      if (error) throw error;
+      setSuccess('Mitarbeiter gelöscht');
+      await loadFzulEmployees();
+    } catch (err) {
+      console.error('Fehler beim Löschen:', err);
+      setError('Fehler beim Löschen: ' + (err as Error).message);
+    }
+  }
+
+  async function importEmployeeNamesFromTimesheets() {
+    if (!profile) return;
+
+    const importedNames = [...new Set(savedTimesheets.map(ts => ts.employee_name))];
+    const existingNames = fzulEmployees.map(e => e.employee_name);
+    const newNames = importedNames.filter(name => !existingNames.includes(name));
+
+    if (newNames.length === 0) {
+      setSuccess('Alle Mitarbeiter sind bereits angelegt');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('fzul_employee_settings')
+        .insert(
+          newNames.map(name => ({
+            company_id: profile.company_id,
+            employee_name: name,
+            weekly_hours: 40,
+            annual_leave_days: 30,
+            federal_state: companyStateCode.replace('DE-', ''), // Firmen-Bundesland
+            is_active: true
+          }))
+        );
+
+      if (error) throw error;
+      setSuccess(`${newNames.length} Mitarbeiter aus Import übernommen`);
+      await loadFzulEmployees();
+    } catch (err) {
+      console.error('Fehler beim Importieren:', err);
+      setError('Fehler beim Importieren: ' + (err as Error).message);
+    }
+  }
+
+  // NEU v6.0: Firmen-Bundesland ändern
+  async function saveCompanyState() {
+    if (!profile) return;
+
+    try {
+      const { error } = await supabase
+        .from('companies')
+        .update({ state_code: newCompanyStateCode })
+        .eq('id', profile.company_id);
+
+      if (error) throw error;
+      
+      setCompanyStateCode(newCompanyStateCode);
+      setImportStateCode(newCompanyStateCode);
+      await loadHolidays(newCompanyStateCode);
+      setShowCompanyStateModal(false);
+      setSuccess('Firmen-Bundesland aktualisiert');
+    } catch (err) {
+      console.error('Fehler beim Speichern:', err);
+      setError('Fehler beim Speichern: ' + (err as Error).message);
+    }
+  }
+
+  function openCompanyStateModal() {
+    setNewCompanyStateCode(companyStateCode);
+    setShowCompanyStateModal(true);
   }
 
   // ============================================
@@ -435,12 +705,12 @@ export default function ImportPage() {
 
   const getMaxMonthlyHours = (weeklyHours: number) => (weeklyHours * 52) / 12;
   const getDaysInMonth = (year: number, month: number) => new Date(year, month, 0).getDate();
+
   // ============================================
   // DEUTSCHE FEIERTAGE (bundesweit)
   // ============================================
   
   const getEasterSunday = (year: number): Date => {
-    // Gauss-Algorithmus für Ostersonntag
     const a = year % 19;
     const b = Math.floor(year / 100);
     const c = year % 100;
@@ -458,16 +728,11 @@ export default function ImportPage() {
     return new Date(year, month - 1, day);
   };
   
-  // NEU v5.17: Feiertage aus DB-Set filtern (statt lokale Berechnung)
-  // NEU v5.18: Feiertage mit Bundesland-Unterstützung
   const getGermanHolidays = (year: number, stateCode?: string): Set<string> => {
-    const state = stateCode || importStateCode || 'DE-NW';
+    const state = stateCode || companyStateCode || 'DE-NW';
     const holidays = new Set<string>();
-    
-    // Hilfsfunktion für Oster-abhängige Feiertage
     const easter = getEasterSunday(year);
     
-    // WICHTIG: Lokale Formatierung statt toISOString() (Zeitzonen-Problem!)
     const formatDate = (d: Date): string => {
       const y = d.getFullYear();
       const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -481,60 +746,28 @@ export default function ImportPage() {
       return formatDate(r);
     };
     
-    // === BUNDESWEITE FEIERTAGE (alle 16 Bundesländer) ===
-    holidays.add(`${year}-01-01`);  // Neujahr
-    holidays.add(addDays(easter, -2));   // Karfreitag
-    holidays.add(addDays(easter, 1));    // Ostermontag
-    holidays.add(`${year}-05-01`);  // Tag der Arbeit
-    holidays.add(addDays(easter, 39));   // Christi Himmelfahrt
-    holidays.add(addDays(easter, 50));   // Pfingstmontag
-    holidays.add(`${year}-10-03`);  // Tag der Deutschen Einheit
-    holidays.add(`${year}-12-25`);  // 1. Weihnachtstag
-    holidays.add(`${year}-12-26`);  // 2. Weihnachtstag
+    // Bundesweite Feiertage
+    holidays.add(`${year}-01-01`);
+    holidays.add(addDays(easter, -2));
+    holidays.add(addDays(easter, 1));
+    holidays.add(`${year}-05-01`);
+    holidays.add(addDays(easter, 39));
+    holidays.add(addDays(easter, 50));
+    holidays.add(`${year}-10-03`);
+    holidays.add(`${year}-12-25`);
+    holidays.add(`${year}-12-26`);
     
-    // === LANDESSPEZIFISCHE FEIERTAGE ===
-    
-    // Heilige Drei Könige (6.1.): BW, BY, ST
-    if (['DE-BW', 'DE-BY', 'DE-ST'].includes(state)) {
-      holidays.add(`${year}-01-06`);
-    }
-    
-    // Internationaler Frauentag (8.3.): BE, MV
-    if (['DE-BE', 'DE-MV'].includes(state)) {
-      holidays.add(`${year}-03-08`);
-    }
-    
-    // Fronleichnam (Ostern + 60): BW, BY, HE, NW, RP, SL
-    if (['DE-BW', 'DE-BY', 'DE-HE', 'DE-NW', 'DE-RP', 'DE-SL'].includes(state)) {
-      holidays.add(addDays(easter, 60));
-    }
-    
-    // Mariä Himmelfahrt (15.8.): SL (und BY in kath. Gemeinden - hier vereinfacht für SL)
-    if (['DE-SL'].includes(state)) {
-      holidays.add(`${year}-08-15`);
-    }
-    
-    // Weltkindertag (20.9.): TH
-    if (['DE-TH'].includes(state)) {
-      holidays.add(`${year}-09-20`);
-    }
-    
-    // Reformationstag (31.10.): BB, HB, HH, MV, NI, SN, ST, SH, TH
-    if (['DE-BB', 'DE-HB', 'DE-HH', 'DE-MV', 'DE-NI', 'DE-SN', 'DE-ST', 'DE-SH', 'DE-TH'].includes(state)) {
-      holidays.add(`${year}-10-31`);
-    }
-    
-    // Allerheiligen (1.11.): BW, BY, NW, RP, SL
-    if (['DE-BW', 'DE-BY', 'DE-NW', 'DE-RP', 'DE-SL'].includes(state)) {
-      holidays.add(`${year}-11-01`);
-    }
-    
-    // Buß- und Bettag (Mittwoch vor 23.11.): SN
+    // Landesspezifische Feiertage
+    if (['DE-BW', 'DE-BY', 'DE-ST'].includes(state)) holidays.add(`${year}-01-06`);
+    if (['DE-BE', 'DE-MV'].includes(state)) holidays.add(`${year}-03-08`);
+    if (['DE-BW', 'DE-BY', 'DE-HE', 'DE-NW', 'DE-RP', 'DE-SL'].includes(state)) holidays.add(addDays(easter, 60));
+    if (['DE-SL'].includes(state)) holidays.add(`${year}-08-15`);
+    if (['DE-TH'].includes(state)) holidays.add(`${year}-09-20`);
+    if (['DE-BB', 'DE-HB', 'DE-HH', 'DE-MV', 'DE-NI', 'DE-SN', 'DE-ST', 'DE-SH', 'DE-TH'].includes(state)) holidays.add(`${year}-10-31`);
+    if (['DE-BW', 'DE-BY', 'DE-NW', 'DE-RP', 'DE-SL'].includes(state)) holidays.add(`${year}-11-01`);
     if (['DE-SN'].includes(state)) {
-      // Berechnung: Mittwoch vor dem 23. November
-      const nov23 = new Date(year, 10, 23); // Monat 10 = November
+      const nov23 = new Date(year, 10, 23);
       const dayOfWeek = nov23.getDay();
-      // Tage zurück bis Mittwoch (3)
       const daysBack = (dayOfWeek + 7 - 3) % 7;
       const bussUndBettag = new Date(nov23);
       bussUndBettag.setDate(nov23.getDate() - (daysBack === 0 ? 7 : daysBack));
@@ -550,7 +783,6 @@ export default function ImportPage() {
     return holidays.has(dateStr);
   };
 
-
   // ============================================
   // FZul Excel Export (via API für Formatierung)
   // ============================================
@@ -561,7 +793,6 @@ export default function ImportPage() {
     empTimesheets: ImportedTimesheet[],
     settings: { weekly_hours: number; annual_leave_days: number }
   ) => {
-    // Tagesweise Daten aufbereiten
     const dayData: Record<number, Record<number, { hours: number; absence: string | null }>> = {};
     for (let m = 1; m <= 12; m++) {
       dayData[m] = {};
@@ -583,22 +814,14 @@ export default function ImportPage() {
       }
     }
     
-    // NEU v5.17: Feiertage für dieses Jahr an API senden
     const yearHolidays = getGermanHolidays(year);
     const holidaysArray = Array.from(yearHolidays);
     
     try {
-      // API aufrufen
       const response = await fetch('/api/export/fzul', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          empName,
-          year,
-          dayData,
-          settings,
-          holidays: holidaysArray  // NEU v5.17: Feiertage aus DB
-        })
+        body: JSON.stringify({ empName, year, dayData, settings, holidays: holidaysArray })
       });
       
       if (!response.ok) {
@@ -606,15 +829,11 @@ export default function ImportPage() {
         throw new Error(error.error || 'Export fehlgeschlagen');
       }
       
-      // Blob aus Response erstellen
       const blob = await response.blob();
-      
-      // Download auslösen
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       
-      // Dateiname aus Header oder Standard
       const contentDisposition = response.headers.get('Content-Disposition');
       let fileName = `FZul_Export_${year}.xlsx`;
       if (contentDisposition) {
@@ -635,39 +854,25 @@ export default function ImportPage() {
       alert('Export fehlgeschlagen: ' + (error instanceof Error ? error.message : 'Unbekannter Fehler'));
     }
   };
+
   // ============================================
   // FORMAT-ERKENNUNG
   // ============================================
 
   function detectFormat(wb: XLSX.WorkBook): FundingFormat {
-    // 1. BMBF/KMU-innovativ: Hat "Nav" Sheet mit FKZ beginnend mit "01"
     if (wb.SheetNames.includes('Nav')) {
       const navSheet = wb.Sheets['Nav'];
-      // FKZ in B6 prüfen
       const fkzCell = navSheet['B6']?.v?.toString() || '';
-      if (fkzCell.match(/^01[A-Z]{2}\d/)) {
-        return 'BMBF_KMU';
-      }
+      if (fkzCell.match(/^01[A-Z]{2}\d/)) return 'BMBF_KMU';
     }
-
-    // 2. ZIM: Hat "AP Übersicht" oder Sheets mit Arbeitspaketen (AP1, AP2, etc.)
-    if (wb.SheetNames.includes('AP Übersicht')) {
-      return 'ZIM';
-    }
-
-    // Arbeitspakete in Sheets suchen
+    if (wb.SheetNames.includes('AP Übersicht')) return 'ZIM';
     for (const sheetName of wb.SheetNames) {
       const ws = wb.Sheets[sheetName];
-      // Erste 50 Zeilen durchsuchen
       for (let row = 1; row <= 50; row++) {
         const cellA = ws[XLSX.utils.encode_cell({ r: row - 1, c: 0 })]?.v?.toString() || '';
-        if (cellA.match(/^AP\s?\d/i)) {
-          return 'ZIM';
-        }
+        if (cellA.match(/^AP\s?\d/i)) return 'ZIM';
       }
     }
-
-    // 3. FKZ-Muster prüfen (16K... = ZIM, 01... = BMBF)
     for (const sheetName of wb.SheetNames) {
       const ws = wb.Sheets[sheetName];
       for (const cellRef of Object.keys(ws)) {
@@ -677,7 +882,6 @@ export default function ImportPage() {
         if (val.match(/01[A-Z]{2}\d{4,6}[A-Z]?/)) return 'BMBF_KMU';
       }
     }
-
     return 'UNKNOWN';
   }
 
@@ -685,20 +889,9 @@ export default function ImportPage() {
   // EXCEL VERARBEITUNG
   // ============================================
 
-  const handleDragEnter = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  }, []);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-  }, []);
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-  }, []);
-
+  const handleDragEnter = useCallback((e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); }, []);
+  const handleDragLeave = useCallback((e: React.DragEvent) => { e.preventDefault(); setIsDragging(false); }, []);
+  const handleDragOver = useCallback((e: React.DragEvent) => { e.preventDefault(); }, []);
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
@@ -724,16 +917,10 @@ export default function ImportPage() {
     try {
       const arrayBuffer = await file.arrayBuffer();
       const wb = XLSX.read(arrayBuffer, { type: 'array' });
-
-      // Format erkennen
       const detectedFormat = detectFormat(wb);
       setSelectedFormat(detectedFormat);
-
-      // Projektinfo extrahieren (formatabhängig)
       const info = extractProjectInfo(wb, file.name, detectedFormat);
       setProjectInfo(info);
-
-      // Mitarbeiter-Sheets finden
       const sheets = findEmployeeSheets(wb, detectedFormat);
       setEmployeeSheets(sheets);
 
@@ -743,19 +930,15 @@ export default function ImportPage() {
         return;
       }
 
-      // Daten extrahieren (formatabhängig)
       const extracted: ExtractedEmployee[] = [];
       for (const sheet of sheets) {
         const data = extractEmployeeData(wb, sheet, info, detectedFormat);
-        if (data) {
-          extracted.push({ ...data, imported: false });
-        }
+        if (data) extracted.push({ ...data, imported: false });
       }
 
       setExtractedData(extracted);
       setWorkbook(wb);
       setImportStep('preview');
-
     } catch (err) {
       console.error(err);
       setError('Excel konnte nicht gelesen werden');
@@ -765,248 +948,131 @@ export default function ImportPage() {
   }
 
   // ============================================
-  // PROJEKT-INFO EXTRAHIEREN (Multi-Format)
+  // PROJEKT-INFO EXTRAHIEREN
   // ============================================
 
   function extractProjectInfo(wb: XLSX.WorkBook, fileName: string, format: FundingFormat): ProjectInfo {
     let projectName = '', companyName = '', fundingReference = '';
 
-    if (format === 'BMBF_KMU') {
-      // BMBF: Aus Nav-Sheet lesen
-      if (wb.SheetNames.includes('Nav')) {
-        const navWs = wb.Sheets['Nav'];
-        
-        // B4: Projektname (kann sehr lang sein)
-        projectName = navWs['B4']?.v?.toString() || '';
-        
-        // B6: FKZ (z.B. "01LY1925A")
-        fundingReference = navWs['B6']?.v?.toString() || '';
-        
-        // B7: Unternehmen (z.B. "STOMA GmbH")
-        companyName = navWs['B7']?.v?.toString() || '';
-      }
-
-      // Fallback: Projektname aus erstem MA-Sheet (A8)
-      if (!projectName) {
-        for (const sheetName of wb.SheetNames) {
-          if (sheetName.match(/\s+J[1-4]$/)) {
-            const ws = wb.Sheets[sheetName];
-            projectName = ws['A8']?.v?.toString() || '';
-            if (projectName) break;
-          }
-        }
-      }
-    } else {
-      // ZIM: Aus AP Übersicht
-      if (wb.SheetNames.includes('AP Übersicht')) {
-        const ws = wb.Sheets['AP Übersicht'];
-        projectName = ws['B1']?.v?.toString() || '';
-        fundingReference = ws['C2']?.v?.toString() || '';
-        companyName = ws['B2']?.v?.toString() || '';
-      }
-
-      // Aus Nav (falls vorhanden)
-      if (wb.SheetNames.includes('Nav') && !projectName) {
-        const ws = wb.Sheets['Nav'];
-        projectName = ws['C3']?.v?.toString() || '';
-      }
+    if (format === 'BMBF_KMU' && wb.SheetNames.includes('Nav')) {
+      const navWs = wb.Sheets['Nav'];
+      projectName = navWs['B4']?.v?.toString() || '';
+      fundingReference = navWs['B6']?.v?.toString() || '';
+      companyName = navWs['B7']?.v?.toString() || '';
+    } else if (wb.SheetNames.includes('AP Übersicht')) {
+      const ws = wb.Sheets['AP Übersicht'];
+      projectName = ws['B1']?.v?.toString() || '';
+      fundingReference = ws['C2']?.v?.toString() || '';
+      companyName = ws['B2']?.v?.toString() || '';
     }
 
-    // Aus Dateiname (Fallback)
     if (!projectName || !companyName) {
       const parts = fileName.replace(/\.xlsx?$/i, '').split('_');
       if (!projectName && parts[1]) projectName = parts[1];
       if (!companyName && parts[2]) companyName = parts[2];
     }
 
-    // FKZ suchen (falls noch nicht gefunden)
     if (!fundingReference) {
-      const fkzPatterns = [
-        /16K[NI]\d{5,6}/,           // ZIM
-        /01[A-Z]{2}\d{4,6}[A-Z]?/,  // BMBF
-      ];
-      
-      outer:
-      for (const sheetName of wb.SheetNames) {
+      const fkzPatterns = [/16K[NI]\d{5,6}/, /01[A-Z]{2}\d{4,6}[A-Z]?/];
+      outer: for (const sheetName of wb.SheetNames) {
         const ws = wb.Sheets[sheetName];
         for (const cellRef of Object.keys(ws)) {
           if (cellRef.startsWith('!')) continue;
           const val = String(ws[cellRef]?.v || '');
           for (const pattern of fkzPatterns) {
             const match = val.match(pattern);
-            if (match) {
-              fundingReference = match[0];
-              break outer;
-            }
+            if (match) { fundingReference = match[0]; break outer; }
           }
         }
       }
     }
-
     return { projectName, companyName, fundingReference, fileName, format };
   }
 
   // ============================================
-  // MITARBEITER-SHEETS FINDEN (Multi-Format)
+  // MITARBEITER-SHEETS FINDEN
   // ============================================
 
   function findEmployeeSheets(wb: XLSX.WorkBook, format: FundingFormat): EmployeeSheet[] {
     const sheets: EmployeeSheet[] = [];
-    
-    // NUR Sheets mit Pattern "[Name] J1" bis "[Name] J4" importieren
-    // J1-J4 = Projektjahr 1-4 (max. 4 Jahre Projektlaufzeit)
     const pattern = /^(.+)\s+J([1-4])$/;
-
-    console.log('[Import] Suche Mitarbeiter-Sheets...');
-
-    // NEU v5.0: Erst alle Sheets sammeln, dann Namen konsistent zuweisen
     const tempSheets: { sheetName: string; baseName: string; projectYear: number }[] = [];
 
     for (const sheetName of wb.SheetNames) {
       const match = sheetName.match(pattern);
       if (match) {
         const baseName = match[1].trim();
-        
-        // ROBUSTE BLACKLIST-PRÜFUNG mit Regex
-        if (SHEET_BLACKLIST_PATTERN.test(baseName)) {
-          console.log(`[Import] ❌ Sheet ignoriert: "${sheetName}" (Blacklist-Match)`);
-          continue;
-        }
-
-        console.log(`[Import] ✅ Sheet akzeptiert: "${sheetName}"`);
-        tempSheets.push({
-          sheetName,
-          baseName,
-          projectYear: parseInt(match[2])
-        });
+        if (SHEET_BLACKLIST_PATTERN.test(baseName)) continue;
+        tempSheets.push({ sheetName, baseName, projectYear: parseInt(match[2]) });
       }
     }
 
-    // NEU v5.0: Für jeden Basis-Namen den vollständigen Namen NUR EINMAL ermitteln
-    // Der Name wird im ersten Sheet mit Daten gefunden und dann für alle Sheets verwendet
     const nameCache = new Map<string, string>();
-
-    // Sortieren nach Projektjahr, damit J1 (mit wahrscheinlich vorhandenen Daten) zuerst kommt
     tempSheets.sort((a, b) => a.projectYear - b.projectYear);
 
     for (const temp of tempSheets) {
-      // Basis-Name normalisieren (für Cache-Lookup)
-      // "Matzke, Re" und "Matzke, Reinhard" haben beide "matzke" als ersten Teil
       const normalizedBase = temp.baseName.toLowerCase().replace(/\s+/g, "");
-      
       let fullName: string | undefined = nameCache.get(normalizedBase);
       
       if (!fullName) {
-        // Noch nicht im Cache - versuche vollständigen Namen zu extrahieren
-        fullName = temp.baseName; // Fallback
+        fullName = temp.baseName;
         const ws = wb.Sheets[temp.sheetName];
 
         if (format === 'BMBF_KMU') {
-          // BMBF: Name in J11 (0-basiert: Zeile 10, Spalte 9)
           const nameCell = ws[XLSX.utils.encode_cell({ r: 10, c: 9 })]?.v?.toString() || '';
-          if (nameCell && !nameCell.includes('[') && nameCell.length > 2) {
-            fullName = nameCell.trim();
-          }
+          if (nameCell && !nameCell.includes('[') && nameCell.length > 2) fullName = nameCell.trim();
         } else {
-          // ZIM: Name irgendwo mit Komma suchen
           for (const cellRef of Object.keys(ws)) {
             if (cellRef.startsWith('!')) continue;
             const val = ws[cellRef]?.v?.toString() || '';
             if (val.includes(',') && val.split(',').length === 2) {
               const parts = val.split(',');
-              // NEU v5.0: Prüfen ob gefundener Name zum Basis-Namen passt
-              // Basis-Name: "Matzke, Re" -> parts = ["Matzke", "Re"]
-              // Gefundener Name: "Matzke, Reinhard" -> parts = ["Matzke", "Reinhard"]
-              // Match wenn: Nachname gleich UND Vorname beginnt mit Präfix
               const baseNameParts = temp.baseName.split(',').map((p: string) => p.trim().toLowerCase());
               const foundNameParts = parts.map((p: string) => p.trim().toLowerCase());
               const nachnameMatch = foundNameParts[0] === baseNameParts[0];
-              const vornameMatch = baseNameParts.length < 2 || 
-                                   foundNameParts.length < 2 || 
-                                   foundNameParts[1].startsWith(baseNameParts[1]);
-              if (nachnameMatch && vornameMatch) {
-                fullName = val.trim();
-                break;
-              }
+              const vornameMatch = baseNameParts.length < 2 || foundNameParts.length < 2 || foundNameParts[1].startsWith(baseNameParts[1]);
+              if (nachnameMatch && vornameMatch) { fullName = val.trim(); break; }
             }
           }
         }
-        
-        // Im Cache speichern
         nameCache.set(normalizedBase, fullName || temp.baseName);
-        console.log(`[Import] Name-Cache: "${normalizedBase}" → "${fullName || temp.baseName}"`);
       }
 
-      sheets.push({
-        sheetName: temp.sheetName,
-        employeeName: fullName || temp.baseName,
-        projectYear: temp.projectYear,
-        selected: true
-      });
+      sheets.push({ sheetName: temp.sheetName, employeeName: fullName || temp.baseName, projectYear: temp.projectYear, selected: true });
     }
 
-    console.log(`[Import] Gefunden: ${sheets.length} Mitarbeiter-Sheets`);
-
-    return sheets.sort((a, b) => 
-      a.employeeName.localeCompare(b.employeeName) || a.projectYear - b.projectYear
-    );
+    return sheets.sort((a, b) => a.employeeName.localeCompare(b.employeeName) || a.projectYear - b.projectYear);
   }
 
   // ============================================
-  // MITARBEITER-DATEN EXTRAHIEREN (Multi-Format)
+  // MITARBEITER-DATEN EXTRAHIEREN
   // ============================================
 
-  function extractEmployeeData(
-    wb: XLSX.WorkBook, 
-    sheet: EmployeeSheet,
-    info: ProjectInfo,
-    format: FundingFormat
-  ): Omit<ExtractedEmployee, 'imported'> | null {
-    
-    if (format === 'BMBF_KMU') {
-      return extractBMBFData(wb, sheet, info);
-    } else {
-      return extractZIMData(wb, sheet, info);
-    }
+  function extractEmployeeData(wb: XLSX.WorkBook, sheet: EmployeeSheet, info: ProjectInfo, format: FundingFormat): Omit<ExtractedEmployee, 'imported'> | null {
+    if (format === 'BMBF_KMU') return extractBMBFData(wb, sheet, info);
+    return extractZIMData(wb, sheet, info);
   }
 
   // ============================================
   // BMBF/KMU-INNOVATIV PARSER
   // ============================================
 
-  function extractBMBFData(
-    wb: XLSX.WorkBook,
-    sheet: EmployeeSheet,
-    info: ProjectInfo
-  ): Omit<ExtractedEmployee, 'imported'> | null {
+  function extractBMBFData(wb: XLSX.WorkBook, sheet: EmployeeSheet, info: ProjectInfo): Omit<ExtractedEmployee, 'imported'> | null {
     const maWs = wb.Sheets[sheet.sheetName];
     if (!maWs) return null;
 
     const months: MonthData[] = [];
     let totalBillable = 0, totalAbsence = 0;
 
-    // NEUER ANSATZ: Suche nach "Vorhabenbezogen" in Spalte A
-    // - Vorhabenbezogen-Zeile: Projektstunden in Spalten B-AF (1-31)
-    // - 4 Zeilen darunter: Fehlzeiten
-    // - 6 Zeilen darüber: Monat/Jahr (als Excel-Datum oder Text)
-
-    console.log(`[BMBF-Parser] Analysiere Sheet: ${sheet.sheetName}`);
-
-    // Hilfsfunktion: Excel-Datum zu Jahr/Monat konvertieren
     function excelDateToYearMonth(excelDate: number): { year: number; month: number } {
       const date = new Date((excelDate - 25569) * 86400 * 1000);
       return { year: date.getFullYear(), month: date.getMonth() + 1 };
     }
 
-    // Hilfsfunktion: Monat aus Text extrahieren (z.B. "01 / 2021" oder "Januar 2021")
     function parseMonthFromText(text: string): { year: number; month: number } | null {
-      // Format "01 / 2021" oder "01/2021"
       const slashMatch = text.match(/(\d{1,2})\s*\/\s*(\d{4})/);
-      if (slashMatch) {
-        return { month: parseInt(slashMatch[1]), year: parseInt(slashMatch[2]) };
-      }
+      if (slashMatch) return { month: parseInt(slashMatch[1]), year: parseInt(slashMatch[2]) };
       
-      // Format "Januar 2021" etc.
       const monthNames: Record<string, number> = {
         'januar': 1, 'februar': 2, 'märz': 3, 'april': 4, 'mai': 5, 'juni': 6,
         'juli': 7, 'august': 8, 'september': 9, 'oktober': 10, 'november': 11, 'dezember': 12
@@ -1015,77 +1081,47 @@ export default function ImportPage() {
       for (const [name, num] of Object.entries(monthNames)) {
         if (textLower.includes(name)) {
           const yearMatch = text.match(/(\d{4})/);
-          if (yearMatch) {
-            return { month: num, year: parseInt(yearMatch[1]) };
-          }
+          if (yearMatch) return { month: num, year: parseInt(yearMatch[1]) };
         }
       }
-      
       return null;
     }
 
-    // Alle Zeilen durchsuchen wo "Vorhabenbezogen" in Spalte A steht
     const vorhabenbezogenRows: number[] = [];
-    
-    // Sheet-Range ermitteln
     const range = XLSX.utils.decode_range(maWs['!ref'] || 'A1:AG500');
     
     for (let r = range.s.r; r <= range.e.r; r++) {
       const cellA = maWs[XLSX.utils.encode_cell({ r, c: 0 })];
       const cellVal = cellA?.v?.toString().trim().toLowerCase() || '';
-      
-      if (cellVal === 'vorhabenbezogen') {
-        vorhabenbezogenRows.push(r);
-        console.log(`[BMBF-Parser] Gefunden: "Vorhabenbezogen" in Zeile ${r + 1}`);
-      }
+      if (cellVal === 'vorhabenbezogen') vorhabenbezogenRows.push(r);
     }
 
-    console.log(`[BMBF-Parser] ${vorhabenbezogenRows.length} Monatsblöcke gefunden`);
-
-    // Für jede gefundene "Vorhabenbezogen"-Zeile die Daten extrahieren
     for (const projectRow of vorhabenbezogenRows) {
-      const absenceRow = projectRow + 4;  // Fehlzeiten 4 Zeilen darunter
-      const dateRow = projectRow - 6;     // Datum 6 Zeilen darüber
+      const absenceRow = projectRow + 4;
+      const dateRow = projectRow - 6;
 
-      // Jahr und Monat ermitteln
-      let year = 2020 + sheet.projectYear - 1;  // Fallback aus Projektjahr
+      let year = 2020 + sheet.projectYear - 1;
       let month = 1;
 
-      // Versuche Datum aus Zelle zu lesen
       const dateCell = maWs[XLSX.utils.encode_cell({ r: dateRow, c: 0 })];
       if (dateCell?.v) {
         if (typeof dateCell.v === 'number') {
-          // Excel-Datum
           const parsed = excelDateToYearMonth(dateCell.v);
-          if (parsed.year >= 2015 && parsed.year <= 2030) {
-            year = parsed.year;
-            month = parsed.month;
-          }
+          if (parsed.year >= 2015 && parsed.year <= 2030) { year = parsed.year; month = parsed.month; }
         } else if (typeof dateCell.v === 'string') {
-          // Text wie "01 / 2021"
           const parsed = parseMonthFromText(dateCell.v);
-          if (parsed) {
-            year = parsed.year;
-            month = parsed.month;
-          }
+          if (parsed) { year = parsed.year; month = parsed.month; }
         }
       }
 
-      console.log(`[BMBF-Parser] Monat: ${month}/${year} (projectRow=${projectRow + 1}, dateRow=${dateRow + 1})`);
-
       const dailyData: MonthData['dailyData'] = {};
-      let monthHours = 0;
-      let monthAbsence = 0;
+      let monthHours = 0, monthAbsence = 0;
 
-      // Tageswerte lesen (Spalten B=1 bis AF=31)
       for (let d = 1; d <= 31; d++) {
-        const colIndex = d; // B=1, C=2, ... AF=31
-        
-        // Projektstunden aus "Vorhabenbezogen"-Zeile
+        const colIndex = d;
         const hourCell = maWs[XLSX.utils.encode_cell({ r: projectRow, c: colIndex })];
         if (hourCell?.v !== undefined && hourCell?.v !== null) {
           const cellVal = hourCell.v;
-          // "x" oder leere Zellen ignorieren
           if (typeof cellVal === 'number' && cellVal > 0) {
             dailyData[d] = { hours: cellVal, absence: null };
             monthHours += cellVal;
@@ -1098,16 +1134,11 @@ export default function ImportPage() {
           }
         }
 
-        // Fehlzeiten aus Zeile 4 unter "Vorhabenbezogen"
         const absenceCell = maWs[XLSX.utils.encode_cell({ r: absenceRow, c: colIndex })];
         if (absenceCell?.v !== undefined && absenceCell?.v !== null) {
           const absVal = absenceCell.v;
-          
           if (typeof absVal === 'number' && absVal >= 4) {
-            // Stundenwert als Fehlzeit (z.B. 8 = ganzer Tag)
-            if (!dailyData[d] || dailyData[d].hours === 0) {
-              dailyData[d] = { hours: 0, absence: 'F' };
-            }
+            if (!dailyData[d] || dailyData[d].hours === 0) dailyData[d] = { hours: 0, absence: 'F' };
             monthAbsence += absVal;
           } else if (typeof absVal === 'string') {
             const code = absVal.toUpperCase().trim();
@@ -1119,50 +1150,23 @@ export default function ImportPage() {
         }
       }
 
-      // Monatssumme aus AG-Spalte (Index 32) als Prüfung
       const sumCell = maWs[XLSX.utils.encode_cell({ r: projectRow, c: 32 })];
       const excelSum = (sumCell?.v && typeof sumCell.v === 'number') ? sumCell.v : 0;
-      
-      console.log(`[BMBF-Parser] ${month}/${year}: berechnet=${monthHours.toFixed(2)}h, Excel-Summe=${excelSum}h, Tage=${Object.keys(dailyData).length}`);
+      if (monthHours === 0 && excelSum > 0) monthHours = excelSum;
 
-      // Falls unsere Berechnung abweicht, Excel-Summe als Fallback
-      if (monthHours === 0 && excelSum > 0) {
-        monthHours = excelSum;
-        console.log(`[BMBF-Parser] Verwende Excel-Summe als Fallback`);
-      }
-
-      months.push({
-        month,
-        year,
-        billableHours: monthHours,
-        absenceHours: monthAbsence,
-        dailyData
-      });
-
+      months.push({ month, year, billableHours: monthHours, absenceHours: monthAbsence, dailyData });
       totalBillable += monthHours;
       totalAbsence += monthAbsence;
     }
 
-    console.log(`[BMBF-Parser] ${sheet.employeeName}: ${months.length} Monate, ${totalBillable.toFixed(0)}h gesamt`);
-
-    return {
-      employeeName: sheet.employeeName,
-      projectYear: sheet.projectYear,
-      months,
-      totalBillableHours: totalBillable,
-      totalAbsenceHours: totalAbsence
-    };
+    return { employeeName: sheet.employeeName, projectYear: sheet.projectYear, months, totalBillableHours: totalBillable, totalAbsenceHours: totalAbsence };
   }
 
   // ============================================
-  // ZIM PARSER (bestehende Logik)
+  // ZIM PARSER
   // ============================================
 
-  function extractZIMData(
-    wb: XLSX.WorkBook, 
-    sheet: EmployeeSheet,
-    info: ProjectInfo
-  ): Omit<ExtractedEmployee, 'imported'> | null {
+  function extractZIMData(wb: XLSX.WorkBook, sheet: EmployeeSheet, info: ProjectInfo): Omit<ExtractedEmployee, 'imported'> | null {
     const summarySheet = `Ermittl.-Stunden J${sheet.projectYear}`;
     const summaryWs = wb.Sheets[summarySheet];
     const maWs = wb.Sheets[sheet.sheetName];
@@ -1171,100 +1175,67 @@ export default function ImportPage() {
     let totalBillable = 0, totalAbsence = 0;
     const year = new Date().getFullYear();
 
-    // Hilfsfunktion: Tagesdaten aus MA-Blatt lesen
     const extractDailyDataFromSheet = (ws: XLSX.WorkSheet, monthIndex: number): MonthData['dailyData'] => {
       const dailyData: MonthData['dailyData'] = {};
       if (!ws) return dailyData;
       
-      // Summenzeile für diesen Monat: Zeile 32 für Jan (Index 31), +43 pro Monat
       const sumRowIndex = 31 + (monthIndex * 43);
-      
-      // Tageswerte aus Summenzeile lesen (Spalte E=4 bis AI=34)
       for (let d = 1; d <= 31; d++) {
         const dayColIndex = 3 + d;
         const dayCell = ws[XLSX.utils.encode_cell({ r: sumRowIndex, c: dayColIndex })];
-        
         if (dayCell?.v !== undefined && dayCell?.v !== null) {
           const val = dayCell.v;
-          if (typeof val === 'number' && val > 0) {
-            dailyData[d] = { hours: val, absence: null };
-          }
+          if (typeof val === 'number' && val > 0) dailyData[d] = { hours: val, absence: null };
         }
       }
       
-      // Wenn keine Daten in Summenzeile, summiere AP-Zeilen
       if (Object.keys(dailyData).length === 0) {
         const apStartRow = 19 + (monthIndex * 43);
         const apEndRow = 30 + (monthIndex * 43);
-        
         for (let d = 1; d <= 31; d++) {
           const dayColIndex = 3 + d;
           let dayTotal = 0;
-          
           for (let apRow = apStartRow; apRow <= apEndRow; apRow++) {
             const apCell = ws[XLSX.utils.encode_cell({ r: apRow, c: dayColIndex })];
-            if (apCell?.v && typeof apCell.v === 'number') {
-              dayTotal += apCell.v;
-            }
+            if (apCell?.v && typeof apCell.v === 'number') dayTotal += apCell.v;
           }
-          
-          if (dayTotal > 0) {
-            dailyData[d] = { hours: dayTotal, absence: null };
-          }
+          if (dayTotal > 0) dailyData[d] = { hours: dayTotal, absence: null };
         }
       }
       
-      // Fehlzeiten lesen
       const urlaubRowIndex = 34 + (monthIndex * 43);
       const krankRowIndex = 35 + (monthIndex * 43);
-      
       for (let d = 1; d <= 31; d++) {
         const dayColIndex = 3 + d;
-        
         const urlaubCell = ws[XLSX.utils.encode_cell({ r: urlaubRowIndex, c: dayColIndex })];
         if (urlaubCell?.v) {
           const uVal = urlaubCell.v;
-          if (uVal === 8 || String(uVal).toUpperCase().trim() === 'U') {
-            dailyData[d] = { hours: 0, absence: 'U' };
-            continue;
-          }
+          if (uVal === 8 || String(uVal).toUpperCase().trim() === 'U') { dailyData[d] = { hours: 0, absence: 'U' }; continue; }
         }
-        
         const krankCell = ws[XLSX.utils.encode_cell({ r: krankRowIndex, c: dayColIndex })];
         if (krankCell?.v) {
           const kVal = krankCell.v;
-          if (kVal === 8 || String(kVal).toUpperCase().trim() === 'K') {
-            dailyData[d] = { hours: 0, absence: 'K' };
-            continue;
-          }
+          if (kVal === 8 || String(kVal).toUpperCase().trim() === 'K') { dailyData[d] = { hours: 0, absence: 'K' }; continue; }
         }
       }
-      
       return dailyData;
     };
 
-    // Weg 1: Aus Zusammenfassungs-Sheet + MA-Blatt
     if (summaryWs && maWs) {
       let row = -1;
       for (let r = 1; r <= 100; r++) {
         const cell = summaryWs[XLSX.utils.encode_cell({ r: r - 1, c: 0 })];
-        if (cell?.v?.toString().includes(sheet.employeeName.split(',')[0])) {
-          row = r;
-          break;
-        }
+        if (cell?.v?.toString().includes(sheet.employeeName.split(',')[0])) { row = r; break; }
       }
 
       if (row > 0) {
         for (let m = 1; m <= 12; m++) {
           const hoursCell = summaryWs[XLSX.utils.encode_cell({ r: row, c: m })];
           const hours = typeof hoursCell?.v === 'number' ? hoursCell.v : 0;
-
           const absenceCell = summaryWs[XLSX.utils.encode_cell({ r: row + 3, c: m })];
           const absence = typeof absenceCell?.v === 'number' ? absenceCell.v : 0;
-
           const dailyData = extractDailyDataFromSheet(maWs, m - 1);
           
-          // Fallback: gleichmäßig verteilen
           if (Object.keys(dailyData).length === 0 && hours > 0) {
             const daysInMonth = new Date(year, m, 0).getDate();
             let workDays = 0;
@@ -1276,34 +1247,23 @@ export default function ImportPage() {
               const hoursPerDay = hours / workDays;
               for (let d = 1; d <= daysInMonth; d++) {
                 const date = new Date(year, m - 1, d);
-                if (date.getDay() !== 0 && date.getDay() !== 6) {
-                  dailyData[d] = { hours: Math.round(hoursPerDay * 10) / 10, absence: null };
-                }
+                if (date.getDay() !== 0 && date.getDay() !== 6) dailyData[d] = { hours: Math.round(hoursPerDay * 10) / 10, absence: null };
               }
             }
           }
 
-          months.push({
-            month: m,
-            year,
-            billableHours: hours,
-            absenceHours: absence,
-            dailyData
-          });
-
+          months.push({ month: m, year, billableHours: hours, absenceHours: absence, dailyData });
           totalBillable += hours;
           totalAbsence += absence;
         }
       }
     }
 
-    // Weg 2 (Fallback): Nur aus MA-Blatt
     if (months.length === 0 && maWs) {
       for (let m = 0; m < 12; m++) {
         const sumRowIndex = 31 + (m * 43);
         const sumCell = maWs[XLSX.utils.encode_cell({ r: sumRowIndex, c: 35 })];
         const hours = typeof sumCell?.v === 'number' ? sumCell.v : 0;
-
         const dailyData = extractDailyDataFromSheet(maWs, m);
         
         if (Object.keys(dailyData).length === 0 && hours > 0) {
@@ -1317,59 +1277,33 @@ export default function ImportPage() {
             const hoursPerDay = hours / workDays;
             for (let d = 1; d <= daysInMonth; d++) {
               const date = new Date(year, m, d);
-              if (date.getDay() !== 0 && date.getDay() !== 6) {
-                dailyData[d] = { hours: Math.round(hoursPerDay * 10) / 10, absence: null };
-              }
+              if (date.getDay() !== 0 && date.getDay() !== 6) dailyData[d] = { hours: Math.round(hoursPerDay * 10) / 10, absence: null };
             }
           }
         }
 
-        months.push({
-          month: m + 1,
-          year,
-          billableHours: hours,
-          absenceHours: 0,
-          dailyData
-        });
-
+        months.push({ month: m + 1, year, billableHours: hours, absenceHours: 0, dailyData });
         totalBillable += hours;
       }
     }
 
-    return {
-      employeeName: sheet.employeeName,
-      projectYear: sheet.projectYear,
-      months,
-      totalBillableHours: totalBillable,
-      totalAbsenceHours: totalAbsence
-    };
+    return { employeeName: sheet.employeeName, projectYear: sheet.projectYear, months, totalBillableHours: totalBillable, totalAbsenceHours: totalAbsence };
   }
-
-  // ============================================
-  // FORMAT WECHSELN UND NEU PARSEN
-  // ============================================
 
   function reprocessWithFormat(newFormat: FundingFormat) {
     if (!workbook || !projectInfo) return;
-
     setProcessing(true);
     setSelectedFormat(newFormat);
-
     try {
       const info = extractProjectInfo(workbook, projectInfo.fileName, newFormat);
       setProjectInfo(info);
-
       const sheets = findEmployeeSheets(workbook, newFormat);
       setEmployeeSheets(sheets);
-
       const extracted: ExtractedEmployee[] = [];
       for (const sheet of sheets) {
         const data = extractEmployeeData(workbook, sheet, info, newFormat);
-        if (data) {
-          extracted.push({ ...data, imported: false });
-        }
+        if (data) extracted.push({ ...data, imported: false });
       }
-
       setExtractedData(extracted);
     } catch (err) {
       console.error(err);
@@ -1391,34 +1325,22 @@ export default function ImportPage() {
 
     try {
       let importCount = 0;
-
-      // NEU v5.0: Zuerst das Basis-Kalenderjahr ermitteln aus allen extrahierten Daten
       let baseCalendarYear: number | null = null;
       let baseProjectYear: number | null = null;
       
       for (const emp of extractedData) {
         for (const month of emp.months) {
           if (month.year && month.billableHours > 0) {
-            if (!baseCalendarYear) {
-              baseCalendarYear = month.year;
-              baseProjectYear = emp.projectYear;
-            }
+            if (!baseCalendarYear) { baseCalendarYear = month.year; baseProjectYear = emp.projectYear; }
             break;
           }
         }
         if (baseCalendarYear) break;
       }
       
-      // Fallback: Aktuelles Jahr als J1
-      if (!baseCalendarYear) {
-        baseCalendarYear = new Date().getFullYear();
-        baseProjectYear = 1;
-      }
-      
-      console.log(`[Import] Basis: Kalenderjahr ${baseCalendarYear} = Projektjahr J${baseProjectYear}`);
+      if (!baseCalendarYear) { baseCalendarYear = new Date().getFullYear(); baseProjectYear = 1; }
 
       for (const emp of extractedData) {
-        // MA-Stammdaten
         await supabase.from('import_employees').upsert({
           company_id: profile.company_id,
           name: emp.employeeName,
@@ -1427,22 +1349,14 @@ export default function ImportPage() {
           updated_at: new Date().toISOString()
         }, { onConflict: 'company_id,name' });
 
-        // Kalenderjahr für diesen MA berechnen basierend auf Projektjahr
         const yearOffset = emp.projectYear - (baseProjectYear || 1);
         const calendarYear = (baseCalendarYear || new Date().getFullYear()) + yearOffset;
-        
-        console.log(`[Import] ${emp.employeeName} J${emp.projectYear} -> Kalenderjahr ${calendarYear}`);
 
-        // NEU v5.0: ALLE 12 Monate für dieses Jahr speichern
         const monthsMap = new Map<number, typeof emp.months[0]>();
-        for (const month of emp.months) {
-          monthsMap.set(month.month, month);
-        }
+        for (const month of emp.months) monthsMap.set(month.month, month);
         
-        // Alle 12 Monate durchgehen und speichern
         for (let m = 1; m <= 12; m++) {
           const existingMonth = monthsMap.get(m);
-          
           await supabase.from('imported_timesheets').upsert({
             company_id: profile.company_id,
             uploaded_by: profile.id,
@@ -1457,14 +1371,12 @@ export default function ImportPage() {
             original_filename: projectInfo.fileName,
           }, { onConflict: 'company_id,employee_name,project_name,year,month' });
         }
-
         importCount++;
       }
 
       setSuccess(`${importCount} Mitarbeiter erfolgreich importiert (je 12 Monate)!`);
       setImportStep('done');
       loadSavedData();
-
     } catch (err) {
       console.error(err);
       setError('Import fehlgeschlagen');
@@ -1472,6 +1384,8 @@ export default function ImportPage() {
       setProcessing(false);
     }
   }
+
+  // ============================================
   // LÖSCHEN
   // ============================================
 
@@ -1570,26 +1484,14 @@ export default function ImportPage() {
     const allEmployeeNames = [...new Set(allTimesheets.map(ts => ts.employee_name))];
     const fkz = allTimesheets[0]?.funding_reference || '';
     
-    // Verfügbare Jahre ermitteln
     const availableYears = [...new Set(allTimesheets.map(ts => ts.year))].sort((a, b) => a - b);
-    
-    // Wenn kein Jahr ausgewählt, erstes verfügbares Jahr nehmen
     const displayYear = selectedYear && availableYears.includes(selectedYear) 
-      ? selectedYear 
-      : availableYears[0] || new Date().getFullYear();
-    
-    // Timesheets nach Jahr filtern
+      ? selectedYear : availableYears[0] || new Date().getFullYear();
     const timesheets = allTimesheets.filter(ts => ts.year === displayYear);
-    
-    // Mitarbeiter die in diesem Jahr Daten haben
     const employeesInYear = allEmployeeNames;
-    
-    // NEU v5.13: Erster Mitarbeiter als Default
     const displayEmployee = selectedEmployee && employeesInYear.includes(selectedEmployee)
-      ? selectedEmployee
-      : employeesInYear[0] || null;
+      ? selectedEmployee : employeesInYear[0] || null;
     
-    // Hilfsfunktion: Arbeitstage im Jahr zählen (ohne WE und Feiertage)
     const getWorkdaysInYear = (year: number): number => {
       let workdays = 0;
       const holidays = getGermanHolidays(year);
@@ -1618,7 +1520,6 @@ export default function ImportPage() {
       return workdays;
     };
     
-    // Gesamtstunden pro Jahr berechnen
     const yearTotals = availableYears.map(year => {
       const yearTimesheets = allTimesheets.filter(ts => ts.year === year);
       const usedHours = yearTimesheets.reduce((s, ts) => s + ts.total_billable_hours, 0);
@@ -1642,14 +1543,11 @@ export default function ImportPage() {
       const maxDaily = settings.weekly_hours / 5;
       const yearUsed = empTimesheets.reduce((s, ts) => s + ts.total_billable_hours, 0);
       
-      // Tagesansicht für Abwesenheiten
       const holidays = getGermanHolidays(displayYear);
       const tableDayData: Record<number, Record<number, { hours: number; absence: string | null }>> = {};
       for (let m = 1; m <= 12; m++) {
         tableDayData[m] = {};
-        for (let d = 1; d <= 31; d++) {
-          tableDayData[m][d] = { hours: 0, absence: null };
-        }
+        for (let d = 1; d <= 31; d++) tableDayData[m][d] = { hours: 0, absence: null };
       }
       for (const ts of empTimesheets) {
         const daily = ts.daily_data || {};
@@ -1662,7 +1560,6 @@ export default function ImportPage() {
         }
       }
       
-      // yearFree berechnen
       let yearFree = 0;
       for (let m = 1; m <= 12; m++) {
         const daysInMonth = getDaysInMonth(displayYear, m);
@@ -1672,9 +1569,7 @@ export default function ImportPage() {
           const dateStr = `${displayYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
           if (dayOfWeek !== 0 && dayOfWeek !== 6 && !holidays.has(dateStr)) {
             const data = tableDayData[m]?.[d];
-            if (!data?.absence) {
-              yearFree += maxDaily - (data?.hours || 0);
-            }
+            if (!data?.absence) yearFree += maxDaily - (data?.hours || 0);
           }
         }
       }
@@ -1708,7 +1603,6 @@ export default function ImportPage() {
                   const hours = ts?.total_billable_hours || 0;
                   const absenceDays = ts?.total_absence_days || 0;
                   
-                  // Monatliche Frei-Berechnung
                   const daysInMonth = getDaysInMonth(displayYear, month);
                   let monthFree = 0;
                   for (let d = 1; d <= daysInMonth; d++) {
@@ -1717,9 +1611,7 @@ export default function ImportPage() {
                     const dateStr = `${displayYear}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
                     if (dayOfWeek !== 0 && dayOfWeek !== 6 && !holidays.has(dateStr)) {
                       const data = tableDayData[month]?.[d];
-                      if (!data?.absence) {
-                        monthFree += maxDaily - (data?.hours || 0);
-                      }
+                      if (!data?.absence) monthFree += maxDaily - (data?.hours || 0);
                     }
                   }
                   
@@ -1761,13 +1653,10 @@ export default function ImportPage() {
       const yearUsed = empTimesheets.reduce((s, ts) => s + ts.total_billable_hours, 0);
       const holidays = getGermanHolidays(displayYear);
 
-      // Tagesansicht aufbauen
       const dayData: Record<number, Record<number, { hours: number; absence: string | null }>> = {};
       for (let m = 1; m <= 12; m++) {
         dayData[m] = {};
-        for (let d = 1; d <= 31; d++) {
-          dayData[m][d] = { hours: 0, absence: null };
-        }
+        for (let d = 1; d <= 31; d++) dayData[m][d] = { hours: 0, absence: null };
       }
       for (const ts of empTimesheets) {
         const daily = ts.daily_data || {};
@@ -1780,7 +1669,6 @@ export default function ImportPage() {
         }
       }
 
-      // Verfügbare Stunden berechnen
       let availableHours = 0;
       for (let m = 1; m <= 12; m++) {
         const daysInMonth = getDaysInMonth(displayYear, m);
@@ -1790,9 +1678,7 @@ export default function ImportPage() {
           const dateStr = `${displayYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
           if (dayOfWeek !== 0 && dayOfWeek !== 6 && !holidays.has(dateStr)) {
             const data = dayData[m]?.[d];
-            if (!data?.absence) {
-              availableHours += maxDaily - (data?.hours || 0);
-            }
+            if (!data?.absence) availableHours += maxDaily - (data?.hours || 0);
           }
         }
       }
@@ -1835,9 +1721,7 @@ export default function ImportPage() {
                     const dateStr = `${displayYear}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
                     if (dayOfWeek !== 0 && dayOfWeek !== 6 && !holidays.has(dateStr)) {
                       const data = dayData[month]?.[d];
-                      if (!data?.absence) {
-                        monthFree += maxDaily - (data?.hours || 0);
-                      }
+                      if (!data?.absence) monthFree += maxDaily - (data?.hours || 0);
                     }
                   }
 
@@ -1850,9 +1734,7 @@ export default function ImportPage() {
                         const data = dayData[month]?.[day];
                         const isValidDay = day <= daysInMonth;
                         
-                        if (!isValidDay) {
-                          return <td key={day} className="border bg-gray-100"></td>;
-                        }
+                        if (!isValidDay) return <td key={day} className="border bg-gray-100"></td>;
                         
                         const date = new Date(displayYear, month - 1, day);
                         const dayOfWeek = date.getDay();
@@ -1895,11 +1777,8 @@ export default function ImportPage() {
                         }
                         
                         return (
-                          <td
-                            key={day}
-                            className={`border text-center w-5 h-5 text-[10px] ${bgColor} ${textColor}`}
-                            title={`${day}. ${MONTH_NAMES[month - 1]}: ${data?.hours || 0}h genutzt`}
-                          >
+                          <td key={day} className={`border text-center w-5 h-5 text-[10px] ${bgColor} ${textColor}`}
+                              title={`${day}. ${MONTH_NAMES[month - 1]}: ${data?.hours || 0}h genutzt`}>
                             {content}
                           </td>
                         );
@@ -1916,7 +1795,6 @@ export default function ImportPage() {
               </tbody>
             </table>
             
-            {/* Legende - kompakt */}
             <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-gray-600">
               <span className="flex items-center gap-0.5"><span className="w-2 h-2 bg-green-100 border"></span>Frei</span>
               <span className="flex items-center gap-0.5"><span className="w-2 h-2 bg-yellow-100 border"></span>Teil</span>
@@ -1961,9 +1839,7 @@ export default function ImportPage() {
                 <button 
                   key={year} 
                   className={`px-3 py-2 rounded text-center text-sm transition-colors ${
-                    year === displayYear 
-                      ? 'bg-blue-600 text-white' 
-                      : 'bg-gray-100 hover:bg-gray-200'
+                    year === displayYear ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
                   }`}
                   onClick={() => setSelectedYear(year)}
                 >
@@ -1976,18 +1852,12 @@ export default function ImportPage() {
                 <div className="text-xs text-purple-600">{totalAllYears.toFixed(0)}h / {totalFreeAllYears.toFixed(0)}h</div>
               </div>
               
-              {/* NEU v5.18: Bundesland-Auswahl */}
+              {/* Bundesland-Auswahl - zeigt Firmen-Bundesland */}
               <div className="ml-auto flex items-center gap-2 px-3 py-1 bg-yellow-100 rounded border border-yellow-300">
-                <span className="text-xs text-yellow-800">🏴</span>
-                <select
-                  value={importStateCode}
-                  onChange={(e) => setImportStateCode(e.target.value)}
-                  className="text-xs border-0 bg-transparent font-medium text-yellow-800 cursor-pointer"
-                >
-                  {BUNDESLAENDER.map(bl => (
-                    <option key={bl.code} value={bl.code}>{bl.name}</option>
-                  ))}
-                </select>
+                <span className="text-xs text-yellow-800">🏴 {BUNDESLAENDER.find(bl => bl.code === companyStateCode)?.name || companyStateCode}</span>
+                <button onClick={openCompanyStateModal} className="text-xs text-yellow-700 hover:text-yellow-900 underline">
+                  ändern
+                </button>
               </div>
             </div>
 
@@ -2001,9 +1871,7 @@ export default function ImportPage() {
                     key={empName}
                     onClick={() => setSelectedEmployee(empName)}
                     className={`px-3 py-2 rounded text-sm transition-colors ${
-                      empName === displayEmployee
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-100 hover:bg-gray-200'
+                      empName === displayEmployee ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
                     }`}
                   >
                     <span className="font-medium">👤 {empName}</span>
@@ -2035,7 +1903,6 @@ export default function ImportPage() {
     );
   };
 
-
   // ============================================
   // RENDER: HAUPTSEITE
   // ============================================
@@ -2063,13 +1930,13 @@ export default function ImportPage() {
           </div>
         )}
 
-        {/* Tab-Navigation */}
+        {/* Tab-Navigation - NEU v6.0: erweitert */}
         <div className="mb-4 border-b border-gray-200 flex-shrink-0">
           <nav className="flex justify-between items-center">
-            <div className="flex gap-6">
+            <div className="flex gap-4">
               <button
                 onClick={() => { setActiveTab('projects'); setSelectedProject(null); setSelectedEmployee(null); }}
-                className={`px-1 py-3 border-b-2 font-medium ${
+                className={`px-1 py-3 border-b-2 font-medium text-sm ${
                   activeTab === 'projects' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'
                 }`}
               >
@@ -2077,11 +1944,38 @@ export default function ImportPage() {
               </button>
               <button
                 onClick={() => { setActiveTab('import'); setImportStep('upload'); }}
-                className={`px-1 py-3 border-b-2 font-medium ${
+                className={`px-1 py-3 border-b-2 font-medium text-sm ${
                   activeTab === 'import' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'
                 }`}
               >
-                ➕ Neuer Import
+                ➕ Import
+              </button>
+              
+              {/* NEU v6.0: FZul-Tabs */}
+              <div className="border-l border-gray-300 mx-2"></div>
+              <button
+                onClick={() => setActiveTab('fzul-employees')}
+                className={`px-1 py-3 border-b-2 font-medium text-sm ${
+                  activeTab === 'fzul-employees' ? 'border-green-600 text-green-600' : 'border-transparent text-gray-500'
+                }`}
+              >
+                👥 FZul MA-Stammdaten
+              </button>
+              <button
+                onClick={() => setActiveTab('fzul-editor')}
+                className={`px-1 py-3 border-b-2 font-medium text-sm ${
+                  activeTab === 'fzul-editor' ? 'border-green-600 text-green-600' : 'border-transparent text-gray-500'
+                }`}
+              >
+                📝 FZul Editor
+              </button>
+              <button
+                onClick={() => setActiveTab('fzul-archive')}
+                className={`px-1 py-3 border-b-2 font-medium text-sm ${
+                  activeTab === 'fzul-archive' ? 'border-green-600 text-green-600' : 'border-transparent text-gray-500'
+                }`}
+              >
+                📄 PDF-Archiv {fzulPdfs.length > 0 && <span className="ml-1 text-xs bg-green-100 px-2 py-0.5 rounded-full">{fzulPdfs.length}</span>}
               </button>
             </div>
 
@@ -2097,295 +1991,378 @@ export default function ImportPage() {
           </nav>
         </div>
 
-        {/* TAB CONTENT - nimmt restlichen Platz ein */}
+        {/* TAB CONTENT */}
         <div className="flex-1 overflow-hidden">
+          
           {/* TAB: PROJEKTE */}
           {activeTab === 'projects' && !selectedProject && (
             <div className="space-y-4 overflow-auto h-full">
-            {projects.length === 0 ? (
-              <div className="bg-white rounded-lg shadow p-12 text-center">
-                <span className="text-5xl">📭</span>
-                <h2 className="text-xl font-bold mt-4">Keine Projekte</h2>
-                <p className="text-gray-600 mt-2">Importieren Sie eine Excel-Datei</p>
-                <button
-                  onClick={() => setActiveTab('import')}
-                  className="mt-4 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                >
-                  ➕ Import starten
-                </button>
-              </div>
-            ) : (
-              projects.map(proj => {
-                const tss = getProjectTimesheets(proj);
-                const emps = [...new Set(tss.map(ts => ts.employee_name))];
-                const totalHours = tss.reduce((s, ts) => s + ts.total_billable_hours, 0);
-                const fkz = tss[0]?.funding_reference || '';
-
-                return (
-                  <div
-                    key={proj}
-                    onClick={() => setSelectedProject(proj)}
-                    className="bg-white rounded-lg shadow p-6 cursor-pointer hover:shadow-lg transition-shadow"
-                  >
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h3 className="text-lg font-bold">📁 {proj}</h3>
-                        <p className="text-gray-500 text-sm">FKZ: {fkz}</p>
-                        <p className="text-gray-500 text-sm mt-1">{emps.length} Mitarbeiter</p>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-2xl font-bold text-blue-600">{totalHours.toFixed(0)}h</div>
-                        <div className="text-sm text-gray-500">Gesamtstunden</div>
+              {projects.length === 0 ? (
+                <div className="bg-white rounded-lg shadow p-12 text-center">
+                  <span className="text-5xl">📭</span>
+                  <h2 className="text-xl font-bold mt-4">Keine Projekte</h2>
+                  <p className="text-gray-600 mt-2">Importieren Sie eine Excel-Datei</p>
+                  <button onClick={() => setActiveTab('import')} className="mt-4 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    ➕ Import starten
+                  </button>
+                </div>
+              ) : (
+                projects.map(proj => {
+                  const tss = getProjectTimesheets(proj);
+                  const emps = [...new Set(tss.map(ts => ts.employee_name))];
+                  const totalHours = tss.reduce((s, ts) => s + ts.total_billable_hours, 0);
+                  const fkz = tss[0]?.funding_reference || '';
+                  return (
+                    <div key={proj} onClick={() => setSelectedProject(proj)}
+                         className="bg-white rounded-lg shadow p-6 cursor-pointer hover:shadow-lg transition-shadow">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h3 className="text-lg font-bold">📁 {proj}</h3>
+                          <p className="text-gray-500 text-sm">FKZ: {fkz}</p>
+                          <p className="text-gray-500 text-sm mt-1">{emps.length} Mitarbeiter</p>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-2xl font-bold text-blue-600">{totalHours.toFixed(0)}h</div>
+                          <div className="text-sm text-gray-500">Gesamtstunden</div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        )}
+                  );
+                })
+              )}
+            </div>
+          )}
 
-        {activeTab === 'projects' && selectedProject && renderProjectDetail()}
+          {activeTab === 'projects' && selectedProject && renderProjectDetail()}
 
-        {/* TAB: NEUER IMPORT */}
-        {activeTab === 'import' && (
-          <>
-            {/* UPLOAD */}
-            {importStep === 'upload' && (
-              <div className="bg-white rounded-lg shadow p-6">
-                <h2 className="text-lg font-bold mb-4">Excel-Projektabrechnung hochladen</h2>
-                
-                {/* Unterstützte Formate */}
-                <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-                  <h3 className="font-medium text-gray-700 mb-2">Unterstützte Formate:</h3>
-                  <div className="flex flex-wrap gap-2">
-                    <span className={`px-3 py-1 rounded-full border text-sm ${FORMAT_INFO.ZIM.color}`}>
-                      {FORMAT_INFO.ZIM.name}
-                    </span>
-                    <span className={`px-3 py-1 rounded-full border text-sm ${FORMAT_INFO.BMBF_KMU.color}`}>
-                      {FORMAT_INFO.BMBF_KMU.name}
-                    </span>
-                    <span className={`px-3 py-1 rounded-full border text-sm ${FORMAT_INFO.FZUL.color}`}>
-                      {FORMAT_INFO.FZUL.name} (geplant)
-                    </span>
-                  </div>
-                </div>
-
-                <div
-                  onDragEnter={handleDragEnter}
-                  onDragLeave={handleDragLeave}
-                  onDragOver={handleDragOver}
-                  onDrop={handleDrop}
-                  className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors ${
-                    isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-blue-400'
-                  }`}
-                >
-                  <input
-                    type="file"
-                    accept=".xlsx,.xls"
-                    onChange={handleFileInput}
-                    className="hidden"
-                    id="file-upload"
-                  />
-                  <label htmlFor="file-upload" className="cursor-pointer">
-                    <div className="text-5xl mb-4">📊</div>
-                    <p className="text-lg font-medium">Excel-Datei hier ablegen oder klicken</p>
-                    <p className="text-sm text-gray-500 mt-2">Projektabrechnung_[Projekt]_[Firma].xlsx</p>
-                  </label>
-                </div>
-
-                {processing && (
-                  <div className="mt-4 text-center text-blue-600">
-                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 inline-block mr-2"></div>
-                    Wird verarbeitet...
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* PREVIEW */}
-            {importStep === 'preview' && projectInfo && (
-              <div className="space-y-6">
-                {/* Projekt-Info mit Format-Badge */}
+          {/* TAB: NEUER IMPORT */}
+          {activeTab === 'import' && (
+            <>
+              {importStep === 'upload' && (
                 <div className="bg-white rounded-lg shadow p-6">
-                  <div className="flex justify-between items-start mb-4">
-                    <h2 className="text-lg font-bold">📁 {projectInfo.projectName}</h2>
-                    {/* Format-Badge */}
-                    <span className={`px-3 py-1 rounded-full border text-sm font-medium ${FORMAT_INFO[projectInfo.format].color}`}>
-                      {FORMAT_INFO[projectInfo.format].name}
-                    </span>
+                  <h2 className="text-lg font-bold mb-4">Excel-Projektabrechnung hochladen</h2>
+                  <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                    <h3 className="font-medium text-gray-700 mb-2">Unterstützte Formate:</h3>
+                    <div className="flex flex-wrap gap-2">
+                      <span className={`px-3 py-1 rounded-full border text-sm ${FORMAT_INFO.ZIM.color}`}>{FORMAT_INFO.ZIM.name}</span>
+                      <span className={`px-3 py-1 rounded-full border text-sm ${FORMAT_INFO.BMBF_KMU.color}`}>{FORMAT_INFO.BMBF_KMU.name}</span>
+                      <span className={`px-3 py-1 rounded-full border text-sm ${FORMAT_INFO.FZUL.color}`}>{FORMAT_INFO.FZUL.name} (geplant)</span>
+                    </div>
                   </div>
-                  
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                    <div>
-                      <span className="text-gray-500">Firma:</span>
-                      <p className="font-medium">{projectInfo.companyName || '-'}</p>
+                  <div
+                    onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDragOver={handleDragOver} onDrop={handleDrop}
+                    className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors ${
+                      isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-blue-400'
+                    }`}
+                  >
+                    <input type="file" accept=".xlsx,.xls" onChange={handleFileInput} className="hidden" id="file-upload" />
+                    <label htmlFor="file-upload" className="cursor-pointer">
+                      <div className="text-5xl mb-4">📊</div>
+                      <p className="text-lg font-medium">Excel-Datei hier ablegen oder klicken</p>
+                      <p className="text-sm text-gray-500 mt-2">Projektabrechnung_[Projekt]_[Firma].xlsx</p>
+                    </label>
+                  </div>
+                  {processing && (
+                    <div className="mt-4 text-center text-blue-600">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 inline-block mr-2"></div>
+                      Wird verarbeitet...
                     </div>
-                    <div>
-                      <span className="text-gray-500">FKZ:</span>
-                      <p className="font-medium">{projectInfo.fundingReference || '-'}</p>
+                  )}
+                </div>
+              )}
+
+              {importStep === 'preview' && projectInfo && (
+                <div className="space-y-6 overflow-auto h-full">
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <div className="flex justify-between items-start mb-4">
+                      <h2 className="text-lg font-bold">📁 {projectInfo.projectName}</h2>
+                      <span className={`px-3 py-1 rounded-full border text-sm font-medium ${FORMAT_INFO[projectInfo.format].color}`}>
+                        {FORMAT_INFO[projectInfo.format].name}
+                      </span>
                     </div>
-                    <div>
-                      <span className="text-gray-500">Datei:</span>
-                      <p className="font-medium truncate">{projectInfo.fileName}</p>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                      <div><span className="text-gray-500">Firma:</span><p className="font-medium">{projectInfo.companyName || '-'}</p></div>
+                      <div><span className="text-gray-500">FKZ:</span><p className="font-medium">{projectInfo.fundingReference || '-'}</p></div>
+                      <div><span className="text-gray-500">Datei:</span><p className="font-medium truncate">{projectInfo.fileName}</p></div>
+                      <div><span className="text-gray-500">Mitarbeiter:</span><p className="font-medium">{extractedData.length} gefunden</p></div>
                     </div>
-                    <div>
-                      <span className="text-gray-500">Mitarbeiter:</span>
-                      <p className="font-medium">{extractedData.length} gefunden</p>
+                    <div className="mt-4 pt-4 border-t">
+                      <p className="text-sm text-gray-500 mb-2">Format falsch erkannt? Manuell auswählen:</p>
+                      <div className="flex gap-2">
+                        {(['ZIM', 'BMBF_KMU'] as FundingFormat[]).map(fmt => (
+                          <button key={fmt} onClick={() => reprocessWithFormat(fmt)} disabled={processing}
+                            className={`px-3 py-1 rounded border text-sm ${selectedFormat === fmt ? FORMAT_INFO[fmt].color + ' font-bold' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+                            {FORMAT_INFO[fmt].name}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
 
-                  {/* Format-Auswahl falls falsch erkannt */}
-                  <div className="mt-4 pt-4 border-t">
-                    <p className="text-sm text-gray-500 mb-2">Format falsch erkannt? Manuell auswählen:</p>
-                    <div className="flex gap-2">
-                      {(['ZIM', 'BMBF_KMU'] as FundingFormat[]).map(fmt => (
-                        <button
-                          key={fmt}
-                          onClick={() => reprocessWithFormat(fmt)}
-                          disabled={processing}
-                          className={`px-3 py-1 rounded border text-sm ${
-                            selectedFormat === fmt 
-                              ? FORMAT_INFO[fmt].color + ' font-bold'
-                              : 'bg-white text-gray-600 hover:bg-gray-50'
-                          }`}
-                        >
-                          {FORMAT_INFO[fmt].name}
-                        </button>
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                    <h3 className="font-bold text-yellow-800 mb-3">⚙️ Standard-Stammdaten (für alle MA)</h3>
+                    <div className="grid grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Wochenarbeitszeit</label>
+                        <input type="number" value={defaultWeeklyHours} onChange={(e) => setDefaultWeeklyHours(parseFloat(e.target.value) || 40)} className="w-24 border rounded px-3 py-2" />
+                        <span className="ml-2 text-gray-500">h</span>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Jahresurlaub</label>
+                        <input type="number" value={defaultAnnualLeave} onChange={(e) => setDefaultAnnualLeave(parseInt(e.target.value) || 30)} className="w-24 border rounded px-3 py-2" />
+                        <span className="ml-2 text-gray-500">Tage</span>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">🏴 Firmen-Bundesland</label>
+                        <div className="px-3 py-2 bg-blue-50 border border-blue-200 rounded font-medium text-blue-800">
+                          {BUNDESLAENDER.find(bl => bl.code === companyStateCode)?.name || companyStateCode}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">Änderbar in MA-Stammdaten</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-lg shadow overflow-hidden">
+                    <div className="bg-gray-100 px-6 py-4"><h3 className="font-bold">👥 Erkannte Mitarbeiter ({extractedData.length})</h3></div>
+                    <div className="divide-y">
+                      {extractedData.map((emp, idx) => (
+                        <div key={idx} className="px-6 py-4 flex justify-between items-center">
+                          <div>
+                            <div className="font-medium">{emp.employeeName}</div>
+                            <div className="text-sm text-gray-500">Projektjahr {emp.projectYear} • {emp.months.filter(m => m.billableHours > 0).length} Monate mit Daten</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-lg font-bold text-blue-600">{emp.totalBillableHours.toFixed(0)}h</div>
+                            {emp.totalAbsenceHours > 0 && <div className="text-sm text-orange-600">{(emp.totalAbsenceHours / 8).toFixed(0)} Fehltage</div>}
+                          </div>
+                        </div>
                       ))}
                     </div>
                   </div>
-                </div>
 
-                {/* Standard-Werte */}
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                  <h3 className="font-bold text-yellow-800 mb-3">⚙️ Standard-Stammdaten (für alle MA)</h3>
-                  <div className="grid grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Wochenarbeitszeit</label>
-                      <input
-                        type="number"
-                        value={defaultWeeklyHours}
-                        onChange={(e) => setDefaultWeeklyHours(parseFloat(e.target.value) || 40)}
-                        className="w-24 border rounded px-3 py-2"
-                      />
-                      <span className="ml-2 text-gray-500">h</span>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Jahresurlaub</label>
-                      <input
-                        type="number"
-                        value={defaultAnnualLeave}
-                        onChange={(e) => setDefaultAnnualLeave(parseInt(e.target.value) || 30)}
-                        className="w-24 border rounded px-3 py-2"
-                      />
-                      <span className="ml-2 text-gray-500">Tage</span>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1 text-red-700">
-                        🏴 Bundesland <span className="text-red-500">*</span>
-                      </label>
-                      <select
-                        value={importStateCode}
-                        onChange={(e) => setImportStateCode(e.target.value)}
-                        className="border border-red-300 rounded px-3 py-2 bg-white font-medium"
-                      >
-                        {BUNDESLAENDER.map(bl => (
-                          <option key={bl.code} value={bl.code}>{bl.name}</option>
-                        ))}
-                      </select>
-                    </div>
+                  <div className="flex justify-between">
+                    <button onClick={() => { setWorkbook(null); setProjectInfo(null); setExtractedData([]); setImportStep('upload'); setSelectedFormat(null); }}
+                      className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">← Andere Datei</button>
+                    <button onClick={importAllEmployees} disabled={processing}
+                      className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-bold">
+                      {processing ? 'Importiert...' : `✅ Alle ${extractedData.length} MA importieren`}
+                    </button>
                   </div>
-                  <p className="mt-3 text-xs text-yellow-700">
-                    * Das Bundesland bestimmt die Feiertage für die Kapazitätsberechnung
-                  </p>
                 </div>
+              )}
 
-                {/* MA-Übersicht */}
-                <div className="bg-white rounded-lg shadow overflow-hidden">
-                  <div className="bg-gray-100 px-6 py-4">
-                    <h3 className="font-bold">👥 Erkannte Mitarbeiter ({extractedData.length})</h3>
+              {importStep === 'done' && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-8 text-center">
+                  <span className="text-5xl">✅</span>
+                  <h2 className="text-xl font-bold text-green-800 mt-4">Import abgeschlossen!</h2>
+                  <p className="text-green-600 mt-2">{extractedData.length} Mitarbeiter wurden importiert.</p>
+                  <div className="mt-6 flex justify-center gap-4">
+                    <button onClick={() => { setActiveTab('projects'); setImportStep('upload'); }} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">📁 Zu Projekten</button>
+                    <button onClick={() => { setWorkbook(null); setProjectInfo(null); setExtractedData([]); setImportStep('upload'); setSelectedFormat(null); }}
+                      className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">➕ Weitere Datei</button>
                   </div>
-                  <div className="divide-y">
-                    {extractedData.map((emp, idx) => (
-                      <div key={idx} className="px-6 py-4 flex justify-between items-center">
-                        <div>
-                          <div className="font-medium">{emp.employeeName}</div>
-                          <div className="text-sm text-gray-500">
-                            Projektjahr {emp.projectYear} • {emp.months.filter(m => m.billableHours > 0).length} Monate mit Daten
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-lg font-bold text-blue-600">{emp.totalBillableHours.toFixed(0)}h</div>
-                          {emp.totalAbsenceHours > 0 && (
-                            <div className="text-sm text-orange-600">{(emp.totalAbsenceHours / 8).toFixed(0)} Fehltage</div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* NEU v6.0: TAB FZUL MA-STAMMDATEN */}
+          {activeTab === 'fzul-employees' && (
+            <div className="space-y-4 overflow-auto h-full">
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <div>
+                    <h2 className="text-lg font-bold">👥 FZul Mitarbeiter-Stammdaten</h2>
+                    <p className="text-sm text-gray-500">Wochenarbeitszeit und Urlaubstage für FZul-Berechnung</p>
+                  </div>
+                  <div className="flex gap-2">
+                    {savedTimesheets.length > 0 && (
+                      <button onClick={importEmployeeNamesFromTimesheets}
+                        className="px-4 py-2 bg-yellow-100 text-yellow-800 rounded-lg hover:bg-yellow-200 text-sm">
+                        📥 Aus Import übernehmen
+                      </button>
+                    )}
+                    <button onClick={openNewFzulEmployeeModal}
+                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                      ➕ Neuer Mitarbeiter
+                    </button>
                   </div>
                 </div>
 
-                {/* Aktionen */}
-                <div className="flex justify-between">
-                  <button
-                    onClick={() => {
-                      setWorkbook(null);
-                      setProjectInfo(null);
-                      setExtractedData([]);
-                      setImportStep('upload');
-                      setSelectedFormat(null);
-                    }}
-                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                  >
-                    ← Andere Datei
-                  </button>
-                  <button
-                    onClick={importAllEmployees}
-                    disabled={processing}
-                    className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-bold"
-                  >
-                    {processing ? 'Importiert...' : `✅ Alle ${extractedData.length} MA importieren`}
+                {/* Firmen-Bundesland Info */}
+                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex justify-between items-center">
+                  <div>
+                    <span className="text-sm text-blue-800">
+                      🏴 <strong>Firmen-Bundesland:</strong> {BUNDESLAENDER.find(bl => bl.code === companyStateCode)?.name || companyStateCode}
+                    </span>
+                    <p className="text-xs text-blue-600 mt-1">Gilt für alle Mitarbeiter (Feiertage werden nach Firmenstandort berechnet)</p>
+                  </div>
+                  <button onClick={openCompanyStateModal} className="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-sm">
+                    ✏️ Ändern
                   </button>
                 </div>
-              </div>
-            )}
 
-            {/* DONE */}
-            {importStep === 'done' && (
-              <div className="bg-green-50 border border-green-200 rounded-lg p-8 text-center">
-                <span className="text-5xl">✅</span>
-                <h2 className="text-xl font-bold text-green-800 mt-4">Import abgeschlossen!</h2>
-                <p className="text-green-600 mt-2">{extractedData.length} Mitarbeiter wurden importiert.</p>
-                {projectInfo && (
-                  <p className="text-gray-500 text-sm mt-1">
-                    Format: {FORMAT_INFO[projectInfo.format].name}
-                  </p>
+                {loadingFzulEmployees ? (
+                  <div className="text-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto"></div>
+                  </div>
+                ) : fzulEmployees.length === 0 ? (
+                  <div className="text-center py-12 text-gray-500">
+                    <span className="text-4xl">👥</span>
+                    <p className="mt-4">Noch keine Mitarbeiter angelegt</p>
+                    <p className="text-sm mt-2">Klicken Sie auf "Neuer Mitarbeiter" oder importieren Sie aus bestehenden Daten</p>
+                  </div>
+                ) : (
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b bg-gray-50">
+                        <th className="px-4 py-3 text-left">Name</th>
+                        <th className="px-4 py-3 text-center">Wochenstunden</th>
+                        <th className="px-4 py-3 text-center">Urlaub</th>
+                        <th className="px-4 py-3 text-center">Position</th>
+                        <th className="px-4 py-3 text-center">Status</th>
+                        <th className="px-4 py-3 text-right">Aktionen</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {fzulEmployees.map(emp => (
+                        <tr key={emp.id} className="border-b hover:bg-gray-50">
+                          <td className="px-4 py-3 font-medium">{emp.employee_name}</td>
+                          <td className="px-4 py-3 text-center">{emp.weekly_hours}h</td>
+                          <td className="px-4 py-3 text-center">{emp.annual_leave_days} Tage</td>
+                          <td className="px-4 py-3 text-center text-sm text-gray-500">{emp.position_title || '-'}</td>
+                          <td className="px-4 py-3 text-center">
+                            <span className={`px-2 py-1 rounded text-xs ${emp.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
+                              {emp.is_active ? 'Aktiv' : 'Inaktiv'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <button onClick={() => openEditFzulEmployeeModal(emp)} className="text-blue-600 hover:underline text-sm mr-3">Bearbeiten</button>
+                            <button onClick={() => deleteFzulEmployee(emp)} className="text-red-600 hover:underline text-sm">Löschen</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 )}
-                <div className="mt-6 flex justify-center gap-4">
-                  <button
-                    onClick={() => { setActiveTab('projects'); setImportStep('upload'); }}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                  >
-                    📁 Zu Projekten
-                  </button>
-                  <button
-                    onClick={() => {
-                      setWorkbook(null);
-                      setProjectInfo(null);
-                      setExtractedData([]);
-                      setImportStep('upload');
-                      setSelectedFormat(null);
-                    }}
-                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                  >
-                    ➕ Weitere Datei
-                  </button>
-                </div>
               </div>
-            )}
-          </>
-        )}
+            </div>
+          )}
+
+          {/* NEU v6.0: TAB FZUL EDITOR */}
+          {activeTab === 'fzul-editor' && (
+            <div className="space-y-4 overflow-auto h-full">
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <div>
+                    <h2 className="text-lg font-bold">📝 FZul Online-Editor</h2>
+                    <p className="text-sm text-gray-500">Jahresübersicht bearbeiten und FZul-Stundennachweis erstellen</p>
+                  </div>
+                </div>
+                
+                {fzulEmployees.length === 0 ? (
+                  <div className="text-center py-12 text-gray-500">
+                    <span className="text-4xl">📝</span>
+                    <p className="mt-4">Bitte legen Sie zuerst Mitarbeiter an</p>
+                    <button onClick={() => setActiveTab('fzul-employees')} className="mt-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                      👥 Zu MA-Stammdaten
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {/* MA + Jahr Auswahl */}
+                    <div className="flex gap-4 items-center p-4 bg-gray-50 rounded-lg">
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Mitarbeiter</label>
+                        <select value={fzulSelectedEmployee || ''} onChange={(e) => setFzulSelectedEmployee(e.target.value || null)}
+                          className="border rounded px-3 py-2 min-w-[200px]">
+                          <option value="">-- Bitte wählen --</option>
+                          {fzulEmployees.filter(e => e.is_active).map(emp => (
+                            <option key={emp.id} value={emp.employee_name}>{emp.employee_name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Jahr</label>
+                        <select value={fzulSelectedYear} onChange={(e) => setFzulSelectedYear(parseInt(e.target.value))}
+                          className="border rounded px-3 py-2">
+                          {[2020, 2021, 2022, 2023, 2024, 2025, 2026].map(y => (
+                            <option key={y} value={y}>{y}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {fzulSelectedEmployee && (
+                      <div className="p-6 border rounded-lg bg-yellow-50">
+                        <p className="text-yellow-800">
+                          🚧 <strong>In Entwicklung:</strong> Der interaktive FZul-Editor wird in Phase 2 implementiert.
+                        </p>
+                        <p className="text-sm text-yellow-700 mt-2">
+                          Hier werden Sie die Jahresübersicht für <strong>{fzulSelectedEmployee}</strong> ({fzulSelectedYear}) 
+                          bearbeiten und direkt PDF-Stundennachweise generieren können.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* NEU v6.0: TAB PDF-ARCHIV */}
+          {activeTab === 'fzul-archive' && (
+            <div className="space-y-4 overflow-auto h-full">
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <div>
+                    <h2 className="text-lg font-bold">📄 FZul PDF-Archiv</h2>
+                    <p className="text-sm text-gray-500">Generierte Stundennachweise</p>
+                  </div>
+                </div>
+
+                {loadingPdfs ? (
+                  <div className="text-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto"></div>
+                  </div>
+                ) : fzulPdfs.length === 0 ? (
+                  <div className="text-center py-12 text-gray-500">
+                    <span className="text-4xl">📄</span>
+                    <p className="mt-4">Noch keine PDFs generiert</p>
+                    <p className="text-sm mt-2">Erstellen Sie Stundennachweise im FZul-Editor</p>
+                  </div>
+                ) : (
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b bg-gray-50">
+                        <th className="px-4 py-3 text-left">Dateiname</th>
+                        <th className="px-4 py-3 text-center">Mitarbeiter</th>
+                        <th className="px-4 py-3 text-center">Jahr</th>
+                        <th className="px-4 py-3 text-center">Erstellt am</th>
+                        <th className="px-4 py-3 text-right">Aktionen</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {fzulPdfs.map(pdf => (
+                        <tr key={pdf.id} className="border-b hover:bg-gray-50">
+                          <td className="px-4 py-3 font-medium">{pdf.filename}</td>
+                          <td className="px-4 py-3 text-center">{pdf.employee_name}</td>
+                          <td className="px-4 py-3 text-center">{pdf.year}</td>
+                          <td className="px-4 py-3 text-center text-sm text-gray-500">
+                            {new Date(pdf.created_at).toLocaleDateString('de-DE')}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <button className="text-blue-600 hover:underline text-sm mr-3">📥 Download</button>
+                            <button className="text-red-600 hover:underline text-sm">🗑️ Löschen</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          )}
 
         {/* MODAL: STAMMDATEN */}
         {editingEmployee && (
@@ -2395,36 +2372,20 @@ export default function ImportPage() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">Wochenarbeitszeit</label>
-                  <input
-                    type="number"
-                    value={editingEmployee.weekly_hours}
-                    onChange={(e) => setEditingEmployee({
-                      ...editingEmployee,
-                      weekly_hours: parseFloat(e.target.value) || 40
-                    })}
-                    className="w-full border rounded px-3 py-2"
-                  />
+                  <input type="number" value={editingEmployee.weekly_hours}
+                    onChange={(e) => setEditingEmployee({ ...editingEmployee, weekly_hours: parseFloat(e.target.value) || 40 })}
+                    className="w-full border rounded px-3 py-2" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Jahresurlaub (Tage)</label>
-                  <input
-                    type="number"
-                    value={editingEmployee.annual_leave_days}
-                    onChange={(e) => setEditingEmployee({
-                      ...editingEmployee,
-                      annual_leave_days: parseInt(e.target.value) || 30
-                    })}
-                    className="w-full border rounded px-3 py-2"
-                  />
+                  <input type="number" value={editingEmployee.annual_leave_days}
+                    onChange={(e) => setEditingEmployee({ ...editingEmployee, annual_leave_days: parseInt(e.target.value) || 30 })}
+                    className="w-full border rounded px-3 py-2" />
                 </div>
               </div>
               <div className="mt-6 flex justify-end gap-3">
-                <button onClick={() => setEditingEmployee(null)} className="px-4 py-2 border rounded-lg">
-                  Abbrechen
-                </button>
-                <button onClick={saveEmployeeSettings} className="px-4 py-2 bg-blue-600 text-white rounded-lg">
-                  Speichern
-                </button>
+                <button onClick={() => setEditingEmployee(null)} className="px-4 py-2 border rounded-lg">Abbrechen</button>
+                <button onClick={saveEmployeeSettings} className="px-4 py-2 bg-blue-600 text-white rounded-lg">Speichern</button>
               </div>
             </div>
           </div>
@@ -2441,12 +2402,8 @@ export default function ImportPage() {
                 {showDeleteConfirm.type === 'employee' && `MA "${showDeleteConfirm.employeeName}" mit allen Daten löschen?`}
               </p>
               <div className="mt-6 flex justify-end gap-3">
-                <button onClick={() => setShowDeleteConfirm(null)} className="px-4 py-2 border rounded-lg">
-                  Abbrechen
-                </button>
-                <button onClick={handleDelete} className="px-4 py-2 bg-red-600 text-white rounded-lg">
-                  Löschen
-                </button>
+                <button onClick={() => setShowDeleteConfirm(null)} className="px-4 py-2 border rounded-lg">Abbrechen</button>
+                <button onClick={handleDelete} className="px-4 py-2 bg-red-600 text-white rounded-lg">Löschen</button>
               </div>
             </div>
           </div>
@@ -2458,72 +2415,40 @@ export default function ImportPage() {
             <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg">
               <div className="flex justify-between items-center mb-6">
                 <h3 className="text-lg font-bold">🔐 Analyse-Berechtigungen verwalten</h3>
-                <button 
-                  onClick={() => setShowAccessModal(false)}
-                  className="text-gray-500 hover:text-gray-700 text-xl"
-                >
-                  ×
-                </button>
+                <button onClick={() => setShowAccessModal(false)} className="text-gray-500 hover:text-gray-700 text-xl">×</button>
               </div>
-
-              <p className="text-gray-600 mb-4">
-                Wählen Sie aus, welche Administratoren Zugriff auf das Import-Modul haben sollen:
-              </p>
-
+              <p className="text-gray-600 mb-4">Wählen Sie aus, welche Administratoren Zugriff auf das Import-Modul haben sollen:</p>
               {loadingAdmins ? (
                 <div className="flex items-center justify-center py-8">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                   <span className="ml-3 text-gray-500">Lade Benutzer...</span>
                 </div>
               ) : adminUsers.length === 0 ? (
-                <div className="py-8 text-center text-gray-500">
-                  Keine Administratoren gefunden
-                </div>
+                <div className="py-8 text-center text-gray-500">Keine Administratoren gefunden</div>
               ) : (
                 <div className="space-y-2 max-h-80 overflow-y-auto">
                   {adminUsers.map(admin => (
-                    <label 
-                      key={admin.id}
+                    <label key={admin.id}
                       className={`flex items-center p-4 border rounded-lg cursor-pointer transition-colors ${
-                        admin.has_import_access 
-                          ? 'border-green-300 bg-green-50' 
-                          : 'border-gray-200 hover:bg-gray-50'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={admin.has_import_access}
-                        onChange={() => toggleAdminAccess(admin.id)}
-                        className="w-5 h-5 text-green-600 rounded focus:ring-green-500"
-                      />
+                        admin.has_import_access ? 'border-green-300 bg-green-50' : 'border-gray-200 hover:bg-gray-50'
+                      }`}>
+                      <input type="checkbox" checked={admin.has_import_access} onChange={() => toggleAdminAccess(admin.id)}
+                        className="w-5 h-5 text-green-600 rounded focus:ring-green-500" />
                       <div className="ml-4 flex-1">
                         <div className="font-medium">{admin.name}</div>
                         <div className="text-sm text-gray-500">{admin.email}</div>
                       </div>
-                      {admin.has_import_access && (
-                        <span className="text-green-600 text-sm font-medium">✓ Berechtigt</span>
-                      )}
+                      {admin.has_import_access && <span className="text-green-600 text-sm font-medium">✓ Berechtigt</span>}
                     </label>
                   ))}
                 </div>
               )}
-
               <div className="mt-6 pt-4 border-t flex justify-between items-center">
-                <p className="text-sm text-gray-500">
-                  {adminUsers.filter(a => a.has_import_access).length} von {adminUsers.length} Admins berechtigt
-                </p>
+                <p className="text-sm text-gray-500">{adminUsers.filter(a => a.has_import_access).length} von {adminUsers.length} Admins berechtigt</p>
                 <div className="flex gap-3">
-                  <button 
-                    onClick={() => setShowAccessModal(false)} 
-                    className="px-4 py-2 border rounded-lg hover:bg-gray-50"
-                  >
-                    Abbrechen
-                  </button>
-                  <button 
-                    onClick={saveAccessChanges}
-                    disabled={savingAccess}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                  >
+                  <button onClick={() => setShowAccessModal(false)} className="px-4 py-2 border rounded-lg hover:bg-gray-50">Abbrechen</button>
+                  <button onClick={saveAccessChanges} disabled={savingAccess}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
                     {savingAccess ? 'Speichert...' : 'Speichern'}
                   </button>
                 </div>
@@ -2531,6 +2456,109 @@ export default function ImportPage() {
             </div>
           </div>
         )}
+
+        {/* NEU v6.0: MODAL FZUL MITARBEITER */}
+        {showFzulEmployeeModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-lg font-bold">
+                  {editingFzulEmployee ? '✏️ Mitarbeiter bearbeiten' : '➕ Neuer Mitarbeiter'}
+                </h3>
+                <button onClick={() => setShowFzulEmployeeModal(false)} className="text-gray-500 hover:text-gray-700 text-xl">×</button>
+              </div>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Name *</label>
+                  <input type="text" value={fzulEmployeeForm.employee_name}
+                    onChange={(e) => setFzulEmployeeForm({ ...fzulEmployeeForm, employee_name: e.target.value })}
+                    className="w-full border rounded px-3 py-2" placeholder="Nachname, Vorname" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Wochenstunden</label>
+                    <input type="number" value={fzulEmployeeForm.weekly_hours}
+                      onChange={(e) => setFzulEmployeeForm({ ...fzulEmployeeForm, weekly_hours: parseFloat(e.target.value) || 40 })}
+                      className="w-full border rounded px-3 py-2" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Urlaubstage</label>
+                    <input type="number" value={fzulEmployeeForm.annual_leave_days}
+                      onChange={(e) => setFzulEmployeeForm({ ...fzulEmployeeForm, annual_leave_days: parseInt(e.target.value) || 30 })}
+                      className="w-full border rounded px-3 py-2" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Position/Funktion</label>
+                  <input type="text" value={fzulEmployeeForm.position_title}
+                    onChange={(e) => setFzulEmployeeForm({ ...fzulEmployeeForm, position_title: e.target.value })}
+                    className="w-full border rounded px-3 py-2" placeholder="z.B. Entwickler, Projektleiter" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Notizen</label>
+                  <textarea value={fzulEmployeeForm.notes}
+                    onChange={(e) => setFzulEmployeeForm({ ...fzulEmployeeForm, notes: e.target.value })}
+                    className="w-full border rounded px-3 py-2" rows={2} placeholder="Interne Bemerkungen" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <input type="checkbox" id="is_active" checked={fzulEmployeeForm.is_active}
+                    onChange={(e) => setFzulEmployeeForm({ ...fzulEmployeeForm, is_active: e.target.checked })}
+                    className="w-4 h-4 text-green-600 rounded" />
+                  <label htmlFor="is_active" className="text-sm">Aktiver Mitarbeiter</label>
+                </div>
+              </div>
+              
+              <div className="mt-6 flex justify-end gap-3">
+                <button onClick={() => setShowFzulEmployeeModal(false)} className="px-4 py-2 border rounded-lg hover:bg-gray-50">
+                  Abbrechen
+                </button>
+                <button onClick={saveFzulEmployee} disabled={savingFzulEmployee}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50">
+                  {savingFzulEmployee ? 'Speichert...' : 'Speichern'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* NEU v6.0: MODAL FIRMEN-BUNDESLAND */}
+        {showCompanyStateModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-lg font-bold">🏴 Firmen-Bundesland ändern</h3>
+                <button onClick={() => setShowCompanyStateModal(false)} className="text-gray-500 hover:text-gray-700 text-xl">×</button>
+              </div>
+              
+              <p className="text-sm text-gray-600 mb-4">
+                Das Bundesland bestimmt die Feiertage für alle Mitarbeiter des Unternehmens.
+              </p>
+              
+              <div>
+                <label className="block text-sm font-medium mb-1">Bundesland *</label>
+                <select value={newCompanyStateCode}
+                  onChange={(e) => setNewCompanyStateCode(e.target.value)}
+                  className="w-full border rounded px-3 py-2">
+                  {BUNDESLAENDER.map(bl => (
+                    <option key={bl.code} value={bl.code}>{bl.name}</option>
+                  ))}
+                </select>
+              </div>
+              
+              <div className="mt-6 flex justify-end gap-3">
+                <button onClick={() => setShowCompanyStateModal(false)} className="px-4 py-2 border rounded-lg hover:bg-gray-50">
+                  Abbrechen
+                </button>
+                <button onClick={saveCompanyState}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                  Speichern
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         </div>{/* Ende Tab-Content Container */}
       </main>
     </div>
