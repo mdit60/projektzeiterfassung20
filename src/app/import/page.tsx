@@ -2915,18 +2915,19 @@ export default function ImportPage() {
                   <table className="w-full border-collapse border border-gray-400 text-xs">
                     <tbody>
                       <tr>
-                        <td className="border border-gray-400 p-1 w-48 bg-gray-50">Kurzbezeichnung des FuE-Vorhabens:</td>
+                        <td className="border border-gray-400 p-1 w-48 bg-gray-50 align-top">Kurzbezeichnung des FuE-Vorhabens:</td>
                         <td className="border border-gray-400 p-0" colSpan={2}>
-                          <input 
-                            type="text"
+                          <textarea 
                             value={fzulTimesheet.project_title || ''}
                             onChange={(e) => setFzulTimesheet({...fzulTimesheet, project_title: e.target.value})}
-                            className="w-full px-1 py-0.5 border-0 text-xs"
+                            className="w-full px-1 py-0.5 border-0 text-xs resize-none"
                             placeholder="Projektbezeichnung eingeben..."
+                            rows={2}
+                            style={{ minHeight: '32px' }}
                           />
                         </td>
-                        <td className="border border-gray-400 p-1 w-24 bg-gray-50 text-right">Wirtschaftsjahr:</td>
-                        <td className="border border-gray-400 p-1 w-20 font-bold text-center bg-amber-50">{fzulSelectedYear}</td>
+                        <td className="border border-gray-400 p-1 w-24 bg-gray-50 text-right align-top">Wirtschaftsjahr:</td>
+                        <td className="border border-gray-400 p-1 w-20 font-bold text-center bg-amber-50 align-top">{fzulSelectedYear}</td>
                       </tr>
                       <tr>
                         <td className="border border-gray-400 p-1 bg-gray-50">Vorhaben-ID des FuE-Vorhabens:</td>
