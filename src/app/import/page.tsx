@@ -1,5 +1,5 @@
 // src/app/import/page.tsx
-// VERSION: v6.3d - Projekt-Ansicht: "Im FZul-Editor öffnen" Button + Fixes
+// VERSION: v7.0 - Korrekte Wochentage (Sa/So) und spezifische Feiertags-Abkürzungen
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
@@ -176,6 +176,9 @@ const MONTH_NAMES = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
 
 const MONTH_SHORT = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 
+// NEU v7.0: Wochentags-Kürzel
+const DAY_NAMES = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+
 // Bundesländer mit Codes
 const BUNDESLAENDER = [
   { code: 'DE-BW', name: 'Baden-Württemberg' },
@@ -249,8 +252,7 @@ const SHEET_BLACKLIST_PATTERN = /^(Ermittl|Auswertung|Nav|PK|ZAZK|ZNZK|Planung|�
 
 export default function ImportPage() {
   // VERSION CHECK - in Browser-Konsole sichtbar
-  console.log('[Import] Version v6.3d - Projekt → FZul-Editor Direktlink');
-  
+  console.log('[Import] Version v7.0 - Korrekte Wochentage (Sa/So) und Feiertags-Abkürzungen');  
   const router = useRouter();
   const supabase = createClient();
 
@@ -1308,9 +1310,10 @@ export default function ImportPage() {
     return new Date(year, month - 1, day);
   };
   
-  const getGermanHolidays = (year: number, stateCode?: string): Set<string> => {
+  // NEU v7.0: Feiertage MIT Abkürzungen (Map statt Set)
+  const getGermanHolidaysWithNames = (year: number, stateCode?: string): Map<string, string> => {
     const state = stateCode || companyStateCode || 'DE-NW';
-    const holidays = new Set<string>();
+    const holidays = new Map<string, string>();
     const easter = getEasterSunday(year);
     
     const formatDate = (d: Date): string => {
@@ -1320,47 +1323,85 @@ export default function ImportPage() {
       return `${y}-${m}-${day}`;
     };
     
-    const addDays = (d: Date, days: number): string => {
+    const addDays = (d: Date, days: number): Date => {
       const r = new Date(d);
       r.setDate(d.getDate() + days);
-      return formatDate(r);
+      return r;
     };
     
-    // Bundesweite Feiertage
-    holidays.add(`${year}-01-01`);
-    holidays.add(addDays(easter, -2));
-    holidays.add(addDays(easter, 1));
-    holidays.add(`${year}-05-01`);
-    holidays.add(addDays(easter, 39));
-    holidays.add(addDays(easter, 50));
-    holidays.add(`${year}-10-03`);
-    holidays.add(`${year}-12-25`);
-    holidays.add(`${year}-12-26`);
+    // Bundesweite feste Feiertage
+    holidays.set(`${year}-01-01`, 'Neuj.');      // Neujahr
+    holidays.set(`${year}-05-01`, 'TdA');        // Tag der Arbeit
+    holidays.set(`${year}-10-03`, 'TDE');        // Tag der Deutschen Einheit
+    holidays.set(`${year}-12-25`, '1.WT');       // 1. Weihnachtstag
+    holidays.set(`${year}-12-26`, '2.WT');       // 2. Weihnachtstag
+    
+    // Bundesweite bewegliche Feiertage
+    holidays.set(formatDate(addDays(easter, -2)), 'Karfr.');   // Karfreitag
+    holidays.set(formatDate(easter), 'OS');                     // Ostersonntag
+    holidays.set(formatDate(addDays(easter, 1)), 'OM');        // Ostermontag
+    holidays.set(formatDate(addDays(easter, 39)), 'Chr.Hi');   // Christi Himmelfahrt
+    holidays.set(formatDate(addDays(easter, 49)), 'PS');       // Pfingstsonntag
+    holidays.set(formatDate(addDays(easter, 50)), 'PfM');      // Pfingstmontag
     
     // Landesspezifische Feiertage
-    if (['DE-BW', 'DE-BY', 'DE-ST'].includes(state)) holidays.add(`${year}-01-06`);
-    if (['DE-BE', 'DE-MV'].includes(state)) holidays.add(`${year}-03-08`);
-    if (['DE-BW', 'DE-BY', 'DE-HE', 'DE-NW', 'DE-RP', 'DE-SL'].includes(state)) holidays.add(addDays(easter, 60));
-    if (['DE-SL'].includes(state)) holidays.add(`${year}-08-15`);
-    if (['DE-TH'].includes(state)) holidays.add(`${year}-09-20`);
-    if (['DE-BB', 'DE-HB', 'DE-HH', 'DE-MV', 'DE-NI', 'DE-SN', 'DE-ST', 'DE-SH', 'DE-TH'].includes(state)) holidays.add(`${year}-10-31`);
-    if (['DE-BW', 'DE-BY', 'DE-NW', 'DE-RP', 'DE-SL'].includes(state)) holidays.add(`${year}-11-01`);
+    if (['DE-BW', 'DE-BY', 'DE-ST'].includes(state)) {
+      holidays.set(`${year}-01-06`, 'Hl.3K.');   // Heilige Drei Könige
+    }
+    if (['DE-BE', 'DE-MV'].includes(state)) {
+      holidays.set(`${year}-03-08`, 'Frau.');    // Internationaler Frauentag
+    }
+    if (['DE-BW', 'DE-BY', 'DE-HE', 'DE-NW', 'DE-RP', 'DE-SL'].includes(state)) {
+      holidays.set(formatDate(addDays(easter, 60)), 'Fronl.'); // Fronleichnam
+    }
+    if (['DE-SL', 'DE-BY'].includes(state)) {
+      holidays.set(`${year}-08-15`, 'Mar.Hi');   // Mariä Himmelfahrt
+    }
+    if (['DE-TH'].includes(state)) {
+      holidays.set(`${year}-09-20`, 'WKT');      // Weltkindertag
+    }
+    if (['DE-BB', 'DE-HB', 'DE-HH', 'DE-MV', 'DE-NI', 'DE-SN', 'DE-ST', 'DE-SH', 'DE-TH'].includes(state)) {
+      holidays.set(`${year}-10-31`, 'Ref.');     // Reformationstag
+    }
+    if (['DE-BW', 'DE-BY', 'DE-NW', 'DE-RP', 'DE-SL'].includes(state)) {
+      holidays.set(`${year}-11-01`, 'Allerh.');  // Allerheiligen
+    }
     if (['DE-SN'].includes(state)) {
+      // Buß- und Bettag: Mittwoch vor dem 23. November
       const nov23 = new Date(year, 10, 23);
       const dayOfWeek = nov23.getDay();
       const daysBack = (dayOfWeek + 7 - 3) % 7;
       const bussUndBettag = new Date(nov23);
       bussUndBettag.setDate(nov23.getDate() - (daysBack === 0 ? 7 : daysBack));
-      holidays.add(formatDate(bussUndBettag));
+      holidays.set(formatDate(bussUndBettag), 'B&B');
     }
     
     return holidays;
+  };
+  
+  // Legacy: getGermanHolidays als Set (für Kompatibilität)
+  const getGermanHolidays = (year: number, stateCode?: string): Set<string> => {
+    const holidaysMap = getGermanHolidaysWithNames(year, stateCode);
+    return new Set(holidaysMap.keys());
   };
   
   const isHoliday = (year: number, month: number, day: number): boolean => {
     const holidays = getGermanHolidays(year);
     const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     return holidays.has(dateStr);
+  };
+
+ // NEU v7.0: Feiertags-Abkürzung ermitteln
+  const getHolidayAbbreviation = (year: number, month: number, day: number, stateCode?: string): string | null => {
+    const holidays = getGermanHolidaysWithNames(year, stateCode);
+    const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return holidays.get(dateStr) || null;
+  };
+  
+  // NEU v7.0: Wochentag-Kürzel ermitteln
+  const getDayAbbreviation = (year: number, month: number, day: number): string => {
+    const date = new Date(year, month - 1, day);
+    return DAY_NAMES[date.getDay()];
   };
 
   // ============================================
@@ -2327,14 +2368,18 @@ export default function ImportPage() {
                         let textColor = 'text-gray-600';
                         let content = '';
                         
+                        // NEU v7.0: Feiertags-Abkürzung und Wochentag ermitteln
+                        const holidayAbbr = getHolidayAbbreviation(displayYear, month, day, companyStateCode);
+                        const dayAbbr = getDayAbbreviation(displayYear, month, day);
+
                         if (isWeekend) {
                           bgColor = 'bg-gray-200';
-                          textColor = isSunday ? 'text-red-400' : 'text-gray-400';
-                          content = '-';
-                        } else if (isHoliday) {
-                          bgColor = 'bg-red-100';
-                          textColor = 'text-red-600';
-                          content = 'F';
+                          textColor = dayOfWeek === 0 ? 'text-red-400' : 'text-gray-400';
+                          content = dayAbbr; // "Sa" oder "So"
+                        } else if (holidayAbbr) {
+                          bgColor = 'bg-orange-100';
+                          textColor = 'text-orange-700';
+                          content = holidayAbbr; // z.B. "Karfr.", "Fronl."
                         } else if (data?.absence) {
                           bgColor = 'bg-yellow-100';
                           textColor = 'text-yellow-700';
@@ -2358,7 +2403,11 @@ export default function ImportPage() {
                         
                         return (
                           <td key={day} className={`border text-center w-5 h-5 text-[10px] ${bgColor} ${textColor}`}
-                              title={`${day}. ${MONTH_NAMES[month - 1]}: ${data?.hours || 0}h genutzt`}>
+                              title={holidayAbbr 
+                                ? `${holidayAbbr} - ${day}. ${MONTH_NAMES[month - 1]}`
+                                : isWeekend 
+                                  ? `${dayAbbr} - ${day}. ${MONTH_NAMES[month - 1]}`
+                                  : `${day}. ${MONTH_NAMES[month - 1]}: ${data?.hours || 0}h genutzt`}>
                             {content}
                           </td>
                         );
@@ -2379,8 +2428,8 @@ export default function ImportPage() {
               <span className="flex items-center gap-0.5"><span className="w-2 h-2 bg-green-100 border"></span>Frei</span>
               <span className="flex items-center gap-0.5"><span className="w-2 h-2 bg-yellow-100 border"></span>Teil</span>
               <span className="flex items-center gap-0.5"><span className="w-2 h-2 bg-red-200 border"></span>Voll</span>
-              <span className="flex items-center gap-0.5"><span className="w-2 h-2 bg-gray-200 border"></span>WE</span>
-              <span className="flex items-center gap-0.5"><span className="w-2 h-2 bg-red-100 border"></span>Feiertag</span>
+              <span className="flex items-center gap-0.5"><span className="w-2 h-2 bg-gray-200 border"></span>Sa/So</span>
+              <span className="flex items-center gap-0.5"><span className="w-2 h-2 bg-orange-100 border"></span>Feiertag</span>
             </div>
           </div>
         </div>
@@ -3021,14 +3070,20 @@ export default function ImportPage() {
                                     ? (roundedFree % 1 === 0 ? roundedFree.toString() : roundedFree.toFixed(1))
                                     : '';
                                   
+                                  // NEU v7.0: Wochentag und Feiertags-Abkürzung ermitteln
+                                  const dateForDay = new Date(fzulSelectedYear, monthIdx, dayNum);
+                                  const dayOfWeekFzul = dateForDay.getDay();
+                                  const dayAbbrFzul = DAY_NAMES[dayOfWeekFzul];
+                                  const holidayAbbrFzul = getHolidayAbbreviation(fzulSelectedYear, monthIdx + 1, dayNum, companyStateCode);
+
                                   if (dayData.type === 'weekend') {
                                     bgColor = 'bg-orange-200';
                                     textColor = 'text-orange-700';
-                                    displayText = 'So';
+                                    displayText = dayAbbrFzul; // "Sa" oder "So"
                                   } else if (dayData.type === 'holiday') {
                                     bgColor = 'bg-orange-300';
                                     textColor = 'text-orange-800';
-                                    displayText = 'Feie';
+                                    displayText = holidayAbbrFzul || 'Feie'; // z.B. "Karfr.", "Fronl."
                                   } else if (dayData.type === 'leave') {
                                     bgColor = 'bg-blue-100';
                                     textColor = 'text-blue-700';
