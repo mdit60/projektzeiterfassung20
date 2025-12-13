@@ -1,5 +1,5 @@
 // src/app/import/page.tsx
-// VERSION: v7.1 - PDF-Generierung funktioniert (Korrektur Alert -> generateFzulPdf)
+// VERSION: v7.0 - Korrekte Wochentage (Sa/So) und spezifische Feiertags-Abkürzungen
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
@@ -351,7 +351,6 @@ export default function ImportPage() {
   // NEU: Speicher-Feedback-Modal
   const [showSaveSuccessModal, setShowSaveSuccessModal] = useState(false);
   const [savingFzul, setSavingFzul] = useState(false);
-  const [generatingPdf, setGeneratingPdf] = useState(false);
 
   // ============================================
   // INITIALISIERUNG
@@ -1474,60 +1473,6 @@ export default function ImportPage() {
     } catch (error) {
       console.error('[Export] Fehler:', error);
       alert('Export fehlgeschlagen: ' + (error instanceof Error ? error.message : 'Unbekannter Fehler'));
-    }
-  };
-
-  // ============================================
-  // NEU v7.1: FZul PDF GENERIERUNG
-  // ============================================
-  
-  const generateFzulPdf = async () => {
-    if (!fzulTimesheet || !profile) {
-      setError('Keine Timesheet-Daten vorhanden');
-      return;
-    }
-    
-    setGeneratingPdf(true);
-    setError('');
-    
-    try {
-      console.log('[PDF] Starte Generierung für:', fzulTimesheet.employee_name, fzulTimesheet.year);
-      
-      // API aufrufen
-      const response = await fetch('/api/fzul/pdf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          companyId: profile.company_id,
-          timesheet: fzulTimesheet,
-          federalState: companyStateCode,
-        }),
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'PDF-Generierung fehlgeschlagen');
-      }
-      
-      // PDF als Blob holen und downloaden
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `FZul_${fzulTimesheet.employee_name.replace(/,\s*/g, '_')}_${fzulTimesheet.year}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      
-      setSuccess('PDF erfolgreich erstellt!');
-      console.log('[PDF] Erfolgreich generiert');
-      
-    } catch (err) {
-      console.error('[PDF] Fehler:', err);
-      setError(err instanceof Error ? err.message : 'PDF-Generierung fehlgeschlagen');
-    } finally {
-      setGeneratingPdf(false);
     }
   };
 
@@ -3615,7 +3560,8 @@ export default function ImportPage() {
                   <button 
                     onClick={() => {
                       setShowSaveSuccessModal(false);
-                      generateFzulPdf();
+                      // TODO: PDF-Export aufrufen
+                      alert('PDF-Export wird noch implementiert...');
                     }}
                     className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2">
                     📄 PDF erstellen
