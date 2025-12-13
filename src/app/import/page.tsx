@@ -3077,12 +3077,12 @@ export default function ImportPage() {
                                   const holidayAbbrFzul = getHolidayAbbreviation(fzulSelectedYear, monthIdx + 1, dayNum, companyStateCode);
 
                                   if (dayData.type === 'weekend') {
-                                    bgColor = 'bg-orange-200';
-                                    textColor = 'text-orange-700';
+                                    bgColor = 'bg-gray-300';
+                                    textColor = 'text-red-600';
                                     displayText = dayAbbrFzul; // "Sa" oder "So"
                                   } else if (dayData.type === 'holiday') {
-                                    bgColor = 'bg-orange-300';
-                                    textColor = 'text-orange-800';
+                                    bgColor = 'bg-blue-200';
+                                    textColor = 'text-blue-700';
                                     displayText = holidayAbbrFzul || 'Feie'; // z.B. "Karfr.", "Fronl."
                                   } else if (dayData.type === 'leave') {
                                     bgColor = 'bg-blue-100';
