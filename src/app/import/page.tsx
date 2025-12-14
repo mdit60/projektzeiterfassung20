@@ -1,5 +1,5 @@
 // src/app/import/page.tsx
-// VERSION: v7.1 - PDF-Generierung funktioniert (Korrektur Alert -> generateFzulPdf)
+// VERSION: v6.0b - Bundesland synchron überall
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
@@ -119,54 +119,6 @@ interface FzulPdfArchive {
   created_at: string;
 }
 
-// NEU v6.1: FZul Editor Interfaces
-interface FzulDayData {
-  available: number;       // Verfügbare Stunden (8h oder 0 bei WE/Feiertag)
-  projects: Record<string, { hours: number; name: string; fkz?: string }>;
-  total_used: number;      // Summe aller Projektstunden
-  free: number;            // Verfügbar - Genutzt
-  type: 'workday' | 'weekend' | 'holiday' | 'leave' | 'sick' | 'other';
-  holiday_name?: string;   // Name des Feiertags
-  note?: string;
-  edited?: boolean;        // Manuell bearbeitet?
-}
-
-interface FzulTimesheet {
-  id?: string;
-  company_id: string;
-  employee_name: string;
-  year: number;
-  daily_data: Record<string, FzulDayData>;  // Key: "2024-01-15"
-  monthly_summaries: Record<string, { available: number; used: number; free: number; leave: number; sick: number }>;
-  source_projects: Array<{ id: string; name: string; fkz: string; hours: number; months: string }>;
-  status: 'draft' | 'verified' | 'exported';
-  created_at?: string;
-  updated_at?: string;
-  // Editierbare Header-Felder
-  project_title?: string;     // Kurzbezeichnung des FuE-Vorhabens (editierbar)
-  project_fkz?: string;       // Vorhaben-ID (editierbar)
-  position_title?: string;    // Kurzbezeichnung der FuE-Tätigkeit (editierbar)
-  // NEU: Jahresarbeitszeit-Berechnung (Block 1 im FZul-Formular)
-  yearly_calculation: {
-    weekly_hours: number;           // Wöchentliche Arbeitszeit (z.B. 40)
-    vacation_days_contract: number; // Vertraglich vereinbarter Urlaubsanspruch (z.B. 24)
-    sick_days: number;              // Krankheitstage (automatisch aus Kalender)
-    special_leave_days: number;     // Sonderurlaub (manuell)
-    holiday_count: number;          // Gesetzliche Feiertage (automatisch aus Kalender)
-    short_time_days: number;        // Kurzarbeit, Erziehungsurlaub u.ä. (manuell)
-    yearly_factor: number;          // Unterjähriger Faktor (x/12), Standard 1.0
-  };
-}
-
-interface FzulProjectSummary {
-  project_id: string;
-  project_name: string;
-  fkz: string;
-  total_hours: number;
-  month_range: string;  // "Jan - Jun 2024"
-  months: number[];
-}
-
 // ============================================
 // KONSTANTEN
 // ============================================
@@ -175,9 +127,6 @@ const MONTH_NAMES = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
   'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
 
 const MONTH_SHORT = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
-
-// NEU v7.0: Wochentags-Kürzel
-const DAY_NAMES = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 
 // Bundesländer mit Codes
 const BUNDESLAENDER = [
@@ -252,7 +201,8 @@ const SHEET_BLACKLIST_PATTERN = /^(Ermittl|Auswertung|Nav|PK|ZAZK|ZNZK|Planung|�
 
 export default function ImportPage() {
   // VERSION CHECK - in Browser-Konsole sichtbar
-  console.log('[Import] Version v7.0 - Korrekte Wochentage (Sa/So) und Feiertags-Abkürzungen');  
+  console.log('[Import] Version v6.0a - FZul Online-Editor, Bundesland auf Firmenebene');
+  
   const router = useRouter();
   const supabase = createClient();
 
@@ -340,18 +290,6 @@ export default function ImportPage() {
   // FZul Editor States
   const [fzulSelectedEmployee, setFzulSelectedEmployee] = useState<string | null>(null);
   const [fzulSelectedYear, setFzulSelectedYear] = useState<number>(new Date().getFullYear());
-  const [fzulTimesheet, setFzulTimesheet] = useState<FzulTimesheet | null>(null);
-  const [fzulProjectSummaries, setFzulProjectSummaries] = useState<FzulProjectSummary[]>([]);
-  const [fzulLoading, setFzulLoading] = useState(false);
-  const [fzulHasImportData, setFzulHasImportData] = useState(false);
-  const [fzulEditModal, setFzulEditModal] = useState<{ date: string; data: FzulDayData } | null>(null);
-  // NEU: Inline-Edit
-  const [fzulEditingCell, setFzulEditingCell] = useState<string | null>(null); // dateStr der Zelle die gerade editiert wird
-  const [fzulEditValue, setFzulEditValue] = useState<string>('');
-  // NEU: Speicher-Feedback-Modal
-  const [showSaveSuccessModal, setShowSaveSuccessModal] = useState(false);
-  const [savingFzul, setSavingFzul] = useState(false);
-  const [generatingPdf, setGeneratingPdf] = useState(false);
 
   // ============================================
   // INITIALISIERUNG
@@ -674,527 +612,6 @@ export default function ImportPage() {
   }
 
   // ============================================
-  // FZUL EDITOR FUNKTIONEN (NEU v6.1)
-  // ============================================
-
-  // Prüfen ob Import-Daten für MA+Jahr vorhanden sind
-  async function checkFzulImportData(employeeName: string, year: number) {
-    if (!profile) return;
-    
-    const { data, error } = await supabase
-      .from('imported_timesheets')
-      .select('id, project_name, funding_reference, year, month')
-      .eq('company_id', profile.company_id)
-      .eq('employee_name', employeeName)
-      .eq('year', year);
-    
-    if (error) {
-      console.error('Fehler beim Prüfen der Import-Daten:', error);
-      return;
-    }
-    
-    setFzulHasImportData((data?.length || 0) > 0);
-    
-    // Projekt-Zusammenfassung erstellen
-    if (data && data.length > 0) {
-      const projectMap = new Map<string, FzulProjectSummary>();
-      
-      data.forEach(ts => {
-        const key = ts.funding_reference || ts.project_name;
-        if (!projectMap.has(key)) {
-          projectMap.set(key, {
-            project_id: key,
-            project_name: ts.project_name,
-            fkz: ts.funding_reference,
-            total_hours: 0,
-            month_range: '',
-            months: []
-          });
-        }
-        const summary = projectMap.get(key)!;
-        if (!summary.months.includes(ts.month)) {
-          summary.months.push(ts.month);
-        }
-      });
-      
-      // Monatsbereiche formatieren
-      const summaries = Array.from(projectMap.values()).map(s => {
-        s.months.sort((a, b) => a - b);
-        const firstMonth = MONTH_SHORT[s.months[0] - 1];
-        const lastMonth = MONTH_SHORT[s.months[s.months.length - 1] - 1];
-        s.month_range = s.months.length === 1 ? firstMonth : `${firstMonth} - ${lastMonth}`;
-        return s;
-      });
-      
-      setFzulProjectSummaries(summaries);
-    } else {
-      setFzulProjectSummaries([]);
-    }
-  }
-
-  // Hilfsfunktion: Typ des Tages ermitteln
-  function getDayType(dateStr: string, holidays: Set<string>): 'workday' | 'weekend' | 'holiday' {
-    const date = new Date(dateStr);
-    const dayOfWeek = date.getDay();
-    
-    if (dayOfWeek === 0 || dayOfWeek === 6) return 'weekend';
-    if (holidays.has(dateStr)) return 'holiday';
-    return 'workday';
-  }
-
-  // Hilfsfunktion: Verfügbare Stunden pro Tag
-  function getAvailableHours(dateStr: string, weeklyHours: number, holidays: Set<string>): number {
-    const dayType = getDayType(dateStr, holidays);
-    if (dayType !== 'workday') return 0;
-    return weeklyHours / 5; // Tagesstunden aus Wochenstunden
-  }
-
-  // Feiertags-Namen ermitteln
-  function getHolidayName(dateStr: string, holidays: Set<string>): string | undefined {
-    if (!holidays.has(dateStr)) return undefined;
-    // Vereinfacht - könnte erweitert werden für volle Namen
-    return 'Feiertag';
-  }
-
-  // Daten aus Import laden und aggregieren
-  async function loadFzulFromImport() {
-    if (!profile || !fzulSelectedEmployee) return;
-    
-    setFzulLoading(true);
-    try {
-      // 1. MA-Stammdaten laden
-      const employeeSettings = fzulEmployees.find(e => e.employee_name === fzulSelectedEmployee);
-      const weeklyHours = employeeSettings?.weekly_hours || 40;
-      const annualLeaveDays = employeeSettings?.annual_leave_days || 30;
-      const positionTitle = employeeSettings?.position_title || '';
-      
-      // 2. Alle Import-Daten für MA + Jahr laden
-      const { data: imports, error } = await supabase
-        .from('imported_timesheets')
-        .select('*')
-        .eq('company_id', profile.company_id)
-        .eq('employee_name', fzulSelectedEmployee)
-        .eq('year', fzulSelectedYear);
-      
-      if (error) throw error;
-      
-      // 3. Feiertage für das Jahr berechnen
-      const holidays = getGermanHolidays(fzulSelectedYear, companyStateCode);
-      
-      // 4. Tagesgenaue Daten aggregieren
-      const dailyData: Record<string, FzulDayData> = {};
-      const projectTotals: Record<string, { hours: number; name: string; fkz: string; months: Set<number> }> = {};
-      
-      // Erst alle Tage des Jahres initialisieren
-      for (let month = 0; month < 12; month++) {
-        const daysInMonth = new Date(fzulSelectedYear, month + 1, 0).getDate();
-        for (let day = 1; day <= daysInMonth; day++) {
-          const dateStr = `${fzulSelectedYear}-${(month + 1).toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
-          const dayType = getDayType(dateStr, holidays);
-          
-          dailyData[dateStr] = {
-            available: getAvailableHours(dateStr, weeklyHours, holidays),
-            projects: {},
-            total_used: 0,
-            free: getAvailableHours(dateStr, weeklyHours, holidays),
-            type: dayType,
-            holiday_name: dayType === 'holiday' ? getHolidayName(dateStr, holidays) : undefined
-          };
-        }
-      }
-      
-      // 5. Import-Daten eintragen
-      if (imports && imports.length > 0) {
-        for (const imp of imports) {
-          const projectKey = imp.funding_reference || imp.project_name;
-          
-          // Projekt-Totals tracken
-          if (!projectTotals[projectKey]) {
-            projectTotals[projectKey] = {
-              hours: 0,
-              name: imp.project_name,
-              fkz: imp.funding_reference || '',
-              months: new Set()
-            };
-          }
-          projectTotals[projectKey].months.add(imp.month);
-          
-          // Tagesstunden aus daily_data extrahieren
-          const monthStr = imp.month.toString().padStart(2, '0');
-          
-          if (imp.daily_data) {
-            for (const [dayKey, dayData] of Object.entries(imp.daily_data)) {
-              const dayNum = parseInt(dayKey);
-              if (isNaN(dayNum) || dayNum < 1 || dayNum > 31) continue;
-              
-              const dateStr = `${fzulSelectedYear}-${monthStr}-${dayNum.toString().padStart(2, '0')}`;
-              
-              if (!dailyData[dateStr]) continue;
-              
-              const hours = (dayData as { hours: number; absence?: string }).hours || 0;
-              const absence = (dayData as { hours: number; absence?: string }).absence;
-              
-              if (hours > 0) {
-                // Projektstunden eintragen
-                if (!dailyData[dateStr].projects[projectKey]) {
-                  dailyData[dateStr].projects[projectKey] = { hours: 0, name: imp.project_name, fkz: imp.funding_reference };
-                }
-                dailyData[dateStr].projects[projectKey].hours += hours;
-                dailyData[dateStr].total_used += hours;
-                projectTotals[projectKey].hours += hours;
-              }
-              
-              // Abwesenheit markieren
-              if (absence) {
-                if (absence === 'U' || absence.toLowerCase().includes('urlaub')) {
-                  dailyData[dateStr].type = 'leave';
-                } else if (absence === 'K' || absence.toLowerCase().includes('krank')) {
-                  dailyData[dateStr].type = 'sick';
-                } else if (absence !== 'F') {
-                  dailyData[dateStr].type = 'other';
-                  dailyData[dateStr].note = absence;
-                }
-              }
-            }
-          }
-        }
-      }
-      
-      // 6. Freie Stunden berechnen
-      for (const dateStr in dailyData) {
-        const day = dailyData[dateStr];
-        day.free = Math.max(0, day.available - day.total_used);
-      }
-      
-      // 7. Monatssummen berechnen
-      const monthlySummaries: Record<string, { available: number; used: number; free: number; leave: number; sick: number }> = {};
-      
-      for (let month = 1; month <= 12; month++) {
-        const monthStr = month.toString().padStart(2, '0');
-        monthlySummaries[monthStr] = { available: 0, used: 0, free: 0, leave: 0, sick: 0 };
-        
-        const daysInMonth = new Date(fzulSelectedYear, month, 0).getDate();
-        for (let day = 1; day <= daysInMonth; day++) {
-          const dateStr = `${fzulSelectedYear}-${monthStr}-${day.toString().padStart(2, '0')}`;
-          const dayData = dailyData[dateStr];
-          if (!dayData) continue;
-          
-          monthlySummaries[monthStr].available += dayData.available;
-          monthlySummaries[monthStr].used += dayData.total_used;
-          monthlySummaries[monthStr].free += dayData.free;
-          if (dayData.type === 'leave') monthlySummaries[monthStr].leave++;
-          if (dayData.type === 'sick') monthlySummaries[monthStr].sick++;
-        }
-      }
-      
-      // 8. Projekt-Summaries aktualisieren
-      const projectSummaries: FzulProjectSummary[] = Object.entries(projectTotals).map(([key, data]) => {
-        const monthsArr = Array.from(data.months).sort((a, b) => a - b);
-        const firstMonth = MONTH_SHORT[monthsArr[0] - 1];
-        const lastMonth = MONTH_SHORT[monthsArr[monthsArr.length - 1] - 1];
-        return {
-          project_id: key,
-          project_name: data.name,
-          fkz: data.fkz,
-          total_hours: data.hours,
-          month_range: monthsArr.length === 1 ? firstMonth : `${firstMonth} - ${lastMonth}`,
-          months: monthsArr
-        };
-      });
-      setFzulProjectSummaries(projectSummaries);
-      
-      // 9. Timesheet erstellen
-      const timesheet: FzulTimesheet = {
-        company_id: profile.company_id,
-        employee_name: fzulSelectedEmployee,
-        year: fzulSelectedYear,
-        daily_data: dailyData,
-        monthly_summaries: monthlySummaries,
-        source_projects: projectSummaries.map(p => ({
-          id: p.project_id,
-          name: p.project_name,
-          fkz: p.fkz,
-          hours: p.total_hours,
-          months: p.month_range
-        })),
-        status: 'draft',
-        // Editierbare Header-Felder (initial aus Projekten)
-        project_title: projectSummaries.map(p => p.project_name).join('; '),
-        project_fkz: projectSummaries.map(p => p.fkz).filter(Boolean).join('; '),
-        position_title: positionTitle,
-        // Jahresarbeitszeit-Berechnung initialisieren
-        yearly_calculation: {
-          weekly_hours: weeklyHours,
-          vacation_days_contract: annualLeaveDays, // Aus MA-Stammdaten
-          sick_days: Object.values(dailyData).filter(d => d.type === 'sick').length,
-          special_leave_days: Object.values(dailyData).filter(d => d.type === 'other').length,
-          holiday_count: holidays.size, // Direkt aus Feiertagstabelle (Set hat .size)
-          short_time_days: 0, // Manuell einzutragen
-          yearly_factor: 1.0  // Standard: volles Jahr
-        }
-      };
-      
-      setFzulTimesheet(timesheet);
-      setSuccess(`Daten für ${fzulSelectedEmployee} (${fzulSelectedYear}) geladen`);
-      
-    } catch (err) {
-      console.error('Fehler beim Laden der FZul-Daten:', err);
-      setError('Fehler beim Laden: ' + (err as Error).message);
-    } finally {
-      setFzulLoading(false);
-    }
-  }
-
-  // FZul Timesheet in Datenbank speichern
-  async function saveFzulTimesheet() {
-    if (!profile || !fzulTimesheet) return;
-    
-    setSavingFzul(true);
-    try {
-      console.log('Speichere FZul Timesheet:', {
-        company_id: profile.company_id,
-        employee_name: fzulTimesheet.employee_name,
-        year: fzulTimesheet.year
-      });
-      
-      const { data, error } = await supabase
-        .from('fzul_timesheets')
-        .upsert({
-          company_id: profile.company_id,
-          employee_name: fzulTimesheet.employee_name,
-          year: fzulTimesheet.year,
-          daily_data: fzulTimesheet.daily_data,
-          monthly_summaries: fzulTimesheet.monthly_summaries,
-          source_projects: fzulTimesheet.source_projects,
-          yearly_calculation: fzulTimesheet.yearly_calculation,
-          project_title: fzulTimesheet.project_title || '',
-          project_fkz: fzulTimesheet.project_fkz || '',
-          position_title: fzulTimesheet.position_title || '',
-          status: fzulTimesheet.status,
-          updated_at: new Date().toISOString()
-        }, {
-          onConflict: 'company_id,employee_name,year'
-        })
-        .select()
-        .single();
-      
-      if (error) {
-        console.error('Supabase Fehler:', JSON.stringify(error, null, 2));
-        throw new Error(error.message || error.code || 'Unbekannter Datenbankfehler');
-      }
-      
-      console.log('Gespeichert:', data);
-      
-      // MA-Stammdaten synchronisieren (Wochenstunden + Urlaubstage)
-      const { error: employeeError } = await supabase
-        .from('fzul_employee_settings')
-        .update({
-          weekly_hours: fzulTimesheet.yearly_calculation.weekly_hours,
-          annual_leave_days: fzulTimesheet.yearly_calculation.vacation_days_contract,
-          updated_at: new Date().toISOString()
-        })
-        .eq('company_id', profile.company_id)
-        .eq('employee_name', fzulTimesheet.employee_name);
-      
-      if (employeeError) {
-        console.warn('MA-Stammdaten konnten nicht aktualisiert werden:', employeeError);
-      } else {
-        // Lokalen State aktualisieren
-        setFzulEmployees(prev => prev.map(emp => 
-          emp.employee_name === fzulTimesheet.employee_name 
-            ? { 
-                ...emp, 
-                weekly_hours: fzulTimesheet.yearly_calculation.weekly_hours,
-                annual_leave_days: fzulTimesheet.yearly_calculation.vacation_days_contract,
-                position_title: fzulTimesheet.position_title || emp.position_title
-              }
-            : emp
-        ));
-      }
-      
-      // Position auch in MA-Stammdaten speichern
-      if (fzulTimesheet.position_title) {
-        await supabase
-          .from('fzul_employee_settings')
-          .update({ position_title: fzulTimesheet.position_title })
-          .eq('company_id', profile.company_id)
-          .eq('employee_name', fzulTimesheet.employee_name);
-      }
-      
-      setFzulTimesheet({ ...fzulTimesheet, id: data.id });
-      setSavingFzul(false);
-      setShowSaveSuccessModal(true); // Erfolgs-Modal anzeigen
-    } catch (err: any) {
-      console.error('Fehler beim Speichern (vollständig):', err);
-      const errorMsg = err?.message || err?.code || JSON.stringify(err) || 'Unbekannter Fehler';
-      setError('Fehler beim Speichern: ' + errorMsg);
-      setSavingFzul(false);
-    }
-  }
-
-  // Tag im Editor bearbeiten
-  function openFzulDayEditor(dateStr: string) {
-    if (!fzulTimesheet) return;
-    const dayData = fzulTimesheet.daily_data[dateStr];
-    if (!dayData) return;
-    setFzulEditModal({ date: dateStr, data: { ...dayData } });
-  }
-
-  // NEU: Inline-Edit starten
-  function startInlineEdit(dateStr: string) {
-    if (!fzulTimesheet) return;
-    const dayData = fzulTimesheet.daily_data[dateStr];
-    if (!dayData || dayData.type === 'weekend' || dayData.type === 'holiday') return;
-    
-    setFzulEditingCell(dateStr);
-    // Aktuellen Wert als String setzen (Komma für deutsche Notation)
-    if (dayData.type === 'leave') {
-      setFzulEditValue('U');
-    } else if (dayData.type === 'sick') {
-      setFzulEditValue('K');
-    } else if (dayData.type === 'other') {
-      setFzulEditValue('S');
-    } else {
-      // Dezimalstellen nur anzeigen wenn nötig
-      setFzulEditValue(dayData.free % 1 === 0 ? dayData.free.toString() : dayData.free.toFixed(2).replace('.', ','));
-    }
-  }
-
-  // NEU: Inline-Edit speichern
-  function saveInlineEdit() {
-    if (!fzulEditingCell || !fzulTimesheet) {
-      setFzulEditingCell(null);
-      return;
-    }
-    
-    const value = fzulEditValue.trim().toUpperCase();
-    const dayData = fzulTimesheet.daily_data[fzulEditingCell];
-    if (!dayData) {
-      setFzulEditingCell(null);
-      return;
-    }
-    
-    const updatedTimesheet = { ...fzulTimesheet };
-    const updatedDay = { ...dayData, edited: true };
-    
-    if (value === 'U' || value === 'UR' || value === 'URLAUB') {
-      updatedDay.type = 'leave';
-      updatedDay.free = 0;
-      updatedDay.total_used = 0;
-    } else if (value === 'K' || value === 'KR' || value === 'KRANK') {
-      updatedDay.type = 'sick';
-      updatedDay.free = 0;
-      updatedDay.total_used = 0;
-    } else if (value === 'S' || value === 'A' || value === 'AB' || value === 'ABWESEND' || value === 'SONSTIGE') {
-      updatedDay.type = 'other';
-      updatedDay.free = 0;
-      updatedDay.total_used = 0;
-    } else {
-      // Zahl = freie Stunden (keine Beschränkung, 2 Dezimalstellen)
-      const numValue = parseFloat(value.replace(',', '.'));
-      if (!isNaN(numValue) && numValue >= 0) {
-        updatedDay.type = 'workday';
-        updatedDay.free = Math.round(numValue * 100) / 100; // 2 Dezimalstellen
-        updatedDay.total_used = Math.max(0, updatedDay.available - updatedDay.free);
-      }
-    }
-    
-    updatedTimesheet.daily_data[fzulEditingCell] = updatedDay;
-    
-    // Monatssummen aktualisieren
-    const month = fzulEditingCell.slice(5, 7);
-    const daysInMonth = new Date(fzulSelectedYear, parseInt(month), 0).getDate();
-    updatedTimesheet.monthly_summaries[month] = { available: 0, used: 0, free: 0, leave: 0, sick: 0 };
-    
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dateStr = `${fzulSelectedYear}-${month}-${d.toString().padStart(2, '0')}`;
-      const dd = updatedTimesheet.daily_data[dateStr];
-      if (!dd) continue;
-      
-      updatedTimesheet.monthly_summaries[month].available += dd.available;
-      updatedTimesheet.monthly_summaries[month].used += dd.total_used;
-      updatedTimesheet.monthly_summaries[month].free += dd.free;
-      if (dd.type === 'leave') updatedTimesheet.monthly_summaries[month].leave++;
-      if (dd.type === 'sick') updatedTimesheet.monthly_summaries[month].sick++;
-    }
-    
-    // AUTOMATISCH: Krankheitstage und Sonderurlaub in yearly_calculation aktualisieren
-    let totalSickDays = 0;
-    let totalOtherDays = 0;
-    Object.values(updatedTimesheet.daily_data).forEach(d => {
-      if (d.type === 'sick') totalSickDays++;
-      if (d.type === 'other') totalOtherDays++;
-    });
-    updatedTimesheet.yearly_calculation = {
-      ...updatedTimesheet.yearly_calculation,
-      sick_days: totalSickDays,
-      special_leave_days: totalOtherDays
-    };
-    
-    setFzulTimesheet(updatedTimesheet);
-    setFzulEditingCell(null);
-    setFzulEditValue('');
-  }
-
-  // NEU: Inline-Edit abbrechen
-  function cancelInlineEdit() {
-    setFzulEditingCell(null);
-    setFzulEditValue('');
-  }
-
-  // NEU: Tastatur-Handler für Inline-Edit
-  function handleInlineKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter' || e.key === 'Tab') {
-      e.preventDefault();
-      saveInlineEdit();
-    } else if (e.key === 'Escape') {
-      cancelInlineEdit();
-    }
-  }
-
-  function saveFzulDayEdit() {
-    if (!fzulEditModal || !fzulTimesheet) return;
-    
-    const updatedTimesheet = { ...fzulTimesheet };
-    updatedTimesheet.daily_data[fzulEditModal.date] = {
-      ...fzulEditModal.data,
-      edited: true
-    };
-    
-    // Freie Stunden neu berechnen
-    const day = updatedTimesheet.daily_data[fzulEditModal.date];
-    day.free = Math.max(0, day.available - day.total_used);
-    
-    // Monatssummen aktualisieren
-    const month = fzulEditModal.date.slice(5, 7);
-    const daysInMonth = new Date(fzulSelectedYear, parseInt(month), 0).getDate();
-    updatedTimesheet.monthly_summaries[month] = { available: 0, used: 0, free: 0, leave: 0, sick: 0 };
-    
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dateStr = `${fzulSelectedYear}-${month}-${d.toString().padStart(2, '0')}`;
-      const dayData = updatedTimesheet.daily_data[dateStr];
-      if (!dayData) continue;
-      
-      updatedTimesheet.monthly_summaries[month].available += dayData.available;
-      updatedTimesheet.monthly_summaries[month].used += dayData.total_used;
-      updatedTimesheet.monthly_summaries[month].free += dayData.free;
-      if (dayData.type === 'leave') updatedTimesheet.monthly_summaries[month].leave++;
-      if (dayData.type === 'sick') updatedTimesheet.monthly_summaries[month].sick++;
-    }
-    
-    setFzulTimesheet(updatedTimesheet);
-    setFzulEditModal(null);
-  }
-
-  // Effect: Bei MA/Jahr-Änderung Import-Daten prüfen
-  useEffect(() => {
-    if (fzulSelectedEmployee && fzulSelectedYear) {
-      checkFzulImportData(fzulSelectedEmployee, fzulSelectedYear);
-      setFzulTimesheet(null); // Reset bei Wechsel
-    }
-  }, [fzulSelectedEmployee, fzulSelectedYear]);
-
-  // ============================================
   // BERECHTIGUNGS-FUNKTIONEN
   // ============================================
 
@@ -1311,10 +728,9 @@ export default function ImportPage() {
     return new Date(year, month - 1, day);
   };
   
-  // NEU v7.0: Feiertage MIT Abkürzungen (Map statt Set)
-  const getGermanHolidaysWithNames = (year: number, stateCode?: string): Map<string, string> => {
+  const getGermanHolidays = (year: number, stateCode?: string): Set<string> => {
     const state = stateCode || companyStateCode || 'DE-NW';
-    const holidays = new Map<string, string>();
+    const holidays = new Set<string>();
     const easter = getEasterSunday(year);
     
     const formatDate = (d: Date): string => {
@@ -1324,85 +740,47 @@ export default function ImportPage() {
       return `${y}-${m}-${day}`;
     };
     
-    const addDays = (d: Date, days: number): Date => {
+    const addDays = (d: Date, days: number): string => {
       const r = new Date(d);
       r.setDate(d.getDate() + days);
-      return r;
+      return formatDate(r);
     };
     
-    // Bundesweite feste Feiertage
-    holidays.set(`${year}-01-01`, 'Neuj.');      // Neujahr
-    holidays.set(`${year}-05-01`, 'TdA');        // Tag der Arbeit
-    holidays.set(`${year}-10-03`, 'TDE');        // Tag der Deutschen Einheit
-    holidays.set(`${year}-12-25`, '1.WT');       // 1. Weihnachtstag
-    holidays.set(`${year}-12-26`, '2.WT');       // 2. Weihnachtstag
-    
-    // Bundesweite bewegliche Feiertage
-    holidays.set(formatDate(addDays(easter, -2)), 'Karfr.');   // Karfreitag
-    holidays.set(formatDate(easter), 'OS');                     // Ostersonntag
-    holidays.set(formatDate(addDays(easter, 1)), 'OM');        // Ostermontag
-    holidays.set(formatDate(addDays(easter, 39)), 'Chr.Hi');   // Christi Himmelfahrt
-    holidays.set(formatDate(addDays(easter, 49)), 'PS');       // Pfingstsonntag
-    holidays.set(formatDate(addDays(easter, 50)), 'PfM');      // Pfingstmontag
+    // Bundesweite Feiertage
+    holidays.add(`${year}-01-01`);
+    holidays.add(addDays(easter, -2));
+    holidays.add(addDays(easter, 1));
+    holidays.add(`${year}-05-01`);
+    holidays.add(addDays(easter, 39));
+    holidays.add(addDays(easter, 50));
+    holidays.add(`${year}-10-03`);
+    holidays.add(`${year}-12-25`);
+    holidays.add(`${year}-12-26`);
     
     // Landesspezifische Feiertage
-    if (['DE-BW', 'DE-BY', 'DE-ST'].includes(state)) {
-      holidays.set(`${year}-01-06`, 'Hl.3K.');   // Heilige Drei Könige
-    }
-    if (['DE-BE', 'DE-MV'].includes(state)) {
-      holidays.set(`${year}-03-08`, 'Frau.');    // Internationaler Frauentag
-    }
-    if (['DE-BW', 'DE-BY', 'DE-HE', 'DE-NW', 'DE-RP', 'DE-SL'].includes(state)) {
-      holidays.set(formatDate(addDays(easter, 60)), 'Fronl.'); // Fronleichnam
-    }
-    if (['DE-SL', 'DE-BY'].includes(state)) {
-      holidays.set(`${year}-08-15`, 'Mar.Hi');   // Mariä Himmelfahrt
-    }
-    if (['DE-TH'].includes(state)) {
-      holidays.set(`${year}-09-20`, 'WKT');      // Weltkindertag
-    }
-    if (['DE-BB', 'DE-HB', 'DE-HH', 'DE-MV', 'DE-NI', 'DE-SN', 'DE-ST', 'DE-SH', 'DE-TH'].includes(state)) {
-      holidays.set(`${year}-10-31`, 'Ref.');     // Reformationstag
-    }
-    if (['DE-BW', 'DE-BY', 'DE-NW', 'DE-RP', 'DE-SL'].includes(state)) {
-      holidays.set(`${year}-11-01`, 'Allerh.');  // Allerheiligen
-    }
+    if (['DE-BW', 'DE-BY', 'DE-ST'].includes(state)) holidays.add(`${year}-01-06`);
+    if (['DE-BE', 'DE-MV'].includes(state)) holidays.add(`${year}-03-08`);
+    if (['DE-BW', 'DE-BY', 'DE-HE', 'DE-NW', 'DE-RP', 'DE-SL'].includes(state)) holidays.add(addDays(easter, 60));
+    if (['DE-SL'].includes(state)) holidays.add(`${year}-08-15`);
+    if (['DE-TH'].includes(state)) holidays.add(`${year}-09-20`);
+    if (['DE-BB', 'DE-HB', 'DE-HH', 'DE-MV', 'DE-NI', 'DE-SN', 'DE-ST', 'DE-SH', 'DE-TH'].includes(state)) holidays.add(`${year}-10-31`);
+    if (['DE-BW', 'DE-BY', 'DE-NW', 'DE-RP', 'DE-SL'].includes(state)) holidays.add(`${year}-11-01`);
     if (['DE-SN'].includes(state)) {
-      // Buß- und Bettag: Mittwoch vor dem 23. November
       const nov23 = new Date(year, 10, 23);
       const dayOfWeek = nov23.getDay();
       const daysBack = (dayOfWeek + 7 - 3) % 7;
       const bussUndBettag = new Date(nov23);
       bussUndBettag.setDate(nov23.getDate() - (daysBack === 0 ? 7 : daysBack));
-      holidays.set(formatDate(bussUndBettag), 'B&B');
+      holidays.add(formatDate(bussUndBettag));
     }
     
     return holidays;
-  };
-  
-  // Legacy: getGermanHolidays als Set (für Kompatibilität)
-  const getGermanHolidays = (year: number, stateCode?: string): Set<string> => {
-    const holidaysMap = getGermanHolidaysWithNames(year, stateCode);
-    return new Set(holidaysMap.keys());
   };
   
   const isHoliday = (year: number, month: number, day: number): boolean => {
     const holidays = getGermanHolidays(year);
     const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     return holidays.has(dateStr);
-  };
-
- // NEU v7.0: Feiertags-Abkürzung ermitteln
-  const getHolidayAbbreviation = (year: number, month: number, day: number, stateCode?: string): string | null => {
-    const holidays = getGermanHolidaysWithNames(year, stateCode);
-    const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    return holidays.get(dateStr) || null;
-  };
-  
-  // NEU v7.0: Wochentag-Kürzel ermitteln
-  const getDayAbbreviation = (year: number, month: number, day: number): string => {
-    const date = new Date(year, month - 1, day);
-    return DAY_NAMES[date.getDay()];
   };
 
   // ============================================
@@ -1474,60 +852,6 @@ export default function ImportPage() {
     } catch (error) {
       console.error('[Export] Fehler:', error);
       alert('Export fehlgeschlagen: ' + (error instanceof Error ? error.message : 'Unbekannter Fehler'));
-    }
-  };
-
-  // ============================================
-  // NEU v7.1: FZul PDF GENERIERUNG
-  // ============================================
-  
-  const generateFzulPdf = async () => {
-    if (!fzulTimesheet || !profile) {
-      setError('Keine Timesheet-Daten vorhanden');
-      return;
-    }
-    
-    setGeneratingPdf(true);
-    setError('');
-    
-    try {
-      console.log('[PDF] Starte Generierung für:', fzulTimesheet.employee_name, fzulTimesheet.year);
-      
-      // API aufrufen
-      const response = await fetch('/api/fzul/pdf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          companyId: profile.company_id,
-          timesheet: fzulTimesheet,
-          federalState: companyStateCode,
-        }),
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'PDF-Generierung fehlgeschlagen');
-      }
-      
-      // PDF als Blob holen und downloaden
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `FZul_${fzulTimesheet.employee_name.replace(/,\s*/g, '_')}_${fzulTimesheet.year}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      
-      setSuccess('PDF erfolgreich erstellt!');
-      console.log('[PDF] Erfolgreich generiert');
-      
-    } catch (err) {
-      console.error('[PDF] Fehler:', err);
-      setError(err instanceof Error ? err.message : 'PDF-Generierung fehlgeschlagen');
-    } finally {
-      setGeneratingPdf(false);
     }
   };
 
@@ -2423,18 +1747,14 @@ export default function ImportPage() {
                         let textColor = 'text-gray-600';
                         let content = '';
                         
-                        // NEU v7.0: Feiertags-Abkürzung und Wochentag ermitteln
-                        const holidayAbbr = getHolidayAbbreviation(displayYear, month, day, companyStateCode);
-                        const dayAbbr = getDayAbbreviation(displayYear, month, day);
-
                         if (isWeekend) {
                           bgColor = 'bg-gray-200';
-                          textColor = dayOfWeek === 0 ? 'text-red-400' : 'text-gray-400';
-                          content = dayAbbr; // "Sa" oder "So"
-                        } else if (holidayAbbr) {
-                          bgColor = 'bg-orange-100';
-                          textColor = 'text-orange-700';
-                          content = holidayAbbr; // z.B. "Karfr.", "Fronl."
+                          textColor = isSunday ? 'text-red-400' : 'text-gray-400';
+                          content = '-';
+                        } else if (isHoliday) {
+                          bgColor = 'bg-red-100';
+                          textColor = 'text-red-600';
+                          content = 'F';
                         } else if (data?.absence) {
                           bgColor = 'bg-yellow-100';
                           textColor = 'text-yellow-700';
@@ -2458,11 +1778,7 @@ export default function ImportPage() {
                         
                         return (
                           <td key={day} className={`border text-center w-5 h-5 text-[10px] ${bgColor} ${textColor}`}
-                              title={holidayAbbr 
-                                ? `${holidayAbbr} - ${day}. ${MONTH_NAMES[month - 1]}`
-                                : isWeekend 
-                                  ? `${dayAbbr} - ${day}. ${MONTH_NAMES[month - 1]}`
-                                  : `${day}. ${MONTH_NAMES[month - 1]}: ${data?.hours || 0}h genutzt`}>
+                              title={`${day}. ${MONTH_NAMES[month - 1]}: ${data?.hours || 0}h genutzt`}>
                             {content}
                           </td>
                         );
@@ -2483,8 +1799,8 @@ export default function ImportPage() {
               <span className="flex items-center gap-0.5"><span className="w-2 h-2 bg-green-100 border"></span>Frei</span>
               <span className="flex items-center gap-0.5"><span className="w-2 h-2 bg-yellow-100 border"></span>Teil</span>
               <span className="flex items-center gap-0.5"><span className="w-2 h-2 bg-red-200 border"></span>Voll</span>
-              <span className="flex items-center gap-0.5"><span className="w-2 h-2 bg-gray-200 border"></span>Sa/So</span>
-              <span className="flex items-center gap-0.5"><span className="w-2 h-2 bg-orange-100 border"></span>Feiertag</span>
+              <span className="flex items-center gap-0.5"><span className="w-2 h-2 bg-gray-200 border"></span>WE</span>
+              <span className="flex items-center gap-0.5"><span className="w-2 h-2 bg-red-100 border"></span>Feiertag</span>
             </div>
           </div>
         </div>
@@ -2546,7 +1862,7 @@ export default function ImportPage() {
             </div>
 
             {/* Mitarbeiter-Buttons */}
-            <div className="flex flex-wrap gap-2 items-center">
+            <div className="flex flex-wrap gap-2">
               {employeesInYear.map(empName => {
                 const empTs = timesheets.filter(ts => ts.employee_name === empName);
                 const empHours = empTs.reduce((s, ts) => s + ts.total_billable_hours, 0);
@@ -2563,20 +1879,6 @@ export default function ImportPage() {
                   </button>
                 );
               })}
-              
-              {/* NEU: Direkt zum FZul-Editor mit aktueller Auswahl */}
-              {displayEmployee && (
-                <button
-                  onClick={() => {
-                    setFzulSelectedEmployee(displayEmployee);
-                    setFzulSelectedYear(displayYear);
-                    setActiveTab('fzul-editor');
-                  }}
-                  className="ml-auto px-4 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-700 flex items-center gap-2"
-                >
-                  📝 Im FZul-Editor öffnen
-                </button>
-              )}
             </div>
           </div>
         </div>
@@ -2949,437 +2251,62 @@ export default function ImportPage() {
 
           {/* NEU v6.0: TAB FZUL EDITOR */}
           {activeTab === 'fzul-editor' && (
-            <div className="overflow-auto h-full">
-              {fzulEmployees.length === 0 ? (
-                <div className="bg-white rounded-lg shadow p-6 text-center py-12 text-gray-500">
-                  <span className="text-4xl">📝</span>
-                  <p className="mt-4">Bitte legen Sie zuerst Mitarbeiter an</p>
-                  <button onClick={() => setActiveTab('fzul-employees')} className="mt-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
-                    👥 Zu MA-Stammdaten
-                  </button>
-                </div>
-              ) : !fzulTimesheet ? (
-                <div className="bg-white rounded-lg shadow p-6 space-y-4">
-                  <h2 className="text-lg font-bold">📝 FZul Online-Editor</h2>
-                  {/* MA + Jahr Auswahl */}
-                  <div className="flex gap-4 items-end">
-                    <div>
-                      <label className="block text-xs font-medium mb-1">Mitarbeiter</label>
-                      <select value={fzulSelectedEmployee || ''} onChange={(e) => setFzulSelectedEmployee(e.target.value || null)}
-                        className="border rounded px-3 py-1.5 text-sm">
-                        <option value="">-- Wählen --</option>
-                        {fzulEmployees.filter(e => e.is_active).map(emp => (
-                          <option key={emp.id} value={emp.employee_name}>{emp.employee_name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium mb-1">Jahr</label>
-                      <select value={fzulSelectedYear} onChange={(e) => setFzulSelectedYear(parseInt(e.target.value))}
-                        className="border rounded px-3 py-1.5 text-sm">
-                        {[2020, 2021, 2022, 2023, 2024, 2025, 2026].map(y => (
-                          <option key={y} value={y}>{y}</option>
-                        ))}
-                      </select>
-                    </div>
-                    {fzulSelectedEmployee && fzulProjectSummaries.length > 0 && (
-                      <button onClick={loadFzulFromImport} disabled={fzulLoading}
-                        className="px-4 py-1.5 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 text-sm">
-                        {fzulLoading ? '⏳ Lädt...' : '📥 Daten laden'}
-                      </button>
-                    )}
+            <div className="space-y-4 overflow-auto h-full">
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <div>
+                    <h2 className="text-lg font-bold">📝 FZul Online-Editor</h2>
+                    <p className="text-sm text-gray-500">Jahresübersicht bearbeiten und FZul-Stundennachweis erstellen</p>
                   </div>
-                  {fzulSelectedEmployee && fzulProjectSummaries.length > 0 && (
-                    <div className="text-sm text-green-700 bg-green-50 p-2 rounded">
-                      ✅ {fzulProjectSummaries.length} Projekt(e) verfügbar: {fzulProjectSummaries.map(p => p.fkz || p.project_name).join(', ')}
-                    </div>
-                  )}
-                  {fzulSelectedEmployee && !fzulHasImportData && !fzulLoading && (
-                    <div className="text-sm text-orange-700 bg-orange-50 p-2 rounded">
-                      ⚠️ Keine Import-Daten für {fzulSelectedEmployee} ({fzulSelectedYear})
-                    </div>
-                  )}
                 </div>
-              ) : (
-                /* ========== BMF-KONFORMES LAYOUT ========== */
-                <div className="bg-white text-xs">
-                  {/* HEADER - Gelber Balken mit Zurück-Button */}
-                  <div className="bg-amber-200 border border-amber-400 p-2 flex justify-between items-center">
-                    <div className="font-bold text-sm">
-                      Steuerliche Förderung von Forschung und Entwicklung (FuE) – Stundenaufzeichnung für FuE-Tätigkeiten in einem begünstigten FuE-Vorhaben
-                    </div>
-                    <button 
-                      onClick={() => setFzulTimesheet(null)}
-                      className="px-2 py-1 bg-amber-100 hover:bg-amber-300 rounded text-xs border border-amber-400">
-                      ← Zurück zur Auswahl
+                
+                {fzulEmployees.length === 0 ? (
+                  <div className="text-center py-12 text-gray-500">
+                    <span className="text-4xl">📝</span>
+                    <p className="mt-4">Bitte legen Sie zuerst Mitarbeiter an</p>
+                    <button onClick={() => setActiveTab('fzul-employees')} className="mt-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                      👥 Zu MA-Stammdaten
                     </button>
                   </div>
-
-                  {/* Projekt-Info + Jahr/Bundesland - EDITIERBAR */}
-                  <table className="w-full border-collapse border border-gray-400 text-xs">
-                    <tbody>
-                      <tr>
-                        <td className="border border-gray-400 p-1 w-48 bg-gray-50 align-top">Kurzbezeichnung des FuE-Vorhabens:</td>
-                        <td className="border border-gray-400 p-0" colSpan={2}>
-                          <textarea 
-                            value={fzulTimesheet.project_title || ''}
-                            onChange={(e) => setFzulTimesheet({...fzulTimesheet, project_title: e.target.value})}
-                            className="w-full px-1 py-0.5 border-0 text-xs resize-none"
-                            placeholder="Projektbezeichnung eingeben..."
-                            rows={2}
-                            style={{ minHeight: '32px' }}
-                          />
-                        </td>
-                        <td className="border border-gray-400 p-1 w-24 bg-gray-50 text-right align-top">Wirtschaftsjahr:</td>
-                        <td className="border border-gray-400 p-1 w-20 font-bold text-center bg-amber-50 align-top">{fzulSelectedYear}</td>
-                      </tr>
-                      <tr>
-                        <td className="border border-gray-400 p-1 bg-gray-50">Vorhaben-ID des FuE-Vorhabens:</td>
-                        <td className="border border-gray-400 p-0" colSpan={2}>
-                          <input 
-                            type="text"
-                            value={fzulTimesheet.project_fkz || ''}
-                            onChange={(e) => setFzulTimesheet({...fzulTimesheet, project_fkz: e.target.value})}
-                            className="w-full px-1 py-0.5 border-0 text-xs"
-                            placeholder="FKZ / Vorhaben-ID eingeben..."
-                          />
-                        </td>
-                        <td className="border border-gray-400 p-1 bg-gray-50 text-right">Bundesland:</td>
-                        <td className="border border-gray-400 p-1 text-center bg-amber-50">
-                          {BUNDESLAENDER.find(bl => bl.code === companyStateCode)?.name || companyStateCode}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-
-                  {/* Mitarbeiter-Zeile - FuE-Tätigkeit EDITIERBAR */}
-                  <table className="w-full border-collapse border border-gray-400 text-xs mt-1">
-                    <tbody>
-                      <tr className="bg-gray-50">
-                        <td className="border border-gray-400 p-1 w-16">Name:</td>
-                        <td className="border border-gray-400 p-1 w-32 font-medium">
-                          {fzulTimesheet.employee_name.split(',')[0] || fzulTimesheet.employee_name}
-                        </td>
-                        <td className="border border-gray-400 p-1 w-20">Vorname:</td>
-                        <td className="border border-gray-400 p-1 w-32 font-medium">
-                          {fzulTimesheet.employee_name.split(',')[1]?.trim() || ''}
-                        </td>
-                        <td className="border border-gray-400 p-1">Kurzbezeichnung der FuE-Tätigkeit:</td>
-                        <td className="border border-gray-400 p-0 w-32">
-                          <input 
-                            type="text"
-                            value={fzulTimesheet.position_title || ''}
-                            onChange={(e) => setFzulTimesheet({...fzulTimesheet, position_title: e.target.value})}
-                            className="w-full px-1 py-0.5 border-0 text-xs font-medium"
-                            placeholder="z.B. Entwickler"
-                          />
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-
-                  {/* KALENDER - Kompakt */}
-                  <div className="mt-1 border border-gray-400">
-                    <div className="bg-amber-100 p-1 text-xs font-medium border-b border-gray-400">
-                      Dokumentation der Arbeitsstunden für FuE-Tätigkeiten im FuE-Vorhaben je Arbeitstag
+                ) : (
+                  <div className="space-y-4">
+                    {/* MA + Jahr Auswahl */}
+                    <div className="flex gap-4 items-center p-4 bg-gray-50 rounded-lg">
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Mitarbeiter</label>
+                        <select value={fzulSelectedEmployee || ''} onChange={(e) => setFzulSelectedEmployee(e.target.value || null)}
+                          className="border rounded px-3 py-2 min-w-[200px]">
+                          <option value="">-- Bitte wählen --</option>
+                          {fzulEmployees.filter(e => e.is_active).map(emp => (
+                            <option key={emp.id} value={emp.employee_name}>{emp.employee_name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Jahr</label>
+                        <select value={fzulSelectedYear} onChange={(e) => setFzulSelectedYear(parseInt(e.target.value))}
+                          className="border rounded px-3 py-2">
+                          {[2020, 2021, 2022, 2023, 2024, 2025, 2026].map(y => (
+                            <option key={y} value={y}>{y}</option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
-                    <div className="overflow-x-auto">
-                      <table className="border-collapse text-xs" style={{ fontSize: '10px', tableLayout: 'fixed' }}>
-                        <thead>
-                          <tr className="bg-amber-50">
-                            <th className="border border-gray-300 p-0.5 w-16 min-w-[64px] text-left">Monat</th>
-                            {Array.from({ length: 31 }, (_, i) => (
-                              <th key={i} className="border border-gray-300 p-0.5 w-7 min-w-[28px] max-w-[28px] text-center">{i + 1}</th>
-                            ))}
-                            <th className="border border-gray-300 p-0.5 w-12 min-w-[48px] text-center bg-amber-100">insg.</th>
-                            <th className="border border-gray-300 p-0.5 w-16 min-w-[64px] text-center">Bestätigung</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'].map((monthName, monthIdx) => {
-                            const monthNum = (monthIdx + 1).toString().padStart(2, '0');
-                            const daysInMonth = new Date(fzulSelectedYear, monthIdx + 1, 0).getDate();
-                            const summary = fzulTimesheet.monthly_summaries[monthNum] || { free: 0 };
-                            
-                            return (
-                              <tr key={monthIdx}>
-                                <td className="border border-gray-300 p-0.5 font-medium bg-gray-50 w-16 min-w-[64px]">{monthName}</td>
-                                {Array.from({ length: 31 }, (_, dayIdx) => {
-                                  const dayNum = dayIdx + 1;
-                                  if (dayNum > daysInMonth) {
-                                    return <td key={dayIdx} className="border border-gray-300 p-0.5 bg-gray-100 w-7 min-w-[28px] max-w-[28px]"></td>;
-                                  }
-                                  
-                                  const dateStr = `${fzulSelectedYear}-${monthNum}-${dayNum.toString().padStart(2, '0')}`;
-                                  const dayData = fzulTimesheet.daily_data[dateStr];
-                                  if (!dayData) return <td key={dayIdx} className="border border-gray-300 p-0.5 w-7 min-w-[28px] max-w-[28px]"></td>;
-                                  
-                                  const isEditing = fzulEditingCell === dateStr;
-                                  
-                                  // Farben wie BMF-Original
-                                  let bgColor = '';
-                                  let textColor = '';
-                                  // Stunden auf max 2 Dezimalstellen runden für Anzeige
-                                  const roundedFree = Math.round(dayData.free * 100) / 100;
-                                  let displayText: string = roundedFree > 0 
-                                    ? (roundedFree % 1 === 0 ? roundedFree.toString() : roundedFree.toFixed(1))
-                                    : '';
-                                  
-                                  // NEU v7.0: Wochentag und Feiertags-Abkürzung ermitteln
-                                  const dateForDay = new Date(fzulSelectedYear, monthIdx, dayNum);
-                                  const dayOfWeekFzul = dateForDay.getDay();
-                                  const dayAbbrFzul = DAY_NAMES[dayOfWeekFzul];
-                                  const holidayAbbrFzul = getHolidayAbbreviation(fzulSelectedYear, monthIdx + 1, dayNum, companyStateCode);
 
-                                  if (dayData.type === 'weekend') {
-                                    bgColor = 'bg-gray-300';
-                                    textColor = 'text-red-600';
-                                    displayText = dayAbbrFzul; // "Sa" oder "So"
-                                  } else if (dayData.type === 'holiday') {
-                                    bgColor = 'bg-blue-200';
-                                    textColor = 'text-blue-700';
-                                    displayText = holidayAbbrFzul || 'Feie'; // z.B. "Karfr.", "Fronl."
-                                  } else if (dayData.type === 'leave') {
-                                    bgColor = 'bg-blue-100';
-                                    textColor = 'text-blue-700';
-                                    displayText = 'U';
-                                  } else if (dayData.type === 'sick') {
-                                    bgColor = 'bg-yellow-100';
-                                    textColor = 'text-yellow-700';
-                                    displayText = 'K';
-                                  } else if (dayData.type === 'other') {
-                                    bgColor = 'bg-gray-200';
-                                    textColor = 'text-gray-600';
-                                    displayText = 'S';
-                                  }
-                                  
-                                  const isClickable = dayData.type !== 'weekend' && dayData.type !== 'holiday';
-                                  const editedStyle = dayData.edited ? 'ring-1 ring-purple-400' : '';
-                                  
-                                  if (isEditing) {
-                                    return (
-                                      <td key={dayIdx} className="border border-gray-300 p-0 w-7 min-w-[28px] max-w-[28px]">
-                                        <input type="text" value={fzulEditValue}
-                                          onChange={(e) => setFzulEditValue(e.target.value)}
-                                          onKeyDown={handleInlineKeyDown}
-                                          onBlur={saveInlineEdit}
-                                          autoFocus
-                                          className="w-full h-full text-center text-xs border-2 border-green-500 outline-none"
-                                          style={{ fontSize: '10px', padding: '1px', width: '28px' }}
-                                        />
-                                      </td>
-                                    );
-                                  }
-                                  
-                                  return (
-                                    <td key={dayIdx} 
-                                      className={`border border-gray-300 p-0.5 text-center w-7 min-w-[28px] max-w-[28px] overflow-hidden ${bgColor} ${textColor} ${editedStyle} ${isClickable ? 'cursor-pointer hover:bg-green-100' : ''}`}
-                                      onClick={() => isClickable && startInlineEdit(dateStr)}
-                                      title={dayData.type === 'holiday' ? dayData.holiday_name : undefined}>
-                                      {displayText}
-                                    </td>
-                                  );
-                                })}
-                                <td className="border border-gray-300 p-0.5 text-center font-medium bg-amber-50 w-12 min-w-[48px]">
-                                  {(() => {
-                                    const rounded = Math.round(summary.free * 100) / 100;
-                                    return rounded > 0 ? (rounded % 1 === 0 ? rounded.toString() : rounded.toFixed(1)) : '';
-                                  })()}
-                                </td>
-                                <td className="border border-gray-300 p-0.5 text-center text-gray-400 text-xs w-16 min-w-[64px]">Unterschrift</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                        <tfoot>
-                          <tr className="bg-amber-100 font-bold">
-                            <td className="border border-gray-400 p-1 text-right" colSpan={32}>
-                              Summe der Arbeitsstunden für FuE-Tätigkeiten im FuE-Vorhaben:
-                            </td>
-                            <td className="border border-gray-400 p-1 text-center text-green-700">
-                              {(() => {
-                                const total = Object.values(fzulTimesheet.monthly_summaries).reduce((sum, m) => sum + m.free, 0);
-                                const rounded = Math.round(total * 100) / 100;
-                                return rounded.toFixed(2).replace('.', ',');
-                              })()}
-                            </td>
-                            <td className="border border-gray-400 p-1"></td>
-                          </tr>
-                        </tfoot>
-                      </table>
-                    </div>
+                    {fzulSelectedEmployee && (
+                      <div className="p-6 border rounded-lg bg-yellow-50">
+                        <p className="text-yellow-800">
+                          🚧 <strong>In Entwicklung:</strong> Der interaktive FZul-Editor wird in Phase 2 implementiert.
+                        </p>
+                        <p className="text-sm text-yellow-700 mt-2">
+                          Hier werden Sie die Jahresübersicht für <strong>{fzulSelectedEmployee}</strong> ({fzulSelectedYear}) 
+                          bearbeiten und direkt PDF-Stundennachweise generieren können.
+                        </p>
+                      </div>
+                    )}
                   </div>
-
-                  {/* BLOCK 1: Ermittlung der Jahresarbeitszeit - Kompakt */}
-                  <table className="w-full border-collapse border border-gray-400 text-xs mt-2">
-                    <thead>
-                      <tr className="bg-amber-200">
-                        <th className="border border-gray-400 p-1 text-left" colSpan={7}>
-                          1. Ermittlung der maßgeblichen vereinbarten Jahresarbeitszeit
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td className="border border-gray-300 p-1">wöchentliche Arbeitszeit:</td>
-                        <td className="border border-gray-300 p-1 w-16">
-                          <input type="number" step="0.5" value={fzulTimesheet.yearly_calculation.weekly_hours}
-                            onChange={(e) => setFzulTimesheet({...fzulTimesheet, yearly_calculation: {...fzulTimesheet.yearly_calculation, weekly_hours: parseFloat(e.target.value) || 0}})}
-                            className="w-12 border rounded px-1 py-0.5 text-center text-xs" />
-                        </td>
-                        <td className="border border-gray-300 p-1">Stunden</td>
-                        <td className="border border-gray-300 p-1 text-right" colSpan={2}>Jahresarbeitsstunden (wöchentl. × 52)</td>
-                        <td className="border border-gray-300 p-1 w-16 text-right font-bold">{Math.round(fzulTimesheet.yearly_calculation.weekly_hours * 52)}</td>
-                        <td className="border border-gray-300 p-1">Stunden</td>
-                      </tr>
-                      <tr className="text-gray-600"><td className="p-0.5 text-xs" colSpan={7}>Abzgl.</td></tr>
-                      {[
-                        { label: 'Arbeitsvertraglich vereinbarter Urlaubsanspruch', key: 'vacation_days_contract', editable: true },
-                        { label: 'Krankheitstage', key: 'sick_days', editable: true, bg: 'bg-orange-50' },
-                        { label: 'Sonderurlaub', key: 'special_leave_days', editable: true },
-                        { label: 'Gesetzliche Feiertage', key: 'holiday_count', editable: false, bg: 'bg-red-50' },
-                        { label: 'Kurzarbeit, Erziehungsurlaub u. ä.', key: 'short_time_days', editable: true },
-                      ].map((row, idx) => {
-                        const val = (fzulTimesheet.yearly_calculation as any)[row.key] || 0;
-                        const hoursPerDay = fzulTimesheet.yearly_calculation.weekly_hours / 5;
-                        return (
-                          <tr key={idx} className={row.bg || ''}>
-                            <td className="border border-gray-300 p-1 pl-4">{row.label}</td>
-                            <td className="border border-gray-300 p-1">
-                              {row.editable ? (
-                                <input type="number" value={val}
-                                  onChange={(e) => setFzulTimesheet({...fzulTimesheet, yearly_calculation: {...fzulTimesheet.yearly_calculation, [row.key]: parseInt(e.target.value) || 0}})}
-                                  className={`w-12 border rounded px-1 py-0.5 text-center text-xs ${row.bg || ''}`} />
-                              ) : (
-                                <span className="w-12 inline-block text-center font-medium">{val}</span>
-                              )}
-                            </td>
-                            <td className="border border-gray-300 p-1">Tage ×</td>
-                            <td className="border border-gray-300 p-1 w-10 text-center">{hoursPerDay.toFixed(1)}</td>
-                            <td className="border border-gray-300 p-1">Stunden =</td>
-                            <td className="border border-gray-300 p-1 text-right">{Math.round(val * hoursPerDay)}</td>
-                            <td className="border border-gray-300 p-1">Stunden</td>
-                          </tr>
-                        );
-                      })}
-                      <tr className="bg-amber-100 font-bold">
-                        <td className="border border-gray-400 p-1" colSpan={5}>= Maßgebliche vereinbarte Jahresarbeitszeit</td>
-                        <td className="border border-gray-400 p-1 text-right">
-                          {(() => {
-                            const yc = fzulTimesheet.yearly_calculation;
-                            const hpd = yc.weekly_hours / 5;
-                            const ded = (yc.vacation_days_contract + yc.sick_days + yc.special_leave_days + yc.holiday_count + yc.short_time_days) * hpd;
-                            return Math.round((yc.weekly_hours * 52) - ded);
-                          })()}
-                        </td>
-                        <td className="border border-gray-400 p-1">Stunden</td>
-                      </tr>
-                      <tr className="text-xs text-gray-500 italic">
-                        <td className="border border-gray-300 p-1 pl-4" colSpan={2}>Ggf. Kürzung bei unterjährigem Beginn/Ende (×/12)</td>
-                        <td className="border border-gray-300 p-1">
-                          <input type="number" step="0.001" min="0" max="1" value={fzulTimesheet.yearly_calculation.yearly_factor}
-                            onChange={(e) => setFzulTimesheet({...fzulTimesheet, yearly_calculation: {...fzulTimesheet.yearly_calculation, yearly_factor: parseFloat(e.target.value) || 1}})}
-                            className="w-14 border rounded px-1 py-0.5 text-center text-xs" />
-                        </td>
-                        <td className="border border-gray-300 p-1" colSpan={2}></td>
-                        <td className="border border-gray-300 p-1 text-right">
-                          {(() => {
-                            const yc = fzulTimesheet.yearly_calculation;
-                            const hpd = yc.weekly_hours / 5;
-                            const ded = (yc.vacation_days_contract + yc.sick_days + yc.special_leave_days + yc.holiday_count + yc.short_time_days) * hpd;
-                            return Math.round(((yc.weekly_hours * 52) - ded) * yc.yearly_factor);
-                          })()}
-                        </td>
-                        <td className="border border-gray-300 p-1">Stunden</td>
-                      </tr>
-                    </tbody>
-                  </table>
-
-                  {/* BLOCK 2: Anteil FuE-Tätigkeiten - Kompakt */}
-                  <table className="w-full border-collapse border border-gray-400 text-xs mt-2">
-                    <thead>
-                      <tr className="bg-amber-200">
-                        <th className="border border-gray-400 p-1 text-left" colSpan={4}>
-                          2. Ermittlung des Anteils der Arbeitszeit für FuE-Tätigkeiten im FuE-Vorhaben
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td className="border border-gray-300 p-1">Summe der Arbeitsstunden für FuE-Tätigkeiten</td>
-                        <td className="border border-gray-300 p-1 w-20 text-right font-bold text-green-700">
-                          {Math.round(Object.values(fzulTimesheet.monthly_summaries).reduce((sum, m) => sum + m.free, 0))}
-                        </td>
-                        <td className="border border-gray-300 p-1" colSpan={2}>Stunden</td>
-                      </tr>
-                      <tr>
-                        <td className="border border-gray-300 p-1">/  Maßgebliche vereinbarte Jahresarbeitszeit (ggf. gekürzt)</td>
-                        <td className="border border-gray-300 p-1 text-right">
-                          {(() => {
-                            const yc = fzulTimesheet.yearly_calculation;
-                            const hpd = yc.weekly_hours / 5;
-                            const ded = (yc.vacation_days_contract + yc.sick_days + yc.special_leave_days + yc.holiday_count + yc.short_time_days) * hpd;
-                            return Math.round(((yc.weekly_hours * 52) - ded) * yc.yearly_factor);
-                          })()}
-                        </td>
-                        <td className="border border-gray-300 p-1" colSpan={2}>Stunden</td>
-                      </tr>
-                      <tr className="bg-green-100 font-bold">
-                        <td className="border border-gray-400 p-1">= Anteil der Arbeitszeit für FuE-Tätigkeiten im FuE-Vorhaben</td>
-                        <td className="border border-gray-400 p-1 text-right text-green-700 text-base">
-                          {(() => {
-                            const yc = fzulTimesheet.yearly_calculation;
-                            const hpd = yc.weekly_hours / 5;
-                            const ded = (yc.vacation_days_contract + yc.sick_days + yc.special_leave_days + yc.holiday_count + yc.short_time_days) * hpd;
-                            const eff = ((yc.weekly_hours * 52) - ded) * yc.yearly_factor;
-                            const fue = Object.values(fzulTimesheet.monthly_summaries).reduce((sum, m) => sum + m.free, 0);
-                            return eff > 0 ? (Math.round((fue / eff) * 100) / 100).toFixed(2) : '0.00';
-                          })()}
-                        </td>
-                        <td className="border border-gray-400 p-1" colSpan={2}></td>
-                      </tr>
-                    </tbody>
-                  </table>
-
-                  {/* Zusatz Eigenforschung + Aktionen */}
-                  <div className="mt-2 p-2 bg-gray-50 border border-gray-300 text-xs flex justify-between items-start">
-                    <div>
-                      <div className="font-medium mb-1">Zusätzlich bei Eigenforschung:</div>
-                      <div>förderfähige Arbeitsstunden insgesamt: <strong>{Math.round(Object.values(fzulTimesheet.monthly_summaries).reduce((sum, m) => sum + m.free, 0))}</strong> Std.</div>
-                      <div>Höchstgrenze: <strong>{Math.round(fzulTimesheet.yearly_calculation.weekly_hours * 52)}</strong> Std.</div>
-                    </div>
-                    <div className="flex gap-2">
-                      <span className={`px-2 py-1 rounded text-xs ${fzulTimesheet.status === 'draft' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>
-                        {fzulTimesheet.status === 'draft' ? 'Entwurf' : 'Gespeichert'}
-                      </span>
-                      <button 
-                        onClick={saveFzulTimesheet} 
-                        disabled={savingFzul}
-                        className={`px-3 py-1 rounded text-xs flex items-center gap-1 ${
-                          savingFzul 
-                            ? 'bg-gray-400 cursor-not-allowed' 
-                            : 'bg-blue-600 hover:bg-blue-700'
-                        } text-white`}>
-                        {savingFzul ? (
-                          <>
-                            <span className="animate-spin">⏳</span> Speichert...
-                          </>
-                        ) : (
-                          <>💾 Speichern</>
-                        )}
-                      </button>
-                      <button className="px-3 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700 opacity-50" disabled>
-                        📄 PDF
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Eingabe-Hinweis */}
-                  <div className="mt-1 p-1 bg-blue-50 border border-blue-200 text-xs text-blue-800">
-                    💡 Zelle klicken → Stunden (z.B. 4) oder U/K/S eingeben → Enter
-                  </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           )}
 
@@ -3590,41 +2517,6 @@ export default function ImportPage() {
                   className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50">
                   {savingFzulEmployee ? 'Speichert...' : 'Speichern'}
                 </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* NEU: SPEICHER-ERFOLGS-MODAL */}
-        {showSaveSuccessModal && fzulTimesheet && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
-              <div className="text-center">
-                <div className="text-5xl mb-4">✅</div>
-                <h3 className="text-lg font-bold text-green-700 mb-2">Erfolgreich gespeichert!</h3>
-                <p className="text-sm text-gray-600 mb-6">
-                  Die Daten für <strong>{fzulTimesheet.employee_name}</strong> ({fzulTimesheet.year}) wurden gespeichert.
-                </p>
-                
-                <div className="flex gap-3 justify-center">
-                  <button 
-                    onClick={() => setShowSaveSuccessModal(false)}
-                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
-                    Weiter bearbeiten
-                  </button>
-                  <button 
-                    onClick={() => {
-                      setShowSaveSuccessModal(false);
-                      generateFzulPdf();
-                    }}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2">
-                    📄 PDF erstellen
-                  </button>
-                </div>
-                
-                <p className="text-xs text-gray-400 mt-4">
-                  Das PDF kann auch später im PDF-Archiv abgerufen werden.
-                </p>
               </div>
             </div>
           </div>
