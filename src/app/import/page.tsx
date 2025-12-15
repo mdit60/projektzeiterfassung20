@@ -349,6 +349,7 @@ export default function ImportPage() {
   // NEU: Speicher-Feedback-Modal
   const [showSaveSuccessModal, setShowSaveSuccessModal] = useState(false);
   const [savingFzul, setSavingFzul] = useState(false);
+  const [generatingPdf, setGeneratingPdf] = useState(false);
 
   // ============================================
   // INITIALISIERUNG
@@ -1026,6 +1027,57 @@ export default function ImportPage() {
       const errorMsg = err?.message || err?.code || JSON.stringify(err) || 'Unbekannter Fehler';
       setError('Fehler beim Speichern: ' + errorMsg);
       setSavingFzul(false);
+    }
+  }
+
+// FZul PDF generieren
+  async function generateFzulPdf() {
+    if (!fzulTimesheet || !profile) {
+      setError('Keine Timesheet-Daten vorhanden');
+      return;
+    }
+    
+    setGeneratingPdf(true);
+    setError('');
+    
+    try {
+      console.log('[PDF] Starte Generierung für:', fzulTimesheet.employee_name, fzulTimesheet.year);
+      
+      const response = await fetch('/api/fzul/pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId: profile.company_id,
+          timesheet: fzulTimesheet,
+          federalState: companyStateCode,
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'PDF-Generierung fehlgeschlagen');
+      }
+      
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `FZul_${fzulTimesheet.employee_name.replace(/,\s*/g, '_')}_${fzulTimesheet.year}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      setSuccess('PDF erfolgreich erstellt!');
+      console.log('[PDF] Erfolgreich generiert');
+      
+      await loadFzulPdfs();
+      
+    } catch (err) {
+      console.error('[PDF] Fehler:', err);
+      setError(err instanceof Error ? err.message : 'PDF-Generierung fehlgeschlagen');
+    } finally {
+      setGeneratingPdf(false);
     }
   }
 
@@ -3258,8 +3310,15 @@ export default function ImportPage() {
                           <>💾 Speichern</>
                         )}
                       </button>
-                      <button className="px-3 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700 opacity-50" disabled>
-                        📄 PDF
+                      <button 
+                        onClick={generateFzulPdf}
+                        disabled={generatingPdf}
+                        className={`px-3 py-1 rounded text-xs flex items-center gap-1 ${
+                          generatingPdf 
+                            ? 'bg-gray-400 cursor-not-allowed' 
+                            : 'bg-green-600 hover:bg-green-700'
+                        } text-white`}>
+                        {generatingPdf ? '⏳ PDF...' : '📄 PDF'}
                       </button>
                     </div>
                   </div>
@@ -3498,15 +3557,9 @@ export default function ImportPage() {
                 
                 <div className="flex gap-3 justify-center">
                   <button 
-                    onClick={() => setShowSaveSuccessModal(false)}
-                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
-                    Weiter bearbeiten
-                  </button>
-                  <button 
                     onClick={() => {
                       setShowSaveSuccessModal(false);
-                      // TODO: PDF-Export aufrufen
-                      alert('PDF-Export wird noch implementiert...');
+                      generateFzulPdf();
                     }}
                     className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2">
                     📄 PDF erstellen
