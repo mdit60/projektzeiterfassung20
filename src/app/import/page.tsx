@@ -494,11 +494,11 @@ export default function ImportPage() {
     setLoadingPdfs(true);
     try {
       const { data, error } = await supabase
-        .from('fzul_pdf_archive')
-        .select('*')
-        .eq('company_id', profile.company_id)
-        .order('year', { ascending: false })
-        .order('employee_name');
+      .from('fzul_pdf_archive')
+      .select('*')
+      .eq('company_id', profile.company_id)
+      .order('employee_name', { ascending: true })
+      .order('year', { ascending: true });
 
       if (error) throw error;
       setFzulPdfs(data || []);
