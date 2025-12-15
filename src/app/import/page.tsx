@@ -1081,6 +1081,54 @@ export default function ImportPage() {
     }
   }
 
+  // PDF aus Archiv herunterladen
+  async function downloadPdfFromArchive(pdfId: string, filename: string) {
+    try {
+      const response = await fetch(`/api/fzul/pdf?id=${pdfId}`);
+      
+      if (!response.ok) {
+        throw new Error('PDF konnte nicht geladen werden');
+      }
+      
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+    } catch (err) {
+      console.error('[PDF] Download-Fehler:', err);
+      setError('PDF konnte nicht heruntergeladen werden');
+    }
+  }
+
+  // PDF aus Archiv löschen
+  async function deletePdfFromArchive(pdfId: string, filename: string) {
+    if (!confirm(`PDF "${filename}" wirklich löschen?`)) {
+      return;
+    }
+    
+    try {
+      const { error } = await supabase
+        .from('fzul_pdf_archive')
+        .delete()
+        .eq('id', pdfId);
+      
+      if (error) throw error;
+      
+      setSuccess('PDF gelöscht');
+      await loadFzulPdfs();
+      
+    } catch (err) {
+      console.error('[PDF] Lösch-Fehler:', err);
+      setError('PDF konnte nicht gelöscht werden');
+    }
+  }
+
   // Tag im Editor bearbeiten
   function openFzulDayEditor(dateStr: string) {
     if (!fzulTimesheet) return;
@@ -3374,8 +3422,18 @@ export default function ImportPage() {
                             {new Date(pdf.created_at).toLocaleDateString('de-DE')}
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <button className="text-blue-600 hover:underline text-sm mr-3">📥 Download</button>
-                            <button className="text-red-600 hover:underline text-sm">🗑️ Löschen</button>
+                            <button 
+                              onClick={() => downloadPdfFromArchive(pdf.id, pdf.filename)}
+                              className="text-blue-600 hover:underline text-sm mr-3"
+                            >
+                               📥 Download
+                            </button>
+                            <button 
+                              onClick={() => deletePdfFromArchive(pdf.id, pdf.filename)}
+                              className="text-red-600 hover:underline text-sm"
+                            >
+                              🗑️ Löschen
+                          </button>
                           </td>
                         </tr>
                       ))}
