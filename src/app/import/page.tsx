@@ -777,6 +777,13 @@ export default function ImportPage() {
         .eq('year', fzulSelectedYear);
       
       if (error) throw error;
+
+      // DEBUG - temporär
+      console.log('[FZul Debug] Imports für', fzulSelectedEmployee, fzulSelectedYear, ':', imports?.length, 'Einträge');
+      imports?.forEach(imp => {
+        console.log('  -', imp.funding_reference || imp.project_name, 'Monat', imp.month, ':', imp.monthly_hours, 'h');
+      });
+      // DEBUG ENDE
       
       // 3. Feiertage für das Jahr berechnen
       const holidays = getGermanHolidays(fzulSelectedYear, companyStateCode);
@@ -928,7 +935,11 @@ export default function ImportPage() {
           vacation_days_contract: annualLeaveDays, // Aus MA-Stammdaten
           sick_days: Object.values(dailyData).filter(d => d.type === 'sick').length,
           special_leave_days: Object.values(dailyData).filter(d => d.type === 'other').length,
-          holiday_count: holidays.size, // Direkt aus Feiertagstabelle (Set hat .size)
+          holiday_count: Array.from(holidays).filter(dateStr => {
+            const date = new Date(dateStr);
+            const dayOfWeek = date.getDay();
+            return dayOfWeek !== 0 && dayOfWeek !== 6; // Nur Feiertage die auf Mo-Fr fallen
+          }).length,
           short_time_days: 0, // Manuell einzutragen
           yearly_factor: 1.0  // Standard: volles Jahr
         }
@@ -1542,11 +1553,19 @@ export default function ImportPage() {
   // ============================================
 
   function detectFormat(wb: XLSX.WorkBook): FundingFormat {
-    if (wb.SheetNames.includes('Nav')) {
-      const navSheet = wb.Sheets['Nav'];
-      const fkzCell = navSheet['B6']?.v?.toString() || '';
-      if (fkzCell.match(/^01[A-Z]{2}\d/)) return 'BMBF_KMU';
-    }
+  if (wb.SheetNames.includes('Nav')) {
+    const navSheet = wb.Sheets['Nav'];
+  
+    // FKZ kann in B6 (altes Format) oder C6 (neues Format) stehen
+    const fkzB6 = navSheet['B6']?.v?.toString() || '';
+    const fkzC6 = navSheet['C6']?.v?.toString() || '';
+    const fkzValue = fkzB6.match(/^(0|16K)/) ? fkzB6 : fkzC6;
+  
+    // BMBF: 01XX... oder 033XX... (z.B. 01LY1925A, 033RK073A)
+    if (fkzValue.match(/^0(1[A-Z]{2}|33[A-Z]{2})\d/)) return 'BMBF_KMU';
+    // ZIM: 16KN... oder 16KI...
+    if (fkzValue.match(/^16K[NI]\d/)) return 'ZIM';
+  }
     if (wb.SheetNames.includes('AP Übersicht')) return 'ZIM';
     for (const sheetName of wb.SheetNames) {
       const ws = wb.Sheets[sheetName];
@@ -1596,65 +1615,13 @@ export default function ImportPage() {
       return;
     }
 
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      const wb = XLSX.read(arrayBuffer, { type: 'array' });
-      const detectedFormat = detectFormat(wb);
+try {
+  const arrayBuffer = await file.arrayBuffer();
+  const wb = XLSX.read(arrayBuffer, { type: 'array' });
+  const detectedFormat = detectFormat(wb);
 
-      // ZIM-Format automatisch erkennen und separat verarbeiten
-      if (detectZimFormat(wb)) {
-        console.log('[Import] ZIM-Format erkannt');
-        const zimResult = parseZimExcel(wb);
-        
-        if (!zimResult.success) {
-          setError('ZIM-Datei konnte nicht geparst werden: ' + zimResult.errors.join(', '));
-          setProcessing(false);
-          return;
-        }
-        
-        const converted = convertToImportFormat(zimResult);
-        if (!converted) {
-          setError('ZIM-Daten konnten nicht konvertiert werden');
-          setProcessing(false);
-          return;
-        }
-        
-        // Projektinfo setzen
-        const zimInfo: ProjectInfo = {
-          projectName: converted.projectName,
-          companyName: zimResult.project?.company || '',
-          fundingReference: converted.projectFkz,
-          fileName: file.name,
-          format: 'ZIM'
-        };
-        setProjectInfo(zimInfo);
-        setSelectedFormat('ZIM');
-        
-        // Mitarbeiter-Daten konvertieren
-        const zimExtracted: ExtractedEmployee[] = converted.employees.map(emp => ({
-          employeeName: emp.name,
-          projectYear: emp.projectYear,
-          months: emp.months.map(m => ({
-            month: m.month,
-            year: m.year,
-            billableHours: m.billableHours,
-            absenceHours: 0,
-            dailyData: m.dailyData.reduce((acc, d) => {
-              acc[d.day] = { hours: d.hours, absence: d.type === 'U' ? 'U' : d.type === 'K' ? 'K' : null };
-              return acc;
-            }, {} as { [day: number]: { hours: number; absence: string | null } })
-          })),
-          totalBillableHours: emp.months.reduce((sum, m) => sum + m.billableHours, 0),
-          totalAbsenceHours: 0,
-          imported: false
-        }));
-        
-        setExtractedData(zimExtracted);
-        setWorkbook(wb);
-        setImportStep('preview');
-        setProcessing(false);
-        return; // Wichtig: Beende hier, BMBF-Code nicht ausführen
-      }
+  // NUR wenn Format als ZIM erkannt wurde, den modularen ZIM-Parser verwenden
+  if (detectedFormat === 'ZIM' && detectZimFormat(wb)) {      }
 
       setSelectedFormat(detectedFormat);
       const info = extractProjectInfo(wb, file.name, detectedFormat);
@@ -3242,7 +3209,7 @@ export default function ImportPage() {
                         <tfoot>
                           <tr className="bg-amber-100 font-bold">
                             <td className="border border-gray-400 p-1 text-right" colSpan={32}>
-                              Summe der Arbeitsstunden für FuE-Tätigkeiten im FuE-Vorhaben:
+                              Summe der verfügbaren Arbeitsstunden für FuE-Tätigkeiten:
                             </td>
                             <td className="border border-gray-400 p-1 text-center text-green-700">
                               {(() => {
@@ -3356,7 +3323,7 @@ export default function ImportPage() {
                       <tr>
                         <td className="border border-gray-300 p-1">Summe der Arbeitsstunden für FuE-Tätigkeiten</td>
                         <td className="border border-gray-300 p-1 w-20 text-right font-bold text-green-700">
-                          {Math.round(Object.values(fzulTimesheet.monthly_summaries).reduce((sum, m) => sum + m.free, 0))}
+                          {Math.round(Object.values(fzulTimesheet.monthly_summaries).reduce((sum, m) => sum + m.used, 0))}
                         </td>
                         <td className="border border-gray-300 p-1" colSpan={2}>Stunden</td>
                       </tr>
@@ -3380,7 +3347,7 @@ export default function ImportPage() {
                             const hpd = yc.weekly_hours / 5;
                             const ded = (yc.vacation_days_contract + yc.sick_days + yc.special_leave_days + yc.holiday_count + yc.short_time_days) * hpd;
                             const eff = ((yc.weekly_hours * 52) - ded) * yc.yearly_factor;
-                            const fue = Object.values(fzulTimesheet.monthly_summaries).reduce((sum, m) => sum + m.free, 0);
+                            const fue = Object.values(fzulTimesheet.monthly_summaries).reduce((sum, m) => sum + m.used, 0);
                             return eff > 0 ? (Math.round((fue / eff) * 100) / 100).toFixed(2) : '0.00';
                           })()}
                         </td>
@@ -3393,7 +3360,7 @@ export default function ImportPage() {
                   <div className="mt-2 p-2 bg-gray-50 border border-gray-300 text-xs flex justify-between items-start">
                     <div>
                       <div className="font-medium mb-1">Zusätzlich bei Eigenforschung:</div>
-                      <div>förderfähige Arbeitsstunden insgesamt: <strong>{Math.round(Object.values(fzulTimesheet.monthly_summaries).reduce((sum, m) => sum + m.free, 0))}</strong> Std.</div>
+                      <div>förderfähige Arbeitsstunden insgesamt: <strong>{Math.round(Object.values(fzulTimesheet.monthly_summaries).reduce((sum, m) => sum + m.used, 0))}</strong> Std.</div>
                       <div>Höchstgrenze: <strong>{Math.round(fzulTimesheet.yearly_calculation.weekly_hours * 52)}</strong> Std.</div>
                     </div>
                     <div className="flex gap-2">
