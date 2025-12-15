@@ -1,5 +1,5 @@
 // src/app/api/fzul/pdf/route.ts
-// VERSION: v2.1 - Unterjähriger Faktor wird IMMER angezeigt
+// VERSION: v2.2 - Optimiertes Layout Seite 1: Breitere Spalten, höhere Zeilen, quadratische Tagesfelder
 // WICHTIG: Diese Datei ersetzt die alte route.ts komplett!
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -162,7 +162,7 @@ function getGermanHolidaysWithNames(year: number, stateCode: string): Map<string
 }
 
 // ============================================
-// PDF-GENERIERUNG - 1:1 wie BMF-Formular
+// PDF-GENERIERUNG - OPTIMIERTES LAYOUT v2.2
 // ============================================
 
 async function generateFzulPdf(data: PdfRequest): Promise<Uint8Array> {
@@ -174,6 +174,8 @@ async function generateFzulPdf(data: PdfRequest): Promise<Uint8Array> {
   // A4 Querformat
   const pageWidth = 842;
   const pageHeight = 595;
+  const margin = 20;
+  const usableWidth = pageWidth - 2 * margin; // 802
   
   const ts = data.timesheet;
   const stateCode = data.federalState || 'DE-NW';
@@ -184,39 +186,38 @@ async function generateFzulPdf(data: PdfRequest): Promise<Uint8Array> {
   const holidays = getGermanHolidaysWithNames(year, stateCode);
   
   // ============================================
-  // SEITE 1: Kalender (Stundennachweis)
+  // SEITE 1: Kalender (Stundennachweis) - OPTIMIERT
   // ============================================
   const page1 = pdfDoc.addPage([pageWidth, pageHeight]);
   
   // Gelber Header-Balken
   page1.drawRectangle({
-    x: 20, y: pageHeight - 55, width: pageWidth - 40, height: 35,
+    x: margin, y: pageHeight - 50, width: usableWidth, height: 30,
     color: rgb(1, 0.92, 0.7),
     borderColor: rgb(0.8, 0.7, 0.4), borderWidth: 1,
   });
   
   page1.drawText('Steuerliche Förderung von Forschung und Entwicklung (FuE) –', {
-    x: 25, y: pageHeight - 35, size: 10, font: helveticaBold,
+    x: margin + 5, y: pageHeight - 32, size: 9, font: helveticaBold,
   });
   page1.drawText('Stundenaufzeichnung für FuE-Tätigkeiten in einem begünstigten FuE-Vorhaben', {
-    x: 25, y: pageHeight - 48, size: 10, font: helveticaBold,
+    x: margin + 5, y: pageHeight - 44, size: 9, font: helveticaBold,
   });
   
-  // Projekt-Info Box
-  const projBoxY = pageHeight - 100;
+  // Projekt-Info Box - kompakter
+  const projBoxY = pageHeight - 88;
   page1.drawRectangle({
-    x: 20, y: projBoxY, width: pageWidth - 40, height: 40,
+    x: margin, y: projBoxY, width: usableWidth, height: 35,
     borderColor: rgb(0.6, 0.6, 0.6), borderWidth: 0.5,
   });
   
   // Zeile 1: Kurzbezeichnung + Wirtschaftsjahr
   page1.drawText('Kurzbezeichnung des FuE-Vorhabens:', {
-    x: 25, y: projBoxY + 25, size: 7, font: helvetica,
+    x: margin + 5, y: projBoxY + 22, size: 7, font: helvetica,
   });
   
-  // Projektname umbrechen wenn zu lang
   const projectTitle = ts.project_title || '-';
-  const maxTitleWidth = 450;
+  const maxTitleWidth = 480;
   let displayTitle = projectTitle;
   if (helvetica.widthOfTextAtSize(projectTitle, 8) > maxTitleWidth) {
     while (helvetica.widthOfTextAtSize(displayTitle + '...', 8) > maxTitleWidth && displayTitle.length > 10) {
@@ -225,35 +226,35 @@ async function generateFzulPdf(data: PdfRequest): Promise<Uint8Array> {
     displayTitle += '...';
   }
   page1.drawText(displayTitle, {
-    x: 150, y: projBoxY + 25, size: 8, font: helveticaBold,
+    x: 165, y: projBoxY + 22, size: 8, font: helveticaBold,
   });
   
   page1.drawText('Wirtschaftsjahr:', {
-    x: pageWidth - 120, y: projBoxY + 25, size: 7, font: helvetica,
+    x: pageWidth - 110, y: projBoxY + 22, size: 7, font: helvetica,
   });
   page1.drawText(String(year), {
-    x: pageWidth - 50, y: projBoxY + 25, size: 10, font: helveticaBold,
+    x: pageWidth - 45, y: projBoxY + 22, size: 11, font: helveticaBold,
   });
   
   // Zeile 2: Vorhaben-ID + Bundesland
   page1.drawText('Vorhaben-ID des FuE-Vorhabens:', {
-    x: 25, y: projBoxY + 8, size: 7, font: helvetica,
+    x: margin + 5, y: projBoxY + 6, size: 7, font: helvetica,
   });
   page1.drawText(ts.project_fkz || '-', {
-    x: 150, y: projBoxY + 8, size: 8, font: helveticaBold,
+    x: 165, y: projBoxY + 6, size: 8, font: helveticaBold,
   });
   
   page1.drawText('Bundesland:', {
-    x: pageWidth - 120, y: projBoxY + 8, size: 7, font: helvetica,
+    x: pageWidth - 150, y: projBoxY + 6, size: 7, font: helvetica,
   });
   page1.drawText(FEDERAL_STATES[stateCode] || stateCode, {
-    x: pageWidth - 50, y: projBoxY + 8, size: 6, font: helvetica,
+    x: pageWidth - 95, y: projBoxY + 6, size: 7, font: helvetica,
   });
   
-  // Mitarbeiter-Box
-  const empBoxY = projBoxY - 25;
+  // Mitarbeiter-Box - kompakter
+  const empBoxY = projBoxY - 20;
   page1.drawRectangle({
-    x: 20, y: empBoxY, width: pageWidth - 40, height: 20,
+    x: margin, y: empBoxY, width: usableWidth, height: 18,
     color: rgb(0.97, 0.97, 0.97),
     borderColor: rgb(0.6, 0.6, 0.6), borderWidth: 0.5,
   });
@@ -262,43 +263,57 @@ async function generateFzulPdf(data: PdfRequest): Promise<Uint8Array> {
   const nachname = nameParts[0]?.trim() || ts.employee_name;
   const vorname = nameParts[1]?.trim() || '';
   
-  page1.drawText('Name:', { x: 25, y: empBoxY + 6, size: 7, font: helvetica });
-  page1.drawText(nachname, { x: 55, y: empBoxY + 6, size: 9, font: helveticaBold });
+  page1.drawText('Name:', { x: margin + 5, y: empBoxY + 5, size: 7, font: helvetica });
+  page1.drawText(nachname, { x: margin + 40, y: empBoxY + 5, size: 9, font: helveticaBold });
   
-  page1.drawText('Vorname:', { x: 180, y: empBoxY + 6, size: 7, font: helvetica });
-  page1.drawText(vorname, { x: 220, y: empBoxY + 6, size: 9, font: helveticaBold });
+  page1.drawText('Vorname:', { x: 180, y: empBoxY + 5, size: 7, font: helvetica });
+  page1.drawText(vorname, { x: 225, y: empBoxY + 5, size: 9, font: helveticaBold });
   
-  page1.drawText('Kurzbezeichnung der FuE-Tätigkeit:', { x: 400, y: empBoxY + 6, size: 7, font: helvetica });
-  page1.drawText(ts.position_title || 'Entwickler', { x: 550, y: empBoxY + 6, size: 8, font: helvetica });
+  page1.drawText('Kurzbezeichnung der FuE-Tätigkeit:', { x: 400, y: empBoxY + 5, size: 7, font: helvetica });
+  page1.drawText(ts.position_title || 'Entwickler', { x: 550, y: empBoxY + 5, size: 8, font: helvetica });
   
   // Kalender-Header
-  const calHeaderY = empBoxY - 18;
+  const calHeaderY = empBoxY - 14;
   page1.drawRectangle({
-    x: 20, y: calHeaderY, width: pageWidth - 40, height: 14,
+    x: margin, y: calHeaderY, width: usableWidth, height: 12,
     color: rgb(1, 0.92, 0.7),
   });
   page1.drawText('Dokumentation der Arbeitsstunden für FuE-Tätigkeiten im FuE-Vorhaben je Arbeitstag', {
-    x: 25, y: calHeaderY + 3, size: 8, font: helveticaBold,
+    x: margin + 5, y: calHeaderY + 2, size: 7, font: helveticaBold,
   });
   
-  // Kalender-Tabelle
+  // ============================================
+  // OPTIMIERTE KALENDER-TABELLE v2.2
+  // ============================================
+  
+  // Neue, optimierte Spaltenbreiten für volle Seitennutzung
+  const colWidths = { 
+    month: 38,      // Monatsname
+    day: 21.5,      // Tage 1-31: breiter für bessere Lesbarkeit (war 18.5)
+    sum: 32,        // Summe
+    confirm: 62     // Bestätigung/Unterschrift
+  };
+  
+  // Berechnung: 38 + (31 × 21.5) + 32 + 62 = 798.5 (nutzt fast die vollen 802)
+  
+  // Optimierte Zeilenhöhe für quadratische Felder
+  const rowHeight = 21;  // War 14 - jetzt proportional zu day-Breite
+  
   const tableStartY = calHeaderY - 2;
-  const rowHeight = 14;
-  const colWidths = { month: 45, day: 18.5, sum: 28, confirm: 55 };
   
   // Spaltenüberschriften
   const headerY = tableStartY - rowHeight;
   page1.drawRectangle({
-    x: 20, y: headerY, width: pageWidth - 40, height: rowHeight,
+    x: margin, y: headerY, width: usableWidth, height: rowHeight,
     color: rgb(0.95, 0.93, 0.85),
   });
   
-  page1.drawText('Monat', { x: 23, y: headerY + 4, size: 6, font: helveticaBold });
+  page1.drawText('Monat', { x: margin + 3, y: headerY + 7, size: 7, font: helveticaBold });
   
   for (let d = 1; d <= 31; d++) {
-    const xPos = 20 + colWidths.month + (d - 1) * colWidths.day;
+    const xPos = margin + colWidths.month + (d - 1) * colWidths.day;
     page1.drawText(String(d), {
-      x: xPos + (d < 10 ? 7 : 4), y: headerY + 4, size: 6, font: helveticaBold,
+      x: xPos + (d < 10 ? 8 : 5), y: headerY + 7, size: 7, font: helveticaBold,
     });
     page1.drawLine({
       start: { x: xPos, y: headerY }, end: { x: xPos, y: headerY + rowHeight },
@@ -306,12 +321,12 @@ async function generateFzulPdf(data: PdfRequest): Promise<Uint8Array> {
     });
   }
   
-  const sumX = 20 + colWidths.month + 31 * colWidths.day;
-  page1.drawText('insg.', { x: sumX + 3, y: headerY + 4, size: 6, font: helveticaBold });
-  page1.drawText('Bestätigung', { x: sumX + colWidths.sum + 3, y: headerY + 4, size: 5, font: helveticaBold });
+  const sumX = margin + colWidths.month + 31 * colWidths.day;
+  page1.drawText('insg.', { x: sumX + 5, y: headerY + 7, size: 7, font: helveticaBold });
+  page1.drawText('Bestätigung', { x: sumX + colWidths.sum + 8, y: headerY + 7, size: 6, font: helveticaBold });
   
   page1.drawLine({
-    start: { x: 20, y: headerY }, end: { x: pageWidth - 20, y: headerY },
+    start: { x: margin, y: headerY }, end: { x: pageWidth - margin, y: headerY },
     thickness: 0.5, color: rgb(0.5, 0.5, 0.5),
   });
   
@@ -325,19 +340,20 @@ async function generateFzulPdf(data: PdfRequest): Promise<Uint8Array> {
     
     if (m % 2 === 0) {
       page1.drawRectangle({
-        x: 20, y: yPos, width: pageWidth - 40, height: rowHeight,
+        x: margin, y: yPos, width: usableWidth, height: rowHeight,
         color: rgb(0.98, 0.98, 0.98),
       });
     }
     
+    // Monatsname - größere Schrift
     page1.drawText(MONTH_NAMES[m - 1].substring(0, 3), {
-      x: 23, y: yPos + 4, size: 7, font: helvetica,
+      x: margin + 3, y: yPos + 7, size: 8, font: helvetica,
     });
     
     let monthFreeHours = 0;
     
     for (let d = 1; d <= 31; d++) {
-      const xPos = 20 + colWidths.month + (d - 1) * colWidths.day;
+      const xPos = margin + colWidths.month + (d - 1) * colWidths.day;
       const dayStr = String(d).padStart(2, '0');
       const dateStr = `${year}-${monthNum}-${dayStr}`;
       
@@ -361,7 +377,7 @@ async function generateFzulPdf(data: PdfRequest): Promise<Uint8Array> {
       let cellText = '';
       let textColor = rgb(0, 0, 0);
       let bgColor: { r: number; g: number; b: number } | null = null;
-      let fontSize = 6;
+      let fontSize = 8;  // Größere Standard-Schrift (war 6)
       
       if (dayData) {
         switch (dayData.type) {
@@ -374,7 +390,7 @@ async function generateFzulPdf(data: PdfRequest): Promise<Uint8Array> {
             cellText = holidays.get(dateStr) || dayData.holiday_name || 'Fei';
             textColor = rgb(0.1, 0.3, 0.7);
             bgColor = { r: 0.85, g: 0.9, b: 1 };
-            fontSize = cellText.length > 4 ? 4 : cellText.length > 2 ? 5 : 6;
+            fontSize = cellText.length > 5 ? 5 : cellText.length > 3 ? 6 : 7;
             break;
           case 'leave':
             cellText = 'U';
@@ -409,14 +425,18 @@ async function generateFzulPdf(data: PdfRequest): Promise<Uint8Array> {
       }
       
       if (cellText) {
+        // Text zentrieren in der größeren Zelle
+        const textWidth = helvetica.widthOfTextAtSize(cellText, fontSize);
+        const textX = xPos + (colWidths.day - textWidth) / 2;
         page1.drawText(cellText, {
-          x: xPos + 2, y: yPos + 4, size: fontSize, font: helvetica, color: textColor,
+          x: textX, y: yPos + 7, size: fontSize, font: helvetica, color: textColor,
         });
       }
     }
     
     totalFreeHours += monthFreeHours;
     
+    // Summen-Spalte
     page1.drawRectangle({
       x: sumX, y: yPos, width: colWidths.sum, height: rowHeight,
       color: rgb(0.92, 0.97, 0.92),
@@ -425,20 +445,21 @@ async function generateFzulPdf(data: PdfRequest): Promise<Uint8Array> {
     if (monthFreeHours > 0) {
       const sumText = monthFreeHours % 1 === 0 ? String(monthFreeHours) : monthFreeHours.toFixed(1);
       page1.drawText(sumText, {
-        x: sumX + 2, y: yPos + 4, size: 6, font: helveticaBold,
+        x: sumX + 4, y: yPos + 7, size: 8, font: helveticaBold,
       });
     }
     
+    // Bestätigungs-Spalte
     page1.drawRectangle({
       x: sumX + colWidths.sum, y: yPos, width: colWidths.confirm, height: rowHeight,
       borderColor: rgb(0.8, 0.8, 0.8), borderWidth: 0.3,
     });
     page1.drawText('Unterschrift', {
-      x: sumX + colWidths.sum + 2, y: yPos + 4, size: 5, font: helvetica, color: rgb(0.6, 0.6, 0.6),
+      x: sumX + colWidths.sum + 4, y: yPos + 7, size: 6, font: helvetica, color: rgb(0.6, 0.6, 0.6),
     });
     
     page1.drawLine({
-      start: { x: 20, y: yPos }, end: { x: pageWidth - 20, y: yPos },
+      start: { x: margin, y: yPos }, end: { x: pageWidth - margin, y: yPos },
       thickness: 0.3, color: rgb(0.7, 0.7, 0.7),
     });
   }
@@ -446,24 +467,24 @@ async function generateFzulPdf(data: PdfRequest): Promise<Uint8Array> {
   // Summenzeile
   const sumRowY = headerY - (13 * rowHeight);
   page1.drawRectangle({
-    x: 20, y: sumRowY, width: pageWidth - 40, height: rowHeight + 2,
+    x: margin, y: sumRowY, width: usableWidth, height: rowHeight + 4,
     color: rgb(1, 0.92, 0.7),
     borderColor: rgb(0.7, 0.6, 0.3), borderWidth: 1,
   });
   
   page1.drawText('Summe der Arbeitsstunden für FuE-Tätigkeiten im FuE-Vorhaben:', {
-    x: 25, y: sumRowY + 5, size: 8, font: helveticaBold,
+    x: margin + 5, y: sumRowY + 8, size: 9, font: helveticaBold,
   });
   
   page1.drawRectangle({
-    x: sumX, y: sumRowY, width: colWidths.sum, height: rowHeight + 2,
+    x: sumX, y: sumRowY, width: colWidths.sum, height: rowHeight + 4,
     color: rgb(0.85, 0.95, 0.85),
     borderColor: rgb(0, 0.5, 0), borderWidth: 1,
   });
   
   const totalText = totalFreeHours.toFixed(2).replace('.', ',');
   page1.drawText(totalText, {
-    x: sumX + 2, y: sumRowY + 5, size: 8, font: helveticaBold, color: rgb(0, 0.4, 0),
+    x: sumX + 3, y: sumRowY + 8, size: 9, font: helveticaBold, color: rgb(0, 0.4, 0),
   });
   
   // ============================================
@@ -677,7 +698,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unvollständige Timesheet-Daten' }, { status: 400 });
     }
     
-    console.log('[PDF] Generiere PDF für:', ts.employee_name, ts.year);
+    console.log('[PDF] v2.2 Generiere PDF für:', ts.employee_name, ts.year);
     
     // PDF generieren
     const pdfBytes = await generateFzulPdf(body);
