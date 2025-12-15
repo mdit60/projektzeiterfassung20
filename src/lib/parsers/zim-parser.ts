@@ -1,5 +1,5 @@
 // src/lib/parsers/zim-parser.ts
-// VERSION: 1.0 - ZIM Excel Parser fuer Flexitrace und aehnliche ZIM-Formate
+// VERSION: 1.1 - ZIM Excel Parser mit korrekter Projektjahr-Aufteilung
 // WICHTIG: Diese Datei ist SEPARAT vom BMBF-Parser und aendert nichts am bestehenden Code!
 
 import * as XLSX from 'xlsx';
@@ -91,6 +91,19 @@ function excelDateToDate(excelDate: number | Date | string): Date | null {
 function getCellValue(sheet: XLSX.WorkSheet, cell: string): any {
   const cellObj = sheet[cell];
   return cellObj ? cellObj.v : null;
+}
+
+/**
+ * Sucht nach einer Zeile die einen bestimmten Text enthaelt
+ */
+function findRowByText(sheet: XLSX.WorkSheet, searchText: string, startRow: number, endRow: number, column: string = 'C'): number | null {
+  for (let row = startRow; row <= endRow; row++) {
+    const value = getCellValue(sheet, `${column}${row}`);
+    if (value && String(value).toLowerCase().includes(searchText.toLowerCase())) {
+      return row;
+    }
+  }
+  return null;
 }
 
 /**
@@ -225,8 +238,8 @@ export function parseEmployeeSheet(
   const { name: nachname, projectYear } = parsed;
   const calendarYear = startYear + projectYear - 1;
   
-  // Vollstaendiger Name aus M11 (erste Monatszeile)
-  const fullName = getCellValue(sheet, 'M11') || nachname;
+  // Vollstaendiger Name aus M11 oder M12 (erste Monatszeile)
+  const fullName = getCellValue(sheet, 'M12') || getCellValue(sheet, 'M11') || nachname;
   
   const months: MonthData[] = [];
   
@@ -244,22 +257,33 @@ export function parseEmployeeSheet(
     if (!monthDate) continue;
     
     const month = monthDate.getMonth() + 1; // 1-12
+    const actualYear = monthDate.getFullYear(); // Tatsaechliches Jahr aus Datum!
     
-    // Summenzeile: blockStart + 20
-    const sumRow = blockStart + 20;
+    // Dynamisch Summenzeile finden: Suche nach "Summe der förderbaren" im Block
+    let sumRow = findRowByText(sheet, 'summe', blockStart + 15, blockStart + 25, 'C');
+    if (!sumRow) {
+      // Fallback: Feste Position
+      sumRow = blockStart + 20;
+    }
     
-    // Urlaub-Zeile: blockStart + 23
-    const urlaubRow = blockStart + 23;
+    // Urlaub-Zeile: Nach Summenzeile suchen
+    let urlaubRow = findRowByText(sheet, 'urlaub', sumRow, sumRow + 10, 'C');
+    if (!urlaubRow) {
+      urlaubRow = sumRow + 3;
+    }
     
-    // Krankheit-Zeile: blockStart + 24
-    const krankRow = blockStart + 24;
+    // Krankheit-Zeile: Nach Urlaub suchen
+    let krankRow = findRowByText(sheet, 'krankheit', sumRow, sumRow + 10, 'C');
+    if (!krankRow) {
+      krankRow = sumRow + 4;
+    }
     
     const dailyData: DailyEntry[] = [];
     let totalHours = 0;
     
-    // Tagesdaten aus Spalten E-AJ (Tag 1-31)
+    // Tagesdaten aus Spalten E-AI (Tag 1-31) - NICHT AJ!
     for (let day = 1; day <= 31; day++) {
-      const col = day + 4; // Tag 1 = Spalte E (5), usw.
+      const col = day + 4; // Tag 1 = Spalte E (5), Tag 31 = Spalte AI (35)
       const colLetter = XLSX.utils.encode_col(col - 1); // 0-basiert
       
       // Stunden aus Summenzeile
@@ -268,11 +292,11 @@ export function parseEmployeeSheet(
       
       // Urlaub pruefen
       const urlaubRaw = getCellValue(sheet, `${colLetter}${urlaubRow}`);
-      const hasUrlaub = urlaubRaw && (urlaubRaw === 'U' || urlaubRaw === 8 || urlaubRaw > 0);
+      const hasUrlaub = urlaubRaw && (urlaubRaw === 'U' || urlaubRaw === 8 || (typeof urlaubRaw === 'number' && urlaubRaw > 0));
       
       // Krankheit pruefen
       const krankRaw = getCellValue(sheet, `${colLetter}${krankRow}`);
-      const hasKrank = krankRaw && (krankRaw === 'K' || krankRaw === 8 || krankRaw > 0);
+      const hasKrank = krankRaw && (krankRaw === 'K' || krankRaw === 8 || (typeof krankRaw === 'number' && krankRaw > 0));
       
       if (hours > 0 || hasUrlaub || hasKrank) {
         const entry: DailyEntry = {
@@ -292,7 +316,7 @@ export function parseEmployeeSheet(
     if (dailyData.length > 0 || totalHours > 0) {
       months.push({
         month,
-        calendarYear,
+        calendarYear: actualYear, // Verwende tatsaechliches Jahr aus Datum!
         projectYear,
         dailyData,
         totalHours,
@@ -331,7 +355,7 @@ export function parseZimExcel(workbook: XLSX.WorkBook): ZimParseResult {
     return { success: false, project, errors, warnings };
   }
   
-  console.log(`[ZIM-Parser] ${employeeSheets.length} MA-Sheets gefunden`);
+  console.log(`[ZIM-Parser] ${employeeSheets.length} MA-Sheets gefunden:`, employeeSheets);
   
   // 3. Alle MA-Sheets parsen
   const employeeMap = new Map<string, ZimEmployee>();
@@ -343,6 +367,8 @@ export function parseZimExcel(workbook: XLSX.WorkBook): ZimParseResult {
       warnings.push(`Sheet "${sheetName}" konnte nicht geparst werden`);
       continue;
     }
+    
+    console.log(`[ZIM-Parser] ${sheetName}: ${result.months.length} Monate gefunden`);
     
     // Mitarbeiter zusammenfuehren (gleicher Name aus verschiedenen Jahren)
     const existing = employeeMap.get(result.name);
@@ -393,7 +419,7 @@ export function parseZimExcel(workbook: XLSX.WorkBook): ZimParseResult {
 
 /**
  * Konvertiert ZIM-Ergebnis in das Format des bestehenden Import-Moduls
- * (ImportedEmployee mit months Array)
+ * WICHTIG: Erstellt einen Eintrag pro Mitarbeiter UND Projektjahr!
  */
 export function convertToImportFormat(result: ZimParseResult): {
   projectName: string;
@@ -419,24 +445,65 @@ export function convertToImportFormat(result: ZimParseResult): {
     return null;
   }
   
+  // Für jeden Mitarbeiter: Aufteilen nach Projektjahr
+  const employeesByYear: Array<{
+    name: string;
+    projectYear: number;
+    months: Array<{
+      month: number;
+      year: number;
+      projectYear: number;
+      billableHours: number;
+      totalHours: number;
+      dailyData: Array<{
+        day: number;
+        hours: number;
+        type: string;
+      }>;
+    }>;
+  }> = [];
+  
+  for (const emp of result.employees) {
+    // Gruppiere Monate nach Projektjahr
+    const monthsByProjectYear = new Map<number, typeof emp.months>();
+    
+    for (const m of emp.months) {
+      if (!monthsByProjectYear.has(m.projectYear)) {
+        monthsByProjectYear.set(m.projectYear, []);
+      }
+      monthsByProjectYear.get(m.projectYear)!.push(m);
+    }
+    
+    // Erstelle einen Eintrag pro Projektjahr
+    for (const [projectYear, months] of monthsByProjectYear) {
+      employeesByYear.push({
+        name: emp.name,
+        projectYear,
+        months: months.map(m => ({
+          month: m.month,
+          year: m.calendarYear,
+          projectYear: m.projectYear,
+          billableHours: m.billableHours,
+          totalHours: m.totalHours,
+          dailyData: m.dailyData.map(d => ({
+            day: d.day,
+            hours: d.hours,
+            type: d.absence || (d.hours > 0 ? 'work' : 'none')
+          }))
+        }))
+      });
+    }
+  }
+  
+  // Sortiere nach Name und Projektjahr
+  employeesByYear.sort((a, b) => {
+    if (a.name !== b.name) return a.name.localeCompare(b.name);
+    return a.projectYear - b.projectYear;
+  });
+  
   return {
     projectName: result.project.name,
     projectFkz: result.project.fkz,
-    employees: result.employees.map(emp => ({
-      name: emp.name,
-      projectYear: emp.months[0]?.projectYear || 1,
-      months: emp.months.map(m => ({
-        month: m.month,
-        year: m.calendarYear,
-        projectYear: m.projectYear,
-        billableHours: m.billableHours,
-        totalHours: m.totalHours,
-        dailyData: m.dailyData.map(d => ({
-          day: d.day,
-          hours: d.hours,
-          type: d.absence || (d.hours > 0 ? 'work' : 'none')
-        }))
-      }))
-    }))
+    employees: employeesByYear
   };
 }

@@ -1,5 +1,6 @@
 // src/app/import/page.tsx
-// VERSION: v6.3d - Projekt-Ansicht: "Im FZul-Editor öffnen" Button + Fixes
+// VERSION: v6.6 - ZIM-Parser Integration (modularer Import)
+
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
@@ -7,6 +8,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import Header from '@/components/Header';
 import * as XLSX from 'xlsx';
+import { detectZimFormat, parseZimExcel, convertToImportFormat } from '@/lib/parsers/zim-parser';
 
 // ============================================
 // INTERFACES
@@ -1598,6 +1600,62 @@ export default function ImportPage() {
       const arrayBuffer = await file.arrayBuffer();
       const wb = XLSX.read(arrayBuffer, { type: 'array' });
       const detectedFormat = detectFormat(wb);
+
+      // ZIM-Format automatisch erkennen und separat verarbeiten
+      if (detectZimFormat(wb)) {
+        console.log('[Import] ZIM-Format erkannt');
+        const zimResult = parseZimExcel(wb);
+        
+        if (!zimResult.success) {
+          setError('ZIM-Datei konnte nicht geparst werden: ' + zimResult.errors.join(', '));
+          setProcessing(false);
+          return;
+        }
+        
+        const converted = convertToImportFormat(zimResult);
+        if (!converted) {
+          setError('ZIM-Daten konnten nicht konvertiert werden');
+          setProcessing(false);
+          return;
+        }
+        
+        // Projektinfo setzen
+        const zimInfo: ProjectInfo = {
+          projectName: converted.projectName,
+          companyName: zimResult.project?.company || '',
+          fundingReference: converted.projectFkz,
+          fileName: file.name,
+          format: 'ZIM'
+        };
+        setProjectInfo(zimInfo);
+        setSelectedFormat('ZIM');
+        
+        // Mitarbeiter-Daten konvertieren
+        const zimExtracted: ExtractedEmployee[] = converted.employees.map(emp => ({
+          employeeName: emp.name,
+          projectYear: emp.projectYear,
+          months: emp.months.map(m => ({
+            month: m.month,
+            year: m.year,
+            billableHours: m.billableHours,
+            absenceHours: 0,
+            dailyData: m.dailyData.reduce((acc, d) => {
+              acc[d.day] = { hours: d.hours, absence: d.type === 'U' ? 'U' : d.type === 'K' ? 'K' : null };
+              return acc;
+            }, {} as { [day: number]: { hours: number; absence: string | null } })
+          })),
+          totalBillableHours: emp.months.reduce((sum, m) => sum + m.billableHours, 0),
+          totalAbsenceHours: 0,
+          imported: false
+        }));
+        
+        setExtractedData(zimExtracted);
+        setWorkbook(wb);
+        setImportStep('preview');
+        setProcessing(false);
+        return; // Wichtig: Beende hier, BMBF-Code nicht ausführen
+      }
+
       setSelectedFormat(detectedFormat);
       const info = extractProjectInfo(wb, file.name, detectedFormat);
       setProjectInfo(info);
