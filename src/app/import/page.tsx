@@ -1,9 +1,54 @@
 // src/app/import/page.tsx
-// VERSION: v6.6 - ZIM-Parser Integration (modularer Import)
+// VERSION: v6.7.11 - Excel-Button aus Projekt-Detailansicht entfernt
+// ÄNDERUNGEN v6.7.11:
+// - Excel-Button aus Projekt-Detailansicht entfernt (nur noch im FZul-Editor)
+// - Unbenutzte exportFzulExcel Funktion entfernt
+// ÄNDERUNGEN v6.7.10:
+// - Alle Quelldateien werden einzeln aufgelistet (untereinander)
+// - "Auto-ergänzt für FZul" Einträge werden gefiltert
+// ÄNDERUNGEN v6.7.9:
+// - Quelldatei(en) werden in Projekt-Karten angezeigt
+// - Quelldatei(en) werden in Projekt-Detailansicht angezeigt
+// - Bei mehreren Dateien: Anzahl + Tooltip mit allen Namen
+// ÄNDERUNGEN v6.7.8:
+// - Undo-Button erscheint nach Monat-Löschen
+// - Klick auf "Rückgängig" stellt vorherigen Zustand wieder her
+// - Banner kann auch geschlossen werden (✕)
+// ÄNDERUNGEN v6.7.7:
+// - Neuer 🗑️ Button links neben jedem Monat
+// - Klick leert alle Arbeitstage des Monats (setzt auf 0)
+// - Wochenenden und Feiertage bleiben unverändert
+// ÄNDERUNGEN v6.7.6:
+// - Delete-Taste setzt Zellwert auf 0 (nicht leer)
+// - Leerer Wert wird beim Speichern als 0 interpretiert
+// ÄNDERUNGEN v6.7.5:
+// - Pfeiltasten ←/→ navigieren direkt (ohne Ctrl)
+// - Delete-Taste löscht Zellinhalt
+// - Aktualisierter Tastatur-Hinweis
+// ÄNDERUNGEN v6.7.4:
+// - Neue Tabelle fzul_excel_archive für Excel-Archivierung
+// - Excel-Export speichert automatisch ins Archiv
+// - Tab "PDF-Archiv" wird zu "FZul-Archiv" mit Excel + PDF Bereichen
+// - Buttons "Entwurf" und "Speichern" entfernt (nur noch Excel + PDF)
+// ÄNDERUNGEN v6.7.3:
+// - Label "FuE-Tätigkeit:" statt "Kurzbezeichnung der FuE-Tätigkeit:"
+// - Eingabefeld nimmt restlichen Platz ein (keine feste Breite)
+// ÄNDERUNGEN v6.7.2:
+// - Excel-Export übergibt stateCode an API
+// - Beide Export-Funktionen (Projekte + Editor) nutzen companyStateCode
+// ÄNDERUNGEN v6.7.1:
+// - Excel-Export Button direkt im FZul-Editor (neben Speichern/PDF)
+// - exportFzulEditorExcel() konvertiert fzulTimesheet-Daten für API
+// ÄNDERUNGEN v6.7:
+// - Tab → nächste Zelle rechts (Tag+1, bei Monatsende → nächster Monat Tag 1)
+// - Enter/↓ → gleicher Tag im nächsten Monat  
+// - Pfeiltasten (↑↓) für Monatsnavigation, Ctrl+←→ für Tagesnavigation
+// - useRef für automatischen Input-Fokus
+// - Wochenenden/Feiertage werden bei Navigation übersprungen
 
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import Header from '@/components/Header';
@@ -117,6 +162,21 @@ interface FzulPdfArchive {
   year: number;
   project_short_name?: string;
   project_id?: string;
+  created_by?: string;
+  created_at: string;
+}
+
+// NEU v6.7.4: FZul Excel-Archiv Interface
+interface FzulExcelArchive {
+  id: string;
+  company_id: string;
+  employee_name: string;
+  year: number;
+  filename: string;
+  file_size?: number;
+  project_title?: string;
+  project_fkz?: string;
+  federal_state?: string;
   created_by?: string;
   created_at: string;
 }
@@ -251,10 +311,13 @@ const SHEET_BLACKLIST_PATTERN = /^(Ermittl|Auswertung|Nav|PK|ZAZK|ZNZK|Planung|�
 
 export default function ImportPage() {
   // VERSION CHECK - in Browser-Konsole sichtbar
-  console.log('[Import] Version v6.3d - Projekt → FZul-Editor Direktlink');
+  console.log('[Import] Version v6.7.11 - Excel-Button aus Projekt-Detailansicht entfernt');
   
   const router = useRouter();
   const supabase = createClient();
+  
+  // NEU v6.7: Ref für Input-Fokus bei Inline-Edit
+  const cellInputRef = useRef<HTMLInputElement>(null);
 
   // Auth & Access
   const [loading, setLoading] = useState(true);
@@ -337,10 +400,15 @@ export default function ImportPage() {
   const [fzulPdfs, setFzulPdfs] = useState<FzulPdfArchive[]>([]);
   const [loadingPdfs, setLoadingPdfs] = useState(false);
 
+  // NEU v6.7.4: Excel-Archiv States
+  const [fzulExcels, setFzulExcels] = useState<FzulExcelArchive[]>([]);
+  const [loadingExcels, setLoadingExcels] = useState(false);
+
   // FZul Editor States
   const [fzulSelectedEmployee, setFzulSelectedEmployee] = useState<string | null>(null);
   const [fzulSelectedYear, setFzulSelectedYear] = useState<number>(new Date().getFullYear());
   const [fzulTimesheet, setFzulTimesheet] = useState<FzulTimesheet | null>(null);
+  const [fzulUndoState, setFzulUndoState] = useState<{ timesheet: FzulTimesheet; monthName: string } | null>(null);
   const [fzulProjectSummaries, setFzulProjectSummaries] = useState<FzulProjectSummary[]>([]);
   const [fzulLoading, setFzulLoading] = useState(false);
   const [fzulHasImportData, setFzulHasImportData] = useState(false);
@@ -352,6 +420,16 @@ export default function ImportPage() {
   const [showSaveSuccessModal, setShowSaveSuccessModal] = useState(false);
   const [savingFzul, setSavingFzul] = useState(false);
   const [generatingPdf, setGeneratingPdf] = useState(false);
+
+  // ============================================
+  // NEU v6.7: Auto-Focus Effect für Inline-Edit
+  // ============================================
+  useEffect(() => {
+    if (fzulEditingCell && cellInputRef.current) {
+      cellInputRef.current.focus();
+      cellInputRef.current.select();
+    }
+  }, [fzulEditingCell]);
 
   // ============================================
   // INITIALISIERUNG
@@ -459,6 +537,7 @@ export default function ImportPage() {
       // NEU v6.0: FZul-Daten laden
       await loadFzulEmployees();
       await loadFzulPdfs();
+      await loadFzulExcels();
     } catch (err) {
       console.error(err);
     }
@@ -506,6 +585,28 @@ export default function ImportPage() {
       console.error('Fehler beim Laden der FZul-PDFs:', err);
     } finally {
       setLoadingPdfs(false);
+    }
+  }
+
+  // NEU v6.7.4: Excel-Archiv laden
+  async function loadFzulExcels() {
+    if (!profile) return;
+    
+    setLoadingExcels(true);
+    try {
+      const { data, error } = await supabase
+        .from('fzul_excel_archive')
+        .select('*')
+        .eq('company_id', profile.company_id)
+        .order('employee_name', { ascending: true })
+        .order('year', { ascending: true });
+
+      if (error) throw error;
+      setFzulExcels(data || []);
+    } catch (err) {
+      console.error('Fehler beim Laden der FZul-Excels:', err);
+    } finally {
+      setLoadingExcels(false);
     }
   }
 
@@ -1142,6 +1243,64 @@ export default function ImportPage() {
     }
   }
 
+  // NEU v6.7.4: Excel aus Archiv herunterladen
+  async function downloadExcelFromArchive(excelId: string, filename: string) {
+    try {
+      const { data, error } = await supabase
+        .from('fzul_excel_archive')
+        .select('file_data')
+        .eq('id', excelId)
+        .single();
+      
+      if (error) throw error;
+      if (!data?.file_data) throw new Error('Keine Datei gefunden');
+      
+      // Base64 zu Blob konvertieren
+      const binaryString = atob(data.file_data);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+    } catch (err) {
+      console.error('[Excel] Download-Fehler:', err);
+      setError('Excel konnte nicht heruntergeladen werden');
+    }
+  }
+
+  // NEU v6.7.4: Excel aus Archiv löschen
+  async function deleteExcelFromArchive(excelId: string, filename: string) {
+    if (!confirm(`Excel "${filename}" wirklich löschen?`)) {
+      return;
+    }
+    
+    try {
+      const { error } = await supabase
+        .from('fzul_excel_archive')
+        .delete()
+        .eq('id', excelId);
+      
+      if (error) throw error;
+      
+      setSuccess('Excel gelöscht');
+      await loadFzulExcels();
+      
+    } catch (err) {
+      console.error('[Excel] Lösch-Fehler:', err);
+      setError('Excel konnte nicht gelöscht werden');
+    }
+  }
+
   // Tag im Editor bearbeiten
   function openFzulDayEditor(dateStr: string) {
     if (!fzulTimesheet) return;
@@ -1170,8 +1329,80 @@ export default function ImportPage() {
     }
   }
 
-  // NEU: Inline-Edit speichern
-  function saveInlineEdit() {
+  // ============================================
+  // NEU v6.7: EXCEL-ÄHNLICHE NAVIGATION
+  // ============================================
+
+  // NEU v6.7: Nächste editierbare Zelle finden (überspringt WE/Feiertage)
+  function getNextEditableCell(currentDateStr: string, direction: 'right' | 'left' | 'down' | 'up'): string | null {
+    if (!fzulTimesheet) return null;
+    
+    const holidays = getGermanHolidays(fzulSelectedYear, companyStateCode);
+    const [yearStr, monthStr, dayStr] = currentDateStr.split('-');
+    let month = parseInt(monthStr);
+    let day = parseInt(dayStr);
+    
+    // Maximale Iterationen um Endlosschleifen zu vermeiden
+    let iterations = 0;
+    const maxIterations = 400;
+    
+    while (iterations < maxIterations) {
+      iterations++;
+      
+      if (direction === 'right') {
+        // Nächster Tag, bei Monatsende → nächster Monat Tag 1
+        day++;
+        const daysInMonth = new Date(fzulSelectedYear, month, 0).getDate();
+        if (day > daysInMonth) {
+          month++;
+          day = 1;
+          if (month > 12) return null; // Jahresende erreicht
+        }
+      } else if (direction === 'left') {
+        // Vorheriger Tag, bei Tag 1 → vorheriger Monat letzter Tag
+        day--;
+        if (day < 1) {
+          month--;
+          if (month < 1) return null; // Jahresanfang erreicht
+          day = new Date(fzulSelectedYear, month, 0).getDate();
+        }
+      } else if (direction === 'down') {
+        // Gleicher Tag, nächster Monat
+        month++;
+        if (month > 12) return null; // Jahresende
+        // Prüfen ob Tag im neuen Monat existiert
+        const daysInNewMonth = new Date(fzulSelectedYear, month, 0).getDate();
+        if (day > daysInNewMonth) day = daysInNewMonth;
+      } else if (direction === 'up') {
+        // Gleicher Tag, vorheriger Monat
+        month--;
+        if (month < 1) return null; // Jahresanfang
+        const daysInNewMonth = new Date(fzulSelectedYear, month, 0).getDate();
+        if (day > daysInNewMonth) day = daysInNewMonth;
+      }
+      
+      // Neues Datum erstellen
+      const newDateStr = `${fzulSelectedYear}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+      const dayData = fzulTimesheet.daily_data[newDateStr];
+      
+      // Prüfen ob Zelle editierbar ist (kein WE, kein Feiertag)
+      if (dayData && dayData.type !== 'weekend' && dayData.type !== 'holiday') {
+        return newDateStr;
+      }
+      
+      // Bei up/down: Wenn der gleiche Tag nicht editierbar ist, abbrechen
+      // (nicht endlos durch Monate springen)
+      if (direction === 'up' || direction === 'down') {
+        // Weitermachen bis editierbare Zelle gefunden oder Grenze erreicht
+        continue;
+      }
+    }
+    
+    return null;
+  }
+
+  // NEU v6.7: Inline-Edit speichern UND zur nächsten Zelle navigieren
+  function saveInlineEditAndNavigate(nextDirection?: 'right' | 'left' | 'down' | 'up') {
     if (!fzulEditingCell || !fzulTimesheet) {
       setFzulEditingCell(null);
       return;
@@ -1184,6 +1415,7 @@ export default function ImportPage() {
       return;
     }
     
+    const currentCell = fzulEditingCell;
     const updatedTimesheet = { ...fzulTimesheet };
     const updatedDay = { ...dayData, edited: true };
     
@@ -1199,6 +1431,11 @@ export default function ImportPage() {
       updatedDay.type = 'other';
       updatedDay.free = 0;
       updatedDay.total_used = 0;
+    } else if (value === '' || value === '0') {
+      // NEU v6.7.6: Leerer Wert oder 0 = auf 0 setzen
+      updatedDay.type = 'workday';
+      updatedDay.free = 0;
+      updatedDay.total_used = updatedDay.available;
     } else {
       // Zahl = freie Stunden (keine Beschränkung, 2 Dezimalstellen)
       const numValue = parseFloat(value.replace(',', '.'));
@@ -1209,10 +1446,10 @@ export default function ImportPage() {
       }
     }
     
-    updatedTimesheet.daily_data[fzulEditingCell] = updatedDay;
+    updatedTimesheet.daily_data[currentCell] = updatedDay;
     
     // Monatssummen aktualisieren
-    const month = fzulEditingCell.slice(5, 7);
+    const month = currentCell.slice(5, 7);
     const daysInMonth = new Date(fzulSelectedYear, parseInt(month), 0).getDate();
     updatedTimesheet.monthly_summaries[month] = { available: 0, used: 0, free: 0, leave: 0, sick: 0 };
     
@@ -1242,8 +1479,28 @@ export default function ImportPage() {
     };
     
     setFzulTimesheet(updatedTimesheet);
-    setFzulEditingCell(null);
-    setFzulEditValue('');
+    
+    // NEU v6.7: Zur nächsten Zelle navigieren
+    if (nextDirection) {
+      const nextCell = getNextEditableCell(currentCell, nextDirection);
+      if (nextCell) {
+        // Verzögert starten damit React den State aktualisieren kann
+        setTimeout(() => {
+          startInlineEdit(nextCell);
+        }, 10);
+      } else {
+        setFzulEditingCell(null);
+        setFzulEditValue('');
+      }
+    } else {
+      setFzulEditingCell(null);
+      setFzulEditValue('');
+    }
+  }
+
+  // NEU: Inline-Edit speichern (ohne Navigation, für onBlur)
+  function saveInlineEdit() {
+    saveInlineEditAndNavigate();
   }
 
   // NEU: Inline-Edit abbrechen
@@ -1252,14 +1509,119 @@ export default function ImportPage() {
     setFzulEditValue('');
   }
 
-  // NEU: Tastatur-Handler für Inline-Edit
+  // NEU v6.7.7: Alle Arbeitstage eines Monats auf 0 setzen
+  function clearMonthData(monthIdx: number) {
+    if (!fzulTimesheet) return;
+    
+    const monthNum = (monthIdx + 1).toString().padStart(2, '0');
+    const monthName = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 
+                       'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'][monthIdx];
+    
+    if (!confirm(`Alle Arbeitstage im ${monthName} auf 0 setzen?\n\n(Wochenenden und Feiertage bleiben unverändert)`)) {
+      return;
+    }
+    
+    // NEU v6.7.8: Vorherigen Zustand für Undo speichern (Deep Copy)
+    const previousState = JSON.parse(JSON.stringify(fzulTimesheet));
+    setFzulUndoState({ timesheet: previousState, monthName });
+    
+    const updatedTimesheet = { ...fzulTimesheet };
+    const daysInMonth = new Date(fzulSelectedYear, monthIdx + 1, 0).getDate();
+    
+    // Alle Arbeitstage des Monats auf 0 setzen
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${fzulSelectedYear}-${monthNum}-${d.toString().padStart(2, '0')}`;
+      const dayData = updatedTimesheet.daily_data[dateStr];
+      
+      if (dayData && dayData.type !== 'weekend' && dayData.type !== 'holiday') {
+        updatedTimesheet.daily_data[dateStr] = {
+          ...dayData,
+          type: 'workday',
+          free: 0,
+          total_used: dayData.available,
+          edited: true
+        };
+      }
+    }
+    
+    // Monatssumme neu berechnen
+    updatedTimesheet.monthly_summaries[monthNum] = { available: 0, used: 0, free: 0, leave: 0, sick: 0 };
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${fzulSelectedYear}-${monthNum}-${d.toString().padStart(2, '0')}`;
+      const dd = updatedTimesheet.daily_data[dateStr];
+      if (!dd) continue;
+      
+      updatedTimesheet.monthly_summaries[monthNum].available += dd.available;
+      updatedTimesheet.monthly_summaries[monthNum].used += dd.total_used;
+      updatedTimesheet.monthly_summaries[monthNum].free += dd.free;
+      if (dd.type === 'leave') updatedTimesheet.monthly_summaries[monthNum].leave++;
+      if (dd.type === 'sick') updatedTimesheet.monthly_summaries[monthNum].sick++;
+    }
+    
+    // Jahresberechnung aktualisieren (Krankheitstage, Sonderurlaub)
+    let totalSickDays = 0;
+    let totalOtherDays = 0;
+    Object.values(updatedTimesheet.daily_data).forEach(d => {
+      if (d.type === 'sick') totalSickDays++;
+      if (d.type === 'other') totalOtherDays++;
+    });
+    updatedTimesheet.yearly_calculation = {
+      ...updatedTimesheet.yearly_calculation,
+      sick_days: totalSickDays,
+      special_leave_days: totalOtherDays
+    };
+    
+    setFzulTimesheet(updatedTimesheet);
+    // Keine Success-Message mehr, stattdessen Undo-Button sichtbar
+  }
+
+  // NEU v6.7.8: Löschen rückgängig machen
+  function undoClearMonth() {
+    if (!fzulUndoState) return;
+    
+    setFzulTimesheet(fzulUndoState.timesheet);
+    setSuccess(`${fzulUndoState.monthName} wiederhergestellt`);
+    setFzulUndoState(null);
+  }
+
+  // NEU v6.7: Erweiterte Tastatur-Handler für Excel-ähnliche Navigation
   function handleInlineKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter' || e.key === 'Tab') {
+    if (e.key === 'Tab') {
       e.preventDefault();
-      saveInlineEdit();
+      if (e.shiftKey) {
+        // Shift+Tab: Eine Zelle nach links
+        saveInlineEditAndNavigate('left');
+      } else {
+        // Tab: Eine Zelle nach rechts (nächster Tag)
+        saveInlineEditAndNavigate('right');
+      }
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      // Enter: Gleicher Tag, nächster Monat (wie Excel nach unten)
+      saveInlineEditAndNavigate('down');
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      // Pfeil runter: Nächster Monat
+      saveInlineEditAndNavigate('down');
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      // Pfeil hoch: Vorheriger Monat
+      saveInlineEditAndNavigate('up');
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      // Pfeil rechts: Nächster Tag (ohne Ctrl!)
+      saveInlineEditAndNavigate('right');
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      // Pfeil links: Vorheriger Tag (ohne Ctrl!)
+      saveInlineEditAndNavigate('left');
     } else if (e.key === 'Escape') {
       cancelInlineEdit();
+    } else if (e.key === 'Delete') {
+      // Delete: Zellinhalt auf 0 setzen
+      setFzulEditValue('0');
     }
+    // Backspace funktioniert automatisch im Input
   }
 
   function saveFzulDayEdit() {
@@ -1294,6 +1656,121 @@ export default function ImportPage() {
     
     setFzulTimesheet(updatedTimesheet);
     setFzulEditModal(null);
+  }
+
+  // NEU v6.7: Excel-Export direkt aus FZul-Editor
+  async function exportFzulEditorExcel() {
+    if (!fzulTimesheet) return;
+    
+    // Konvertiere fzulTimesheet.daily_data in das API-Format
+    const dayData: Record<number, Record<number, { hours: number; absence: string | null }>> = {};
+    for (let m = 1; m <= 12; m++) {
+      dayData[m] = {};
+      for (let d = 1; d <= 31; d++) {
+        dayData[m][d] = { hours: 0, absence: null };
+      }
+    }
+    
+    // Daten aus fzulTimesheet extrahieren
+    for (const [dateStr, data] of Object.entries(fzulTimesheet.daily_data)) {
+      const [, monthStr, dayStr] = dateStr.split('-');
+      const month = parseInt(monthStr);
+      const day = parseInt(dayStr);
+      
+      if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+        // Genutzte Stunden = available - free (was für Projekte verwendet wurde)
+        const usedHours = data.total_used || 0;
+        
+        // Abwesenheit
+        let absence: string | null = null;
+        if (data.type === 'leave') absence = 'U';
+        else if (data.type === 'sick') absence = 'K';
+        else if (data.type === 'other') absence = 'S';
+        else if (data.type === 'holiday') absence = 'F';
+        
+        dayData[month][day] = { hours: usedHours, absence };
+      }
+    }
+    
+    const settings = {
+      weekly_hours: fzulTimesheet.yearly_calculation.weekly_hours,
+      annual_leave_days: fzulTimesheet.yearly_calculation.vacation_days_contract
+    };
+    
+    const holidays = Array.from(getGermanHolidays(fzulTimesheet.year, companyStateCode));
+    
+    try {
+      const response = await fetch('/api/export/fzul', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          empName: fzulTimesheet.employee_name, 
+          year: fzulTimesheet.year, 
+          dayData, 
+          settings, 
+          holidays,
+          stateCode: companyStateCode  // NEU: Bundesland für API übergeben
+        })
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Export fehlgeschlagen');
+      }
+      
+      const blob = await response.blob();
+      const filename = `FZul_${fzulTimesheet.employee_name.replace(/,\s*/g, '_')}_${fzulTimesheet.year}.xlsx`;
+      
+      // Download auslösen
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      // NEU v6.7.4: In Archiv speichern
+      try {
+        // Blob zu Base64 konvertieren für Supabase
+        const arrayBuffer = await blob.arrayBuffer();
+        const base64 = btoa(
+          new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+        );
+        
+        const { error: archiveError } = await supabase
+          .from('fzul_excel_archive')
+          .insert({
+            company_id: profile!.company_id,
+            employee_name: fzulTimesheet.employee_name,
+            year: fzulTimesheet.year,
+            filename: filename,
+            file_data: base64,
+            file_size: blob.size,
+            project_title: fzulTimesheet.project_title || '',
+            project_fkz: fzulTimesheet.project_fkz || '',
+            federal_state: companyStateCode,
+            created_by: profile!.id
+          });
+        
+        if (archiveError) {
+          console.warn('[Export] Archiv-Speicherung fehlgeschlagen:', archiveError);
+        } else {
+          console.log('[Export] Excel im Archiv gespeichert');
+          await loadFzulExcels();
+        }
+      } catch (archiveErr) {
+        console.warn('[Export] Archiv-Fehler:', archiveErr);
+      }
+      
+      setSuccess('Excel erfolgreich exportiert und archiviert!');
+      console.log('[Export] FZul Excel aus Editor exportiert');
+      
+    } catch (error) {
+      console.error('[Export] Fehler:', error);
+      setError('Export fehlgeschlagen: ' + (error instanceof Error ? error.message : 'Unbekannter Fehler'));
+    }
   }
 
   // Effect: Bei MA/Jahr-Änderung Import-Daten prüfen
@@ -1479,75 +1956,6 @@ export default function ImportPage() {
   // ============================================
   // FZul Excel Export (via API für Formatierung)
   // ============================================
-  
-  const exportFzulExcel = async (
-    empName: string, 
-    year: number, 
-    empTimesheets: ImportedTimesheet[],
-    settings: { weekly_hours: number; annual_leave_days: number }
-  ) => {
-    const dayData: Record<number, Record<number, { hours: number; absence: string | null }>> = {};
-    for (let m = 1; m <= 12; m++) {
-      dayData[m] = {};
-      for (let d = 1; d <= 31; d++) {
-        dayData[m][d] = { hours: 0, absence: null };
-      }
-    }
-    
-    for (const ts of empTimesheets) {
-      const daily = ts.daily_data || {};
-      for (const [dayStr, data] of Object.entries(daily)) {
-        const day = parseInt(dayStr);
-        if (day >= 1 && day <= 31 && dayData[ts.month]) {
-          if (typeof data === 'object' && data !== null) {
-            if ((data as { hours?: number }).hours) dayData[ts.month][day].hours = (data as { hours: number }).hours;
-            if ((data as { absence?: string }).absence) dayData[ts.month][day].absence = (data as { absence: string }).absence;
-          }
-        }
-      }
-    }
-    
-    const yearHolidays = getGermanHolidays(year);
-    const holidaysArray = Array.from(yearHolidays);
-    
-    try {
-      const response = await fetch('/api/export/fzul', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ empName, year, dayData, settings, holidays: holidaysArray })
-      });
-      
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Export fehlgeschlagen');
-      }
-      
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      
-      const contentDisposition = response.headers.get('Content-Disposition');
-      let fileName = `FZul_Export_${year}.xlsx`;
-      if (contentDisposition) {
-        const match = contentDisposition.match(/filename="(.+)"/);
-        if (match) fileName = match[1];
-      }
-      
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      
-      console.log('[Export] FZul Excel erfolgreich exportiert');
-      
-    } catch (error) {
-      console.error('[Export] Fehler:', error);
-      alert('Export fehlgeschlagen: ' + (error instanceof Error ? error.message : 'Unbekannter Fehler'));
-    }
-  };
-
   // ============================================
   // FORMAT-ERKENNUNG
   // ============================================
@@ -2338,14 +2746,6 @@ try {
               </tbody>
             </table>
           </div>
-          <div className="px-2 py-2 border-t mt-auto">
-            <button
-              onClick={() => exportFzulExcel(empName, displayYear, empTimesheets, settings)}
-              className="w-full px-2 py-1.5 bg-green-600 text-white text-xs rounded hover:bg-green-700 flex items-center justify-center gap-1"
-            >
-              📥 Excel
-            </button>
-          </div>
         </div>
       );
     };
@@ -2535,6 +2935,19 @@ try {
               <div>
                 <h2 className="text-lg font-bold">📁 {selectedProject}</h2>
                 <p className="text-sm text-gray-500">FKZ: {fkz} • {allEmployeeNames.length} MA • {availableYears[0]}-{availableYears[availableYears.length - 1]}</p>
+                {/* NEU v6.7.9: Quelldateien anzeigen */}
+                {(() => {
+                  const sourceFiles = [...new Set(allTimesheets.map(ts => ts.original_filename).filter(f => f && !f.includes('Auto-ergänzt')))];
+                  if (sourceFiles.length === 0) return null;
+                  return (
+                    <div className="text-xs text-gray-400 mt-1">
+                      📎 Quellen: 
+                      {sourceFiles.map((f, i) => (
+                        <span key={i} className="block ml-4">{f}</span>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
             
@@ -2694,7 +3107,7 @@ try {
                   activeTab === 'fzul-archive' ? 'border-green-600 text-green-600' : 'border-transparent text-gray-500'
                 }`}
               >
-                📄 PDF-Archiv {fzulPdfs.length > 0 && <span className="ml-1 text-xs bg-green-100 px-2 py-0.5 rounded-full">{fzulPdfs.length}</span>}
+                📁 FZul-Archiv {(fzulPdfs.length + fzulExcels.length) > 0 && <span className="ml-1 text-xs bg-green-100 px-2 py-0.5 rounded-full">{fzulPdfs.length + fzulExcels.length}</span>}
               </button>
             </div>
 
@@ -2731,6 +3144,8 @@ try {
                   const emps = [...new Set(tss.map(ts => ts.employee_name))];
                   const totalHours = tss.reduce((s, ts) => s + ts.total_billable_hours, 0);
                   const fkz = tss[0]?.funding_reference || '';
+                  // NEU v6.7.9: Quelldateien sammeln (ohne Auto-ergänzt)
+                  const sourceFiles = [...new Set(tss.map(ts => ts.original_filename).filter(f => f && !f.includes('Auto-ergänzt')))];
                   return (
                     <div key={proj} onClick={() => setSelectedProject(proj)}
                          className="bg-white rounded-lg shadow p-6 cursor-pointer hover:shadow-lg transition-shadow">
@@ -2739,6 +3154,11 @@ try {
                           <h3 className="text-lg font-bold">📁 {proj}</h3>
                           <p className="text-gray-500 text-sm">FKZ: {fkz}</p>
                           <p className="text-gray-500 text-sm mt-1">{emps.length} Mitarbeiter</p>
+                          {sourceFiles.length > 0 && (
+                            <p className="text-gray-400 text-xs mt-2" title={sourceFiles.join(', ')}>
+                              📎 {sourceFiles.length === 1 ? sourceFiles[0] : `${sourceFiles.length} Quelldateien`}
+                            </p>
+                          )}
                         </div>
                         <div className="text-right">
                           <div className="text-2xl font-bold text-blue-600">{totalHours.toFixed(0)}h</div>
@@ -3085,8 +3505,8 @@ try {
                         <td className="border border-gray-400 p-1 w-32 font-medium">
                           {fzulTimesheet.employee_name.split(',')[1]?.trim() || ''}
                         </td>
-                        <td className="border border-gray-400 p-1">Kurzbezeichnung der FuE-Tätigkeit:</td>
-                        <td className="border border-gray-400 p-0 w-32">
+                        <td className="border border-gray-400 p-1 whitespace-nowrap">FuE-Tätigkeit:</td>
+                        <td className="border border-gray-400 p-0">
                           <input 
                             type="text"
                             value={fzulTimesheet.position_title || ''}
@@ -3099,6 +3519,29 @@ try {
                     </tbody>
                   </table>
 
+                  {/* NEU v6.7.8: Undo-Banner wenn Monat gelöscht wurde */}
+                  {fzulUndoState && (
+                    <div className="mt-1 p-2 bg-yellow-100 border border-yellow-400 rounded flex items-center justify-between">
+                      <span className="text-sm text-yellow-800">
+                        ⚠️ <strong>{fzulUndoState.monthName}</strong> wurde geleert
+                      </span>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={undoClearMonth}
+                          className="px-3 py-1 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-sm font-medium"
+                        >
+                          ↩️ Rückgängig
+                        </button>
+                        <button
+                          onClick={() => setFzulUndoState(null)}
+                          className="px-2 py-1 text-yellow-700 hover:text-yellow-900 text-sm"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {/* KALENDER - Kompakt */}
                   <div className="mt-1 border border-gray-400">
                     <div className="bg-amber-100 p-1 text-xs font-medium border-b border-gray-400">
@@ -3108,6 +3551,7 @@ try {
                       <table className="border-collapse text-xs" style={{ fontSize: '10px', tableLayout: 'fixed' }}>
                         <thead>
                           <tr className="bg-amber-50">
+                            <th className="p-0.5 w-6 min-w-[24px] bg-transparent border-0"></th>
                             <th className="border border-gray-300 p-0.5 w-16 min-w-[64px] text-left">Monat</th>
                             {Array.from({ length: 31 }, (_, i) => (
                               <th key={i} className="border border-gray-300 p-0.5 w-7 min-w-[28px] max-w-[28px] text-center">{i + 1}</th>
@@ -3124,6 +3568,15 @@ try {
                             
                             return (
                               <tr key={monthIdx}>
+                                <td className="p-0.5 w-6 min-w-[24px] bg-transparent border-0 text-center">
+                                  <button 
+                                    onClick={() => clearMonthData(monthIdx)}
+                                    className="text-red-400 hover:text-red-600 hover:bg-red-50 rounded p-0.5 text-xs"
+                                    title={`${monthName} leeren (alle auf 0)`}
+                                  >
+                                    🗑️
+                                  </button>
+                                </td>
                                 <td className="border border-gray-300 p-0.5 font-medium bg-gray-50 w-16 min-w-[64px]">{monthName}</td>
                                 {Array.from({ length: 31 }, (_, dayIdx) => {
                                   const dayNum = dayIdx + 1;
@@ -3140,7 +3593,6 @@ try {
                                   // Farben wie BMF-Original
                                   let bgColor = '';
                                   let textColor = '';
-                                  // Stunden auf max 2 Dezimalstellen runden für Anzeige
                                   const roundedFree = Math.round(dayData.free * 100) / 100;
                                   let displayText: string = roundedFree > 0 
                                     ? (roundedFree % 1 === 0 ? roundedFree.toString() : roundedFree.toFixed(1))
@@ -3174,11 +3626,13 @@ try {
                                   if (isEditing) {
                                     return (
                                       <td key={dayIdx} className="border border-gray-300 p-0 w-7 min-w-[28px] max-w-[28px]">
-                                        <input type="text" value={fzulEditValue}
+                                        <input 
+                                          ref={cellInputRef}
+                                          type="text" 
+                                          value={fzulEditValue}
                                           onChange={(e) => setFzulEditValue(e.target.value)}
                                           onKeyDown={handleInlineKeyDown}
                                           onBlur={saveInlineEdit}
-                                          autoFocus
                                           className="w-full h-full text-center text-xs border-2 border-green-500 outline-none"
                                           style={{ fontSize: '10px', padding: '1px', width: '28px' }}
                                         />
@@ -3208,7 +3662,7 @@ try {
                         </tbody>
                         <tfoot>
                           <tr className="bg-amber-100 font-bold">
-                            <td className="border border-gray-400 p-1 text-right" colSpan={32}>
+                            <td className="border border-gray-400 p-1 text-right" colSpan={33}>
                               Summe der verfügbaren Arbeitsstunden für FuE-Tätigkeiten:
                             </td>
                             <td className="border border-gray-400 p-1 text-center text-green-700">
@@ -3364,24 +3818,10 @@ try {
                       <div>Höchstgrenze: <strong>{Math.round(fzulTimesheet.yearly_calculation.weekly_hours * 52)}</strong> Std.</div>
                     </div>
                     <div className="flex gap-2">
-                      <span className={`px-2 py-1 rounded text-xs ${fzulTimesheet.status === 'draft' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>
-                        {fzulTimesheet.status === 'draft' ? 'Entwurf' : 'Gespeichert'}
-                      </span>
                       <button 
-                        onClick={saveFzulTimesheet} 
-                        disabled={savingFzul}
-                        className={`px-3 py-1 rounded text-xs flex items-center gap-1 ${
-                          savingFzul 
-                            ? 'bg-gray-400 cursor-not-allowed' 
-                            : 'bg-blue-600 hover:bg-blue-700'
-                        } text-white`}>
-                        {savingFzul ? (
-                          <>
-                            <span className="animate-spin">⏳</span> Speichert...
-                          </>
-                        ) : (
-                          <>💾 Speichern</>
-                        )}
+                        onClick={exportFzulEditorExcel}
+                        className="px-3 py-1 rounded text-xs flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white">
+                        📥 Excel
                       </button>
                       <button 
                         onClick={generateFzulPdf}
@@ -3396,69 +3836,72 @@ try {
                     </div>
                   </div>
 
-                  {/* Eingabe-Hinweis */}
+                  {/* NEU v6.7: Eingabe-Hinweis mit Tastatur-Navigation */}
                   <div className="mt-1 p-1 bg-blue-50 border border-blue-200 text-xs text-blue-800">
-                    💡 Zelle klicken → Stunden (z.B. 4) oder U/K/S eingeben → Enter
+                    💡 <strong>Tastatur:</strong> ←/→ = Tag wechseln • ↑/↓ = Monat wechseln • Tab = nächster Tag • Enter = nächster Monat • Del = auf 0 setzen • Esc = Abbrechen
                   </div>
                 </div>
               )}
             </div>
           )}
 
-          {/* NEU v6.0: TAB PDF-ARCHIV */}
+          {/* NEU v6.7.4: TAB FZUL-ARCHIV (Excel + PDF) */}
           {activeTab === 'fzul-archive' && (
             <div className="space-y-4 overflow-auto h-full">
+              
+              {/* Excel-Archiv Bereich */}
               <div className="bg-white rounded-lg shadow p-6">
                 <div className="flex justify-between items-center mb-4">
                   <div>
-                    <h2 className="text-lg font-bold">📄 FZul PDF-Archiv</h2>
-                    <p className="text-sm text-gray-500">Generierte Stundennachweise</p>
+                    <h2 className="text-lg font-bold">📊 Excel-Dokumente</h2>
+                    <p className="text-sm text-gray-500">Generierte FZul Excel-Dateien</p>
                   </div>
+                  <span className="text-sm text-gray-400">{fzulExcels.length} Dateien</span>
                 </div>
 
-                {loadingPdfs ? (
-                  <div className="text-center py-8">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto"></div>
+                {loadingExcels ? (
+                  <div className="text-center py-4">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-emerald-600 mx-auto"></div>
                   </div>
-                ) : fzulPdfs.length === 0 ? (
-                  <div className="text-center py-12 text-gray-500">
-                    <span className="text-4xl">📄</span>
-                    <p className="mt-4">Noch keine PDFs generiert</p>
-                    <p className="text-sm mt-2">Erstellen Sie Stundennachweise im FZul-Editor</p>
+                ) : fzulExcels.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    <span className="text-3xl">📊</span>
+                    <p className="mt-2">Noch keine Excel-Dateien</p>
+                    <p className="text-xs mt-1">Excel-Export im FZul-Editor erstellen</p>
                   </div>
                 ) : (
-                  <table className="w-full">
+                  <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b bg-gray-50">
-                        <th className="px-4 py-3 text-left">Dateiname</th>
-                        <th className="px-4 py-3 text-center">Mitarbeiter</th>
-                        <th className="px-4 py-3 text-center">Jahr</th>
-                        <th className="px-4 py-3 text-center">Erstellt am</th>
-                        <th className="px-4 py-3 text-right">Aktionen</th>
+                      <tr className="border-b bg-emerald-50">
+                        <th className="px-3 py-2 text-left">Dateiname</th>
+                        <th className="px-3 py-2 text-center">Mitarbeiter</th>
+                        <th className="px-3 py-2 text-center">Jahr</th>
+                        <th className="px-3 py-2 text-center">Erstellt am</th>
+                        <th className="px-3 py-2 text-right">Aktionen</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {fzulPdfs.map(pdf => (
-                        <tr key={pdf.id} className="border-b hover:bg-gray-50">
-                          <td className="px-4 py-3 font-medium">{pdf.filename}</td>
-                          <td className="px-4 py-3 text-center">{pdf.employee_name}</td>
-                          <td className="px-4 py-3 text-center">{pdf.year}</td>
-                          <td className="px-4 py-3 text-center text-sm text-gray-500">
-                            {new Date(pdf.created_at).toLocaleDateString('de-DE')}
+                      {fzulExcels.map(excel => (
+                        <tr key={excel.id} className="border-b hover:bg-gray-50">
+                          <td className="px-3 py-2 font-medium">{excel.filename}</td>
+                          <td className="px-3 py-2 text-center">{excel.employee_name}</td>
+                          <td className="px-3 py-2 text-center">{excel.year}</td>
+                          <td className="px-3 py-2 text-center text-gray-500">
+                            {new Date(excel.created_at).toLocaleDateString('de-DE')}
                           </td>
-                          <td className="px-4 py-3 text-right">
+                          <td className="px-3 py-2 text-right">
                             <button 
-                              onClick={() => downloadPdfFromArchive(pdf.id, pdf.filename)}
-                              className="text-blue-600 hover:underline text-sm mr-3"
+                              onClick={() => downloadExcelFromArchive(excel.id, excel.filename)}
+                              className="text-emerald-600 hover:underline text-sm mr-3"
                             >
-                               📥 Download
+                              📥 Download
                             </button>
                             <button 
-                              onClick={() => deletePdfFromArchive(pdf.id, pdf.filename)}
+                              onClick={() => deleteExcelFromArchive(excel.id, excel.filename)}
                               className="text-red-600 hover:underline text-sm"
                             >
                               🗑️ Löschen
-                          </button>
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -3466,6 +3909,68 @@ try {
                   </table>
                 )}
               </div>
+
+              {/* PDF-Archiv Bereich */}
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <div>
+                    <h2 className="text-lg font-bold">📄 PDF-Dokumente</h2>
+                    <p className="text-sm text-gray-500">Generierte FZul PDF-Stundennachweise</p>
+                  </div>
+                  <span className="text-sm text-gray-400">{fzulPdfs.length} Dateien</span>
+                </div>
+
+                {loadingPdfs ? (
+                  <div className="text-center py-4">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-600 mx-auto"></div>
+                  </div>
+                ) : fzulPdfs.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    <span className="text-3xl">📄</span>
+                    <p className="mt-2">Noch keine PDF-Dateien</p>
+                    <p className="text-xs mt-1">PDF-Export im FZul-Editor erstellen</p>
+                  </div>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-green-50">
+                        <th className="px-3 py-2 text-left">Dateiname</th>
+                        <th className="px-3 py-2 text-center">Mitarbeiter</th>
+                        <th className="px-3 py-2 text-center">Jahr</th>
+                        <th className="px-3 py-2 text-center">Erstellt am</th>
+                        <th className="px-3 py-2 text-right">Aktionen</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {fzulPdfs.map(pdf => (
+                        <tr key={pdf.id} className="border-b hover:bg-gray-50">
+                          <td className="px-3 py-2 font-medium">{pdf.filename}</td>
+                          <td className="px-3 py-2 text-center">{pdf.employee_name}</td>
+                          <td className="px-3 py-2 text-center">{pdf.year}</td>
+                          <td className="px-3 py-2 text-center text-gray-500">
+                            {new Date(pdf.created_at).toLocaleDateString('de-DE')}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <button 
+                              onClick={() => downloadPdfFromArchive(pdf.id, pdf.filename)}
+                              className="text-green-600 hover:underline text-sm mr-3"
+                            >
+                              📥 Download
+                            </button>
+                            <button 
+                              onClick={() => deletePdfFromArchive(pdf.id, pdf.filename)}
+                              className="text-red-600 hover:underline text-sm"
+                            >
+                              🗑️ Löschen
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
             </div>
           )}
 
@@ -3650,7 +4155,7 @@ try {
                 </div>
                 
                 <p className="text-xs text-gray-400 mt-4">
-                  Das PDF kann auch später im PDF-Archiv abgerufen werden.
+                  Das PDF kann auch später im FZul-Archiv abgerufen werden.
                 </p>
               </div>
             </div>
