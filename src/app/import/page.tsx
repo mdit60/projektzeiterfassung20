@@ -1,5 +1,30 @@
 // src/app/import/page.tsx
-// VERSION: v6.7.11 - Excel-Button aus Projekt-Detailansicht entfernt
+// VERSION: v6.7.16 - FZul-Vorhaben-Daten persistent in Datenbank speichern
+// AENDERUNGEN v6.7.16:
+// - NEU: Tabelle fzul_vorhaben_settings fuer persistente Speicherung der Vorhaben-Daten
+// - NEU: loadFzulVorhabenSettings() laedt Daten beim Start
+// - NEU: saveFzulVorhabenSettings() speichert in Datenbank
+// - Modal hat jetzt zwei Modi: "Speichern" (wenn MA geladen) vs "Speichern und Daten laden" (initial)
+// - Vorhaben-Daten bleiben auch nach Logout erhalten
+// AENDERUNGEN v6.7.15:
+// - NEU: Modal zur Eingabe der FZul-Vorhaben-Daten (Kurzbezeichnung + Vorhaben-ID)
+// - Modal erscheint automatisch beim ersten "Daten laden" Klick
+// - Eingegebene Werte gelten fuer ALLE Mitarbeiter dieser FZul-Auswertung
+// - Anzeige der aktuellen Vorhaben-Daten im Editor mit "Aendern" Button
+// - Hinweis: Diese Daten beziehen sich auf das FZul-Vorhaben lt. Bescheinigung, NICHT auf ZIM/BMBF-Projekte
+// - BUGFIX: Modal schliesst jetzt korrekt nach Speichern (useEffect statt setTimeout)
+// AENDERUNGEN v6.7.14:
+// - project_title und project_fkz starten jetzt LEER (nicht mit Projektdaten gefuellt)
+// - Diese Felder beziehen sich auf das FZul-Vorhaben lt. Bescheinigung, NICHT auf die analysierten Projekte
+// - Placeholder-Texte angepasst: "Pflichtfeld: ... lt. FZul-Bescheinigung eingeben"
+// AENDERUNGEN v6.7.13:
+// - Excel-Export sendet project_title, project_fkz, position_title an API
+// - Diese Felder müssen von der API in die Excel-Vorlage geschrieben werden
+// AENDERUNGEN v6.7.12:
+// - BUGFIX: Urlaub (U) und Krankheit (K) werden nicht mehr als verfuegbare Stunden gezaehlt
+// - Bei Abwesenheiten wird available = 0 gesetzt (nicht nur type geaendert)
+// - Betrifft: loadFzulFromImport(), handleFzulCellUpdate()
+// - "Summe der verfuegbaren Arbeitsstunden" zeigt jetzt korrekte Werte
 // ÄNDERUNGEN v6.7.11:
 // - Excel-Button aus Projekt-Detailansicht entfernt (nur noch im FZul-Editor)
 // - Unbenutzte exportFzulExcel Funktion entfernt
@@ -22,7 +47,7 @@
 // - Delete-Taste setzt Zellwert auf 0 (nicht leer)
 // - Leerer Wert wird beim Speichern als 0 interpretiert
 // ÄNDERUNGEN v6.7.5:
-// - Pfeiltasten ←/→ navigieren direkt (ohne Ctrl)
+// - Pfeiltasten ←/←’ navigieren direkt (ohne Ctrl)
 // - Delete-Taste löscht Zellinhalt
 // - Aktualisierter Tastatur-Hinweis
 // ÄNDERUNGEN v6.7.4:
@@ -40,9 +65,9 @@
 // - Excel-Export Button direkt im FZul-Editor (neben Speichern/PDF)
 // - exportFzulEditorExcel() konvertiert fzulTimesheet-Daten für API
 // ÄNDERUNGEN v6.7:
-// - Tab → nächste Zelle rechts (Tag+1, bei Monatsende → nächster Monat Tag 1)
-// - Enter/↓ → gleicher Tag im nächsten Monat  
-// - Pfeiltasten (↑↓) für Monatsnavigation, Ctrl+←→ für Tagesnavigation
+// - Tab ←’ nächste Zelle rechts (Tag+1, bei Monatsende ←’ nächster Monat Tag 1)
+// - Enter/←“ ←’ gleicher Tag im nächsten Monat  
+// - Pfeiltasten (←‘←“) für Monatsnavigation, Ctrl+←←’ für Tagesnavigation
 // - useRef für automatischen Input-Fokus
 // - Wochenenden/Feiertage werden bei Navigation übersprungen
 
@@ -404,6 +429,14 @@ export default function ImportPage() {
   const [fzulExcels, setFzulExcels] = useState<FzulExcelArchive[]>([]);
   const [loadingExcels, setLoadingExcels] = useState(false);
 
+  // NEU v6.7.15: FZul-Vorhaben-Daten (einmalig eingeben, für alle MA übernehmen)
+  const [fzulVorhabenTitle, setFzulVorhabenTitle] = useState<string>('');
+  const [fzulVorhabenId, setFzulVorhabenId] = useState<string>('');
+  const [showFzulVorhabenModal, setShowFzulVorhabenModal] = useState(false);
+  const [fzulVorhabenTitleInput, setFzulVorhabenTitleInput] = useState('');
+  const [fzulVorhabenIdInput, setFzulVorhabenIdInput] = useState('');
+  const [fzulPendingLoadAfterSave, setFzulPendingLoadAfterSave] = useState(false); // NEU: Flag für verzögertes Laden
+
   // FZul Editor States
   const [fzulSelectedEmployee, setFzulSelectedEmployee] = useState<string | null>(null);
   const [fzulSelectedYear, setFzulSelectedYear] = useState<number>(new Date().getFullYear());
@@ -430,6 +463,16 @@ export default function ImportPage() {
       cellInputRef.current.select();
     }
   }, [fzulEditingCell]);
+
+  // ============================================
+  // NEU v6.7.15: Effect für verzögertes Laden nach Vorhaben-Speicherung
+  // ============================================
+  useEffect(() => {
+    if (fzulPendingLoadAfterSave && fzulVorhabenTitle && fzulVorhabenId) {
+      setFzulPendingLoadAfterSave(false);
+      loadFzulFromImport();
+    }
+  }, [fzulPendingLoadAfterSave, fzulVorhabenTitle, fzulVorhabenId]);
 
   // ============================================
   // INITIALISIERUNG
@@ -538,6 +581,7 @@ export default function ImportPage() {
       await loadFzulEmployees();
       await loadFzulPdfs();
       await loadFzulExcels();
+      await loadFzulVorhabenSettings(); // NEU v6.7.16: Vorhaben-Daten laden
     } catch (err) {
       console.error(err);
     }
@@ -607,6 +651,78 @@ export default function ImportPage() {
       console.error('Fehler beim Laden der FZul-Excels:', err);
     } finally {
       setLoadingExcels(false);
+    }
+  }
+
+  // NEU v6.7.16: FZul-Vorhaben-Daten laden (persistent in DB)
+  async function loadFzulVorhabenSettings() {
+    if (!profile) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('fzul_vorhaben_settings')
+        .select('*')
+        .eq('company_id', profile.company_id)
+        .single();
+
+      if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
+        console.error('Fehler beim Laden der Vorhaben-Daten:', error);
+        return;
+      }
+      
+      if (data) {
+        setFzulVorhabenTitle(data.vorhaben_title || '');
+        setFzulVorhabenId(data.vorhaben_id || '');
+        console.log('[FZul] Vorhaben-Daten geladen:', data.vorhaben_title, data.vorhaben_id);
+      }
+    } catch (err) {
+      console.error('Fehler beim Laden der Vorhaben-Daten:', err);
+    }
+  }
+
+  // NEU v6.7.16: FZul-Vorhaben-Daten speichern (persistent in DB)
+  async function saveFzulVorhabenSettings(title: string, id: string) {
+    if (!profile) return false;
+    
+    try {
+      // Erst pruefen ob schon ein Eintrag existiert
+      const { data: existing } = await supabase
+        .from('fzul_vorhaben_settings')
+        .select('id')
+        .eq('company_id', profile.company_id)
+        .single();
+
+      if (existing) {
+        // Update
+        const { error } = await supabase
+          .from('fzul_vorhaben_settings')
+          .update({
+            vorhaben_title: title,
+            vorhaben_id: id,
+            updated_at: new Date().toISOString()
+          })
+          .eq('company_id', profile.company_id);
+
+        if (error) throw error;
+      } else {
+        // Insert
+        const { error } = await supabase
+          .from('fzul_vorhaben_settings')
+          .insert({
+            company_id: profile.company_id,
+            vorhaben_title: title,
+            vorhaben_id: id
+          });
+
+        if (error) throw error;
+      }
+      
+      console.log('[FZul] Vorhaben-Daten gespeichert:', title, id);
+      return true;
+    } catch (err) {
+      console.error('Fehler beim Speichern der Vorhaben-Daten:', err);
+      setError('Fehler beim Speichern der Vorhaben-Daten');
+      return false;
     }
   }
 
@@ -861,6 +977,15 @@ export default function ImportPage() {
   async function loadFzulFromImport() {
     if (!profile || !fzulSelectedEmployee) return;
     
+    // NEU v6.7.15: Prüfen ob FZul-Vorhaben-Daten eingegeben wurden
+    if (!fzulVorhabenTitle || !fzulVorhabenId) {
+      // Modal öffnen zur Eingabe
+      setFzulVorhabenTitleInput(fzulVorhabenTitle);
+      setFzulVorhabenIdInput(fzulVorhabenId);
+      setShowFzulVorhabenModal(true);
+      return; // Abbrechen bis Daten eingegeben
+    }
+    
     setFzulLoading(true);
     try {
       // 1. MA-Stammdaten laden
@@ -952,15 +1077,18 @@ export default function ImportPage() {
                 projectTotals[projectKey].hours += hours;
               }
               
-              // Abwesenheit markieren
+              // Abwesenheit markieren - BUGFIX v6.7.12: available = 0 setzen!
               if (absence) {
                 if (absence === 'U' || absence.toLowerCase().includes('urlaub')) {
                   dailyData[dateStr].type = 'leave';
+                  dailyData[dateStr].available = 0; // BUGFIX: Urlaub ist nicht verfuegbar!
                 } else if (absence === 'K' || absence.toLowerCase().includes('krank')) {
                   dailyData[dateStr].type = 'sick';
+                  dailyData[dateStr].available = 0; // BUGFIX: Krankheit ist nicht verfuegbar!
                 } else if (absence !== 'F') {
                   dailyData[dateStr].type = 'other';
                   dailyData[dateStr].note = absence;
+                  dailyData[dateStr].available = 0; // BUGFIX: Sonstige Abwesenheit ist nicht verfuegbar!
                 }
               }
             }
@@ -1026,9 +1154,9 @@ export default function ImportPage() {
           months: p.month_range
         })),
         status: 'draft',
-        // Editierbare Header-Felder (initial aus Projekten)
-        project_title: projectSummaries.map(p => p.project_name).join('; '),
-        project_fkz: projectSummaries.map(p => p.fkz).filter(Boolean).join('; '),
+        // NEU v6.7.15: FZul-Vorhaben-Daten aus einmaliger Eingabe übernehmen
+        project_title: fzulVorhabenTitle,  // Aus Modal-Eingabe
+        project_fkz: fzulVorhabenId,       // Aus Modal-Eingabe
         position_title: positionTitle,
         // Jahresarbeitszeit-Berechnung initialisieren
         yearly_calculation: {
@@ -1350,7 +1478,7 @@ export default function ImportPage() {
       iterations++;
       
       if (direction === 'right') {
-        // Nächster Tag, bei Monatsende → nächster Monat Tag 1
+        // Nächster Tag, bei Monatsende ←’ nächster Monat Tag 1
         day++;
         const daysInMonth = new Date(fzulSelectedYear, month, 0).getDate();
         if (day > daysInMonth) {
@@ -1359,7 +1487,7 @@ export default function ImportPage() {
           if (month > 12) return null; // Jahresende erreicht
         }
       } else if (direction === 'left') {
-        // Vorheriger Tag, bei Tag 1 → vorheriger Monat letzter Tag
+        // Vorheriger Tag, bei Tag 1 ←’ vorheriger Monat letzter Tag
         day--;
         if (day < 1) {
           month--;
@@ -1421,26 +1549,41 @@ export default function ImportPage() {
     
     if (value === 'U' || value === 'UR' || value === 'URLAUB') {
       updatedDay.type = 'leave';
+      updatedDay.available = 0; // BUGFIX v6.7.12: Urlaub ist nicht verfuegbar!
       updatedDay.free = 0;
       updatedDay.total_used = 0;
     } else if (value === 'K' || value === 'KR' || value === 'KRANK') {
       updatedDay.type = 'sick';
+      updatedDay.available = 0; // BUGFIX v6.7.12: Krankheit ist nicht verfuegbar!
       updatedDay.free = 0;
       updatedDay.total_used = 0;
     } else if (value === 'S' || value === 'A' || value === 'AB' || value === 'ABWESEND' || value === 'SONSTIGE') {
       updatedDay.type = 'other';
+      updatedDay.available = 0; // BUGFIX v6.7.12: Sonstige Abwesenheit ist nicht verfuegbar!
       updatedDay.free = 0;
       updatedDay.total_used = 0;
     } else if (value === '' || value === '0') {
       // NEU v6.7.6: Leerer Wert oder 0 = auf 0 setzen
+      // BUGFIX v6.7.12: available wiederherstellen falls vorher Abwesenheit
+      const dailyHours = fzulTimesheet.yearly_calculation.weekly_hours / 5;
+      const date = new Date(currentCell);
+      const dayOfWeek = date.getDay();
+      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
       updatedDay.type = 'workday';
+      updatedDay.available = isWeekend ? 0 : dailyHours; // Nur Werktage haben verfuegbare Stunden
       updatedDay.free = 0;
       updatedDay.total_used = updatedDay.available;
     } else {
       // Zahl = freie Stunden (keine Beschränkung, 2 Dezimalstellen)
       const numValue = parseFloat(value.replace(',', '.'));
       if (!isNaN(numValue) && numValue >= 0) {
+        // BUGFIX v6.7.12: available wiederherstellen falls vorher Abwesenheit
+        const dailyHours = fzulTimesheet.yearly_calculation.weekly_hours / 5;
+        const date = new Date(currentCell);
+        const dayOfWeek = date.getDay();
+        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
         updatedDay.type = 'workday';
+        updatedDay.available = isWeekend ? 0 : dailyHours; // Nur Werktage haben verfuegbare Stunden
         updatedDay.free = Math.round(numValue * 100) / 100; // 2 Dezimalstellen
         updatedDay.total_used = Math.max(0, updatedDay.available - updatedDay.free);
       }
@@ -1709,7 +1852,11 @@ export default function ImportPage() {
           dayData, 
           settings, 
           holidays,
-          stateCode: companyStateCode  // NEU: Bundesland für API übergeben
+          stateCode: companyStateCode,
+          // NEU v6.7.13: Header-Felder für Excel-Export
+          projectTitle: fzulTimesheet.project_title || '',
+          projectFkz: fzulTimesheet.project_fkz || '',
+          positionTitle: fzulTimesheet.position_title || ''
         })
       });
       
@@ -2738,7 +2885,7 @@ try {
                   );
                 })}
                 <tr className="bg-blue-50 font-bold">
-                  <td className="px-1 py-0.5">Σ</td>
+                  <td className="px-1 py-0.5">Î£</td>
                   <td className="px-1 py-0.5 text-right text-blue-600">{yearUsed.toFixed(1)}</td>
                   <td className="px-1 py-0.5 text-right text-green-600">{yearFree.toFixed(1)}</td>
                   <td className="px-1 py-0.5"></td>
@@ -2809,7 +2956,7 @@ try {
                   {Array.from({ length: 31 }, (_, d) => d + 1).map(day => (
                     <th key={day} className="px-0 py-1 border bg-gray-50 w-5 text-center text-[10px]">{day}</th>
                   ))}
-                  <th className="px-1 py-1 border bg-gray-100 text-blue-700">Σ</th>
+                  <th className="px-1 py-1 border bg-gray-100 text-blue-700">Î£</th>
                   <th className="px-1 py-1 border bg-gray-100 text-green-700">Frei</th>
                 </tr>
               </thead>
@@ -2919,7 +3066,7 @@ try {
           {/* Zurück + Löschen */}
           <div className="flex items-center justify-between">
             <button onClick={() => { setSelectedProject(null); setSelectedEmployee(null); }} className="text-blue-600 hover:underline">
-              ← Zurück zur Übersicht
+              ← Zurück zur Übersicht
             </button>
             <button
               onClick={() => setShowDeleteConfirm({ type: 'project', projectName: selectedProject })}
@@ -2933,7 +3080,7 @@ try {
           <div className="bg-white rounded-lg shadow p-4">
             <div className="flex justify-between items-start mb-3">
               <div>
-                <h2 className="text-lg font-bold">📁 {selectedProject}</h2>
+                <h2 className="text-lg font-bold">📁 {selectedProject}</h2>
                 <p className="text-sm text-gray-500">FKZ: {fkz} • {allEmployeeNames.length} MA • {availableYears[0]}-{availableYears[availableYears.length - 1]}</p>
                 {/* NEU v6.7.9: Quelldateien anzeigen */}
                 {(() => {
@@ -3008,7 +3155,7 @@ try {
                   }}
                   className="ml-auto px-4 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-700 flex items-center gap-2"
                 >
-                  📝 Im FZul-Editor öffnen
+                  📁 Im FZul-Editor öffnen
                 </button>
               )}
             </div>
@@ -3072,7 +3219,7 @@ try {
                   activeTab === 'projects' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'
                 }`}
               >
-                📁 Projekte {projects.length > 0 && <span className="ml-1 text-xs bg-blue-100 px-2 py-0.5 rounded-full">{projects.length}</span>}
+                📁 Projekte {projects.length > 0 && <span className="ml-1 text-xs bg-blue-100 px-2 py-0.5 rounded-full">{projects.length}</span>}
               </button>
               <button
                 onClick={() => { setActiveTab('import'); setImportStep('upload'); }}
@@ -3099,7 +3246,7 @@ try {
                   activeTab === 'fzul-editor' ? 'border-green-600 text-green-600' : 'border-transparent text-gray-500'
                 }`}
               >
-                📝 FZul Editor
+                📁 FZul Editor
               </button>
               <button
                 onClick={() => setActiveTab('fzul-archive')}
@@ -3107,7 +3254,7 @@ try {
                   activeTab === 'fzul-archive' ? 'border-green-600 text-green-600' : 'border-transparent text-gray-500'
                 }`}
               >
-                📁 FZul-Archiv {(fzulPdfs.length + fzulExcels.length) > 0 && <span className="ml-1 text-xs bg-green-100 px-2 py-0.5 rounded-full">{fzulPdfs.length + fzulExcels.length}</span>}
+                📁 FZul-Archiv {(fzulPdfs.length + fzulExcels.length) > 0 && <span className="ml-1 text-xs bg-green-100 px-2 py-0.5 rounded-full">{fzulPdfs.length + fzulExcels.length}</span>}
               </button>
             </div>
 
@@ -3131,7 +3278,7 @@ try {
             <div className="space-y-4 overflow-auto h-full">
               {projects.length === 0 ? (
                 <div className="bg-white rounded-lg shadow p-12 text-center">
-                  <span className="text-5xl">📭</span>
+                  <span className="text-5xl">📁­</span>
                   <h2 className="text-xl font-bold mt-4">Keine Projekte</h2>
                   <p className="text-gray-600 mt-2">Importieren Sie eine Excel-Datei</p>
                   <button onClick={() => setActiveTab('import')} className="mt-4 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
@@ -3151,7 +3298,7 @@ try {
                          className="bg-white rounded-lg shadow p-6 cursor-pointer hover:shadow-lg transition-shadow">
                       <div className="flex justify-between items-start">
                         <div>
-                          <h3 className="text-lg font-bold">📁 {proj}</h3>
+                          <h3 className="text-lg font-bold">📁 {proj}</h3>
                           <p className="text-gray-500 text-sm">FKZ: {fkz}</p>
                           <p className="text-gray-500 text-sm mt-1">{emps.length} Mitarbeiter</p>
                           {sourceFiles.length > 0 && (
@@ -3214,7 +3361,7 @@ try {
                 <div className="space-y-6 overflow-auto h-full">
                   <div className="bg-white rounded-lg shadow p-6">
                     <div className="flex justify-between items-start mb-4">
-                      <h2 className="text-lg font-bold">📁 {projectInfo.projectName}</h2>
+                      <h2 className="text-lg font-bold">📁 {projectInfo.projectName}</h2>
                       <span className={`px-3 py-1 rounded-full border text-sm font-medium ${FORMAT_INFO[projectInfo.format].color}`}>
                         {FORMAT_INFO[projectInfo.format].name}
                       </span>
@@ -3281,7 +3428,7 @@ try {
 
                   <div className="flex justify-between">
                     <button onClick={() => { setWorkbook(null); setProjectInfo(null); setExtractedData([]); setImportStep('upload'); setSelectedFormat(null); }}
-                      className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">← Andere Datei</button>
+                      className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">← Andere Datei</button>
                     <button onClick={importAllEmployees} disabled={processing}
                       className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-bold">
                       {processing ? 'Importiert...' : `✅ Alle ${extractedData.length} MA importieren`}
@@ -3296,7 +3443,7 @@ try {
                   <h2 className="text-xl font-bold text-green-800 mt-4">Import abgeschlossen!</h2>
                   <p className="text-green-600 mt-2">{extractedData.length} Mitarbeiter wurden importiert.</p>
                   <div className="mt-6 flex justify-center gap-4">
-                    <button onClick={() => { setActiveTab('projects'); setImportStep('upload'); }} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">📁 Zu Projekten</button>
+                    <button onClick={() => { setActiveTab('projects'); setImportStep('upload'); }} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">📁 Zu Projekten</button>
                     <button onClick={() => { setWorkbook(null); setProjectInfo(null); setExtractedData([]); setImportStep('upload'); setSelectedFormat(null); }}
                       className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">➕ Weitere Datei</button>
                   </div>
@@ -3393,7 +3540,7 @@ try {
             <div className="overflow-auto h-full">
               {fzulEmployees.length === 0 ? (
                 <div className="bg-white rounded-lg shadow p-6 text-center py-12 text-gray-500">
-                  <span className="text-4xl">📝</span>
+                  <span className="text-4xl">📁</span>
                   <p className="mt-4">Bitte legen Sie zuerst Mitarbeiter an</p>
                   <button onClick={() => setActiveTab('fzul-employees')} className="mt-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
                     👥 Zu MA-Stammdaten
@@ -3401,7 +3548,7 @@ try {
                 </div>
               ) : !fzulTimesheet ? (
                 <div className="bg-white rounded-lg shadow p-6 space-y-4">
-                  <h2 className="text-lg font-bold">📝 FZul Online-Editor</h2>
+                  <h2 className="text-lg font-bold">📁 FZul Online-Editor</h2>
                   {/* MA + Jahr Auswahl */}
                   <div className="flex gap-4 items-end">
                     <div>
@@ -3430,6 +3577,35 @@ try {
                       </button>
                     )}
                   </div>
+
+                  {/* NEU v6.7.15: FZul-Vorhaben-Daten Anzeige */}
+                  {fzulVorhabenTitle && fzulVorhabenId ? (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-start justify-between">
+                      <div className="text-sm">
+                        <div className="font-medium text-blue-800 mb-1">📋 FZul-Vorhaben (für alle MA):</div>
+                        <div className="text-blue-700"><strong>Kurzbezeichnung:</strong> {fzulVorhabenTitle.length > 80 ? fzulVorhabenTitle.substring(0, 80) + '...' : fzulVorhabenTitle}</div>
+                        <div className="text-blue-700"><strong>Vorhaben-ID:</strong> {fzulVorhabenId}</div>
+                      </div>
+                      <button 
+                        onClick={() => {
+                          setFzulVorhabenTitleInput(fzulVorhabenTitle);
+                          setFzulVorhabenIdInput(fzulVorhabenId);
+                          setShowFzulVorhabenModal(true);
+                        }}
+                        className="px-2 py-1 text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 rounded border border-blue-300"
+                      >
+                        ✏️ Ändern
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                      <div className="text-sm text-amber-800">
+                        <strong>⚠️ FZul-Vorhaben-Daten noch nicht eingegeben.</strong>
+                        <span className="ml-2">Beim Klick auf "Daten laden" werden diese abgefragt.</span>
+                      </div>
+                    </div>
+                  )}
+
                   {fzulSelectedEmployee && fzulProjectSummaries.length > 0 && (
                     <div className="text-sm text-green-700 bg-green-50 p-2 rounded">
                       ✅ {fzulProjectSummaries.length} Projekt(e) verfügbar: {fzulProjectSummaries.map(p => p.fkz || p.project_name).join(', ')}
@@ -3452,7 +3628,7 @@ try {
                     <button 
                       onClick={() => setFzulTimesheet(null)}
                       className="px-2 py-1 bg-amber-100 hover:bg-amber-300 rounded text-xs border border-amber-400">
-                      ← Zurück zur Auswahl
+                      ← Zurück zur Auswahl
                     </button>
                   </div>
 
@@ -3466,7 +3642,7 @@ try {
                             value={fzulTimesheet.project_title || ''}
                             onChange={(e) => setFzulTimesheet({...fzulTimesheet, project_title: e.target.value})}
                             className="w-full px-1 py-0.5 border-0 text-xs resize-none"
-                            placeholder="Projektbezeichnung eingeben..."
+                            placeholder="Kurzbezeichnung lt. FZul-Bescheinigung"
                             rows={2}
                             style={{ minHeight: '32px' }}
                           />
@@ -3482,7 +3658,7 @@ try {
                             value={fzulTimesheet.project_fkz || ''}
                             onChange={(e) => setFzulTimesheet({...fzulTimesheet, project_fkz: e.target.value})}
                             className="w-full px-1 py-0.5 border-0 text-xs"
-                            placeholder="FKZ / Vorhaben-ID eingeben..."
+                            placeholder="Vorhaben-ID lt. FZul-Bescheinigung"
                           />
                         </td>
                         <td className="border border-gray-400 p-1 bg-gray-50 text-right">Bundesland:</td>
@@ -3530,7 +3706,7 @@ try {
                           onClick={undoClearMonth}
                           className="px-3 py-1 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-sm font-medium"
                         >
-                          ↩️ Rückgängig
+                          ←©ï¸ Rückgängig
                         </button>
                         <button
                           onClick={() => setFzulUndoState(null)}
@@ -3831,7 +4007,7 @@ try {
                             ? 'bg-gray-400 cursor-not-allowed' 
                             : 'bg-green-600 hover:bg-green-700'
                         } text-white`}>
-                        {generatingPdf ? '⏳ PDF...' : '📄 PDF'}
+                        {generatingPdf ? '⏳ PDF...' : '📁„ PDF'}
                       </button>
                     </div>
                   </div>
@@ -3914,7 +4090,7 @@ try {
               <div className="bg-white rounded-lg shadow p-6">
                 <div className="flex justify-between items-center mb-4">
                   <div>
-                    <h2 className="text-lg font-bold">📄 PDF-Dokumente</h2>
+                    <h2 className="text-lg font-bold">📁„ PDF-Dokumente</h2>
                     <p className="text-sm text-gray-500">Generierte FZul PDF-Stundennachweise</p>
                   </div>
                   <span className="text-sm text-gray-400">{fzulPdfs.length} Dateien</span>
@@ -3926,7 +4102,7 @@ try {
                   </div>
                 ) : fzulPdfs.length === 0 ? (
                   <div className="text-center py-8 text-gray-500">
-                    <span className="text-3xl">📄</span>
+                    <span className="text-3xl">📁„</span>
                     <p className="mt-2">Noch keine PDF-Dateien</p>
                     <p className="text-xs mt-1">PDF-Export im FZul-Editor erstellen</p>
                   </div>
@@ -4150,7 +4326,7 @@ try {
                       generateFzulPdf();
                     }}
                     className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2">
-                    📄 PDF erstellen
+                    📁„ PDF erstellen
                   </button>
                 </div>
                 
@@ -4194,6 +4370,124 @@ try {
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
                   Speichern
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* NEU v6.7.15: FZul-Vorhaben-Daten Modal */}
+        {showFzulVorhabenModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-xl">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-bold">📋 FZul-Vorhaben-Daten eingeben</h3>
+                <button onClick={() => setShowFzulVorhabenModal(false)} className="text-gray-500 hover:text-gray-700 text-xl">×</button>
+              </div>
+              
+              <div className="bg-amber-50 border border-amber-300 rounded-lg p-3 mb-4">
+                <p className="text-sm text-amber-800">
+                  <strong>⚠️ Wichtig:</strong> Diese Angaben beziehen sich auf das <strong>FZul-Vorhaben</strong> lt. Bescheinigung der Bescheinigungsstelle – 
+                  <em>nicht</em> auf die analysierten ZIM/BMBF-Projekte!
+                </p>
+                <p className="text-sm text-amber-700 mt-2">
+                  Die Eingabe gilt für alle Mitarbeiter-Stundennachweise dieser FZul-Auswertung.
+                </p>
+              </div>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Kurzbezeichnung des FuE-Vorhabens <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    value={fzulVorhabenTitleInput}
+                    onChange={(e) => setFzulVorhabenTitleInput(e.target.value)}
+                    className="w-full border rounded px-3 py-2 text-sm"
+                    rows={2}
+                    placeholder="z.B. Entwicklung eines KI-gestützten Analysesystems..."
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Wie in der FZul-Bescheinigung angegeben</p>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Vorhaben-ID des FuE-Vorhabens <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={fzulVorhabenIdInput}
+                    onChange={(e) => setFzulVorhabenIdInput(e.target.value)}
+                    className="w-full border rounded px-3 py-2 text-sm"
+                    placeholder="z.B. 12345-67890"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Die Vorhaben-ID aus der FZul-Bescheinigung</p>
+                </div>
+              </div>
+              
+              <div className="mt-6 flex justify-end gap-3">
+                <button 
+                  onClick={() => setShowFzulVorhabenModal(false)} 
+                  className="px-4 py-2 border rounded-lg hover:bg-gray-50"
+                >
+                  Abbrechen
+                </button>
+                {/* NEU v6.7.16: Zwei Buttons - je nach Kontext */}
+                {fzulTimesheet ? (
+                  // Wenn bereits ein MA geladen ist: Nur speichern (nicht neu laden)
+                  <button 
+                    onClick={async () => {
+                      if (!fzulVorhabenTitleInput.trim() || !fzulVorhabenIdInput.trim()) {
+                        setError('Bitte beide Pflichtfelder ausfüllen!');
+                        return;
+                      }
+                      const title = fzulVorhabenTitleInput.trim();
+                      const id = fzulVorhabenIdInput.trim();
+                      
+                      // In Datenbank speichern
+                      const saved = await saveFzulVorhabenSettings(title, id);
+                      if (!saved) return;
+                      
+                      // States aktualisieren
+                      setFzulVorhabenTitle(title);
+                      setFzulVorhabenId(id);
+                      // Auch im aktuellen Timesheet aktualisieren
+                      setFzulTimesheet({...fzulTimesheet, project_title: title, project_fkz: id});
+                      setShowFzulVorhabenModal(false);
+                      setSuccess('Vorhaben-Daten gespeichert!');
+                    }}
+                    disabled={!fzulVorhabenTitleInput.trim() || !fzulVorhabenIdInput.trim()}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                  >
+                    Speichern
+                  </button>
+                ) : (
+                  // Wenn noch kein MA geladen: Speichern und Daten laden
+                  <button 
+                    onClick={async () => {
+                      if (!fzulVorhabenTitleInput.trim() || !fzulVorhabenIdInput.trim()) {
+                        setError('Bitte beide Pflichtfelder ausfüllen!');
+                        return;
+                      }
+                      const title = fzulVorhabenTitleInput.trim();
+                      const id = fzulVorhabenIdInput.trim();
+                      
+                      // In Datenbank speichern (persistent)
+                      const saved = await saveFzulVorhabenSettings(title, id);
+                      if (!saved) return;
+                      
+                      // Werte in State speichern
+                      setFzulVorhabenTitle(title);
+                      setFzulVorhabenId(id);
+                      setShowFzulVorhabenModal(false);
+                      // Flag setzen - useEffect wird loadFzulFromImport aufrufen wenn States aktualisiert sind
+                      setFzulPendingLoadAfterSave(true);
+                    }}
+                    disabled={!fzulVorhabenTitleInput.trim() || !fzulVorhabenIdInput.trim()}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                  >
+                    Speichern und Daten laden
+                  </button>
+                )}
               </div>
             </div>
           </div>

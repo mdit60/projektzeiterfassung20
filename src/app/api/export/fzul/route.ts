@@ -1,5 +1,8 @@
 // src/app/api/export/fzul/route.ts
-// VERSION: v2.2 - Bundesland wird in Excel geschrieben
+// VERSION: v2.3 - Header-Felder (Vorhaben, FKZ, Tätigkeit) werden in Excel geschrieben
+// ÄNDERUNGEN v2.3:
+// - NEU: projectTitle, projectFkz, positionTitle aus Request lesen
+// - NEU: Diese Felder in die entsprechenden Excel-Zellen schreiben
 // ÄNDERUNGEN v2.2:
 // - Bundesland-Name wird in Excel-Zelle geschrieben (nicht nur für Feiertage)
 // - stateCode aus Request für korrekte Feiertage UND Anzeige
@@ -133,11 +136,13 @@ const BUNDESLAND_NAMEN: Record<string, string> = {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { empName, year, dayData, settings, stateCode } = body;
+    // NEU v2.3: Header-Felder aus Request lesen
+    const { empName, year, dayData, settings, stateCode, projectTitle, projectFkz, positionTitle } = body;
     
     // NEU v2.1: Bundesland aus Request verwenden (Fallback: NRW)
     const effectiveStateCode = stateCode || 'DE-NW';
     console.log('[API] Excel-Export für Bundesland:', effectiveStateCode);
+    console.log('[API] Header-Felder:', { projectTitle, projectFkz, positionTitle });
     
     const maxDaily = settings.weekly_hours / 5;
     const holidays = getGermanHolidays(year, effectiveStateCode);
@@ -162,13 +167,36 @@ export async function POST(request: NextRequest) {
     const sheet = workbook.sheet(0);
     
     // === KOPFDATEN EINTRAGEN ===
+    
+    // NEU v2.3: Header-Felder in Excel schreiben
+    // Kurzbezeichnung des FuE-Vorhabens (Zeile 2)
+    if (projectTitle) {
+      sheet.cell('I3').value(projectTitle);
+      console.log('[API] Kurzbezeichnung geschrieben:', projectTitle);
+    }
+    
+    // Vorhaben-ID des FuE-Vorhabens (Zeile 3)
+    if (projectFkz) {
+      sheet.cell('I4').value(projectFkz);
+      console.log('[API] Vorhaben-ID geschrieben:', projectFkz);
+    }
+    
+    // Mitarbeiter-Name
     sheet.cell('B6').value(lastName);
     sheet.cell('M6').value(firstName);
+    
+    // NEU v2.3: FuE-Tätigkeit (Zeile 6, nach Vorname)
+    if (positionTitle) {
+      sheet.cell('AD6').value(positionTitle);
+      console.log('[API] FuE-Tätigkeit geschrieben:', positionTitle);
+    }
+    
+    // Jahr
     sheet.cell('AD3').value(year);
     
     // NEU v2.2: Bundesland in Excel schreiben
     const bundeslandName = BUNDESLAND_NAMEN[effectiveStateCode] || effectiveStateCode.replace('DE-', '');
-    sheet.cell('AD4').value(bundeslandName);  // Anpassen falls andere Zelle!
+    sheet.cell('AD4').value(bundeslandName);
     console.log('[API] Bundesland geschrieben:', bundeslandName, 'in Zelle AD4');
     
     // === ZUERST ALLE STUNDEN-ZELLEN LEEREN ===
