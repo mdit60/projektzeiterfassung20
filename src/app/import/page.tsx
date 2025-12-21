@@ -1,5 +1,10 @@
 // src/app/import/page.tsx
-// VERSION: v6.7.16 - FZul-Vorhaben-Daten persistent in Datenbank speichern
+// VERSION: v6.7.17 - FZul-Archiv: Uhrzeit und Bearbeiter anzeigen
+// AENDERUNGEN v6.7.17:
+// - Excel-Archiv zeigt jetzt Datum UND Uhrzeit der Erstellung
+// - Excel-Archiv zeigt den Namen des Bearbeiters
+// - Neues Feld created_by_name in fzul_excel_archive Tabelle
+// - Sortierung: MA -> Jahr -> Erstellt am (neueste zuerst)
 // AENDERUNGEN v6.7.16:
 // - NEU: Tabelle fzul_vorhaben_settings fuer persistente Speicherung der Vorhaben-Daten
 // - NEU: loadFzulVorhabenSettings() laedt Daten beim Start
@@ -203,6 +208,7 @@ interface FzulExcelArchive {
   project_fkz?: string;
   federal_state?: string;
   created_by?: string;
+  created_by_name?: string;  // NEU v6.7.17: Name des Erstellers
   created_at: string;
 }
 
@@ -633,6 +639,7 @@ export default function ImportPage() {
   }
 
   // NEU v6.7.4: Excel-Archiv laden
+  // v6.7.17: Sortierung nach MA, Jahr, Erstellt am
   async function loadFzulExcels() {
     if (!profile) return;
     
@@ -643,7 +650,8 @@ export default function ImportPage() {
         .select('*')
         .eq('company_id', profile.company_id)
         .order('employee_name', { ascending: true })
-        .order('year', { ascending: true });
+        .order('year', { ascending: true })
+        .order('created_at', { ascending: false }); // Neueste zuerst
 
       if (error) throw error;
       setFzulExcels(data || []);
@@ -1898,7 +1906,8 @@ export default function ImportPage() {
             project_title: fzulTimesheet.project_title || '',
             project_fkz: fzulTimesheet.project_fkz || '',
             federal_state: companyStateCode,
-            created_by: profile!.id
+            created_by: profile!.id,
+            created_by_name: profile!.name || profile!.email  // NEU v6.7.17: Bearbeitername
           });
         
         if (archiveError) {
@@ -4053,6 +4062,7 @@ try {
                         <th className="px-3 py-2 text-center">Mitarbeiter</th>
                         <th className="px-3 py-2 text-center">Jahr</th>
                         <th className="px-3 py-2 text-center">Erstellt am</th>
+                        <th className="px-3 py-2 text-center">Bearbeiter</th>
                         <th className="px-3 py-2 text-right">Aktionen</th>
                       </tr>
                     </thead>
@@ -4063,7 +4073,13 @@ try {
                           <td className="px-3 py-2 text-center">{excel.employee_name}</td>
                           <td className="px-3 py-2 text-center">{excel.year}</td>
                           <td className="px-3 py-2 text-center text-gray-500">
-                            {new Date(excel.created_at).toLocaleDateString('de-DE')}
+                            {new Date(excel.created_at).toLocaleDateString('de-DE')}{' '}
+                            <span className="text-gray-400">
+                              {new Date(excel.created_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-center text-gray-600">
+                            {excel.created_by_name || '-'}
                           </td>
                           <td className="px-3 py-2 text-right">
                             <button 
