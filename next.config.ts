@@ -6,7 +6,6 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  // keine experimental turbo settings nötig
 };
 
 export default nextConfig;
