@@ -1,11 +1,12 @@
 // ========================================
 // Datei: src/components/ZahlungsanforderungDetail.tsx
 // Modal-Komponente für ZA-Details und Bearbeitung
+// VERSION: v6.8 - ESLint Fixes
 // ========================================
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 
 // ============================================
@@ -62,6 +63,18 @@ interface Props {
   canEdit: boolean;
 }
 
+interface StatusConfig {
+  color: string;
+  label: string;
+  icon: string;
+  nextActions: string[];
+}
+
+interface SupabaseError {
+  message: string;
+  code?: string;
+}
+
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
@@ -81,8 +94,8 @@ const formatDateTime = (dateStr: string | null | undefined): string => {
   return new Date(dateStr).toLocaleString('de-DE');
 };
 
-const getStatusConfig = (status: string) => {
-  const configs: Record<string, { color: string; label: string; icon: string; nextActions: string[] }> = {
+const getStatusConfig = (status: string): StatusConfig => {
+  const configs: Record<string, StatusConfig> = {
     draft: { 
       color: 'bg-gray-100 text-gray-800', 
       label: 'Entwurf', 
@@ -167,11 +180,7 @@ export default function ZahlungsanforderungDetail({ zaId, onClose, onUpdate, can
   // DATA LOADING
   // ============================================
 
-  useEffect(() => {
-    loadZA();
-  }, [zaId]);
-
-  const loadZA = async () => {
+  const loadZA = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
@@ -221,13 +230,18 @@ export default function ZahlungsanforderungDetail({ zaId, onClose, onUpdate, can
       });
       setMonths(Array.from(allMonths).sort());
 
-    } catch (err: any) {
-      console.error('Load ZA error:', err);
-      setError(err.message);
+    } catch (err: unknown) {
+      const error = err as SupabaseError;
+      console.error('Load ZA error:', error);
+      setError(error.message || 'Fehler beim Laden');
     } finally {
       setLoading(false);
     }
-  };
+  }, [zaId, supabase]);
+
+  useEffect(() => {
+    loadZA();
+  }, [loadZA]);
 
   // ============================================
   // ACTIONS
@@ -240,7 +254,7 @@ export default function ZahlungsanforderungDetail({ zaId, onClose, onUpdate, can
     setError('');
     
     try {
-      const updates: Record<string, any> = { status: newStatus };
+      const updates: Record<string, string | number | null> = { status: newStatus };
       
       // Automatische Timestamps
       if (newStatus === 'submitted') {
@@ -271,8 +285,9 @@ export default function ZahlungsanforderungDetail({ zaId, onClose, onUpdate, can
       onUpdate();
       
       setTimeout(() => setSuccess(''), 3000);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      const error = err as SupabaseError;
+      setError(error.message || 'Fehler beim Speichern');
     } finally {
       setSaving(false);
     }
@@ -285,7 +300,7 @@ export default function ZahlungsanforderungDetail({ zaId, onClose, onUpdate, can
     setError('');
 
     try {
-      const updates: Record<string, any> = {
+      const updates: Record<string, string | number | null> = {
         notes: editData.notes || null,
         updated_at: new Date().toISOString()
       };
@@ -320,8 +335,9 @@ export default function ZahlungsanforderungDetail({ zaId, onClose, onUpdate, can
       onUpdate();
       
       setTimeout(() => setSuccess(''), 3000);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      const error = err as SupabaseError;
+      setError(error.message || 'Fehler beim Speichern');
     } finally {
       setSaving(false);
     }

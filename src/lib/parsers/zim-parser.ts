@@ -1,6 +1,5 @@
 // src/lib/parsers/zim-parser.ts
-// VERSION: 1.1 - ZIM Excel Parser mit korrekter Projektjahr-Aufteilung
-// WICHTIG: Diese Datei ist SEPARAT vom BMBF-Parser und aendert nichts am bestehenden Code!
+// VERSION: 1.2 - ESLint Fixes + ZIM Excel Parser mit korrekter Projektjahr-Aufteilung
 
 import * as XLSX from 'xlsx';
 
@@ -14,20 +13,20 @@ export interface ZimProjectData {
   company: string;
   startDate: Date;
   endDate: Date;
-  startYear: number;  // Kalenderjahr fuer J1 (z.B. 2020)
+  startYear: number;
   fundingType: 'ZIM';
 }
 
 export interface DailyEntry {
-  day: number;        // 1-31
-  hours: number;      // Arbeitsstunden
-  absence?: 'U' | 'K' | 'KA' | 'SO';  // Urlaub, Krank, Kurzarbeit, Sonstiges
+  day: number;
+  hours: number;
+  absence?: 'U' | 'K' | 'KA' | 'SO';
 }
 
 export interface MonthData {
-  month: number;           // 1-12
-  calendarYear: number;    // 2020, 2021, 2022...
-  projectYear: number;     // 1, 2, 3...
+  month: number;
+  calendarYear: number;
+  projectYear: number;
   dailyData: DailyEntry[];
   totalHours: number;
   billableHours: number;
@@ -46,6 +45,8 @@ export interface ZimParseResult {
   warnings: string[];
 }
 
+type CellValue = string | number | boolean | Date | null | undefined;
+
 // ============================================================================
 // HILFSFUNKTIONEN
 // ============================================================================
@@ -53,7 +54,7 @@ export interface ZimParseResult {
 /**
  * Konvertiert Excel-Datum zu JavaScript Date
  */
-function excelDateToDate(excelDate: number | Date | string): Date | null {
+function excelDateToDate(excelDate: CellValue): Date | null {
   if (!excelDate) return null;
   
   if (excelDate instanceof Date) {
@@ -61,19 +62,16 @@ function excelDateToDate(excelDate: number | Date | string): Date | null {
   }
   
   if (typeof excelDate === 'number') {
-    // Excel Seriennummer: Tage seit 1.1.1900
     const date = new Date((excelDate - 25569) * 86400 * 1000);
     return date;
   }
   
   if (typeof excelDate === 'string') {
-    // Versuche Datum zu parsen (z.B. "01.04.20" oder "2020-04-01")
     const parsed = new Date(excelDate);
     if (!isNaN(parsed.getTime())) {
       return parsed;
     }
     
-    // Deutsches Format DD.MM.YY oder DD.MM.YYYY
     const match = excelDate.match(/(\d{1,2})\.(\d{1,2})\.(\d{2,4})/);
     if (match) {
       let year = parseInt(match[3]);
@@ -88,9 +86,9 @@ function excelDateToDate(excelDate: number | Date | string): Date | null {
 /**
  * Liest Zellwert sicher aus
  */
-function getCellValue(sheet: XLSX.WorkSheet, cell: string): any {
+function getCellValue(sheet: XLSX.WorkSheet, cell: string): CellValue {
   const cellObj = sheet[cell];
-  return cellObj ? cellObj.v : null;
+  return cellObj ? cellObj.v as CellValue : null;
 }
 
 /**
@@ -110,11 +108,10 @@ function findRowByText(sheet: XLSX.WorkSheet, searchText: string, startRow: numb
  * Prueft ob ein Sheet-Name ein MA-Sheet ist (Pattern: "[Name] J[1-9]")
  */
 function isEmployeeSheet(sheetName: string): boolean {
-  // Blacklist: Technische Sheets die zufaellig das Pattern matchen
   const blacklist = [
     'Ermittl.-Stunden',
     'Auswertung',
-    'MA1', 'MA2', 'MA3', 'MA4', 'MA5',  // Platzhalter
+    'MA1', 'MA2', 'MA3', 'MA4', 'MA5',
   ];
   
   for (const bl of blacklist) {
@@ -123,7 +120,6 @@ function isEmployeeSheet(sheetName: string): boolean {
     }
   }
   
-  // Pattern: "[Name] J[1-9]"
   return /^.+\s+J[1-9]$/.test(sheetName);
 }
 
@@ -150,11 +146,6 @@ function parseSheetName(sheetName: string): { name: string; projectYear: number 
 export function detectZimFormat(workbook: XLSX.WorkBook): boolean {
   const sheetNames = workbook.SheetNames;
   
-  // ZIM-Indikatoren:
-  // 1. Hat "Nav" Sheet
-  // 2. Hat Sheets mit Pattern "[Name] J[1-9]"
-  // 3. FKZ beginnt mit "16KN" oder "KF"
-  
   if (!sheetNames.includes('Nav')) {
     return false;
   }
@@ -166,7 +157,6 @@ export function detectZimFormat(workbook: XLSX.WorkBook): boolean {
     return true;
   }
   
-  // Auch ohne passende FKZ: Wenn MA-Sheets vorhanden sind
   const hasEmployeeSheets = sheetNames.some(name => isEmployeeSheet(name));
   if (hasEmployeeSheets && sheetNames.includes('Nav')) {
     return true;
@@ -182,19 +172,15 @@ export function parseNavSheet(workbook: XLSX.WorkBook): ZimProjectData | null {
   const navSheet = workbook.Sheets['Nav'];
   if (!navSheet) return null;
   
-  // Laufzeitbeginn kann in I2 oder I3 stehen (je nach ZIM-Variante)
   let startDate = excelDateToDate(getCellValue(navSheet, 'I2'));
   let endDate = excelDateToDate(getCellValue(navSheet, 'I3'));
   
-  // Fallback: Wenn I2 das Ende ist und I3 leer
   if (startDate && endDate && startDate > endDate) {
-    // Vertauscht - I2 ist Ende, I3 ist Anfang? Unwahrscheinlich, aber pruefen
     const temp = startDate;
     startDate = endDate;
     endDate = temp;
   }
   
-  // Wenn I3 das Startdatum ist (wie bei manchen Varianten)
   if (!startDate && endDate) {
     startDate = endDate;
     endDate = excelDateToDate(getCellValue(navSheet, 'I4'));
@@ -236,43 +222,35 @@ export function parseEmployeeSheet(
   if (!sheet) return null;
   
   const { name: nachname, projectYear } = parsed;
-  const calendarYear = startYear + projectYear - 1;
   
-  // Vollstaendiger Name aus M11 oder M12 (erste Monatszeile)
   const fullName = getCellValue(sheet, 'M12') || getCellValue(sheet, 'M11') || nachname;
   
   const months: MonthData[] = [];
   
-  // 12 Monats-Bloecke, Start bei Zeile 11, alle 43 Zeilen
   const BLOCK_SIZE = 43;
   const FIRST_BLOCK_START = 11;
   
   for (let monthIndex = 0; monthIndex < 12; monthIndex++) {
     const blockStart = FIRST_BLOCK_START + (monthIndex * BLOCK_SIZE);
     
-    // Monatsdatum aus Spalte A
     const monthDateRaw = getCellValue(sheet, `A${blockStart}`);
     const monthDate = excelDateToDate(monthDateRaw);
     
     if (!monthDate) continue;
     
-    const month = monthDate.getMonth() + 1; // 1-12
-    const actualYear = monthDate.getFullYear(); // Tatsaechliches Jahr aus Datum!
+    const month = monthDate.getMonth() + 1;
+    const actualYear = monthDate.getFullYear();
     
-    // Dynamisch Summenzeile finden: Suche nach "Summe der förderbaren" im Block
     let sumRow = findRowByText(sheet, 'summe', blockStart + 15, blockStart + 25, 'C');
     if (!sumRow) {
-      // Fallback: Feste Position
       sumRow = blockStart + 20;
     }
     
-    // Urlaub-Zeile: Nach Summenzeile suchen
     let urlaubRow = findRowByText(sheet, 'urlaub', sumRow, sumRow + 10, 'C');
     if (!urlaubRow) {
       urlaubRow = sumRow + 3;
     }
     
-    // Krankheit-Zeile: Nach Urlaub suchen
     let krankRow = findRowByText(sheet, 'krankheit', sumRow, sumRow + 10, 'C');
     if (!krankRow) {
       krankRow = sumRow + 4;
@@ -281,20 +259,16 @@ export function parseEmployeeSheet(
     const dailyData: DailyEntry[] = [];
     let totalHours = 0;
     
-    // Tagesdaten aus Spalten E-AI (Tag 1-31) - NICHT AJ!
     for (let day = 1; day <= 31; day++) {
-      const col = day + 4; // Tag 1 = Spalte E (5), Tag 31 = Spalte AI (35)
-      const colLetter = XLSX.utils.encode_col(col - 1); // 0-basiert
+      const col = day + 4;
+      const colLetter = XLSX.utils.encode_col(col - 1);
       
-      // Stunden aus Summenzeile
       const hoursRaw = getCellValue(sheet, `${colLetter}${sumRow}`);
       const hours = typeof hoursRaw === 'number' ? hoursRaw : 0;
       
-      // Urlaub pruefen
       const urlaubRaw = getCellValue(sheet, `${colLetter}${urlaubRow}`);
       const hasUrlaub = urlaubRaw && (urlaubRaw === 'U' || urlaubRaw === 8 || (typeof urlaubRaw === 'number' && urlaubRaw > 0));
       
-      // Krankheit pruefen
       const krankRaw = getCellValue(sheet, `${colLetter}${krankRow}`);
       const hasKrank = krankRaw && (krankRaw === 'K' || krankRaw === 8 || (typeof krankRaw === 'number' && krankRaw > 0));
       
@@ -312,11 +286,10 @@ export function parseEmployeeSheet(
       }
     }
     
-    // Nur Monate mit Daten speichern
     if (dailyData.length > 0 || totalHours > 0) {
       months.push({
         month,
-        calendarYear: actualYear, // Verwende tatsaechliches Jahr aus Datum!
+        calendarYear: actualYear,
         projectYear,
         dailyData,
         totalHours,
@@ -338,7 +311,6 @@ export function parseZimExcel(workbook: XLSX.WorkBook): ZimParseResult {
   const errors: string[] = [];
   const warnings: string[] = [];
   
-  // 1. Projekt-Daten aus Nav-Sheet
   const project = parseNavSheet(workbook);
   if (!project) {
     errors.push('Nav-Sheet nicht gefunden oder Laufzeitbeginn fehlt');
@@ -347,7 +319,6 @@ export function parseZimExcel(workbook: XLSX.WorkBook): ZimParseResult {
   
   console.log(`[ZIM-Parser] Projekt: ${project.name}, Startjahr: ${project.startYear}`);
   
-  // 2. MA-Sheets identifizieren
   const employeeSheets = workbook.SheetNames.filter(name => isEmployeeSheet(name));
   
   if (employeeSheets.length === 0) {
@@ -357,7 +328,6 @@ export function parseZimExcel(workbook: XLSX.WorkBook): ZimParseResult {
   
   console.log(`[ZIM-Parser] ${employeeSheets.length} MA-Sheets gefunden:`, employeeSheets);
   
-  // 3. Alle MA-Sheets parsen
   const employeeMap = new Map<string, ZimEmployee>();
   
   for (const sheetName of employeeSheets) {
@@ -370,7 +340,6 @@ export function parseZimExcel(workbook: XLSX.WorkBook): ZimParseResult {
     
     console.log(`[ZIM-Parser] ${sheetName}: ${result.months.length} Monate gefunden`);
     
-    // Mitarbeiter zusammenfuehren (gleicher Name aus verschiedenen Jahren)
     const existing = employeeMap.get(result.name);
     if (existing) {
       existing.months.push(...result.months);
@@ -384,7 +353,6 @@ export function parseZimExcel(workbook: XLSX.WorkBook): ZimParseResult {
   
   const employees = Array.from(employeeMap.values());
   
-  // Sortiere Monate chronologisch
   for (const emp of employees) {
     emp.months.sort((a, b) => {
       if (a.calendarYear !== b.calendarYear) return a.calendarYear - b.calendarYear;
@@ -392,7 +360,6 @@ export function parseZimExcel(workbook: XLSX.WorkBook): ZimParseResult {
     });
   }
   
-  // Statistik
   let totalHours = 0;
   let totalMonths = 0;
   for (const emp of employees) {
@@ -414,57 +381,45 @@ export function parseZimExcel(workbook: XLSX.WorkBook): ZimParseResult {
 }
 
 // ============================================================================
-// EXPORT-FUNKTIONEN (fuer Integration mit bestehendem Import-Modul)
+// EXPORT-FUNKTIONEN
 // ============================================================================
+
+interface ImportFormatMonth {
+  month: number;
+  year: number;
+  projectYear: number;
+  billableHours: number;
+  totalHours: number;
+  dailyData: Array<{
+    day: number;
+    hours: number;
+    type: string;
+  }>;
+}
+
+interface ImportFormatEmployee {
+  name: string;
+  projectYear: number;
+  months: ImportFormatMonth[];
+}
+
+interface ImportFormat {
+  projectName: string;
+  projectFkz: string;
+  employees: ImportFormatEmployee[];
+}
 
 /**
  * Konvertiert ZIM-Ergebnis in das Format des bestehenden Import-Moduls
- * WICHTIG: Erstellt einen Eintrag pro Mitarbeiter UND Projektjahr!
  */
-export function convertToImportFormat(result: ZimParseResult): {
-  projectName: string;
-  projectFkz: string;
-  employees: Array<{
-    name: string;
-    projectYear: number;
-    months: Array<{
-      month: number;
-      year: number;
-      projectYear: number;
-      billableHours: number;
-      totalHours: number;
-      dailyData: Array<{
-        day: number;
-        hours: number;
-        type: string;
-      }>;
-    }>;
-  }>;
-} | null {
+export function convertToImportFormat(result: ZimParseResult): ImportFormat | null {
   if (!result.success || !result.project || !result.employees) {
     return null;
   }
   
-  // Für jeden Mitarbeiter: Aufteilen nach Projektjahr
-  const employeesByYear: Array<{
-    name: string;
-    projectYear: number;
-    months: Array<{
-      month: number;
-      year: number;
-      projectYear: number;
-      billableHours: number;
-      totalHours: number;
-      dailyData: Array<{
-        day: number;
-        hours: number;
-        type: string;
-      }>;
-    }>;
-  }> = [];
+  const employeesByYear: ImportFormatEmployee[] = [];
   
   for (const emp of result.employees) {
-    // Gruppiere Monate nach Projektjahr
     const monthsByProjectYear = new Map<number, typeof emp.months>();
     
     for (const m of emp.months) {
@@ -474,7 +429,6 @@ export function convertToImportFormat(result: ZimParseResult): {
       monthsByProjectYear.get(m.projectYear)!.push(m);
     }
     
-    // Erstelle einen Eintrag pro Projektjahr
     for (const [projectYear, months] of monthsByProjectYear) {
       employeesByYear.push({
         name: emp.name,
@@ -495,7 +449,6 @@ export function convertToImportFormat(result: ZimParseResult): {
     }
   }
   
-  // Sortiere nach Name und Projektjahr
   employeesByYear.sort((a, b) => {
     if (a.name !== b.name) return a.name.localeCompare(b.name);
     return a.projectYear - b.projectYear;

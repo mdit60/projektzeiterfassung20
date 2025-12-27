@@ -1,9 +1,14 @@
 // src/components/Header.tsx
+// VERSION: v6.8 - ESLint Fixes
 'use client'
 
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+
+// ============================================
+// INTERFACES
+// ============================================
 
 interface UserProfile {
   id: string
@@ -23,13 +28,24 @@ interface Company {
   name: string
 }
 
+// Erweitere Window-Interface für hasUnsavedChanges
+declare global {
+  interface Window {
+    hasUnsavedChanges?: boolean
+  }
+}
+
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
 function isAdminRole(role: string | undefined): boolean {
   if (!role) return false
   return role === 'admin' || role === 'company_admin'
 }
 
 function checkUnsavedChanges(): boolean {
-  if (typeof window !== 'undefined' && (window as any).hasUnsavedChanges) {
+  if (typeof window !== 'undefined' && window.hasUnsavedChanges) {
     return window.confirm('Sie haben ungespeicherte Aenderungen. Ohne Speichern verlassen?')
   }
   return true
@@ -93,6 +109,10 @@ const navigationItems = [
   { name: 'Unternehmen', href: '/unternehmen', icon: 'U', adminOnly: true, ownerOnly: true },
 ]
 
+// ============================================
+// COMPONENT
+// ============================================
+
 export default function Header() {
   const pathname = usePathname()
   const router = useRouter()
@@ -102,11 +122,7 @@ export default function Header() {
   const [company, setCompany] = useState<Company | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    loadUserData()
-  }, [])
-
-  async function loadUserData() {
+  const loadUserData = useCallback(async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
@@ -142,7 +158,11 @@ export default function Header() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [supabase])
+
+  useEffect(() => {
+    loadUserData()
+  }, [loadUserData])
 
   async function handleLogout() {
     if (!checkUnsavedChanges()) return
