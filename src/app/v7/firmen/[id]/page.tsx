@@ -1,5 +1,5 @@
 // src/app/v7/firmen/[id]/page.tsx
-// VERSION: v7.0.2 - Korrigiert für existierende DB-Struktur
+// VERSION: v7.0.3 - Korrigiert für v7_projects DB-Schema
 'use client';
 
 import { useEffect, useState, use } from 'react';
@@ -31,15 +31,15 @@ interface ClientCompany {
 interface Employee {
   id: string;
   client_company_id: string;
-  display_name: string;       // DB: display_name (nicht name)
+  display_name: string;
   first_name?: string;
   last_name?: string;
   email?: string;
   weekly_hours: number;
   annual_leave_days: number;
-  employment_start?: string;  // DB: employment_start (nicht entry_date)
-  employment_end?: string;    // DB: employment_end (nicht exit_date)
-  position_title?: string;    // DB: position_title (nicht position)
+  employment_start?: string;
+  employment_end?: string;
+  position_title?: string;
   is_active: boolean;
   created_at: string;
 }
@@ -50,10 +50,10 @@ interface Project {
   name: string;
   short_name?: string;
   funding_reference?: string;
-  funding_program?: string;
+  funding_format?: string;
   start_date?: string;
   end_date?: string;
-  status: string;
+  is_active: boolean;
   fzul_vorhaben_title?: string;
   fzul_vorhaben_id?: string;
   notes?: string;
@@ -121,10 +121,10 @@ export default function FirmaDetailPage({ params }: { params: Promise<{ id: stri
     name: '',
     short_name: '',
     funding_reference: '',
-    funding_program: 'ZIM',
+    funding_format: 'ZIM',
     start_date: '',
     end_date: '',
-    status: 'active',
+    is_active: true,
     fzul_vorhaben_title: '',
     fzul_vorhaben_id: '',
     notes: ''
@@ -293,10 +293,10 @@ export default function FirmaDetailPage({ params }: { params: Promise<{ id: stri
       name: '',
       short_name: '',
       funding_reference: '',
-      funding_program: 'ZIM',
+      funding_format: 'ZIM',
       start_date: '',
       end_date: '',
-      status: 'active',
+      is_active: true,
       fzul_vorhaben_title: '',
       fzul_vorhaben_id: '',
       notes: ''
@@ -310,10 +310,10 @@ export default function FirmaDetailPage({ params }: { params: Promise<{ id: stri
       name: proj.name,
       short_name: proj.short_name || '',
       funding_reference: proj.funding_reference || '',
-      funding_program: proj.funding_program || 'ZIM',
+      funding_format: proj.funding_format || 'ZIM',
       start_date: proj.start_date || '',
       end_date: proj.end_date || '',
-      status: proj.status,
+      is_active: proj.is_active,
       fzul_vorhaben_title: proj.fzul_vorhaben_title || '',
       fzul_vorhaben_id: proj.fzul_vorhaben_id || '',
       notes: proj.notes || ''
@@ -335,10 +335,10 @@ export default function FirmaDetailPage({ params }: { params: Promise<{ id: stri
             name: projectForm.name.trim(),
             short_name: projectForm.short_name.trim() || null,
             funding_reference: projectForm.funding_reference.trim() || null,
-            funding_program: projectForm.funding_program || null,
+            funding_format: projectForm.funding_format || null,
             start_date: projectForm.start_date || null,
             end_date: projectForm.end_date || null,
-            status: projectForm.status,
+            is_active: projectForm.is_active,
             fzul_vorhaben_title: projectForm.fzul_vorhaben_title.trim() || null,
             fzul_vorhaben_id: projectForm.fzul_vorhaben_id.trim() || null,
             notes: projectForm.notes.trim() || null,
@@ -356,10 +356,10 @@ export default function FirmaDetailPage({ params }: { params: Promise<{ id: stri
             name: projectForm.name.trim(),
             short_name: projectForm.short_name.trim() || null,
             funding_reference: projectForm.funding_reference.trim() || null,
-            funding_program: projectForm.funding_program || null,
+            funding_format: projectForm.funding_format || null,
             start_date: projectForm.start_date || null,
             end_date: projectForm.end_date || null,
-            status: projectForm.status,
+            is_active: projectForm.is_active,
             fzul_vorhaben_title: projectForm.fzul_vorhaben_title.trim() || null,
             fzul_vorhaben_id: projectForm.fzul_vorhaben_id.trim() || null,
             notes: projectForm.notes.trim() || null
@@ -553,7 +553,7 @@ export default function FirmaDetailPage({ params }: { params: Promise<{ id: stri
                 <div className="text-sm text-blue-700">Aktive MA</div>
               </div>
               <div className="bg-green-50 rounded-lg p-4 text-center">
-                <div className="text-3xl font-bold text-green-600">{projects.filter(p => p.status === 'active').length}</div>
+                <div className="text-3xl font-bold text-green-600">{projects.filter(p => p.is_active).length}</div>
                 <div className="text-sm text-green-700">Laufende Projekte</div>
               </div>
               <div className="bg-purple-50 rounded-lg p-4 text-center">
@@ -678,25 +678,22 @@ export default function FirmaDetailPage({ params }: { params: Promise<{ id: stri
                           {proj.funding_reference && (
                             <span className="text-blue-600">FKZ: {proj.funding_reference}</span>
                           )}
-                          {proj.funding_program && (
+                          {proj.funding_format && (
                             <span className={`px-2 py-0.5 rounded text-xs ${
-                              proj.funding_program === 'ZIM' ? 'bg-blue-100 text-blue-800' :
-                              proj.funding_program === 'BMBF_KMU' ? 'bg-purple-100 text-purple-800' :
+                              proj.funding_format === 'ZIM' ? 'bg-blue-100 text-blue-800' :
+                              proj.funding_format === 'BMBF_KMU' ? 'bg-purple-100 text-purple-800' :
                               'bg-gray-100 text-gray-800'
                             }`}>
-                              {proj.funding_program}
+                              {proj.funding_format}
                             </span>
                           )}
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
                         <span className={`px-2 py-1 rounded text-xs ${
-                          proj.status === 'active' ? 'bg-green-100 text-green-800' :
-                          proj.status === 'completed' ? 'bg-blue-100 text-blue-800' :
-                          'bg-gray-100 text-gray-600'
+                          proj.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
                         }`}>
-                          {proj.status === 'active' ? 'Laufend' : 
-                           proj.status === 'completed' ? 'Abgeschlossen' : proj.status}
+                          {proj.is_active ? 'Laufend' : 'Abgeschlossen'}
                         </span>
                         <button 
                           onClick={() => openEditProjectModal(proj)}
@@ -886,8 +883,8 @@ export default function FirmaDetailPage({ params }: { params: Promise<{ id: stri
                 <div>
                   <label className="block text-sm font-medium mb-1">Förderprogramm</label>
                   <select
-                    value={projectForm.funding_program}
-                    onChange={e => setProjectForm({...projectForm, funding_program: e.target.value})}
+                    value={projectForm.funding_format}
+                    onChange={e => setProjectForm({...projectForm, funding_format: e.target.value})}
                     className="w-full border rounded px-3 py-2"
                   >
                     <option value="ZIM">ZIM</option>
@@ -899,13 +896,12 @@ export default function FirmaDetailPage({ params }: { params: Promise<{ id: stri
                 <div>
                   <label className="block text-sm font-medium mb-1">Status</label>
                   <select
-                    value={projectForm.status}
-                    onChange={e => setProjectForm({...projectForm, status: e.target.value})}
+                    value={projectForm.is_active ? 'active' : 'completed'}
+                    onChange={e => setProjectForm({...projectForm, is_active: e.target.value === 'active'})}
                     className="w-full border rounded px-3 py-2"
                   >
                     <option value="active">Laufend</option>
                     <option value="completed">Abgeschlossen</option>
-                    <option value="archived">Archiviert</option>
                   </select>
                 </div>
               </div>
