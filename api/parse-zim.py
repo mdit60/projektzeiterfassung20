@@ -1,23 +1,15 @@
-# api/parse-zim.py
-# Vercel Serverless Function (Python Runtime)
-# Parst ZIM-Förderanträge (XFA-PDF) und gibt JSON zurück
-
+from http.server import BaseHTTPRequestHandler
 import json
 import re
 import io
 from datetime import datetime
-from typing import Dict, List, Any, Optional
 from urllib.parse import parse_qs
 
 # pypdf für XFA-Extraktion
 from pypdf import PdfReader
 
 
-# ============================================================================
-# PARSER-FUNKTIONEN
-# ============================================================================
-
-def extract_xfa_data(pdf_bytes: bytes) -> Optional[str]:
+def extract_xfa_data(pdf_bytes):
     """Extrahiert XFA-Daten aus PDF-Bytes."""
     try:
         reader = PdfReader(io.BytesIO(pdf_bytes))
@@ -46,18 +38,15 @@ def extract_xfa_data(pdf_bytes: bytes) -> Optional[str]:
         return None
 
 
-def extract_value(pattern: str, data: str, default: str = '') -> str:
-    """Extrahiert einen Wert mit Regex."""
+def extract_value(pattern, data, default=''):
     match = re.search(pattern, data)
     return match.group(1).strip() if match else default
 
 
-def extract_float(pattern: str, data: str, default: float = 0.0) -> float:
-    """Extrahiert einen Float-Wert."""
+def extract_float(pattern, data, default=0.0):
     value = extract_value(pattern, data, str(default))
     try:
         value = value.strip()
-        
         if ',' in value and '.' in value:
             if value.rfind(',') > value.rfind('.'):
                 value = value.replace('.', '').replace(',', '.')
@@ -65,14 +54,12 @@ def extract_float(pattern: str, data: str, default: float = 0.0) -> float:
                 value = value.replace(',', '')
         elif ',' in value:
             value = value.replace(',', '.')
-        
         return float(value)
     except ValueError:
         return default
 
 
-def parse_projekt(data: str) -> Dict[str, Any]:
-    """Parst Projektdaten."""
+def parse_projekt(data):
     return {
         'name': extract_value(r'<cg_VMS_VB_Projekt>([^<]+)', data),
         'kurzname': extract_value(r'<cg_VMS_VB_KurzName>([^<]+)', data),
@@ -87,8 +74,7 @@ def parse_projekt(data: str) -> Dict[str, Any]:
     }
 
 
-def parse_antragsteller(data: str) -> Dict[str, Any]:
-    """Parst Antragsteller-Daten."""
+def parse_antragsteller(data):
     return {
         'firma': extract_value(r'<Seite2_AST>([^<]+)', data),
         'rechtsform': extract_value(r'<cg_VMS_AD_Rechtsform>([^<]+)', data),
@@ -104,8 +90,7 @@ def parse_antragsteller(data: str) -> Dict[str, Any]:
     }
 
 
-def parse_mitarbeiter(data: str) -> List[Dict[str, Any]]:
-    """Parst Mitarbeiter aus Anlage 6.1 und 6.2."""
+def parse_mitarbeiter(data):
     mitarbeiter = []
     
     ma_blocks = re.findall(r'<Teilform_page13>(.*?)</Teilform_page13>', data, re.DOTALL)
@@ -167,8 +152,7 @@ def parse_mitarbeiter(data: str) -> List[Dict[str, Any]]:
     return sorted(mitarbeiter, key=lambda m: m['ma_nr'])
 
 
-def parse_arbeitspakete(data: str) -> List[Dict[str, Any]]:
-    """Parst Arbeitspakete aus Anlage 5."""
+def parse_arbeitspakete(data):
     pakete = []
     
     matches = re.findall(
@@ -194,8 +178,7 @@ def parse_arbeitspakete(data: str) -> List[Dict[str, Any]]:
     return pakete
 
 
-def parse_zim_pdf(pdf_bytes: bytes, filename: str) -> Dict[str, Any]:
-    """Hauptfunktion: Parst eine ZIM-PDF komplett."""
+def parse_zim_pdf(pdf_bytes, filename):
     data = extract_xfa_data(pdf_bytes)
     
     if not data:
@@ -217,11 +200,7 @@ def parse_zim_pdf(pdf_bytes: bytes, filename: str) -> Dict[str, Any]:
     }
 
 
-# ============================================================================
-# MULTIPART PARSER (für File Upload)
-# ============================================================================
-
-def parse_multipart(body: bytes, boundary: str) -> Dict[str, Any]:
+def parse_multipart(body, boundary):
     """Parst multipart/form-data."""
     parts = body.split(f'--{boundary}'.encode())
     files = {}
@@ -231,7 +210,6 @@ def parse_multipart(body: bytes, boundary: str) -> Dict[str, Any]:
             continue
         
         try:
-            # Header und Content trennen
             if b'\r\n\r\n' in part:
                 header_section, content = part.split(b'\r\n\r\n', 1)
             else:
@@ -239,12 +217,10 @@ def parse_multipart(body: bytes, boundary: str) -> Dict[str, Any]:
             
             headers = header_section.decode('utf-8', errors='ignore')
             
-            # Filename extrahieren
             filename_match = re.search(r'filename="([^"]+)"', headers)
             name_match = re.search(r'name="([^"]+)"', headers)
             
             if filename_match and name_match:
-                # Trailing \r\n entfernen
                 if content.endswith(b'\r\n'):
                     content = content[:-2]
                 
@@ -259,110 +235,58 @@ def parse_multipart(body: bytes, boundary: str) -> Dict[str, Any]:
     return files
 
 
-# ============================================================================
-# VERCEL HANDLER
-# ============================================================================
-
-def handler(request):
-    """Vercel Serverless Function Handler."""
-    from http.server import BaseHTTPRequestHandler
+class handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        try:
+            content_type = self.headers.get('Content-Type', '')
+            content_length = int(self.headers.get('Content-Length', 0))
+            
+            if 'multipart/form-data' not in content_type:
+                self._send_json(400, {'success': False, 'error': 'Content-Type must be multipart/form-data'})
+                return
+            
+            boundary_match = re.search(r'boundary=([^;]+)', content_type)
+            if not boundary_match:
+                self._send_json(400, {'success': False, 'error': 'No boundary found'})
+                return
+            
+            boundary = boundary_match.group(1).strip()
+            body = self.rfile.read(content_length)
+            
+            files = parse_multipart(body, boundary)
+            
+            if 'file' not in files:
+                self._send_json(400, {'success': False, 'error': 'No file uploaded'})
+                return
+            
+            file_data = files['file']
+            filename = file_data['filename']
+            pdf_bytes = file_data['content']
+            
+            if not filename.lower().endswith('.pdf'):
+                self._send_json(400, {'success': False, 'error': 'File must be a PDF'})
+                return
+            
+            result = parse_zim_pdf(pdf_bytes, filename)
+            self._send_json(200 if result['success'] else 400, result)
+            
+        except Exception as e:
+            self._send_json(500, {'success': False, 'error': f'Server error: {str(e)}'})
     
-    # CORS Headers
-    headers = {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Content-Type': 'application/json; charset=utf-8'
-    }
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self._send_cors_headers()
+        self.send_header('Content-Length', '0')
+        self.end_headers()
     
-    # OPTIONS (CORS Preflight)
-    if request.method == 'OPTIONS':
-        return {
-            'statusCode': 200,
-            'headers': headers,
-            'body': ''
-        }
+    def _send_json(self, status, data):
+        self.send_response(status)
+        self._send_cors_headers()
+        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(json.dumps(data, ensure_ascii=False).encode('utf-8'))
     
-    # Nur POST erlauben
-    if request.method != 'POST':
-        return {
-            'statusCode': 405,
-            'headers': headers,
-            'body': json.dumps({'success': False, 'error': 'Method not allowed. Use POST.'})
-        }
-    
-    try:
-        # Content-Type prüfen
-        content_type = request.headers.get('content-type', '')
-        
-        if 'multipart/form-data' not in content_type:
-            return {
-                'statusCode': 400,
-                'headers': headers,
-                'body': json.dumps({'success': False, 'error': 'Content-Type must be multipart/form-data'})
-            }
-        
-        # Boundary extrahieren
-        boundary_match = re.search(r'boundary=([^;]+)', content_type)
-        if not boundary_match:
-            return {
-                'statusCode': 400,
-                'headers': headers,
-                'body': json.dumps({'success': False, 'error': 'No boundary found in Content-Type'})
-            }
-        
-        boundary = boundary_match.group(1).strip()
-        
-        # Body lesen
-        body = request.body if isinstance(request.body, bytes) else request.body.encode()
-        
-        # Multipart parsen
-        files = parse_multipart(body, boundary)
-        
-        if 'file' not in files:
-            return {
-                'statusCode': 400,
-                'headers': headers,
-                'body': json.dumps({'success': False, 'error': 'No file uploaded. Field name must be "file".'})
-            }
-        
-        file_data = files['file']
-        filename = file_data['filename']
-        pdf_bytes = file_data['content']
-        
-        if not filename.lower().endswith('.pdf'):
-            return {
-                'statusCode': 400,
-                'headers': headers,
-                'body': json.dumps({'success': False, 'error': 'File must be a PDF.'})
-            }
-        
-        if len(pdf_bytes) == 0:
-            return {
-                'statusCode': 400,
-                'headers': headers,
-                'body': json.dumps({'success': False, 'error': 'Empty file uploaded.'})
-            }
-        
-        if len(pdf_bytes) > 10 * 1024 * 1024:
-            return {
-                'statusCode': 400,
-                'headers': headers,
-                'body': json.dumps({'success': False, 'error': 'File too large. Maximum 10 MB.'})
-            }
-        
-        # PDF parsen
-        result = parse_zim_pdf(pdf_bytes, filename)
-        
-        return {
-            'statusCode': 200 if result['success'] else 400,
-            'headers': headers,
-            'body': json.dumps(result, ensure_ascii=False)
-        }
-        
-    except Exception as e:
-        return {
-            'statusCode': 500,
-            'headers': headers,
-            'body': json.dumps({'success': False, 'error': f'Server error: {str(e)}'})
-        }
+    def _send_cors_headers(self):
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
