@@ -3,7 +3,6 @@ import json
 import re
 import io
 from datetime import datetime
-from urllib.parse import parse_qs
 
 # pypdf für XFA-Extraktion
 from pypdf import PdfReader
@@ -14,28 +13,48 @@ def extract_xfa_data(pdf_bytes):
     try:
         reader = PdfReader(io.BytesIO(pdf_bytes))
         
+        # Debug: PDF Info
+        num_pages = len(reader.pages)
+        
         if '/AcroForm' not in reader.trailer['/Root']:
-            return None
+            return None, f"Kein AcroForm gefunden. Seiten: {num_pages}"
         
         acroform = reader.trailer['/Root']['/AcroForm']
         
         if '/XFA' not in acroform:
-            return None
+            return None, f"Kein XFA in AcroForm. Keys: {list(acroform.keys())}"
         
         xfa = acroform['/XFA']
         
-        if hasattr(xfa, '__iter__') and len(xfa) > 9:
+        # XFA kann ein Array oder ein Stream sein
+        xfa_data = ""
+        
+        if hasattr(xfa, '__iter__') and not isinstance(xfa, bytes):
             for i, item in enumerate(xfa):
                 if hasattr(item, 'get_data'):
-                    data = item.get_data().decode('utf-8', errors='ignore')
-                    if 'xfa:data' in data or 'datasets' in data:
-                        return data.replace('\n', '')
+                    try:
+                        data = item.get_data().decode('utf-8', errors='ignore')
+                        if 'xfa:data' in data or 'datasets' in data or '<cg_' in data:
+                            xfa_data += data
+                    except:
+                        pass
+                elif hasattr(item, 'get_object'):
+                    obj = item.get_object()
+                    if hasattr(obj, 'get_data'):
+                        try:
+                            data = obj.get_data().decode('utf-8', errors='ignore')
+                            if 'xfa:data' in data or 'datasets' in data or '<cg_' in data:
+                                xfa_data += data
+                        except:
+                            pass
         
-        return None
+        if xfa_data:
+            return xfa_data.replace('\n', ''), None
+        
+        return None, f"XFA gefunden aber keine Daten extrahiert. XFA type: {type(xfa)}, len: {len(xfa) if hasattr(xfa, '__len__') else 'N/A'}"
     
     except Exception as e:
-        print(f"Fehler beim Lesen der PDF: {e}")
-        return None
+        return None, f"Exception: {str(e)}"
 
 
 def extract_value(pattern, data, default=''):
@@ -179,12 +198,17 @@ def parse_arbeitspakete(data):
 
 
 def parse_zim_pdf(pdf_bytes, filename):
-    data = extract_xfa_data(pdf_bytes)
+    data, debug_info = extract_xfa_data(pdf_bytes)
     
     if not data:
         return {
             'success': False,
-            'error': 'Konnte keine XFA-Daten extrahieren. Ist dies eine gültige ZIM-Antrags-PDF?'
+            'error': f'Konnte keine XFA-Daten extrahieren. Debug: {debug_info}',
+            'debug': {
+                'pdf_size': len(pdf_bytes),
+                'filename': filename,
+                'info': debug_info
+            }
         }
     
     return {
@@ -229,7 +253,6 @@ def parse_multipart(body, boundary):
                     'content': content
                 }
         except Exception as e:
-            print(f"Part parsing error: {e}")
             continue
     
     return files
@@ -253,21 +276,48 @@ class handler(BaseHTTPRequestHandler):
             boundary = boundary_match.group(1).strip()
             body = self.rfile.read(content_length)
             
+            # Debug info
+            debug = {
+                'content_length': content_length,
+                'body_length': len(body),
+                'boundary': boundary
+            }
+            
             files = parse_multipart(body, boundary)
             
             if 'file' not in files:
-                self._send_json(400, {'success': False, 'error': 'No file uploaded'})
+                self._send_json(400, {
+                    'success': False, 
+                    'error': f'No file uploaded. Found keys: {list(files.keys())}',
+                    'debug': debug
+                })
                 return
             
             file_data = files['file']
             filename = file_data['filename']
             pdf_bytes = file_data['content']
             
+            debug['filename'] = filename
+            debug['pdf_bytes_length'] = len(pdf_bytes)
+            debug['pdf_starts_with'] = pdf_bytes[:20].hex() if pdf_bytes else 'empty'
+            
             if not filename.lower().endswith('.pdf'):
-                self._send_json(400, {'success': False, 'error': 'File must be a PDF'})
+                self._send_json(400, {'success': False, 'error': 'File must be a PDF', 'debug': debug})
+                return
+            
+            # Check if it's a valid PDF
+            if not pdf_bytes.startswith(b'%PDF'):
+                self._send_json(400, {
+                    'success': False, 
+                    'error': f'Invalid PDF header. Starts with: {pdf_bytes[:20]}',
+                    'debug': debug
+                })
                 return
             
             result = parse_zim_pdf(pdf_bytes, filename)
+            if not result['success'] and 'debug' not in result:
+                result['debug'] = debug
+            
             self._send_json(200 if result['success'] else 400, result)
             
         except Exception as e:
