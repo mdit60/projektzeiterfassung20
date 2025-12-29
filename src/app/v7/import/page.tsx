@@ -205,7 +205,7 @@ export default function V7ImportPage() {
         .from('v7_client_companies')
         .select('id')
         .eq('name', parsedData.antragsteller.firma)
-        .single()
+        .maybeSingle()
 
       let companyId: string
 
@@ -264,7 +264,7 @@ export default function V7ImportPage() {
           .select('id')
           .eq('company_id', companyId)
           .eq('display_name', displayName)
-          .single()
+          .maybeSingle()
 
         let employeeId: string
 
