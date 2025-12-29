@@ -8,9 +8,15 @@
   "framework": "nextjs",
   "regions": ["fra1"],
   "functions": {
-    "api/parse-zim.py": {
+    "python-api/parse-zim.py": {
       "runtime": "@vercel/python@4.3.1",
       "maxDuration": 30
     }
-  }
+  },
+  "rewrites": [
+    {
+      "source": "/api/parse-zim",
+      "destination": "/python-api/parse-zim"
+    }
+  ]
 }
