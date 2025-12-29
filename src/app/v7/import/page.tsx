@@ -76,38 +76,14 @@ export default function V7ImportPage() {
     if (!file) return
 
     setSelectedFile(file)
-    setState({ loading: true, error: '', success: '' })
+    setState({ loading: false, error: '', success: '' })
 
-    try {
-      // PDF an Server-API senden zum Parsen
-      const formData = new FormData()
-      formData.append('file', file)
-
-      const response = await fetch('/api/parse-zim', {
-        method: 'POST',
-        body: formData,
-      })
-
-      const result = await response.json()
-
-      if (!result.success) {
-        throw new Error(result.error || 'Parsing fehlgeschlagen')
-      }
-
-      setParsedData(result.data)
-      setState({ 
-        loading: false, 
-        error: '', 
-        success: `PDF "${file.name}" erfolgreich geparst!` 
-      })
-    } catch (err) {
-      const error = err as Error
-      setState({ 
-        loading: false, 
-        error: `PDF-Parsing fehlgeschlagen: ${error.message}`, 
-        success: '' 
-      })
-    }
+    // Info: PDF muss mit Python-Skript lokal geparst werden
+    setState({
+      loading: false,
+      error: '',
+      success: `PDF "${file.name}" ausgewählt. Bitte mit Python-Skript parsen und JSON hochladen.`
+    })
   }, [])
 
   const handleImportToDatabase = useCallback(async () => {
@@ -356,21 +332,21 @@ export default function V7ImportPage() {
                 Importiere Projektdaten, Mitarbeiter und Personalkosten aus einem ZIM-Förderantrag.
               </p>
               <div className="text-sm text-blue-600 space-y-1">
-                <p><strong>Unterstützte Formate:</strong> Einzelprojekt, Kooperationsprojekt, Durchführbarkeitsstudie, Innovationsnetzwerk</p>
-                <p><strong>Extrahierte Daten:</strong> Projekt, Firma, Mitarbeiter (Anlage 6.1/6.2), Arbeitspakete (Anlage 5)</p>
+                <p><strong>Option 1:</strong> JSON-Datei hochladen (vom Python-Parser erstellt)</p>
+                <p><strong>Option 2:</strong> PDF hochladen und lokal mit Python parsen</p>
               </div>
             </div>
 
             {/* Upload-Bereiche */}
             <div className="grid md:grid-cols-2 gap-6">
-              {/* JSON Upload (Fallback) */}
+              {/* JSON Upload */}
               <div className="bg-white rounded-lg shadow-sm border p-6">
                 <h3 className="font-medium text-gray-900 mb-4 flex items-center">
-                  <span className="text-gray-400 mr-2">📋</span>
-                  JSON hochladen (Fallback)
+                  <span className="text-green-500 mr-2">✅</span>
+                  JSON hochladen (empfohlen)
                 </h3>
                 <p className="text-sm text-gray-500 mb-4">
-                  Alternativ: JSON-Datei hochladen, falls der direkte PDF-Upload nicht funktioniert.
+                  Lade eine JSON-Datei hoch, die mit dem Python-Parser erstellt wurde.
                 </p>
                 <input
                   ref={jsonInputRef}
@@ -382,29 +358,25 @@ export default function V7ImportPage() {
                 <button
                   onClick={() => jsonInputRef.current?.click()}
                   disabled={state.loading}
-                  className="w-full px-4 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:bg-gray-400 transition-colors"
+                  className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 transition-colors"
                 >
                   {state.loading ? 'Lädt...' : 'JSON-Datei auswählen'}
                 </button>
-                <details className="mt-4">
-                  <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700">
-                    Lokaler Parser-Befehl
-                  </summary>
-                  <div className="mt-2 p-3 bg-gray-50 rounded text-xs text-gray-600 font-mono">
-                    <code>python3 scripts/zim-pdf-parser.py antrag.pdf -o json -s output.json</code>
-                  </div>
-                </details>
+                <div className="mt-4 p-3 bg-gray-50 rounded text-xs text-gray-600 font-mono">
+                  <p className="font-semibold mb-1">Python-Parser Befehl:</p>
+                  <code>python scripts/zim-pdf-parser.py antrag.pdf -o json -s output.json</code>
+                </div>
               </div>
 
-              {/* PDF Upload */}
+              {/* PDF Upload (Info) */}
               <div className="bg-white rounded-lg shadow-sm border p-6">
                 <h3 className="font-medium text-gray-900 mb-4 flex items-center">
-                  <span className="text-blue-500 mr-2">📄</span>
-                  PDF direkt hochladen
+                  <span className="text-amber-500 mr-2">⚠️</span>
+                  PDF hochladen (lokal parsen)
                 </h3>
                 <p className="text-sm text-gray-500 mb-4">
-                  Lade einen ausgefüllten ZIM-Förderantrag (PDF) hoch. 
-                  Die Daten werden automatisch extrahiert.
+                  ZIM-PDFs verwenden XFA-Format, das nicht im Browser geparst werden kann.
+                  Nutze den Python-Parser lokal.
                 </p>
                 <input
                   ref={fileInputRef}
@@ -415,24 +387,13 @@ export default function V7ImportPage() {
                 />
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  disabled={state.loading}
-                  className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
+                  className="w-full px-4 py-3 bg-amber-100 text-amber-800 rounded-lg hover:bg-amber-200 transition-colors"
                 >
-                  {state.loading ? (
-                    <span className="flex items-center justify-center">
-                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                      PDF wird analysiert...
-                    </span>
-                  ) : (
-                    'PDF-Datei auswählen'
-                  )}
+                  PDF auswählen (nur Vorschau)
                 </button>
-                {selectedFile && !state.loading && (
+                {selectedFile && (
                   <p className="mt-2 text-sm text-gray-600">
-                    ✅ {selectedFile.name}
+                    Ausgewählt: {selectedFile.name}
                   </p>
                 )}
               </div>
