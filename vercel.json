@@ -6,5 +6,11 @@
   "buildCommand": "npm run build",
   "installCommand": "npm install",
   "framework": "nextjs",
-  "regions": ["fra1"]
+  "regions": ["fra1"],
+  "functions": {
+    "api/parse-zim.py": {
+      "runtime": "python3.11",
+      "maxDuration": 30
+    }
+  }
 }
