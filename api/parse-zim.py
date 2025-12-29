@@ -4,29 +4,24 @@ import re
 import io
 from datetime import datetime
 
-# pypdf für XFA-Extraktion
 from pypdf import PdfReader
 
 
 def extract_xfa_data(pdf_bytes):
     """Extrahiert XFA-Daten aus PDF-Bytes."""
     try:
-        reader = PdfReader(io.BytesIO(pdf_bytes))
-        
-        # Debug: PDF Info
-        num_pages = len(reader.pages)
+        # Versuche mit leerem Passwort (für Owner-geschützte PDFs)
+        reader = PdfReader(io.BytesIO(pdf_bytes), password="")
         
         if '/AcroForm' not in reader.trailer['/Root']:
-            return None, f"Kein AcroForm gefunden. Seiten: {num_pages}"
+            return None, "Kein AcroForm gefunden"
         
         acroform = reader.trailer['/Root']['/AcroForm']
         
         if '/XFA' not in acroform:
-            return None, f"Kein XFA in AcroForm. Keys: {list(acroform.keys())}"
+            return None, f"Kein XFA in AcroForm"
         
         xfa = acroform['/XFA']
-        
-        # XFA kann ein Array oder ein Stream sein
         xfa_data = ""
         
         if hasattr(xfa, '__iter__') and not isinstance(xfa, bytes):
@@ -51,7 +46,7 @@ def extract_xfa_data(pdf_bytes):
         if xfa_data:
             return xfa_data.replace('\n', ''), None
         
-        return None, f"XFA gefunden aber keine Daten extrahiert. XFA type: {type(xfa)}, len: {len(xfa) if hasattr(xfa, '__len__') else 'N/A'}"
+        return None, f"XFA gefunden aber keine Daten extrahiert"
     
     except Exception as e:
         return None, f"Exception: {str(e)}"
@@ -203,7 +198,7 @@ def parse_zim_pdf(pdf_bytes, filename):
     if not data:
         return {
             'success': False,
-            'error': f'Konnte keine XFA-Daten extrahieren. Debug: {debug_info}',
+            'error': f'Konnte keine XFA-Daten extrahieren. {debug_info}',
             'debug': {
                 'pdf_size': len(pdf_bytes),
                 'filename': filename,
@@ -225,7 +220,6 @@ def parse_zim_pdf(pdf_bytes, filename):
 
 
 def parse_multipart(body, boundary):
-    """Parst multipart/form-data."""
     parts = body.split(f'--{boundary}'.encode())
     files = {}
     
@@ -252,7 +246,7 @@ def parse_multipart(body, boundary):
                     'filename': filename_match.group(1),
                     'content': content
                 }
-        except Exception as e:
+        except:
             continue
     
     return files
@@ -275,49 +269,21 @@ class handler(BaseHTTPRequestHandler):
             
             boundary = boundary_match.group(1).strip()
             body = self.rfile.read(content_length)
-            
-            # Debug info
-            debug = {
-                'content_length': content_length,
-                'body_length': len(body),
-                'boundary': boundary
-            }
-            
             files = parse_multipart(body, boundary)
             
             if 'file' not in files:
-                self._send_json(400, {
-                    'success': False, 
-                    'error': f'No file uploaded. Found keys: {list(files.keys())}',
-                    'debug': debug
-                })
+                self._send_json(400, {'success': False, 'error': 'No file uploaded'})
                 return
             
             file_data = files['file']
             filename = file_data['filename']
             pdf_bytes = file_data['content']
             
-            debug['filename'] = filename
-            debug['pdf_bytes_length'] = len(pdf_bytes)
-            debug['pdf_starts_with'] = pdf_bytes[:20].hex() if pdf_bytes else 'empty'
-            
             if not filename.lower().endswith('.pdf'):
-                self._send_json(400, {'success': False, 'error': 'File must be a PDF', 'debug': debug})
-                return
-            
-            # Check if it's a valid PDF
-            if not pdf_bytes.startswith(b'%PDF'):
-                self._send_json(400, {
-                    'success': False, 
-                    'error': f'Invalid PDF header. Starts with: {pdf_bytes[:20]}',
-                    'debug': debug
-                })
+                self._send_json(400, {'success': False, 'error': 'File must be a PDF'})
                 return
             
             result = parse_zim_pdf(pdf_bytes, filename)
-            if not result['success'] and 'debug' not in result:
-                result['debug'] = debug
-            
             self._send_json(200 if result['success'] else 400, result)
             
         except Exception as e:
