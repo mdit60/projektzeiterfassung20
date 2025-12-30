@@ -1,0 +1,259 @@
+{
+  "projekt": {
+    "name": "Entwicklung eines innov. Verfahrens zur effektiven Herstellung von digitalen Transferdrucken durch innovative Kombination von PU- und UV-Farbsystemen",
+    "kurzname": "DigiTrans",
+    "fkz": "16KN087502",
+    "start": "2023-01-02",
+    "ende": "2024-12-31",
+    "foerderquote": 40.0,
+    "gesamtkosten": 522640.0,
+    "zuwendung": 209056.0,
+    "gesamt_pm": 64.0,
+    "gesamt_pk": 261320.0,
+    "laufzeit_monate": 24
+  },
+  "antragsteller": {
+    "firma": "AS System GmbH",
+    "rechtsform": "GmbH",
+    "strasse": "Bürgermeister-Hergenhan-Straße",
+    "plz": "22946",
+    "ort": "Trittau",
+    "bundesland": "SH Schleswig-Holstein",
+    "website": "assystem.de",
+    "ansprechpartner_name": "Thomas Dührkop",
+    "ansprechpartner_funktion": "Geschäftsführer",
+    "ansprechpartner_telefon": "+49 4154 8598-10",
+    "ansprechpartner_email": "t.duehrkop@assystem.de"
+  },
+  "budget": {
+    "gesamtkosten": 522640.0,
+    "personalkosten": 261320.0,
+    "materialkosten": 261320.0,
+    "fremdleistungen": 0.0,
+    "gemeinkosten": 0.0,
+    "foerderquote": 40.0,
+    "foerdersumme": 209056.0,
+    "eigenanteil": 313584.0,
+    "laufzeit_monate": 24,
+    "gesamt_pm": 64.0
+  },
+  "mitarbeiter": [
+    {
+      "ma_nr": 1,
+      "nachname": "Dührkop",
+      "vorname": "Thomas",
+      "qualifikation": "staatl. geprüfter Elektrotechniker",
+      "qualifikation_gruppe": 1,
+      "geburtsdatum": "1961-02-13",
+      "funktion": "Geschäftsführer",
+      "angestellt_seit": "1988-01-01",
+      "jahresbrutto": 51840.0,
+      "stundensatz": 24.92,
+      "wochenstunden": 40.0,
+      "teilzeitfaktor": 1.0,
+      "pm_gesamt": 11.0,
+      "kosten_gesamt": 47510.0,
+      "pm_pro_jahr": {
+        "2023": 11.0
+      }
+    },
+    {
+      "ma_nr": 2,
+      "nachname": "Dührkop",
+      "vorname": "Matthias",
+      "qualifikation": "KfZ-Mechaniker",
+      "qualifikation_gruppe": 1,
+      "geburtsdatum": "1965-04-08",
+      "funktion": "Geschäftsführer",
+      "angestellt_seit": "001.07.2005",
+      "jahresbrutto": 51840.0,
+      "stundensatz": 24.92,
+      "wochenstunden": 40.0,
+      "teilzeitfaktor": 1.0,
+      "pm_gesamt": 11.0,
+      "kosten_gesamt": 47510.0,
+      "pm_pro_jahr": {
+        "2023": 11.0
+      }
+    },
+    {
+      "ma_nr": 3,
+      "nachname": "Rainer",
+      "vorname": "Schulz",
+      "qualifikation": "FA für elektronische Datenverarbeitung",
+      "qualifikation_gruppe": 2,
+      "geburtsdatum": "1968-06-22",
+      "funktion": "",
+      "angestellt_seit": "2020-06-01",
+      "jahresbrutto": 51840.0,
+      "stundensatz": 24.92,
+      "wochenstunden": 40.0,
+      "teilzeitfaktor": 1.0,
+      "pm_gesamt": 21.0,
+      "kosten_gesamt": 90700.0,
+      "pm_pro_jahr": {
+        "2023": 21.0
+      }
+    },
+    {
+      "ma_nr": 4,
+      "nachname": "Bohlmann",
+      "vorname": "Jens",
+      "qualifikation": "keine Ausbildung",
+      "qualifikation_gruppe": 3,
+      "geburtsdatum": "1963-12-26",
+      "funktion": "",
+      "angestellt_seit": "2022-08-01",
+      "jahresbrutto": 43200.0,
+      "stundensatz": 20.77,
+      "wochenstunden": 40.0,
+      "teilzeitfaktor": 1.0,
+      "pm_gesamt": 21.0,
+      "kosten_gesamt": 75600.0,
+      "pm_pro_jahr": {
+        "2023": 21.0
+      }
+    }
+  ],
+  "arbeitspakete": [
+    {
+      "ap_nummer": 1,
+      "ap_code": "AP1",
+      "name": "Konzeption und Entwicklung der Anforderungen aller Teilkomponenten",
+      "start_monat": null,
+      "ende_monat": null,
+      "gesamt_pm": 0.5,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 0.5
+        }
+      ]
+    },
+    {
+      "ap_nummer": 2,
+      "ap_code": "AP2",
+      "name": "Konzeption und Entwickluung der Anforderungen aller Systemprozesse",
+      "start_monat": null,
+      "ende_monat": null,
+      "gesamt_pm": 2.5,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 2.0
+        },
+        {
+          "ma_nr": 1,
+          "pm": 0.5
+        }
+      ]
+    },
+    {
+      "ap_nummer": 3,
+      "ap_code": "AP3",
+      "name": "Analyse und Auswahl einer geeigneten Digitaldruckeinheit, des UV-Farbsystems und der Druckköpfe für den Digitaldruck",
+      "start_monat": null,
+      "ende_monat": null,
+      "gesamt_pm": 0.5,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 0.5
+        }
+      ]
+    },
+    {
+      "ap_nummer": 4,
+      "ap_code": "AP4",
+      "name": "Entwicklung und Konstruktion der Mechanik der Gesamtanlage",
+      "start_monat": null,
+      "ende_monat": null,
+      "gesamt_pm": 1.5,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 1.5
+        }
+      ]
+    },
+    {
+      "ap_nummer": 5,
+      "ap_code": "AP5",
+      "name": "Entwicklung und Konstruktion des robotergestützten Bogentransportsystems zwischen Sieb- und Digitaldruckanlage",
+      "start_monat": null,
+      "ende_monat": null,
+      "gesamt_pm": 0.5,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 0.5
+        }
+      ]
+    },
+    {
+      "ap_nummer": 6,
+      "ap_code": "AP6",
+      "name": "Entwicklung der digitalisierten automatischen Prozesssteuerung der Gesamtanlage und der Teilkomponenten",
+      "start_monat": null,
+      "ende_monat": null,
+      "gesamt_pm": 1.5,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 1.5
+        }
+      ]
+    },
+    {
+      "ap_nummer": 7,
+      "ap_code": "AP7",
+      "name": "Programmierung der Software für die Prozesssteuerung der Gesamtanlage",
+      "start_monat": null,
+      "ende_monat": null,
+      "gesamt_pm": 1.5,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 1.5
+        }
+      ]
+    },
+    {
+      "ap_nummer": 8,
+      "ap_code": "AP8",
+      "name": "Aufbau und Inbetriebnahme des Demonstrator",
+      "start_monat": null,
+      "ende_monat": null,
+      "gesamt_pm": 1.0,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 1.0
+        }
+      ]
+    },
+    {
+      "ap_nummer": 9,
+      "ap_code": "AP9",
+      "name": "Tests, Analyse, Auswertung und Dokumentation der Prozessabläufe und der Druckergebnisse",
+      "start_monat": null,
+      "ende_monat": null,
+      "gesamt_pm": 1.0,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 1.0
+        }
+      ]
+    }
+  ],
+  "parse_datum": "2025-12-30T22:34:57.574471",
+  "quell_datei": "ZIM Beispiel innovationsnetzwerke-antrag-einzelprojekt Digitrans.pdf",
+  "statistik": {
+    "anzahl_mitarbeiter": 4,
+    "anzahl_arbeitspakete": 9,
+    "gesamt_pm": 64.0,
+    "gesamt_pk": 261320.0,
+    "laufzeit_monate": 24
+  }
+}
