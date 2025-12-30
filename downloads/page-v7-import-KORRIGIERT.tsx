@@ -1,11 +1,6 @@
 // src/app/v7/import/page.tsx
-// V7 Import-Seite - FINALE VERSION
-// VERSION: 2024-12-30-v2
-// KORREKTUREN:
-// - v7_project_assignments statt v7_project_employees
-// - client_company_id statt company_id
-// - consultant_company_id statt consultant_id
-// - Nur existierende Spalten verwendet
+// V7 Import-Seite - KORRIGIERT für Datenbank-Schema
+// VERSION: 2024-12-30 - Spaltenname consultant_company_id statt consultant_id
 'use client'
 
 import { useState, useCallback, useRef } from 'react'
@@ -194,7 +189,7 @@ export default function V7ImportPage() {
   }, [])
 
   // ============================================
-  // IMPORT IN DATENBANK - FINALE VERSION
+  // IMPORT IN DATENBANK - KORRIGIERT!
   // ============================================
 
   const handleImportToDatabase = useCallback(async () => {
@@ -206,7 +201,7 @@ export default function V7ImportPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('Nicht angemeldet')
 
-      // Hole consultant_company_id aus v7_user_profiles
+      // KORRIGIERT: Hole consultant_company_id aus v7_user_profiles
       const { data: userProfile, error: profileError } = await supabase
         .from('v7_user_profiles')
         .select('consultant_company_id')
@@ -224,7 +219,7 @@ export default function V7ImportPage() {
 
       const consultantCompanyId = userProfile.consultant_company_id
 
-      // 1. Firma prüfen/anlegen (v7_client_companies)
+      // 1. Firma prüfen/anlegen
       const { data: existingCompany } = await supabase
         .from('v7_client_companies')
         .select('id')
@@ -238,10 +233,11 @@ export default function V7ImportPage() {
         companyId = existingCompany.id
         console.log('Bestehende Firma gefunden:', companyId)
       } else {
+        // KORRIGIERT: consultant_company_id statt consultant_id
         const { data: newCompany, error: companyError } = await supabase
           .from('v7_client_companies')
           .insert({
-            consultant_company_id: consultantCompanyId,
+            consultant_company_id: consultantCompanyId,  // ✅ KORRIGIERT
             name: parsedData.antragsteller.firma,
             short_name: parsedData.projekt.kurzname || null,
             street: parsedData.antragsteller.strasse || null,
@@ -264,11 +260,11 @@ export default function V7ImportPage() {
         console.log('Neue Firma angelegt:', companyId)
       }
 
-      // 2. Projekt prüfen/anlegen (v7_projects)
+      // 2. Projekt prüfen/anlegen
       const { data: existingProject } = await supabase
         .from('v7_projects')
         .select('id')
-        .eq('client_company_id', companyId)
+        .eq('company_id', companyId)
         .eq('funding_reference', parsedData.projekt.fkz)
         .maybeSingle()
 
@@ -281,16 +277,17 @@ export default function V7ImportPage() {
         const { data: newProject, error: projectError } = await supabase
           .from('v7_projects')
           .insert({
-            client_company_id: companyId,
+            company_id: companyId,
             name: parsedData.projekt.name,
             short_name: parsedData.projekt.kurzname || null,
             funding_reference: parsedData.projekt.fkz || null,
             funding_format: 'ZIM',
-            start_date: parseGermanDate(parsedData.projekt.start),
-            end_date: parseGermanDate(parsedData.projekt.ende),
-            source_filename: parsedData.quell_datei || null,
-            imported_at: new Date().toISOString(),
-            notes: `Förderquote: ${parsedData.projekt.foerderquote}%, Gesamtkosten: ${parsedData.projekt.gesamtkosten}€, Zuwendung: ${parsedData.projekt.zuwendung}€, PM: ${parsedData.projekt.gesamt_pm}`,
+            start_date: parsedData.projekt.start || null,
+            end_date: parsedData.projekt.ende || null,
+            funding_rate: parsedData.projekt.foerderquote || null,
+            total_budget: parsedData.projekt.gesamtkosten || null,
+            funding_amount: parsedData.projekt.zuwendung || null,
+            total_person_months: parsedData.projekt.gesamt_pm || null,
             is_active: true,
           })
           .select('id')
@@ -304,17 +301,15 @@ export default function V7ImportPage() {
         console.log('Neues Projekt angelegt:', projectId)
       }
 
-      // 3. Mitarbeiter anlegen (v7_employees)
+      // 3. Mitarbeiter anlegen
       let importedEmployees = 0
-      let assignedEmployees = 0
-      
       for (const ma of parsedData.mitarbeiter) {
         const displayName = `${ma.nachname}, ${ma.vorname}`
         
         const { data: existingEmployee } = await supabase
           .from('v7_employees')
           .select('id')
-          .eq('client_company_id', companyId)
+          .eq('company_id', companyId)
           .eq('display_name', displayName)
           .maybeSingle()
 
@@ -322,65 +317,58 @@ export default function V7ImportPage() {
 
         if (existingEmployee) {
           employeeId = existingEmployee.id
-          console.log('Bestehender MA gefunden:', displayName)
         } else {
           const { data: newEmployee, error: employeeError } = await supabase
             .from('v7_employees')
             .insert({
-              client_company_id: companyId,
+              company_id: companyId,
               first_name: ma.vorname,
               last_name: ma.nachname,
               display_name: displayName,
-              name: `${ma.vorname} ${ma.nachname}`,
-              email: null,
               qualification: ma.qualifikation || null,
+              qualification_group: ma.qualifikation_gruppe || null,
+              birth_date: ma.geburtsdatum || null,
               position_title: ma.funktion || null,
-              position: ma.funktion || null,
-              employment_start: parseGermanDate(ma.angestellt_seit),
-              entry_date: parseGermanDate(ma.angestellt_seit),
+              employment_start: ma.angestellt_seit || null,
+              annual_salary: ma.jahresbrutto || null,
+              hourly_rate: ma.stundensatz || null,
               weekly_hours: ma.wochenstunden || 40,
-              annual_leave_days: 30,
-              notes: `Qualifikationsgruppe: ${ma.qualifikation_gruppe}, Jahresbrutto: ${ma.jahresbrutto}€, Stundensatz: ${ma.stundensatz}€, Teilzeitfaktor: ${ma.teilzeitfaktor}`,
+              part_time_factor: ma.teilzeitfaktor || 1.0,
               is_active: true,
             })
             .select('id')
             .single()
 
           if (employeeError) {
-            console.error('Mitarbeiter-Fehler:', employeeError, 'für', displayName)
+            console.error('Mitarbeiter-Fehler:', employeeError)
+            // Weitermachen mit nächstem MA
             continue
           }
           employeeId = newEmployee.id
           importedEmployees++
-          console.log('Neuer MA angelegt:', displayName)
         }
 
-        // 4. MA-Projekt-Zuordnung (v7_project_assignments) - KORRIGIERT!
+        // 4. MA-Projekt-Zuordnung
         const { error: assignError } = await supabase
-          .from('v7_project_assignments')
+          .from('v7_project_employees')
           .upsert({
             project_id: projectId,
             employee_id: employeeId,
-            role_in_project: ma.funktion || 'Projektmitarbeiter',
-            fue_percentage: 100.00,
-            assignment_start: parseGermanDate(parsedData.projekt.start),
-            assignment_end: parseGermanDate(parsedData.projekt.ende),
-            is_active: true,
+            planned_person_months: ma.pm_gesamt || 0,
+            planned_costs: ma.kosten_gesamt || 0,
           }, {
             onConflict: 'project_id,employee_id'
           })
 
         if (assignError) {
-          console.warn('Zuordnung-Warnung:', assignError.message)
-        } else {
-          assignedEmployees++
+          console.warn('Zuordnung-Warnung:', assignError)
         }
       }
 
       setState({
         loading: false,
         error: '',
-        success: `✅ Import erfolgreich! Firma "${parsedData.antragsteller.firma}", Projekt "${parsedData.projekt.kurzname || parsedData.projekt.name}", ${importedEmployees} neue Mitarbeiter angelegt, ${assignedEmployees} Projektzuordnungen erstellt.`
+        success: `✅ Import erfolgreich! Firma "${parsedData.antragsteller.firma}", Projekt "${parsedData.projekt.kurzname || parsedData.projekt.name}" und ${importedEmployees} neue Mitarbeiter importiert.`
       })
 
       // Reset nach 5 Sekunden
@@ -411,37 +399,6 @@ export default function V7ImportPage() {
       if (bundesland.includes(name)) return `DE-${code}`
     }
     return 'DE-XX'
-  }
-
-  // Konvertiert deutsches Datum (DD.MM.YYYY) zu ISO (YYYY-MM-DD)
-  function parseGermanDate(dateStr: string): string | null {
-    if (!dateStr) return null
-    
-    // Bereits im ISO-Format?
-    if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
-      return dateStr.substring(0, 10)
-    }
-    
-    // Deutsches Format DD.MM.YYYY oder D.M.YYYY
-    const match = dateStr.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})/)
-    if (match) {
-      const day = match[1].padStart(2, '0')
-      const month = match[2].padStart(2, '0')
-      const year = match[3]
-      return `${year}-${month}-${day}`
-    }
-    
-    // Fallback: versuche Date.parse
-    try {
-      const parsed = new Date(dateStr)
-      if (!isNaN(parsed.getTime())) {
-        return parsed.toISOString().substring(0, 10)
-      }
-    } catch {
-      // ignorieren
-    }
-    
-    return null
   }
 
   function formatCurrency(value: number): string {
