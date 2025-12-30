@@ -1,0 +1,145 @@
+table_name,column_name,data_type,is_nullable
+v7_archive,id,uuid,NO
+v7_archive,client_company_id,uuid,NO
+v7_archive,employee_id,uuid,YES
+v7_archive,file_type,text,NO
+v7_archive,file_name,text,NO
+v7_archive,file_data,bytea,YES
+v7_archive,file_size,integer,YES
+v7_archive,year,integer,YES
+v7_archive,based_on_source,USER-DEFINED,YES
+v7_archive,generated_by,uuid,YES
+v7_archive,notes,text,YES
+v7_archive,created_at,timestamp with time zone,YES
+v7_client_companies,id,uuid,NO
+v7_client_companies,consultant_company_id,uuid,NO
+v7_client_companies,name,text,NO
+v7_client_companies,short_name,text,YES
+v7_client_companies,street,text,YES
+v7_client_companies,zip_code,text,YES
+v7_client_companies,city,text,YES
+v7_client_companies,federal_state,text,NO
+v7_client_companies,contact_person,text,YES
+v7_client_companies,contact_email,text,YES
+v7_client_companies,contact_phone,text,YES
+v7_client_companies,internal_notes,text,YES
+v7_client_companies,is_active,boolean,YES
+v7_client_companies,created_at,timestamp with time zone,YES
+v7_client_companies,updated_at,timestamp with time zone,YES
+v7_consultant_access,id,uuid,NO
+v7_consultant_access,consultant_user_id,uuid,NO
+v7_consultant_access,client_company_id,uuid,NO
+v7_consultant_access,authorized_by,uuid,YES
+v7_consultant_access,authorized_at,timestamp with time zone,YES
+v7_consultant_access,valid_from,date,YES
+v7_consultant_access,valid_until,date,YES
+v7_consultant_access,can_view,boolean,YES
+v7_consultant_access,can_edit,boolean,YES
+v7_consultant_access,can_export,boolean,YES
+v7_consultant_access,is_active,boolean,YES
+v7_consultant_access,created_at,timestamp with time zone,YES
+v7_data_completion,id,uuid,NO
+v7_data_completion,client_company_id,uuid,NO
+v7_data_completion,year,integer,NO
+v7_data_completion,data_source,USER-DEFINED,NO
+v7_data_completion,is_complete,boolean,YES
+v7_data_completion,is_released,boolean,YES
+v7_data_completion,released_by,uuid,YES
+v7_data_completion,released_at,timestamp with time zone,YES
+v7_data_completion,preferred_for_analysis,boolean,YES
+v7_data_completion,preferred_set_by,uuid,YES
+v7_data_completion,preferred_set_at,timestamp with time zone,YES
+v7_data_completion,notes,text,YES
+v7_data_completion,created_at,timestamp with time zone,YES
+v7_data_completion,updated_at,timestamp with time zone,YES
+v7_employees,id,uuid,NO
+v7_employees,client_company_id,uuid,NO
+v7_employees,user_id,uuid,YES
+v7_employees,display_name,text,NO
+v7_employees,first_name,text,YES
+v7_employees,last_name,text,YES
+v7_employees,weekly_hours,numeric,YES
+v7_employees,annual_leave_days,integer,YES
+v7_employees,position_title,text,YES
+v7_employees,qualification,text,YES
+v7_employees,employment_start,date,YES
+v7_employees,employment_end,date,YES
+v7_employees,notes,text,YES
+v7_employees,is_active,boolean,YES
+v7_employees,created_at,timestamp with time zone,YES
+v7_employees,updated_at,timestamp with time zone,YES
+v7_employees,email,text,YES
+v7_employees,position,text,YES
+v7_employees,name,text,YES
+v7_employees,entry_date,date,YES
+v7_employees,exit_date,date,YES
+v7_fzul_timesheets,id,uuid,NO
+v7_fzul_timesheets,employee_id,uuid,NO
+v7_fzul_timesheets,client_company_id,uuid,NO
+v7_fzul_timesheets,year,integer,NO
+v7_fzul_timesheets,month,integer,NO
+v7_fzul_timesheets,day,integer,NO
+v7_fzul_timesheets,available_hours,numeric,YES
+v7_fzul_timesheets,booked_hours,numeric,YES
+v7_fzul_timesheets,day_code,text,YES
+v7_fzul_timesheets,based_on_source,USER-DEFINED,YES
+v7_fzul_timesheets,is_edited,boolean,YES
+v7_fzul_timesheets,edited_by,uuid,YES
+v7_fzul_timesheets,created_at,timestamp with time zone,YES
+v7_fzul_timesheets,updated_at,timestamp with time zone,YES
+v7_project_assignments,id,uuid,NO
+v7_project_assignments,project_id,uuid,NO
+v7_project_assignments,employee_id,uuid,NO
+v7_project_assignments,role_in_project,text,YES
+v7_project_assignments,fue_percentage,numeric,YES
+v7_project_assignments,assignment_start,date,YES
+v7_project_assignments,assignment_end,date,YES
+v7_project_assignments,is_active,boolean,YES
+v7_project_assignments,created_at,timestamp with time zone,YES
+v7_project_assignments,updated_at,timestamp with time zone,YES
+v7_projects,id,uuid,NO
+v7_projects,client_company_id,uuid,NO
+v7_projects,name,text,NO
+v7_projects,short_name,text,YES
+v7_projects,funding_reference,text,YES
+v7_projects,funding_format,USER-DEFINED,NO
+v7_projects,start_date,date,YES
+v7_projects,end_date,date,YES
+v7_projects,fzul_vorhaben_title,text,YES
+v7_projects,fzul_vorhaben_id,text,YES
+v7_projects,source_filename,text,YES
+v7_projects,imported_at,timestamp with time zone,YES
+v7_projects,notes,text,YES
+v7_projects,is_active,boolean,YES
+v7_projects,created_at,timestamp with time zone,YES
+v7_projects,updated_at,timestamp with time zone,YES
+v7_timesheets,id,uuid,NO
+v7_timesheets,employee_id,uuid,NO
+v7_timesheets,project_id,uuid,NO
+v7_timesheets,work_date,date,NO
+v7_timesheets,hours,numeric,NO
+v7_timesheets,day_type,USER-DEFINED,YES
+v7_timesheets,data_source,USER-DEFINED,NO
+v7_timesheets,source_filename,text,YES
+v7_timesheets,source_row,integer,YES
+v7_timesheets,imported_at,timestamp with time zone,YES
+v7_timesheets,imported_by,uuid,YES
+v7_timesheets,entered_by,uuid,YES
+v7_timesheets,entered_at,timestamp with time zone,YES
+v7_timesheets,description,text,YES
+v7_timesheets,is_active,boolean,YES
+v7_timesheets,created_at,timestamp with time zone,YES
+v7_timesheets,updated_at,timestamp with time zone,YES
+v7_user_profiles,id,uuid,NO
+v7_user_profiles,email,text,NO
+v7_user_profiles,first_name,text,YES
+v7_user_profiles,last_name,text,YES
+v7_user_profiles,display_name,text,YES
+v7_user_profiles,role,USER-DEFINED,NO
+v7_user_profiles,consultant_company_id,uuid,YES
+v7_user_profiles,client_company_id,uuid,YES
+v7_user_profiles,is_active,boolean,YES
+v7_user_profiles,invited_by,uuid,YES
+v7_user_profiles,invited_at,timestamp with time zone,YES
+v7_user_profiles,created_at,timestamp with time zone,YES
+v7_user_profiles,updated_at,timestamp with time zone,YES

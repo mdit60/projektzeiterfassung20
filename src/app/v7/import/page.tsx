@@ -1,11 +1,7 @@
 // src/app/v7/import/page.tsx
-// V7 Import-Seite - FINALE VERSION
-// VERSION: 2024-12-30-v2
-// KORREKTUREN:
-// - v7_project_assignments statt v7_project_employees
-// - client_company_id statt company_id
-// - consultant_company_id statt consultant_id
-// - Nur existierende Spalten verwendet
+// V7 Import-Seite - VERSION 7.0.2
+// DATUM: 30. Dezember 2024
+// NEU: Arbeitspakete, Budget, AP-MA-Zuordnungen
 'use client'
 
 import { useState, useCallback, useRef } from 'react'
@@ -27,6 +23,7 @@ interface ZimProjekt {
   zuwendung: number
   gesamt_pm: number
   gesamt_pk: number
+  laufzeit_monate: number
 }
 
 interface ZimAntragsteller {
@@ -61,20 +58,47 @@ interface ZimMitarbeiter {
   pm_pro_jahr: Record<number, number>
 }
 
-interface ZimAntrag {
-  projekt: ZimProjekt
-  antragsteller: ZimAntragsteller
-  mitarbeiter: ZimMitarbeiter[]
-  arbeitspakete: Array<{
-    ap_nr: string
-    beschreibung: string
-    von: string
-    bis: string
+interface ZimArbeitspaket {
+  ap_nummer: number
+  ap_code: string
+  name: string
+  start_monat: number | null
+  ende_monat: number | null
+  gesamt_pm: number
+  mitarbeiter_zuordnungen: Array<{
     ma_nr: number
     pm: number
   }>
+}
+
+interface ZimBudget {
+  gesamtkosten: number
+  personalkosten: number
+  materialkosten: number
+  fremdleistungen: number
+  gemeinkosten: number
+  foerderquote: number
+  foerdersumme: number
+  eigenanteil: number
+  laufzeit_monate: number
+  gesamt_pm: number
+}
+
+interface ZimAntrag {
+  projekt: ZimProjekt
+  antragsteller: ZimAntragsteller
+  budget: ZimBudget
+  mitarbeiter: ZimMitarbeiter[]
+  arbeitspakete: ZimArbeitspaket[]
   parse_datum: string
   quell_datei: string
+  statistik: {
+    anzahl_mitarbeiter: number
+    anzahl_arbeitspakete: number
+    gesamt_pm: number
+    gesamt_pk: number
+    laufzeit_monate: number
+  }
 }
 
 type Tab = 'zim-pdf' | 'stundennachweis' | 'manuell'
@@ -103,6 +127,75 @@ const BUNDESLAENDER: Record<string, string> = {
   'ST': 'Sachsen-Anhalt',
   'SH': 'Schleswig-Holstein',
   'TH': 'Thüringen',
+}
+
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
+// Bundesland-Code extrahieren (z.B. "Schleswig-Holstein" -> "DE-SH")
+function extractBundeslandCode(bundesland: string): string {
+  if (!bundesland) return 'DE-XX'
+  
+  const mapping: Record<string, string> = {
+    'baden-württemberg': 'DE-BW',
+    'bayern': 'DE-BY',
+    'berlin': 'DE-BE',
+    'brandenburg': 'DE-BB',
+    'bremen': 'DE-HB',
+    'hamburg': 'DE-HH',
+    'hessen': 'DE-HE',
+    'mecklenburg-vorpommern': 'DE-MV',
+    'niedersachsen': 'DE-NI',
+    'nordrhein-westfalen': 'DE-NW',
+    'rheinland-pfalz': 'DE-RP',
+    'saarland': 'DE-SL',
+    'sachsen': 'DE-SN',
+    'sachsen-anhalt': 'DE-ST',
+    'schleswig-holstein': 'DE-SH',
+    'thüringen': 'DE-TH',
+  }
+  
+  const normalized = bundesland.toLowerCase().trim()
+  return mapping[normalized] || `DE-${bundesland.substring(0, 2).toUpperCase()}`
+}
+
+// Deutsches Datum zu ISO konvertieren
+function parseGermanDate(dateStr: string): string | null {
+  if (!dateStr) return null
+  
+  // Format: DD.MM.YYYY -> YYYY-MM-DD
+  const match = dateStr.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/)
+  if (match) {
+    const [, day, month, year] = match
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
+  }
+  
+  // Falls bereits ISO-Format
+  if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    return dateStr
+  }
+  
+  return null
+}
+
+// Datum formatieren für Anzeige
+function formatDate(dateStr: string): string {
+  if (!dateStr) return '-'
+  // Falls ISO-Format, zu deutschem Format
+  if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    const [year, month, day] = dateStr.split('-')
+    return `${day}.${month}.${year}`
+  }
+  return dateStr
+}
+
+// Währung formatieren
+function formatCurrency(value: number): string {
+  return new Intl.NumberFormat('de-DE', { 
+    style: 'currency', 
+    currency: 'EUR' 
+  }).format(value)
 }
 
 // ============================================
@@ -194,7 +287,8 @@ export default function V7ImportPage() {
   }, [])
 
   // ============================================
-  // IMPORT IN DATENBANK - FINALE VERSION
+  // IMPORT IN DATENBANK - VERSION 7.0.2
+  // Mit Arbeitspaketen, Budget und AP-MA-Zuordnungen
   // ============================================
 
   const handleImportToDatabase = useCallback(async () => {
@@ -223,8 +317,12 @@ export default function V7ImportPage() {
       }
 
       const consultantCompanyId = userProfile.consultant_company_id
+      const quellDatei = parsedData.quell_datei || 'Unbekannt'
 
-      // 1. Firma prüfen/anlegen (v7_client_companies)
+      // ============================================
+      // 1. FIRMA prüfen/anlegen (v7_client_companies)
+      // ============================================
+      
       const { data: existingCompany } = await supabase
         .from('v7_client_companies')
         .select('id')
@@ -264,7 +362,10 @@ export default function V7ImportPage() {
         console.log('Neue Firma angelegt:', companyId)
       }
 
-      // 2. Projekt prüfen/anlegen (v7_projects)
+      // ============================================
+      // 2. PROJEKT prüfen/anlegen (v7_projects)
+      // ============================================
+      
       const { data: existingProject } = await supabase
         .from('v7_projects')
         .select('id')
@@ -288,9 +389,9 @@ export default function V7ImportPage() {
             funding_format: 'ZIM',
             start_date: parseGermanDate(parsedData.projekt.start),
             end_date: parseGermanDate(parsedData.projekt.ende),
-            source_filename: parsedData.quell_datei || null,
+            source_filename: quellDatei,
             imported_at: new Date().toISOString(),
-            notes: `Förderquote: ${parsedData.projekt.foerderquote}%, Gesamtkosten: ${parsedData.projekt.gesamtkosten}€, Zuwendung: ${parsedData.projekt.zuwendung}€, PM: ${parsedData.projekt.gesamt_pm}`,
+            notes: `Laufzeit: ${parsedData.projekt.laufzeit_monate} Monate`,
             is_active: true,
           })
           .select('id')
@@ -304,10 +405,47 @@ export default function V7ImportPage() {
         console.log('Neues Projekt angelegt:', projectId)
       }
 
-      // 3. Mitarbeiter anlegen (v7_employees)
+      // ============================================
+      // 3. BUDGET anlegen (v7_project_budget)
+      // ============================================
+      
+      if (parsedData.budget) {
+        const { error: budgetError } = await supabase
+          .from('v7_project_budget')
+          .upsert({
+            project_id: projectId,
+            total_costs: parsedData.budget.gesamtkosten,
+            personnel_costs: parsedData.budget.personalkosten,
+            material_costs: parsedData.budget.materialkosten,
+            subcontract_costs: parsedData.budget.fremdleistungen,
+            overhead_costs: parsedData.budget.gemeinkosten,
+            funding_rate: parsedData.budget.foerderquote,
+            funding_amount: parsedData.budget.foerdersumme,
+            own_contribution: parsedData.budget.eigenanteil,
+            duration_months: parsedData.budget.laufzeit_monate,
+            total_person_months: parsedData.budget.gesamt_pm,
+            source_filename: quellDatei,
+            imported_at: new Date().toISOString(),
+          }, {
+            onConflict: 'project_id'
+          })
+
+        if (budgetError) {
+          console.warn('Budget-Warnung:', budgetError.message)
+        } else {
+          console.log('Budget gespeichert')
+        }
+      }
+
+      // ============================================
+      // 4. MITARBEITER anlegen (v7_employees)
+      // ============================================
+      
+      // Map: ma_nr -> employee_id (für AP-Zuordnungen)
+      const maIdMap: Map<number, string> = new Map()
       let importedEmployees = 0
       let assignedEmployees = 0
-      
+
       for (const ma of parsedData.mitarbeiter) {
         const displayName = `${ma.nachname}, ${ma.vorname}`
         
@@ -340,7 +478,7 @@ export default function V7ImportPage() {
               entry_date: parseGermanDate(ma.angestellt_seit),
               weekly_hours: ma.wochenstunden || 40,
               annual_leave_days: 30,
-              notes: `Qualifikationsgruppe: ${ma.qualifikation_gruppe}, Jahresbrutto: ${ma.jahresbrutto}€, Stundensatz: ${ma.stundensatz}€, Teilzeitfaktor: ${ma.teilzeitfaktor}`,
+              notes: `Qual.Grp: ${ma.qualifikation_gruppe}, Stundensatz: ${ma.stundensatz}€`,
               is_active: true,
             })
             .select('id')
@@ -355,7 +493,10 @@ export default function V7ImportPage() {
           console.log('Neuer MA angelegt:', displayName)
         }
 
-        // 4. MA-Projekt-Zuordnung (v7_project_assignments) - KORRIGIERT!
+        // MA-Nr zu ID mappen
+        maIdMap.set(ma.ma_nr, employeeId)
+
+        // MA-Projekt-Zuordnung (v7_project_assignments)
         const { error: assignError } = await supabase
           .from('v7_project_assignments')
           .upsert({
@@ -377,20 +518,116 @@ export default function V7ImportPage() {
         }
       }
 
+      // ============================================
+      // 5. ARBEITSPAKETE anlegen (v7_work_packages)
+      // ============================================
+      
+      let importedWorkPackages = 0
+      let importedWpAssignments = 0
+
+      for (const ap of parsedData.arbeitspakete) {
+        // Arbeitspaket anlegen oder finden
+        const { data: existingWp } = await supabase
+          .from('v7_work_packages')
+          .select('id')
+          .eq('project_id', projectId)
+          .eq('ap_number', ap.ap_nummer)
+          .maybeSingle()
+
+        let workPackageId: string
+
+        if (existingWp) {
+          workPackageId = existingWp.id
+          console.log('Bestehendes AP gefunden:', ap.ap_code)
+        } else {
+          const { data: newWp, error: wpError } = await supabase
+            .from('v7_work_packages')
+            .insert({
+              project_id: projectId,
+              ap_number: ap.ap_nummer,
+              ap_code: ap.ap_code,
+              name: ap.name,
+              start_month: ap.start_monat,
+              end_month: ap.ende_monat,
+              total_person_months: ap.gesamt_pm,
+              source_filename: quellDatei,
+              imported_at: new Date().toISOString(),
+              is_active: true,
+            })
+            .select('id')
+            .single()
+
+          if (wpError) {
+            console.error('AP-Fehler:', wpError, 'für', ap.ap_code)
+            continue
+          }
+          workPackageId = newWp.id
+          importedWorkPackages++
+          console.log('Neues AP angelegt:', ap.ap_code, ap.name)
+        }
+
+        // ============================================
+        // 6. AP-MA-ZUORDNUNGEN (v7_work_package_assignments)
+        // ============================================
+        
+        for (const zuordnung of ap.mitarbeiter_zuordnungen) {
+          const employeeId = maIdMap.get(zuordnung.ma_nr)
+          
+          if (!employeeId) {
+            console.warn(`MA ${zuordnung.ma_nr} nicht gefunden für AP ${ap.ap_code}`)
+            continue
+          }
+
+          // Stundensatz des MA finden
+          const ma = parsedData.mitarbeiter.find(m => m.ma_nr === zuordnung.ma_nr)
+          const stundensatz = ma?.stundensatz || 0
+
+          const { error: wpaError } = await supabase
+            .from('v7_work_package_assignments')
+            .upsert({
+              work_package_id: workPackageId,
+              employee_id: employeeId,
+              planned_person_months: zuordnung.pm,
+              planned_hours: zuordnung.pm * 140, // 1 PM = 140 Stunden
+              hourly_rate: stundensatz,
+              planned_costs: zuordnung.pm * 140 * stundensatz,
+              source_filename: quellDatei,
+              imported_at: new Date().toISOString(),
+              is_active: true,
+            }, {
+              onConflict: 'work_package_id,employee_id'
+            })
+
+          if (wpaError) {
+            console.warn('AP-Zuordnung-Warnung:', wpaError.message)
+          } else {
+            importedWpAssignments++
+          }
+        }
+      }
+
+      // ============================================
+      // ERFOLG
+      // ============================================
+      
       setState({
         loading: false,
         error: '',
-        success: `✅ Import erfolgreich! Firma "${parsedData.antragsteller.firma}", Projekt "${parsedData.projekt.kurzname || parsedData.projekt.name}", ${importedEmployees} neue Mitarbeiter angelegt, ${assignedEmployees} Projektzuordnungen erstellt.`
+        success: `✅ Import erfolgreich!\n` +
+          `• Firma: "${parsedData.antragsteller.firma}"\n` +
+          `• Projekt: "${parsedData.projekt.kurzname || parsedData.projekt.name}" (${parsedData.projekt.fkz})\n` +
+          `• ${importedEmployees} neue Mitarbeiter, ${assignedEmployees} Projektzuordnungen\n` +
+          `• ${importedWorkPackages} Arbeitspakete, ${importedWpAssignments} AP-Zuordnungen`
       })
 
-      // Reset nach 5 Sekunden
+      // Reset nach 10 Sekunden
       setTimeout(() => {
         setParsedData(null)
         setSelectedFile(null)
         if (fileInputRef.current) {
           fileInputRef.current.value = ''
         }
-      }, 5000)
+      }, 10000)
 
     } catch (err) {
       const error = err as Error
@@ -400,64 +637,6 @@ export default function V7ImportPage() {
   }, [parsedData, supabase])
 
   // ============================================
-  // HELPERS
-  // ============================================
-
-  function extractBundeslandCode(bundesland: string): string {
-    if (!bundesland) return 'DE-XX'
-    const match = bundesland.match(/^([A-Z]{2})\s/)
-    if (match) return `DE-${match[1]}`
-    for (const [code, name] of Object.entries(BUNDESLAENDER)) {
-      if (bundesland.includes(name)) return `DE-${code}`
-    }
-    return 'DE-XX'
-  }
-
-  // Konvertiert deutsches Datum (DD.MM.YYYY) zu ISO (YYYY-MM-DD)
-  function parseGermanDate(dateStr: string): string | null {
-    if (!dateStr) return null
-    
-    // Bereits im ISO-Format?
-    if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
-      return dateStr.substring(0, 10)
-    }
-    
-    // Deutsches Format DD.MM.YYYY oder D.M.YYYY
-    const match = dateStr.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})/)
-    if (match) {
-      const day = match[1].padStart(2, '0')
-      const month = match[2].padStart(2, '0')
-      const year = match[3]
-      return `${year}-${month}-${day}`
-    }
-    
-    // Fallback: versuche Date.parse
-    try {
-      const parsed = new Date(dateStr)
-      if (!isNaN(parsed.getTime())) {
-        return parsed.toISOString().substring(0, 10)
-      }
-    } catch {
-      // ignorieren
-    }
-    
-    return null
-  }
-
-  function formatCurrency(value: number): string {
-    return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(value || 0)
-  }
-
-  function formatDate(dateStr: string): string {
-    if (!dateStr) return '-'
-    try {
-      return new Date(dateStr).toLocaleDateString('de-DE')
-    } catch {
-      return dateStr
-    }
-  }
-
-  // ============================================
   // RENDER
   // ============================================
 
@@ -465,144 +644,124 @@ export default function V7ImportPage() {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b">
-        <div className="max-w-7xl mx-auto px-6 py-4">
+        <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Import</h1>
-              <p className="text-sm text-gray-500">Projekte und Daten importieren</p>
+              <h1 className="text-2xl font-bold text-gray-900">V7 Import</h1>
+              <p className="text-sm text-gray-500">Projekte, Firmen und Mitarbeiter importieren</p>
             </div>
             <button
               onClick={() => router.push('/v7')}
-              className="px-4 py-2 text-gray-600 hover:text-gray-900"
+              className="px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
             >
-              ← Zurück
+              ← Zurück zur Übersicht
             </button>
           </div>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="bg-white border-b">
-        <div className="max-w-7xl mx-auto px-6">
-          <nav className="flex space-x-8">
-            {[
-              { id: 'zim-pdf', label: '📄 ZIM-Projektantrag', desc: 'PDF Import' },
-              { id: 'stundennachweis', label: '📊 Stundennachweis', desc: 'Excel Import' },
-              { id: 'manuell', label: '✏️ Manuell', desc: 'Direkteingabe' },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as Tab)}
-                className={`
-                  py-4 px-1 border-b-2 font-medium text-sm transition-colors
-                  ${activeTab === tab.id
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }
-                `}
-              >
-                <span className="block">{tab.label}</span>
-                <span className="block text-xs font-normal text-gray-400">{tab.desc}</span>
-              </button>
-            ))}
-          </nav>
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="max-w-7xl mx-auto px-6 py-8">
+      {/* Main Content */}
+      <div className="max-w-7xl mx-auto px-4 py-8">
+        
         {/* Status Messages */}
         {state.error && (
-          <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-            ❌ {state.error}
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-red-700 whitespace-pre-line">{state.error}</p>
           </div>
         )}
         {state.success && (
-          <div className="mb-6 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg">
-            {state.success}
+          <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <p className="text-green-700 whitespace-pre-line">{state.success}</p>
           </div>
         )}
+
+        {/* Tabs */}
+        <div className="mb-6">
+          <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg w-fit">
+            <button
+              onClick={() => setActiveTab('zim-pdf')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                activeTab === 'zim-pdf'
+                  ? 'bg-white text-blue-600 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              📄 ZIM-Antrag (PDF)
+            </button>
+            <button
+              onClick={() => setActiveTab('stundennachweis')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                activeTab === 'stundennachweis'
+                  ? 'bg-white text-blue-600 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              📊 Stundennachweis
+            </button>
+            <button
+              onClick={() => setActiveTab('manuell')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                activeTab === 'manuell'
+                  ? 'bg-white text-blue-600 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              ✏️ Manuell
+            </button>
+          </div>
+        </div>
 
         {/* TAB: ZIM-PDF */}
         {activeTab === 'zim-pdf' && (
           <div className="space-y-6">
-            {/* Info-Box */}
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <h3 className="font-medium text-blue-900 mb-2">📋 ZIM-Förderantrag importieren</h3>
-              <p className="text-sm text-blue-700 mb-3">
-                Lade einen ausgefüllten ZIM-Förderantrag (PDF) hoch. Die Daten werden automatisch extrahiert.
-              </p>
-              <div className="text-sm text-blue-600 space-y-1">
-                <p><strong>Unterstützt:</strong> Einzelprojekt, Kooperationsprojekt, Durchführbarkeitsstudie, Innovationsnetzwerk</p>
-                <p><strong>Extrahiert:</strong> Projekt, Firma, Mitarbeiter (Anlage 6.1/6.2), Arbeitspakete</p>
-              </div>
-            </div>
-
-            {/* Upload-Bereich */}
+            {/* Upload Area */}
             <div className="bg-white rounded-lg shadow-sm border p-6">
-              <h3 className="font-medium text-gray-900 mb-4 flex items-center">
-                <span className="text-blue-500 mr-2">📄</span>
-                PDF hochladen
-              </h3>
-              <p className="text-sm text-gray-500 mb-4">
-                Wähle einen ausgefüllten ZIM-Förderantrag aus. Die Analyse erfolgt automatisch.
+              <h3 className="font-medium text-gray-900 mb-4">📄 ZIM-Förderantrag hochladen</h3>
+              <p className="text-gray-500 mb-6">
+                Laden Sie einen ausgefüllten ZIM-Förderantrag (PDF) hoch. Das System extrahiert automatisch:
+                Projektdaten, Antragsteller, Mitarbeiter, Budget und <strong>Arbeitspakete mit MA-Zuordnungen</strong>.
               </p>
               
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".pdf"
-                onChange={handlePdfUpload}
-                className="hidden"
-              />
-              
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={state.loading}
-                className="w-full px-4 py-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors text-lg font-medium"
-              >
-                {state.loading ? (
-                  <span className="flex items-center justify-center">
-                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg>
-                    PDF wird analysiert...
-                  </span>
-                ) : (
-                  '📄 PDF-Datei auswählen'
-                )}
-              </button>
-              
-              {selectedFile && !state.loading && (
-                <p className="mt-3 text-sm text-gray-600 text-center">
-                  Ausgewählt: <strong>{selectedFile.name}</strong>
-                </p>
-              )}
+              <div className="flex flex-col sm:flex-row gap-4">
+                {/* PDF Upload */}
+                <label className="flex-1 cursor-pointer">
+                  <div className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+                    state.loading ? 'bg-gray-50 border-gray-300' : 'border-blue-300 hover:border-blue-400 hover:bg-blue-50'
+                  }`}>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".pdf"
+                      onChange={handlePdfUpload}
+                      disabled={state.loading}
+                      className="hidden"
+                    />
+                    <span className="text-4xl mb-2 block">📄</span>
+                    <p className="font-medium text-gray-900">
+                      {state.loading ? 'Analysiere...' : 'PDF hochladen'}
+                    </p>
+                    <p className="text-sm text-gray-500 mt-1">
+                      {selectedFile ? selectedFile.name : 'ZIM-Antrag (ausgefüllt)'}
+                    </p>
+                  </div>
+                </label>
 
-              {/* JSON Fallback */}
-              <div className="mt-6 pt-6 border-t">
-                <details className="text-sm">
-                  <summary className="text-gray-500 cursor-pointer hover:text-gray-700">
-                    Alternative: JSON-Datei hochladen (Fallback)
-                  </summary>
-                  <div className="mt-3">
+                {/* JSON Upload (Fallback) */}
+                <label className="flex-1 cursor-pointer">
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-gray-400 hover:bg-gray-50 transition-colors">
                     <input
                       ref={jsonInputRef}
                       type="file"
                       accept=".json"
                       onChange={handleJsonUpload}
+                      disabled={state.loading}
                       className="hidden"
                     />
-                    <button
-                      onClick={() => jsonInputRef.current?.click()}
-                      disabled={state.loading}
-                      className="px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 text-sm"
-                    >
-                      JSON-Datei auswählen
-                    </button>
+                    <span className="text-4xl mb-2 block">📋</span>
+                    <p className="font-medium text-gray-900">JSON laden</p>
+                    <p className="text-sm text-gray-500 mt-1">Bereits extrahierte Daten</p>
                   </div>
-                </details>
+                </label>
               </div>
             </div>
 
@@ -610,11 +769,18 @@ export default function V7ImportPage() {
             {parsedData && (
               <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
                 <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-4">
-                  <h3 className="font-bold text-lg">Vorschau: {parsedData.projekt.kurzname || parsedData.projekt.name}</h3>
-                  <p className="text-blue-100 text-sm">FKZ: {parsedData.projekt.fkz || '-'}</p>
+                  <h3 className="font-bold text-lg">
+                    Vorschau: {parsedData.projekt.kurzname || parsedData.projekt.name}
+                  </h3>
+                  <p className="text-blue-100 text-sm">
+                    FKZ: {parsedData.projekt.fkz || '-'} | 
+                    {parsedData.statistik?.anzahl_mitarbeiter || parsedData.mitarbeiter.length} MA | 
+                    {parsedData.statistik?.anzahl_arbeitspakete || parsedData.arbeitspakete?.length || 0} APs
+                  </p>
                 </div>
 
                 <div className="p-6 space-y-6">
+                  
                   {/* Projekt */}
                   <div>
                     <h4 className="font-medium text-gray-900 mb-3 flex items-center">
@@ -629,6 +795,11 @@ export default function V7ImportPage() {
                         <span className="text-gray-500 block">Laufzeit:</span>
                         <p className="font-medium">
                           {formatDate(parsedData.projekt.start)} - {formatDate(parsedData.projekt.ende)}
+                          {parsedData.projekt.laufzeit_monate > 0 && (
+                            <span className="text-gray-500 ml-1">
+                              ({parsedData.projekt.laufzeit_monate} Monate)
+                            </span>
+                          )}
                         </p>
                       </div>
                       <div>
@@ -659,7 +830,8 @@ export default function V7ImportPage() {
                       <div>
                         <span className="text-gray-500 block">Firma:</span>
                         <p className="font-medium">
-                          {parsedData.antragsteller.firma} ({parsedData.antragsteller.rechtsform})
+                          {parsedData.antragsteller.firma} 
+                          {parsedData.antragsteller.rechtsform && ` (${parsedData.antragsteller.rechtsform})`}
                         </p>
                       </div>
                       <div>
@@ -678,6 +850,33 @@ export default function V7ImportPage() {
                       </div>
                     </div>
                   </div>
+
+                  {/* Budget */}
+                  {parsedData.budget && (
+                    <div>
+                      <h4 className="font-medium text-gray-900 mb-3 flex items-center">
+                        <span className="mr-2">💰</span> Budget
+                      </h4>
+                      <div className="grid md:grid-cols-4 gap-4 text-sm bg-gray-50 p-4 rounded-lg">
+                        <div>
+                          <span className="text-gray-500 block">Personalkosten:</span>
+                          <p className="font-medium">{formatCurrency(parsedData.budget.personalkosten)}</p>
+                        </div>
+                        <div>
+                          <span className="text-gray-500 block">Materialkosten:</span>
+                          <p className="font-medium">{formatCurrency(parsedData.budget.materialkosten)}</p>
+                        </div>
+                        <div>
+                          <span className="text-gray-500 block">Fremdleistungen:</span>
+                          <p className="font-medium">{formatCurrency(parsedData.budget.fremdleistungen)}</p>
+                        </div>
+                        <div>
+                          <span className="text-gray-500 block">Gemeinkosten:</span>
+                          <p className="font-medium">{formatCurrency(parsedData.budget.gemeinkosten)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Mitarbeiter */}
                   {parsedData.mitarbeiter.length > 0 && (
@@ -722,6 +921,76 @@ export default function V7ImportPage() {
                               </td>
                               <td className="px-3 py-2 text-right">
                                 {formatCurrency(parsedData.mitarbeiter.reduce((sum, ma) => sum + (ma.kosten_gesamt || 0), 0))}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Arbeitspakete - NEU! */}
+                  {parsedData.arbeitspakete && parsedData.arbeitspakete.length > 0 && (
+                    <div>
+                      <h4 className="font-medium text-gray-900 mb-3 flex items-center">
+                        <span className="mr-2">📦</span> Arbeitspakete ({parsedData.arbeitspakete.length})
+                      </h4>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-sm">
+                          <thead className="bg-gray-100">
+                            <tr>
+                              <th className="px-3 py-2 text-left">AP</th>
+                              <th className="px-3 py-2 text-left">Bezeichnung</th>
+                              <th className="px-3 py-2 text-center">Zeitraum (PM)</th>
+                              <th className="px-3 py-2 text-right">Gesamt PM</th>
+                              <th className="px-3 py-2 text-left">MA-Zuordnungen</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {parsedData.arbeitspakete.map((ap) => (
+                              <tr key={ap.ap_nummer} className="hover:bg-gray-50">
+                                <td className="px-3 py-2 font-medium">
+                                  <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs">
+                                    {ap.ap_code}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2">{ap.name}</td>
+                                <td className="px-3 py-2 text-center">
+                                  {ap.start_monat && ap.ende_monat 
+                                    ? `M${ap.start_monat} - M${ap.ende_monat}`
+                                    : '-'
+                                  }
+                                </td>
+                                <td className="px-3 py-2 text-right font-medium">
+                                  {ap.gesamt_pm?.toFixed(1) || '0'}
+                                </td>
+                                <td className="px-3 py-2">
+                                  <div className="flex flex-wrap gap-1">
+                                    {ap.mitarbeiter_zuordnungen.map((z, idx) => {
+                                      const ma = parsedData.mitarbeiter.find(m => m.ma_nr === z.ma_nr)
+                                      return (
+                                        <span 
+                                          key={idx}
+                                          className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs"
+                                          title={ma ? `${ma.vorname} ${ma.nachname}` : `MA ${z.ma_nr}`}
+                                        >
+                                          MA{z.ma_nr}: {z.pm}PM
+                                        </span>
+                                      )
+                                    })}
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot className="bg-gray-100 font-medium">
+                            <tr>
+                              <td colSpan={3} className="px-3 py-2">Gesamt</td>
+                              <td className="px-3 py-2 text-right">
+                                {parsedData.arbeitspakete.reduce((sum, ap) => sum + (ap.gesamt_pm || 0), 0).toFixed(1)}
+                              </td>
+                              <td className="px-3 py-2 text-gray-500">
+                                {parsedData.arbeitspakete.reduce((sum, ap) => sum + ap.mitarbeiter_zuordnungen.length, 0)} Zuordnungen
                               </td>
                             </tr>
                           </tfoot>
