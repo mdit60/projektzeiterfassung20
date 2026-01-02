@@ -7,7 +7,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { createClient } from '@/lib/supabase/client'
 
 // ============================================
 // TYPEN
@@ -68,7 +68,7 @@ const BUNDESLAND_NAMES: Record<string, string> = {
 
 export default function FoerderberatungPage() {
   const router = useRouter()
-  const supabase = createClientComponentClient()
+  const supabase = createClient()
 
   // State
   const [loading, setLoading] = useState(true)
