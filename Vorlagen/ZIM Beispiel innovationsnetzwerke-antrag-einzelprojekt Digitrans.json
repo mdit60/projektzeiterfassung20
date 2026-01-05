@@ -118,33 +118,79 @@
   "arbeitspakete": [
     {
       "ap_nummer": 1,
-      "ap_code": "AP1",
+      "ap_code": "AP1.1",
       "name": "Konzeption und Entwicklung der Anforderungen aller Teilkomponenten",
       "start_monat": null,
       "ende_monat": null,
-      "gesamt_pm": 0.5,
+      "gesamt_pm": 2.0,
       "mitarbeiter_zuordnungen": [
         {
           "ma_nr": 1,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 2,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 3,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 4,
           "pm": 0.5
         }
       ]
     },
     {
-      "ap_nummer": 2,
-      "ap_code": "AP2",
+      "ap_nummer": 1,
+      "ap_code": "AP1.2",
       "name": "Konzeption und Entwickluung der Anforderungen aller Systemprozesse",
       "start_monat": null,
       "ende_monat": null,
-      "gesamt_pm": 2.5,
+      "gesamt_pm": 12.0,
       "mitarbeiter_zuordnungen": [
         {
           "ma_nr": 1,
           "pm": 2.0
         },
         {
+          "ma_nr": 2,
+          "pm": 2.0
+        },
+        {
+          "ma_nr": 3,
+          "pm": 4.0
+        },
+        {
+          "ma_nr": 4,
+          "pm": 4.0
+        }
+      ]
+    },
+    {
+      "ap_nummer": 2,
+      "ap_code": "AP2",
+      "name": "Analyse und  Auswahl des Haftvermittlers zwischen PU-Farben und UV-Farbsystem, Entwicklung und Festlegung des dafür optimalen Prozesses",
+      "start_monat": null,
+      "ende_monat": null,
+      "gesamt_pm": 5.0,
+      "mitarbeiter_zuordnungen": [
+        {
           "ma_nr": 1,
           "pm": 0.5
+        },
+        {
+          "ma_nr": 2,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 3,
+          "pm": 2.0
+        },
+        {
+          "ma_nr": 4,
+          "pm": 2.0
         }
       ]
     },
@@ -154,10 +200,22 @@
       "name": "Analyse und Auswahl einer geeigneten Digitaldruckeinheit, des UV-Farbsystems und der Druckköpfe für den Digitaldruck",
       "start_monat": null,
       "ende_monat": null,
-      "gesamt_pm": 0.5,
+      "gesamt_pm": 2.0,
       "mitarbeiter_zuordnungen": [
         {
           "ma_nr": 1,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 2,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 3,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 4,
           "pm": 0.5
         }
       ]
@@ -168,11 +226,23 @@
       "name": "Entwicklung und Konstruktion der Mechanik der Gesamtanlage",
       "start_monat": null,
       "ende_monat": null,
-      "gesamt_pm": 1.5,
+      "gesamt_pm": 9.0,
       "mitarbeiter_zuordnungen": [
         {
           "ma_nr": 1,
           "pm": 1.5
+        },
+        {
+          "ma_nr": 2,
+          "pm": 1.5
+        },
+        {
+          "ma_nr": 3,
+          "pm": 3.0
+        },
+        {
+          "ma_nr": 4,
+          "pm": 3.0
         }
       ]
     },
@@ -182,11 +252,39 @@
       "name": "Entwicklung und Konstruktion des robotergestützten Bogentransportsystems zwischen Sieb- und Digitaldruckanlage",
       "start_monat": null,
       "ende_monat": null,
-      "gesamt_pm": 0.5,
+      "gesamt_pm": 5.0,
       "mitarbeiter_zuordnungen": [
         {
           "ma_nr": 1,
           "pm": 0.5
+        },
+        {
+          "ma_nr": 2,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 3,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 4,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 1,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 2,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 3,
+          "pm": 1.0
+        },
+        {
+          "ma_nr": 4,
+          "pm": 1.0
         }
       ]
     },
@@ -196,11 +294,23 @@
       "name": "Entwicklung der digitalisierten automatischen Prozesssteuerung der Gesamtanlage und der Teilkomponenten",
       "start_monat": null,
       "ende_monat": null,
-      "gesamt_pm": 1.5,
+      "gesamt_pm": 10.0,
       "mitarbeiter_zuordnungen": [
         {
           "ma_nr": 1,
           "pm": 1.5
+        },
+        {
+          "ma_nr": 2,
+          "pm": 1.5
+        },
+        {
+          "ma_nr": 3,
+          "pm": 3.5
+        },
+        {
+          "ma_nr": 4,
+          "pm": 3.5
         }
       ]
     },
@@ -210,11 +320,23 @@
       "name": "Programmierung der Software für die Prozesssteuerung der Gesamtanlage",
       "start_monat": null,
       "ende_monat": null,
-      "gesamt_pm": 1.5,
+      "gesamt_pm": 9.0,
       "mitarbeiter_zuordnungen": [
         {
           "ma_nr": 1,
           "pm": 1.5
+        },
+        {
+          "ma_nr": 2,
+          "pm": 1.5
+        },
+        {
+          "ma_nr": 3,
+          "pm": 3.0
+        },
+        {
+          "ma_nr": 4,
+          "pm": 3.0
         }
       ]
     },
@@ -224,11 +346,23 @@
       "name": "Aufbau und Inbetriebnahme des Demonstrator",
       "start_monat": null,
       "ende_monat": null,
-      "gesamt_pm": 1.0,
+      "gesamt_pm": 6.0,
       "mitarbeiter_zuordnungen": [
         {
           "ma_nr": 1,
           "pm": 1.0
+        },
+        {
+          "ma_nr": 2,
+          "pm": 1.0
+        },
+        {
+          "ma_nr": 3,
+          "pm": 2.0
+        },
+        {
+          "ma_nr": 4,
+          "pm": 2.0
         }
       ]
     },
@@ -238,20 +372,33 @@
       "name": "Tests, Analyse, Auswertung und Dokumentation der Prozessabläufe und der Druckergebnisse",
       "start_monat": null,
       "ende_monat": null,
-      "gesamt_pm": 1.0,
+      "gesamt_pm": 4.0,
       "mitarbeiter_zuordnungen": [
         {
           "ma_nr": 1,
+          "pm": 1.0
+        },
+        {
+          "ma_nr": 2,
+          "pm": 1.0
+        },
+        {
+          "ma_nr": 3,
+          "pm": 1.0
+        },
+        {
+          "ma_nr": 4,
           "pm": 1.0
         }
       ]
     }
   ],
-  "parse_datum": "2025-12-30T22:34:57.574471",
+  "parse_datum": "2026-01-05T23:29:24.738981",
   "quell_datei": "ZIM Beispiel innovationsnetzwerke-antrag-einzelprojekt Digitrans.pdf",
   "statistik": {
     "anzahl_mitarbeiter": 4,
-    "anzahl_arbeitspakete": 9,
+    "anzahl_arbeitspakete": 10,
+    "anzahl_ap_zuordnungen": 44,
     "gesamt_pm": 64.0,
     "gesamt_pk": 261320.0,
     "laufzeit_monate": 24
