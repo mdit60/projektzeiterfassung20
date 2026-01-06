@@ -1,5 +1,5 @@
 // src/app/v7/berater/foerderung/page.tsx
-// VERSION: v7.3.0 - Firmenübersicht mit Status, GF-Anlage und Einladungssystem
+// VERSION: v7.3.1 - Firmenübersicht mit einheitlichem Header
 // DATUM: 06. Januar 2026
 
 'use client';
@@ -8,6 +8,13 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+
+// ============================================
+// FARBEN
+// ============================================
+const COLORS = {
+  beraterPortal: '#002451', // Dunkelblau
+};
 
 // ============================================
 // TYPEN
@@ -380,64 +387,25 @@ export default function FoerderungPage() {
 
         // 2. Admin-User anlegen (falls gewünscht)
         if (formData.create_admin && newCompany) {
-          // Supabase Auth User erstellen
-          const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+          // User über signUp erstellen
+          const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
             email: formData.admin_email.trim(),
             password: DEV_PASSWORD,
-            email_confirm: true,
           });
 
-          // Falls admin.createUser nicht verfügbar (Client-seitig), alternativer Ansatz
-          if (authError && authError.message.includes('not authorized')) {
-            // Fallback: User über signUp erstellen
-            const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-              email: formData.admin_email.trim(),
-              password: DEV_PASSWORD,
-            });
-
-            if (signUpError) {
-              // Firma wurde erstellt, aber User nicht
-              setFormError(`Firma erstellt, aber User-Erstellung fehlgeschlagen: ${signUpError.message}`);
-              await loadCompanies(userProfile.consultant_company_id);
-              return;
-            }
-
-            // V7 User Profile erstellen
-            if (signUpData.user) {
-              const { error: profileError } = await supabase
-                .from('v7_user_profiles')
-                .insert({
-                  id: signUpData.user.id,
-                  email: formData.admin_email.trim(),
-                  first_name: formData.admin_first_name.trim() || null,
-                  last_name: formData.admin_last_name.trim() || null,
-                  display_name: formData.admin_first_name.trim() && formData.admin_last_name.trim()
-                    ? `${formData.admin_first_name.trim()} ${formData.admin_last_name.trim()}`
-                    : formData.admin_email.split('@')[0],
-                  role: 'client_admin',
-                  client_company_id: newCompany.id,
-                  is_active: true,
-                  invited_by: userProfile.id,
-                  invited_at: new Date().toISOString(),
-                });
-
-              if (profileError) {
-                console.error('Profil-Fehler:', profileError);
-                setFormError(`Firma und Auth-User erstellt, aber Profil-Erstellung fehlgeschlagen: ${profileError.message}`);
-                await loadCompanies(userProfile.consultant_company_id);
-                return;
-              }
-            }
-          } else if (authError) {
-            setFormError(`Firma erstellt, aber User-Erstellung fehlgeschlagen: ${authError.message}`);
+          if (signUpError) {
+            // Firma wurde erstellt, aber User nicht
+            setFormError(`Firma erstellt, aber User-Erstellung fehlgeschlagen: ${signUpError.message}`);
             await loadCompanies(userProfile.consultant_company_id);
             return;
-          } else if (authData?.user) {
-            // V7 User Profile erstellen (Admin-API Variante)
+          }
+
+          // V7 User Profile erstellen
+          if (signUpData.user) {
             const { error: profileError } = await supabase
               .from('v7_user_profiles')
               .insert({
-                id: authData.user.id,
+                id: signUpData.user.id,
                 email: formData.admin_email.trim(),
                 first_name: formData.admin_first_name.trim() || null,
                 last_name: formData.admin_last_name.trim() || null,
@@ -453,6 +421,9 @@ export default function FoerderungPage() {
 
             if (profileError) {
               console.error('Profil-Fehler:', profileError);
+              setFormError(`Firma und Auth-User erstellt, aber Profil-Erstellung fehlgeschlagen: ${profileError.message}`);
+              await loadCompanies(userProfile.consultant_company_id);
+              return;
             }
           }
 
@@ -479,7 +450,7 @@ export default function FoerderungPage() {
 
       await loadCompanies(userProfile.consultant_company_id);
 
-      // Modal nach kurzer Verzögerung schließen (damit Erfolgsmeldung sichtbar ist)
+      // Modal nach kurzer Verzögerung schließen
       setTimeout(() => {
         closeModal();
       }, 2000);
@@ -637,17 +608,17 @@ export default function FoerderungPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-[#002451] shadow-sm">
+      {/* Header - Einheitlich mit Dunkelblau */}
+      <header style={{ backgroundColor: COLORS.beraterPortal }} className="shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center gap-4">
-              <div className="bg-white rounded-lg px-3 py-1.5 text-sm font-bold text-[#002451]">
+              <div className="bg-white rounded-lg px-3 py-1.5 text-sm font-bold" style={{ color: COLORS.beraterPortal }}>
                 PZE
               </div>
               <div>
-                <h1 className="text-lg font-semibold text-white">Förderberatung</h1>
-                <p className="text-sm text-blue-200">ZIM / BMBF Projekte</p>
+                <h1 className="text-lg font-semibold text-white">Berater-Portal</h1>
+                <p className="text-sm text-blue-200">Förderberatung · ZIM / BMBF</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -1266,6 +1237,15 @@ export default function FoerderungPage() {
           </div>
         </div>
       )}
+
+      {/* Footer */}
+      <footer className="bg-white border-t mt-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <p className="text-center text-sm text-gray-500">
+            Projektzeiterfassung v7.3 · Berater-Portal · © {new Date().getFullYear()}
+          </p>
+        </div>
+      </footer>
     </div>
   );
 }

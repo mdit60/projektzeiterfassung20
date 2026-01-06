@@ -1,138 +1,292 @@
 // src/app/v7/firma/page.tsx
-// Firmen-Dashboard für Projektleiter und Mitarbeiter
-// VERSION: v7.1.0
-// DATUM: 02. Januar 2026
+// VERSION: v7.3.1 - Firmen-Dashboard mit einheitlichem Header (Cubintec-Grün)
+// DATUM: 06. Januar 2026
 
-'use client'
+'use client';
 
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { createClient } from '@/lib/supabase/client';
+
+// ============================================
+// FARBEN
+// ============================================
+const COLORS = {
+  firmenPortal: '#65A655', // Cubintec-Grün
+  beraterPortal: '#002451', // Dunkelblau
+};
+
+// ============================================
+// TYPEN
+// ============================================
 
 interface UserProfile {
-  id: string
-  email: string
-  first_name: string | null
-  last_name: string | null
-  display_name: string | null
-  role: string
-  client_company_id: string | null
+  id: string;
+  email: string;
+  role: string;
+  first_name: string | null;
+  last_name: string | null;
+  display_name: string | null;
+  client_company_id: string | null;
 }
 
 interface ClientCompany {
-  id: string
-  name: string
-  short_name: string | null
+  id: string;
+  name: string;
+  short_name: string | null;
+  street: string | null;
+  zip_code: string | null;
+  city: string | null;
+  federal_state: string | null;
+  contact_person: string | null;
+  contact_email: string | null;
 }
 
+interface DashboardStats {
+  projectCount: number;
+  employeeCount: number;
+  workPackageCount: number;
+  timesheetEntriesThisMonth: number;
+}
+
+// ============================================
+// KOMPONENTE
+// ============================================
+
 export default function FirmaDashboard() {
-  const router = useRouter()
-  const supabase = createClient()
-  
-  const [loading, setLoading] = useState(true)
-  const [profile, setProfile] = useState<UserProfile | null>(null)
-  const [company, setCompany] = useState<ClientCompany | null>(null)
+  const router = useRouter();
+  const supabase = createClient();
+
+  // State
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [company, setCompany] = useState<ClientCompany | null>(null);
+  const [stats, setStats] = useState<DashboardStats>({
+    projectCount: 0,
+    employeeCount: 0,
+    workPackageCount: 0,
+    timesheetEntriesThisMonth: 0,
+  });
+
+  // ============================================
+  // AUTH & DATEN LADEN
+  // ============================================
 
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession()
-        
-        if (!session) {
-          router.push('/login')
-          return
-        }
+    checkAuthAndLoadData();
+  }, []);
 
-        // Profil laden
-        const { data: profileData } = await supabase
-          .from('v7_user_profiles')
-          .select('*')
-          .eq('email', session.user.email)
-          .maybeSingle()
+  const checkAuthAndLoadData = async () => {
+    try {
+      // Auth prüfen
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        router.push('/login');
+        return;
+      }
 
-        if (!profileData) {
-          // Fallback zu V6 wenn kein V7-Profil
-          router.push('/dashboard')
-          return
-        }
+      // Profil laden
+      const { data: profile, error: profileError } = await supabase
+        .from('v7_user_profiles')
+        .select('*')
+        .eq('email', user.email)
+        .maybeSingle();
 
-        // Berater -> Berater-Dashboard
-        if (profileData.role === 'consultant' || profileData.role === 'system_admin') {
-          router.push('/v7/berater')
-          return
-        }
+      if (profileError || !profile) {
+        setError('Kein Profil gefunden. Bitte Administrator kontaktieren.');
+        setLoading(false);
+        return;
+      }
 
-        setProfile(profileData)
+      // Prüfen ob Firmen-Rolle
+      if (profile.role === 'consultant' || profile.role === 'system_admin') {
+        router.push('/v7/berater');
+        return;
+      }
 
-        // Firma laden
-        if (profileData.client_company_id) {
-          const { data: companyData } = await supabase
-            .from('v7_client_companies')
-            .select('*')
-            .eq('id', profileData.client_company_id)
-            .single()
+      // Prüfen ob Firma zugeordnet
+      if (!profile.client_company_id) {
+        setError('Keine Firma zugeordnet. Bitte Administrator kontaktieren.');
+        setLoading(false);
+        return;
+      }
 
-          if (companyData) {
-            setCompany(companyData)
-          }
-        }
+      setUserProfile(profile);
 
-      } catch (error) {
-        console.error('Fehler beim Laden:', error)
-      } finally {
-        setLoading(false)
+      // Firma laden
+      const { data: companyData, error: companyError } = await supabase
+        .from('v7_client_companies')
+        .select('*')
+        .eq('id', profile.client_company_id)
+        .single();
+
+      if (companyError || !companyData) {
+        setError('Firma nicht gefunden.');
+        setLoading(false);
+        return;
+      }
+
+      setCompany(companyData);
+
+      // Statistiken laden
+      await loadStats(profile.client_company_id, profile.role, profile.id);
+
+    } catch (err: any) {
+      console.error('Fehler:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadStats = async (companyId: string, role: string, userId: string) => {
+    // Projekte zählen
+    const { count: projectCount } = await supabase
+      .from('v7_projects')
+      .select('*', { count: 'exact', head: true })
+      .eq('client_company_id', companyId)
+      .eq('is_active', true);
+
+    // Mitarbeiter zählen
+    const { count: employeeCount } = await supabase
+      .from('v7_employees')
+      .select('*', { count: 'exact', head: true })
+      .eq('client_company_id', companyId)
+      .eq('is_active', true);
+
+    // Arbeitspakete zählen (über Projekte)
+    const { data: projects } = await supabase
+      .from('v7_projects')
+      .select('id')
+      .eq('client_company_id', companyId)
+      .eq('is_active', true);
+
+    let workPackageCount = 0;
+    if (projects && projects.length > 0) {
+      const projectIds = projects.map(p => p.id);
+      const { count } = await supabase
+        .from('v7_work_packages')
+        .select('*', { count: 'exact', head: true })
+        .in('project_id', projectIds)
+        .eq('is_active', true);
+      workPackageCount = count || 0;
+    }
+
+    // Zeiteinträge diesen Monat (je nach Rolle)
+    const now = new Date();
+    const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    const lastOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+
+    let timesheetQuery = supabase
+      .from('v7_timesheets')
+      .select('*', { count: 'exact', head: true })
+      .gte('work_date', firstOfMonth)
+      .lte('work_date', lastOfMonth)
+      .eq('is_active', true);
+
+    // Mitarbeiter sehen nur eigene Einträge
+    if (role === 'client_user' || role === 'employee') {
+      const { data: employee } = await supabase
+        .from('v7_employees')
+        .select('id')
+        .eq('user_id', userId)
+        .maybeSingle();
+      
+      if (employee) {
+        timesheetQuery = timesheetQuery.eq('employee_id', employee.id);
       }
     }
 
-    loadData()
-  }, [router, supabase])
+    const { count: timesheetCount } = await timesheetQuery;
+
+    setStats({
+      projectCount: projectCount || 0,
+      employeeCount: employeeCount || 0,
+      workPackageCount: workPackageCount,
+      timesheetEntriesThisMonth: timesheetCount || 0,
+    });
+  };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut()
-    router.push('/login')
-  }
+    await supabase.auth.signOut();
+    router.push('/login');
+  };
+
+  // ============================================
+  // RENDER: LOADING
+  // ============================================
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">Wird geladen...</p>
         </div>
       </div>
-    )
+    );
   }
 
-  // Rollen-basierte Anzeige
-  const isProjectLeader = profile?.role === 'project_leader' || profile?.role === 'client_admin'
-  const isEmployee = profile?.role === 'employee' || profile?.role === 'client_user'
+  // ============================================
+  // RENDER: ERROR
+  // ============================================
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="bg-white rounded-xl shadow-lg p-8 max-w-md text-center">
+          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Fehler</h2>
+          <p className="text-gray-600 mb-6">{error}</p>
+          <button
+            onClick={() => router.push('/login')}
+            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+          >
+            Zurück zum Login
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================
+  // RENDER: DASHBOARD
+  // ============================================
+
+  const isAdmin = userProfile?.role === 'client_admin' || userProfile?.role === 'project_leader';
+  const userName = userProfile?.display_name || userProfile?.first_name || userProfile?.email?.split('@')[0] || 'Benutzer';
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-gradient-to-r from-indigo-700 to-indigo-800 text-white shadow-lg">
+      {/* Header - Einheitlich mit Cubintec-Grün */}
+      <header style={{ backgroundColor: COLORS.firmenPortal }} className="shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center justify-center w-12 h-12 bg-white/20 rounded-xl">
-                <span className="text-xl font-bold">V7</span>
+            <div className="flex items-center gap-4">
+              <div className="bg-white rounded-lg px-3 py-1.5 text-sm font-bold" style={{ color: COLORS.firmenPortal }}>
+                PZE
               </div>
               <div>
-                <h1 className="text-xl font-bold">Projektzeiterfassung</h1>
-                <p className="text-indigo-200 text-sm">{company?.name || 'Firmen-Portal'}</p>
+                <h1 className="text-lg font-semibold text-white">Firmen-Portal</h1>
+                <p className="text-sm text-green-100">{company?.name}</p>
               </div>
             </div>
-
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center gap-4">
               <div className="text-right">
-                <p className="font-medium">{profile?.display_name || profile?.email}</p>
-                <p className="text-indigo-200 text-sm">
-                  {isProjectLeader ? 'Projektleiter' : 'Mitarbeiter'}
+                <p className="text-sm font-medium text-white">{userName}</p>
+                <p className="text-xs text-green-100">
+                  {isAdmin ? 'Administrator' : 'Mitarbeiter'}
                 </p>
               </div>
               <button
                 onClick={handleLogout}
-                className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                className="p-2 text-green-100 hover:text-white hover:bg-green-700 rounded-lg transition-colors"
                 title="Abmelden"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -145,102 +299,214 @@ export default function FirmaDashboard() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        {/* Begrüßung */}
-        <div className="text-center mb-12">
-          <h2 className="text-3xl font-bold text-gray-900 mb-2">
-            Willkommen, {profile?.first_name || 'Benutzer'}!
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Willkommen */}
+        <div className="mb-8">
+          <h2 className="text-2xl font-bold text-gray-900">
+            Willkommen, {userName}!
           </h2>
-          <p className="text-gray-600">
-            {company?.name || 'Ihr Firmen-Portal'}
+          <p className="text-gray-600 mt-1">
+            {isAdmin 
+              ? 'Verwalten Sie Projekte, Mitarbeiter und Zeiterfassung.' 
+              : 'Erfassen Sie hier Ihre Arbeitszeiten.'}
           </p>
         </div>
 
-        {/* Projektleiter-Ansicht */}
-        {isProjectLeader && (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-5xl mx-auto">
-            <button
-              onClick={() => router.push('/v7/firma/unternehmen')}
-              className="bg-white rounded-xl shadow-sm border hover:shadow-md hover:border-indigo-300 transition-all p-6 text-left"
-            >
-              <span className="text-3xl mb-3 block">🏢</span>
-              <h3 className="font-bold text-gray-900 mb-2">Unternehmen</h3>
-              <p className="text-sm text-gray-500">Firmendaten verwalten</p>
-            </button>
-
-            <button
-              onClick={() => router.push('/v7/firma/projekte')}
-              className="bg-white rounded-xl shadow-sm border hover:shadow-md hover:border-indigo-300 transition-all p-6 text-left"
-            >
-              <span className="text-3xl mb-3 block">📁</span>
-              <h3 className="font-bold text-gray-900 mb-2">Projekte</h3>
-              <p className="text-sm text-gray-500">FuE-Projekte verwalten</p>
-            </button>
-
-            <button
-              onClick={() => router.push('/v7/firma/mitarbeiter')}
-              className="bg-white rounded-xl shadow-sm border hover:shadow-md hover:border-indigo-300 transition-all p-6 text-left"
-            >
-              <span className="text-3xl mb-3 block">👥</span>
-              <h3 className="font-bold text-gray-900 mb-2">Mitarbeiter</h3>
-              <p className="text-sm text-gray-500">Team verwalten</p>
-            </button>
-
-            <button
-              onClick={() => router.push('/v7/firma/zeiterfassung')}
-              className="bg-white rounded-xl shadow-sm border hover:shadow-md hover:border-indigo-300 transition-all p-6 text-left"
-            >
-              <span className="text-3xl mb-3 block">⏱️</span>
-              <h3 className="font-bold text-gray-900 mb-2">Zeiterfassung</h3>
-              <p className="text-sm text-gray-500">Stunden erfassen</p>
-            </button>
-
-            <button
-              onClick={() => router.push('/v7/firma/berichte')}
-              className="bg-white rounded-xl shadow-sm border hover:shadow-md hover:border-indigo-300 transition-all p-6 text-left"
-            >
-              <span className="text-3xl mb-3 block">📊</span>
-              <h3 className="font-bold text-gray-900 mb-2">Berichte</h3>
-              <p className="text-sm text-gray-500">Auswertungen & Export</p>
-            </button>
+        {/* Statistik-Karten */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          {/* Projekte */}
+          <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500">Projekte</p>
+                <p className="text-3xl font-bold text-gray-900 mt-1">{stats.projectCount}</p>
+              </div>
+              <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                <span className="text-2xl">📁</span>
+              </div>
+            </div>
           </div>
-        )}
 
-        {/* Mitarbeiter-Ansicht (nur Zeiterfassung) */}
-        {isEmployee && (
-          <div className="max-w-lg mx-auto">
-            <div className="bg-white rounded-xl shadow-lg p-8 text-center">
-              <span className="text-6xl mb-4 block">⏱️</span>
-              <h3 className="text-xl font-bold text-gray-900 mb-4">Ihre Zeiterfassung</h3>
-              <p className="text-gray-600 mb-6">
-                Erfassen Sie Ihre Arbeitsstunden für die zugewiesenen Projekte.
-              </p>
-              <button
-                onClick={() => router.push('/v7/firma/zeiterfassung')}
-                className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-              >
-                Zur Zeiterfassung
-              </button>
+          {/* Mitarbeiter (nur für Admin) */}
+          {isAdmin && (
+            <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">Mitarbeiter</p>
+                  <p className="text-3xl font-bold text-gray-900 mt-1">{stats.employeeCount}</p>
+                </div>
+                <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                  <span className="text-2xl">👥</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Arbeitspakete */}
+          <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500">Arbeitspakete</p>
+                <p className="text-3xl font-bold text-gray-900 mt-1">{stats.workPackageCount}</p>
+              </div>
+              <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                <span className="text-2xl">📦</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Zeiteinträge diesen Monat */}
+          <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500">Einträge (Monat)</p>
+                <p className="text-3xl font-bold text-gray-900 mt-1">{stats.timesheetEntriesThisMonth}</p>
+              </div>
+              <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
+                <span className="text-2xl">⏱️</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Navigation-Kacheln */}
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Bereiche</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {/* Zeiterfassung */}
+          <Link href="/v7/firma/zeiterfassung" className="block">
+            <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100 hover:shadow-md hover:border-green-200 transition-all cursor-pointer">
+              <div className="flex items-start space-x-4">
+                <div className="w-14 h-14 bg-green-100 rounded-xl flex items-center justify-center">
+                  <span className="text-3xl">⏱️</span>
+                </div>
+                <div className="flex-1">
+                  <h4 className="text-lg font-semibold text-gray-900">Zeiterfassung</h4>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {isAdmin ? 'Arbeitszeiten aller Mitarbeiter verwalten' : 'Eigene Arbeitszeiten erfassen'}
+                  </p>
+                </div>
+                <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </div>
+            </div>
+          </Link>
+
+          {/* Projekte (nur Admin) */}
+          {isAdmin && (
+            <Link href="/v7/firma/projekte" className="block">
+              <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100 hover:shadow-md hover:border-green-200 transition-all cursor-pointer">
+                <div className="flex items-start space-x-4">
+                  <div className="w-14 h-14 bg-blue-100 rounded-xl flex items-center justify-center">
+                    <span className="text-3xl">📁</span>
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="text-lg font-semibold text-gray-900">Projekte</h4>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Projekte und Arbeitspakete verwalten
+                    </p>
+                  </div>
+                  <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </div>
+            </Link>
+          )}
+
+          {/* Mitarbeiter (nur Admin) */}
+          {isAdmin && (
+            <Link href="/v7/firma/mitarbeiter" className="block">
+              <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100 hover:shadow-md hover:border-green-200 transition-all cursor-pointer">
+                <div className="flex items-start space-x-4">
+                  <div className="w-14 h-14 bg-purple-100 rounded-xl flex items-center justify-center">
+                    <span className="text-3xl">👥</span>
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="text-lg font-semibold text-gray-900">Mitarbeiter</h4>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Mitarbeiter verwalten und einladen
+                    </p>
+                  </div>
+                  <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </div>
+            </Link>
+          )}
+
+          {/* Berichte (nur Admin) */}
+          {isAdmin && (
+            <Link href="/v7/firma/berichte" className="block">
+              <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100 hover:shadow-md hover:border-green-200 transition-all cursor-pointer">
+                <div className="flex items-start space-x-4">
+                  <div className="w-14 h-14 bg-orange-100 rounded-xl flex items-center justify-center">
+                    <span className="text-3xl">📊</span>
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="text-lg font-semibold text-gray-900">Berichte</h4>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Auswertungen und Exporte
+                    </p>
+                  </div>
+                  <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </div>
+            </Link>
+          )}
+        </div>
+
+        {/* Firmendaten (nur Admin) */}
+        {isAdmin && company && (
+          <div className="mt-8">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Firmendaten</h3>
+            <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <p className="text-sm text-gray-500">Adresse</p>
+                  <p className="text-gray-900">
+                    {company.street || '-'}<br />
+                    {company.zip_code} {company.city}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Ansprechpartner</p>
+                  <p className="text-gray-900">{company.contact_person || '-'}</p>
+                  <p className="text-gray-600 text-sm">{company.contact_email || '-'}</p>
+                </div>
+              </div>
             </div>
           </div>
         )}
 
-        {/* Hinweis: Coming Soon */}
-        <div className="mt-16 text-center">
-          <div className="inline-block bg-yellow-50 border border-yellow-200 rounded-lg px-6 py-4">
-            <span className="text-2xl mr-2">🚧</span>
-            <span className="text-yellow-800">
-              Diese Seite wird noch entwickelt. Die vollständige Funktionalität folgt in Kürze.
-            </span>
+        {/* Hinweis für normale Mitarbeiter */}
+        {!isAdmin && (
+          <div className="mt-8 bg-green-50 border border-green-100 rounded-xl p-6">
+            <div className="flex items-start space-x-3">
+              <span className="text-2xl">💡</span>
+              <div>
+                <h4 className="font-medium text-green-900">Tipp</h4>
+                <p className="text-sm text-green-700 mt-1">
+                  Erfassen Sie Ihre Arbeitszeiten regelmäßig über den Bereich "Zeiterfassung". 
+                  Bei Fragen wenden Sie sich an Ihren Projektleiter.
+                </p>
+              </div>
+            </div>
           </div>
-        </div>
+        )}
+      </main>
 
-        <div className="mt-8 text-center">
-          <p className="text-sm text-gray-400">
-            Projektzeiterfassung v7.1 · Firmen-Portal · © {new Date().getFullYear()}
+      {/* Footer */}
+      <footer className="bg-white border-t mt-auto">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <p className="text-center text-sm text-gray-500">
+            Projektzeiterfassung v7.3 · Firmen-Portal · © {new Date().getFullYear()}
           </p>
         </div>
-      </main>
+      </footer>
     </div>
-  )
+  );
 }

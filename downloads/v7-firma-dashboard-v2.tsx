@@ -1,5 +1,5 @@
 // src/app/v7/firma/page.tsx
-// VERSION: v7.3.0 - Firmen-Dashboard (Client-Sicht)
+// VERSION: v7.3.1 - Firmen-Dashboard mit einheitlichem Header (Cubintec-Grün)
 // DATUM: 06. Januar 2026
 
 'use client';
@@ -8,6 +8,14 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+
+// ============================================
+// FARBEN
+// ============================================
+const COLORS = {
+  firmenPortal: '#65A655', // Cubintec-Grün
+  beraterPortal: '#002451', // Dunkelblau
+};
 
 // ============================================
 // TYPEN
@@ -180,7 +188,6 @@ export default function FirmaDashboard() {
 
     // Mitarbeiter sehen nur eigene Einträge
     if (role === 'client_user' || role === 'employee') {
-      // Hier müssten wir den Employee-Eintrag des Users finden
       const { data: employee } = await supabase
         .from('v7_employees')
         .select('id')
@@ -215,7 +222,7 @@ export default function FirmaDashboard() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">Wird geladen...</p>
         </div>
       </div>
@@ -239,7 +246,7 @@ export default function FirmaDashboard() {
           <p className="text-gray-600 mb-6">{error}</p>
           <button
             onClick={() => router.push('/login')}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
           >
             Zurück zum Login
           </button>
@@ -257,29 +264,34 @@ export default function FirmaDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b">
+      {/* Header - Einheitlich mit Cubintec-Grün */}
+      <header style={{ backgroundColor: COLORS.firmenPortal }} className="shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
-            <div className="flex items-center space-x-4">
-              <div className="w-10 h-10 bg-green-600 text-white rounded-lg flex items-center justify-center font-bold">
-                {company?.short_name?.substring(0, 2).toUpperCase() || company?.name?.substring(0, 2).toUpperCase() || 'F'}
+            <div className="flex items-center gap-4">
+              <div className="bg-white rounded-lg px-3 py-1.5 text-sm font-bold" style={{ color: COLORS.firmenPortal }}>
+                PZE
               </div>
               <div>
-                <h1 className="text-xl font-bold text-gray-900">{company?.name}</h1>
-                <p className="text-sm text-gray-500">Firmen-Portal</p>
+                <h1 className="text-lg font-semibold text-white">Firmen-Portal</h1>
+                <p className="text-sm text-green-100">{company?.name}</p>
               </div>
             </div>
-            <div className="flex items-center space-x-4">
-              <span className="text-sm text-gray-600">
-                👤 {userName}
-                {isAdmin && <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded-full">Admin</span>}
-              </span>
+            <div className="flex items-center gap-4">
+              <div className="text-right">
+                <p className="text-sm font-medium text-white">{userName}</p>
+                <p className="text-xs text-green-100">
+                  {isAdmin ? 'Administrator' : 'Mitarbeiter'}
+                </p>
+              </div>
               <button
                 onClick={handleLogout}
-                className="text-sm text-gray-500 hover:text-gray-700"
+                className="p-2 text-green-100 hover:text-white hover:bg-green-700 rounded-lg transition-colors"
+                title="Abmelden"
               >
-                Abmelden
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
               </button>
             </div>
           </div>
@@ -362,9 +374,9 @@ export default function FirmaDashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {/* Zeiterfassung */}
           <Link href="/v7/firma/zeiterfassung" className="block">
-            <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100 hover:shadow-md hover:border-blue-200 transition-all cursor-pointer">
+            <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100 hover:shadow-md hover:border-green-200 transition-all cursor-pointer">
               <div className="flex items-start space-x-4">
-                <div className="w-14 h-14 bg-blue-100 rounded-xl flex items-center justify-center">
+                <div className="w-14 h-14 bg-green-100 rounded-xl flex items-center justify-center">
                   <span className="text-3xl">⏱️</span>
                 </div>
                 <div className="flex-1">
@@ -383,9 +395,9 @@ export default function FirmaDashboard() {
           {/* Projekte (nur Admin) */}
           {isAdmin && (
             <Link href="/v7/firma/projekte" className="block">
-              <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100 hover:shadow-md hover:border-blue-200 transition-all cursor-pointer">
+              <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100 hover:shadow-md hover:border-green-200 transition-all cursor-pointer">
                 <div className="flex items-start space-x-4">
-                  <div className="w-14 h-14 bg-green-100 rounded-xl flex items-center justify-center">
+                  <div className="w-14 h-14 bg-blue-100 rounded-xl flex items-center justify-center">
                     <span className="text-3xl">📁</span>
                   </div>
                   <div className="flex-1">
@@ -405,7 +417,7 @@ export default function FirmaDashboard() {
           {/* Mitarbeiter (nur Admin) */}
           {isAdmin && (
             <Link href="/v7/firma/mitarbeiter" className="block">
-              <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100 hover:shadow-md hover:border-blue-200 transition-all cursor-pointer">
+              <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100 hover:shadow-md hover:border-green-200 transition-all cursor-pointer">
                 <div className="flex items-start space-x-4">
                   <div className="w-14 h-14 bg-purple-100 rounded-xl flex items-center justify-center">
                     <span className="text-3xl">👥</span>
@@ -427,7 +439,7 @@ export default function FirmaDashboard() {
           {/* Berichte (nur Admin) */}
           {isAdmin && (
             <Link href="/v7/firma/berichte" className="block">
-              <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100 hover:shadow-md hover:border-blue-200 transition-all cursor-pointer">
+              <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100 hover:shadow-md hover:border-green-200 transition-all cursor-pointer">
                 <div className="flex items-start space-x-4">
                   <div className="w-14 h-14 bg-orange-100 rounded-xl flex items-center justify-center">
                     <span className="text-3xl">📊</span>
@@ -456,7 +468,7 @@ export default function FirmaDashboard() {
                 <div>
                   <p className="text-sm text-gray-500">Adresse</p>
                   <p className="text-gray-900">
-                    {company.street}<br />
+                    {company.street || '-'}<br />
                     {company.zip_code} {company.city}
                   </p>
                 </div>
@@ -472,12 +484,12 @@ export default function FirmaDashboard() {
 
         {/* Hinweis für normale Mitarbeiter */}
         {!isAdmin && (
-          <div className="mt-8 bg-blue-50 border border-blue-100 rounded-xl p-6">
+          <div className="mt-8 bg-green-50 border border-green-100 rounded-xl p-6">
             <div className="flex items-start space-x-3">
               <span className="text-2xl">💡</span>
               <div>
-                <h4 className="font-medium text-blue-900">Tipp</h4>
-                <p className="text-sm text-blue-700 mt-1">
+                <h4 className="font-medium text-green-900">Tipp</h4>
+                <p className="text-sm text-green-700 mt-1">
                   Erfassen Sie Ihre Arbeitszeiten regelmäßig über den Bereich "Zeiterfassung". 
                   Bei Fragen wenden Sie sich an Ihren Projektleiter.
                 </p>
@@ -491,7 +503,7 @@ export default function FirmaDashboard() {
       <footer className="bg-white border-t mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <p className="text-center text-sm text-gray-500">
-            Projektzeiterfassung v7.3 · © {new Date().getFullYear()}
+            Projektzeiterfassung v7.3 · Firmen-Portal · © {new Date().getFullYear()}
           </p>
         </div>
       </footer>
