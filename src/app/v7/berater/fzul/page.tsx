@@ -1,13 +1,19 @@
 // src/app/v7/berater/fzul/page.tsx
-// FZul-Beratung - Firmenauswahl
-// VERSION: v7.1.1
-// DATUM: 02. Januar 2026
+// VERSION: v7.3.1 (SW-Release V7.3)
+// DATUM: 07. Januar 2026
+// ÄNDERUNG: Header-Vereinheitlichung Ozeanblau
 
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+
+// FARBEN
+const COLORS = {
+  beraterPortal: '#0369a1', // Ozeanblau
+  firmenPortal: '#65A655', // Cubintec-Grün
+};
 
 // ============================================
 // TYPEN
@@ -119,6 +125,15 @@ export default function FzulBeratungPage() {
   }, [loadData])
 
   // ============================================
+  // LOGOUT
+  // ============================================
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
+
+  // ============================================
   // GEFILTERTE FIRMEN
   // ============================================
 
@@ -136,7 +151,7 @@ export default function FzulBeratungPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">Firmen werden geladen...</p>
         </div>
       </div>
@@ -149,34 +164,43 @@ export default function FzulBeratungPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-gradient-to-r from-green-700 to-green-800 text-white shadow-lg">
+      {/* Header - Einheitlich Ozeanblau */}
+      <header style={{ backgroundColor: COLORS.beraterPortal }} className="shadow-sm">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
-            {/* Logo & Titel */}
-            <div className="flex items-center space-x-3">
-              <div className="flex items-center justify-center w-10 h-10 bg-white/20 rounded-lg">
-                <span className="text-sm font-bold">PZE</span>
-              </div>
-              <div>
-                <h1 className="text-lg font-bold">FZul-Beratung</h1>
-                <p className="text-green-200 text-xs">Forschungszulage §35a EStG</p>
-              </div>
-            </div>
-
-            {/* Zurück & User */}
-            <div className="flex items-center space-x-4">
+            {/* Links: Zurück + PZE + Titel */}
+            <div className="flex items-center gap-4">
               <button
                 onClick={() => router.push('/v7/berater')}
-                className="text-green-200 hover:text-white text-sm flex items-center gap-1"
+                className="text-blue-200 hover:text-white flex items-center gap-1"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
                 Zurück
               </button>
-              <span className="text-white/30">|</span>
-              <span className="text-sm">{profile?.display_name}</span>
+              <div className="bg-white rounded-lg px-3 py-1.5 text-sm font-bold" style={{ color: COLORS.beraterPortal }}>
+                PZE
+              </div>
+              <div>
+                <h1 className="text-lg font-semibold text-white">Berater-Portal</h1>
+                <p className="text-sm text-blue-200">FZul-Beratung · Forschungszulage §35a EStG</p>
+              </div>
+            </div>
+
+            {/* Rechts: Benutzer + Abmelden */}
+            <div className="flex items-center gap-4">
+              <span className="text-white text-sm">{profile?.display_name}</span>
+              <button
+                onClick={handleLogout}
+                className="text-blue-200 hover:text-white flex items-center gap-1"
+                title="Abmelden"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                Abmelden
+              </button>
             </div>
           </div>
         </div>
@@ -185,13 +209,13 @@ export default function FzulBeratungPage() {
       {/* Main Content */}
       <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Info-Banner */}
-        <div className="mb-8 bg-green-50 border border-green-200 rounded-lg p-4">
+        <div className="mb-8 bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex items-start gap-3">
-            <svg className="w-5 h-5 text-green-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5 text-blue-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <div>
-              <p className="text-green-800 text-sm">
+              <p className="text-blue-800 text-sm">
                 Wählen Sie eine Firma aus, um deren Stundennachweise zu analysieren und die verfügbaren FuE-Stunden für die Forschungszulage zu ermitteln.
               </p>
             </div>
@@ -212,7 +236,7 @@ export default function FzulBeratungPage() {
               placeholder="Suchen..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
+              className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
             />
             <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -240,7 +264,7 @@ export default function FzulBeratungPage() {
             {!searchTerm && (
               <button
                 onClick={() => router.push('/v7/berater/foerderung')}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
               >
                 Zur Förderberatung
               </button>
@@ -252,7 +276,7 @@ export default function FzulBeratungPage() {
               <div
                 key={company.id}
                 onClick={() => router.push(`/v7/berater/fzul/firma/${company.id}`)}
-                className="bg-white rounded-lg shadow-sm border hover:shadow-md hover:border-green-300 transition-all cursor-pointer p-5"
+                className="bg-white rounded-lg shadow-sm border hover:shadow-md hover:border-blue-300 transition-all cursor-pointer p-5"
               >
                 <div className="flex items-start justify-between mb-3">
                   <div>
@@ -261,8 +285,8 @@ export default function FzulBeratungPage() {
                       <p className="text-sm text-gray-500">{company.short_name}</p>
                     )}
                   </div>
-                  <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                    <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                     </svg>
                   </div>
@@ -282,8 +306,8 @@ export default function FzulBeratungPage() {
                 )}
 
                 <div className="pt-3 border-t flex items-center justify-between">
-                  <span className="text-sm text-green-600 font-medium">Analyse starten</span>
-                  <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <span className="text-sm text-blue-600 font-medium">Analyse starten</span>
+                  <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
                 </div>

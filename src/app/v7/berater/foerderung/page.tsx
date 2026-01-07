@@ -13,7 +13,7 @@ import { createClient } from '@/lib/supabase/client';
 // FARBEN
 // ============================================
 const COLORS = {
-  beraterPortal: '#002451', // Dunkelblau
+  beraterPortal: '#0369a1', // Dunkelblau
 };
 
 // ============================================
@@ -606,6 +606,11 @@ export default function FoerderungPage() {
   // RENDER: HAUPTSEITE
   // ============================================
 
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.push('/login');
+  };
+  
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header - Einheitlich mit Dunkelblau */}
@@ -613,7 +618,18 @@ export default function FoerderungPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center gap-4">
-              <div className="bg-white rounded-lg px-3 py-1.5 text-sm font-bold" style={{ color: COLORS.beraterPortal }}>
+              <button
+              onClick={() => router.push('/v7/berater')}
+              className="text-blue-200 hover:text-white flex items-center gap-1"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              Zurück
+            </button>
+            <div className="bg-white rounded-lg px-3 py-1.5 text-sm font-bold" style={{ color: COLORS.beraterPortal }}>
+
+
                 PZE
               </div>
               <div>
@@ -621,18 +637,19 @@ export default function FoerderungPage() {
                 <p className="text-sm text-blue-200">Förderberatung · ZIM / BMBF</p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+           <div className="flex items-center gap-4">
+              <span className="text-white text-sm">{userProfile?.display_name}</span>
               <button
-                onClick={() => router.push('/v7/berater')}
-                className="text-blue-200 hover:text-white text-sm flex items-center gap-1"
+                onClick={handleLogout}
+                className="text-blue-200 hover:text-white flex items-center gap-1"
+                title="Abmelden"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                 </svg>
-                Zurück
+                Abmelden
               </button>
-              <span className="text-white text-sm">{userProfile?.display_name}</span>
-            </div>
+            </div> 
           </div>
         </div>
       </header>

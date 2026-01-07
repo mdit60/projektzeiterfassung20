@@ -169,7 +169,7 @@ function normalizeArbeitspakete(arbeitspakete: ZimArbeitspaketNeu[] | ZimArbeits
   if (!arbeitspakete || arbeitspakete.length === 0) return []
 
   // Prüfe ob NEUES Format (hat ap_nummer und mitarbeiter_zuordnungen)
-  const firstAP = arbeitspakete[0] as Record<string, unknown>
+  const firstAP = arbeitspakete[0] as unknown as Record<string, unknown>
   const isNewFormat = 'ap_nummer' in firstAP && 'mitarbeiter_zuordnungen' in firstAP
 
   if (isNewFormat) {
@@ -1092,7 +1092,7 @@ export default function V7ImportPage() {
             {/* Parsed Data Preview */}
             {parsedData && !importResult && (
               <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
-                <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-4">
+                <div className="bg-linear-to-r from-blue-600 to-purple-600 text-white px-6 py-4">
                   <h3 className="font-bold text-lg">Vorschau: {fixEncoding(parsedData.projekt.kurzname) || fixEncoding(parsedData.projekt.name)}</h3>
                   <p className="text-blue-100 text-sm">FKZ: {parsedData.projekt.fkz || '-'}</p>
                 </div>

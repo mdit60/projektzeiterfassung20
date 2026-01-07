@@ -1,7 +1,7 @@
 // src/app/v7/berater/foerderung/firma/[id]/page.tsx
-// VERSION: v7.1.6 - Firmen-Detailseite mit MA-AP-Zuordnung
-// DATUM: 03. Januar 2026
-// ÄNDERUNG: MA zu Arbeitspaket zuordnen mit PM-Verteilung
+// VERSION: v7.3.3 - Einheitlicher Header mit Ozeanblau
+// DATUM: 07. Januar 2026
+// ÄNDERUNG: Header vereinheitlicht - Zurück links, Abmelden rechts
 
 'use client';
 
@@ -12,6 +12,11 @@ import React, { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+// FARBEN
+const COLORS = {
+  beraterPortal: '#0369a1', // Ozeanblau
+  firmenPortal: '#65A655', // Cubintec-Grün
+};
 
 // ============================================
 // TYPEN
@@ -34,7 +39,7 @@ interface ClientCompany {
 }
 
 interface Project {
-  id: string;
+  id: string;1137
   name: string;
   short_name: string | null;
   funding_reference: string | null;
@@ -1134,38 +1139,47 @@ export default function FirmaDetailPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b">
+      {/* Header - BLAU für Berater */}
+      <header style={{ backgroundColor: COLORS.beraterPortal }} className="shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center gap-4">
               <button
-                onClick={() => router.push('/v7/berater/foerderung')}
-                className="text-gray-500 hover:text-gray-700 flex items-center gap-1"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-                Zurück
-              </button>
-              <div className="h-6 w-px bg-gray-300"></div>
+              onClick={() => router.push('/v7/berater/foerderung')}
+              className="text-blue-200 hover:text-white flex items-center gap-1"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              Zurück
+            </button>
+              <div className="bg-white rounded-lg px-3 py-1.5 text-sm font-bold" style={{ color: COLORS.beraterPortal }}>
+                PZE
+              </div>
               <div>
-                <h1 className="text-xl font-bold text-gray-900">{company.name}</h1>
-                <p className="text-sm text-gray-500">
+                <h1 className="text-lg font-semibold text-white">{company.name}</h1>
+                <p className="text-sm text-blue-200">
                   Förderberatung • {BUNDESLAND_NAMES[company.federal_state || ''] || company.federal_state || 'Kein Bundesland'}
                 </p>
               </div>
             </div>
-            <Link
-              href="/v7/berater/foerderung/import"
-              className="px-4 py-2 border border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50 text-sm font-medium"
-            >
-              + Projekt importieren
-            </Link>
+            <div className="flex items-center gap-4">
+              <span className="text-white text-sm">Berater</span>
+              <button
+                onClick={() => { supabase.auth.signOut(); router.push('/login'); }}
+                className="text-blue-200 hover:text-white flex items-center gap-1"
+                title="Abmelden"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                Abmelden
+              </button>
+            </div>
+
           </div>
         </div>
       </header>
-
       {/* Tabs */}
       <div className="bg-white border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
