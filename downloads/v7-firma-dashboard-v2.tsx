@@ -14,7 +14,7 @@ import { createClient } from '@/lib/supabase/client';
 // ============================================
 const COLORS = {
   firmenPortal: '#65A655', // Cubintec-Grün
-  beraterPortal: '#002451', // Dunkelblau
+  beraterPortal: '#0369a1', // Dunkelblau
 };
 
 // ============================================

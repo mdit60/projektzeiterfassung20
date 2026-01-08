@@ -413,11 +413,11 @@ export default function FoerderungPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-[#002451] shadow-sm">
+      <header className="bg-[#0369a1] shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center gap-4">
-              <div className="bg-white rounded-lg px-3 py-1.5 text-sm font-bold text-[#002451]">
+              <div className="bg-white rounded-lg px-3 py-1.5 text-sm font-bold text-[#0369a1]">
                 PZE
               </div>
               <div>
