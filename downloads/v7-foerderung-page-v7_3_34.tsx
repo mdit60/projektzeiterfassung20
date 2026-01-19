@@ -1,7 +1,7 @@
 // src/app/v7/berater/foerderung/page.tsx
-// VERSION: v7.3.37 - Firmenübersicht mit korrigiertem Header-Layout
+// VERSION: v7.3.34 - Firmenübersicht ohne Statistik-Zeile, Edit nur auf Detailseite
 // DATUM: 19. Januar 2026
-// ÄNDERUNG v7.3.37: Header korrigiert (Zurück links, Benutzer+Abmelden rechts), Statistik entfernt
+// ÄNDERUNG v7.3.34: Statistik-Karten entfernt, Edit-Button entfernt (Bearbeitung auf Detailseite)
 
 'use client';
 
@@ -198,12 +198,6 @@ export default function FoerderungPage() {
     } finally {
       setLoading(false);
     }
-  };
-
-  // Logout-Funktion v7.3.37
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push('/v7/login');
   };
 
   const loadCompanies = async (consultantCompanyId: string | null) => {
@@ -648,8 +642,16 @@ export default function FoerderungPage() {
       <header className="bg-[#0369a1] shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
-            {/* Links: Zurück, PZE, Titel */}
             <div className="flex items-center gap-4">
+              <div className="bg-white rounded-lg px-3 py-1.5 text-sm font-bold text-[#0369a1]">
+                PZE
+              </div>
+              <div>
+                <h1 className="text-lg font-semibold text-white">Förderberatung</h1>
+                <p className="text-sm text-blue-200">ZIM / BMBF Projekte</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
               <button
                 onClick={() => router.push('/v7/berater')}
                 className="text-blue-200 hover:text-white text-sm flex items-center gap-1"
@@ -659,27 +661,7 @@ export default function FoerderungPage() {
                 </svg>
                 Zurück
               </button>
-              <div className="h-6 w-px bg-white/30"></div>
-              <div className="bg-white rounded-lg px-3 py-1.5 text-sm font-bold text-[#0369a1]">
-                PZE
-              </div>
-              <div>
-                <h1 className="text-lg font-semibold text-white">Förderberatung</h1>
-                <p className="text-sm text-blue-200">ZIM / BMBF Projekte</p>
-              </div>
-            </div>
-            {/* Rechts: Benutzer, Abmelden */}
-            <div className="flex items-center gap-4">
               <span className="text-white text-sm">{userProfile?.display_name}</span>
-              <button
-                onClick={handleLogout}
-                className="text-blue-200 hover:text-white text-sm flex items-center gap-1"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                </svg>
-                Abmelden
-              </button>
             </div>
           </div>
         </div>

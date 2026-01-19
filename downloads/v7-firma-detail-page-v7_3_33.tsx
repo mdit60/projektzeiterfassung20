@@ -1,5 +1,5 @@
 // src/app/v7/berater/foerderung/firma/[id]/page.tsx
-// VERSION: v7.3.38 - Arbeitspakete-Liste mit Tabellenstruktur
+// VERSION: v7.3.33 - Firmendaten-Bearbeitung auf Detailseite
 // DATUM: 19. Januar 2026
 // ÄNDERUNG v7.1.6: MA zu Arbeitspaket zuordnen mit PM-Verteilung
 // ÄNDERUNG v7.3.23: Förderformat-Liste erweitert
@@ -7,13 +7,11 @@
 // ÄNDERUNG v7.3.28: Blauer Header wiederhergestellt
 // ÄNDERUNG v7.3.30: Projekt-Bearbeitung direkt in Übersicht möglich
 // ÄNDERUNG v7.3.31: Header-Farbe korrigiert auf Ozeanblau #0369a1
-// ÄNDERUNG v7.3.35: Arbeitspakete-Tab entfernt, Statistik-Karten entfernt, Firmendaten-Edit
-// ÄNDERUNG v7.3.37: Projekt importieren im Projekte-Tab, Arbeitspakete aufklappbar
-// ÄNDERUNG v7.3.38: Arbeitspakete-Tabelle mit immer sichtbaren Aktions-Buttons
+// ÄNDERUNG v7.3.33: Firmendaten-Bearbeitung Modal mit förderrelevanten Feldern
 
 'use client';
 
-// KONSTANTE: Stunden pro Personenmonat (40h/Woche Ã— 52 Wochen / 12 Monate)
+// KONSTANTE: Stunden pro Personenmonat (40h/Woche Ãƒâ€” 52 Wochen / 12 Monate)
 const HOURS_PER_PM = 173.33;
 
 import React, { useState, useEffect } from 'react';
@@ -39,7 +37,7 @@ interface ClientCompany {
   internal_notes: string | null;
   is_active: boolean;
   created_at: string;
-  // Förderrelevante Felder v7.3.35
+  // Neue förderrelevante Felder v7.3.33
   kmu_status: string | null;
   founding_year: number | null;
   industry_sector: string | null;
@@ -190,7 +188,7 @@ const EMPTY_WORKPACKAGE_FORM: WorkPackageFormData = {
   total_costs: '',
 };
 
-// Company Form v7.3.35
+// Company Edit Form v7.3.33
 interface CompanyFormData {
   name: string;
   short_name: string;
@@ -202,6 +200,7 @@ interface CompanyFormData {
   contact_email: string;
   contact_phone: string;
   internal_notes: string;
+  // Förderrelevante Daten
   kmu_status: string;
   founding_year: string;
   industry_sector: string;
@@ -233,11 +232,12 @@ const EMPTY_COMPANY_FORM: CompanyFormData = {
   vat_id: '',
 };
 
+// KMU-Status Optionen (EU-Definition)
 const KMU_STATUS_OPTIONS = [
   { value: '', label: 'Bitte wählen...' },
-  { value: 'micro', label: 'Kleinstunternehmen (< 10 MA, ≤ 2 Mio. €)' },
-  { value: 'small', label: 'Kleines Unternehmen (< 50 MA, ≤ 10 Mio. €)' },
-  { value: 'medium', label: 'Mittleres Unternehmen (< 250 MA, ≤ 50 Mio. €)' },
+  { value: 'micro', label: 'Kleinstunternehmen (< 10 MA, ≤ 2 Mio €)' },
+  { value: 'small', label: 'Kleines Unternehmen (< 50 MA, ≤ 10 Mio €)' },
+  { value: 'medium', label: 'Mittleres Unternehmen (< 250 MA, ≤ 50 Mio €)' },
   { value: 'large', label: 'Großunternehmen (≥ 250 MA)' },
 ];
 
@@ -246,7 +246,7 @@ const KMU_STATUS_OPTIONS = [
 // ============================================
 
 const BUNDESLAND_NAMES: Record<string, string> = {
-  'DE-BW': 'Baden-Württemberg',
+  'DE-BW': 'Baden-WÃ¼rttemberg',
   'DE-BY': 'Bayern',
   'DE-BE': 'Berlin',
   'DE-BB': 'Brandenburg',
@@ -261,14 +261,14 @@ const BUNDESLAND_NAMES: Record<string, string> = {
   'DE-SN': 'Sachsen',
   'DE-ST': 'Sachsen-Anhalt',
   'DE-SH': 'Schleswig-Holstein',
-  'DE-TH': 'Thüringen',
+  'DE-TH': 'ThÃ¼ringen',
 };
 
 const FUNDING_FORMATS = [
   { code: 'ZIM_EINZEL', name: 'ZIM Einzel' },
   { code: 'ZIM_KOOP', name: 'ZIM Kooperation' },
   { code: 'ZIM_NETZWERK', name: 'ZIM Netzwerk' },
-  { code: 'ZIM_DURCHFUEHRBARKEIT', name: 'ZIM Durchführbarkeitsstudie' },
+  { code: 'ZIM_DURCHFUEHRBARKEIT', name: 'ZIM DurchfÃ¼hrbarkeitsstudie' },
   { code: 'BMBF_KMU', name: 'BMBF KMU-innovativ' },
   { code: 'FZUL', name: 'Forschungszulage' },
   { code: 'OTHER', name: 'Sonstige' },
@@ -297,7 +297,7 @@ export default function FirmaDetailPage() {
   const [wpAssignments, setWPAssignments] = useState<WorkPackageAssignment[]>([]);
   
   // Tab-State
-  const [activeTab, setActiveTab] = useState<'overview' | 'projects' | 'employees'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'projects' | 'employees' | 'workpackages'>('overview');
   
   // Expandierte Projekte
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
@@ -337,7 +337,7 @@ export default function FirmaDetailPage() {
   const [deleteType, setDeleteType] = useState<'project' | 'employee' | 'workpackage'>('project');
   const [itemToDelete, setItemToDelete] = useState<Project | Employee | WorkPackage | null>(null);
 
-  // Company Modal State v7.3.35
+  // Company Edit Modal State v7.3.33
   const [showCompanyModal, setShowCompanyModal] = useState(false);
   const [companyFormData, setCompanyFormData] = useState<CompanyFormData>(EMPTY_COMPANY_FORM);
   const [companyFormError, setCompanyFormError] = useState<string | null>(null);
@@ -739,7 +739,7 @@ export default function FirmaDetailPage() {
       return;
     }
     if (!wpFormData.project_id) {
-      setWPFormError('Bitte wählen Sie ein Projekt');
+      setWPFormError('Bitte wÃ¤hlen Sie ein Projekt');
       return;
     }
     if (!wpFormData.ap_number) {
@@ -771,7 +771,7 @@ export default function FirmaDetailPage() {
 
         if (insertError) {
           if (insertError.code === '23505') {
-            setWPFormError('Ein Arbeitspaket mit dieser Nummer existiert bereits für dieses Projekt');
+            setWPFormError('Ein Arbeitspaket mit dieser Nummer existiert bereits fÃ¼r dieses Projekt');
           } else {
             setWPFormError(insertError.message);
           }
@@ -923,7 +923,7 @@ export default function FirmaDetailPage() {
 
   const openWPAssignmentModal = (wp: WorkPackage) => {
     setAssignmentWP(wp);
-    // PM-Werte für bestehende Zuordnungen laden
+    // PM-Werte fÃ¼r bestehende Zuordnungen laden
     const pmValues: Record<string, string> = {};
     const assigns = getWPAssignments(wp.id);
     assigns.forEach(a => {
@@ -1046,107 +1046,6 @@ export default function FirmaDetailPage() {
   };
 
   // ============================================
-  // COMPANY MODAL v7.3.35
-  // ============================================
-
-  const openCompanyEditModal = () => {
-    if (!company) return;
-    setCompanyFormData({
-      name: company.name || '',
-      short_name: company.short_name || '',
-      street: company.street || '',
-      zip_code: company.zip_code || '',
-      city: company.city || '',
-      federal_state: company.federal_state || '',
-      contact_person: company.contact_person || '',
-      contact_email: company.contact_email || '',
-      contact_phone: company.contact_phone || '',
-      internal_notes: company.internal_notes || '',
-      kmu_status: company.kmu_status || '',
-      founding_year: company.founding_year?.toString() || '',
-      industry_sector: company.industry_sector || '',
-      employee_count: company.employee_count?.toString() || '',
-      annual_revenue: company.annual_revenue?.toString() || '',
-      balance_sheet_total: company.balance_sheet_total?.toString() || '',
-      commercial_register: company.commercial_register || '',
-      vat_id: company.vat_id || '',
-    });
-    setCompanyFormError(null);
-    setShowCompanyModal(true);
-  };
-
-  const closeCompanyModal = () => {
-    setShowCompanyModal(false);
-    setCompanyFormData(EMPTY_COMPANY_FORM);
-    setCompanyFormError(null);
-  };
-
-  const handleSaveCompany = async () => {
-    if (!company) return;
-    
-    if (!companyFormData.name.trim()) {
-      setCompanyFormError('Firmenname ist erforderlich');
-      return;
-    }
-    
-    if (companyFormData.contact_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(companyFormData.contact_email)) {
-      setCompanyFormError('Ungültige E-Mail-Adresse');
-      return;
-    }
-    
-    if (companyFormData.zip_code && !/^\d{5}$/.test(companyFormData.zip_code)) {
-      setCompanyFormError('PLZ muss 5 Ziffern haben');
-      return;
-    }
-
-    setSaving(true);
-    setCompanyFormError(null);
-
-    try {
-      const updateData = {
-        name: companyFormData.name.trim(),
-        short_name: companyFormData.short_name.trim() || null,
-        street: companyFormData.street.trim() || null,
-        zip_code: companyFormData.zip_code.trim() || null,
-        city: companyFormData.city.trim() || null,
-        federal_state: companyFormData.federal_state || null,
-        contact_person: companyFormData.contact_person.trim() || null,
-        contact_email: companyFormData.contact_email.trim() || null,
-        contact_phone: companyFormData.contact_phone.trim() || null,
-        internal_notes: companyFormData.internal_notes.trim() || null,
-        kmu_status: companyFormData.kmu_status || null,
-        founding_year: companyFormData.founding_year ? parseInt(companyFormData.founding_year) : null,
-        industry_sector: companyFormData.industry_sector.trim() || null,
-        employee_count: companyFormData.employee_count ? parseInt(companyFormData.employee_count) : null,
-        annual_revenue: companyFormData.annual_revenue ? parseFloat(companyFormData.annual_revenue) : null,
-        balance_sheet_total: companyFormData.balance_sheet_total ? parseFloat(companyFormData.balance_sheet_total) : null,
-        commercial_register: companyFormData.commercial_register.trim() || null,
-        vat_id: companyFormData.vat_id.trim() || null,
-      };
-
-      const { error: updateError } = await supabase
-        .from('v7_client_companies')
-        .update(updateData)
-        .eq('id', company.id);
-
-      if (updateError) throw updateError;
-
-      setCompany({ ...company, ...updateData });
-      closeCompanyModal();
-    } catch (err: any) {
-      setCompanyFormError(err.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const getKmuStatusLabel = (status: string | null): string => {
-    if (!status) return '-';
-    const option = KMU_STATUS_OPTIONS.find(o => o.value === status);
-    return option ? option.label : status;
-  };
-
-  // ============================================
   // DELETE
   // ============================================
 
@@ -1188,6 +1087,119 @@ export default function FirmaDetailPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  // ============================================
+  // COMPANY EDIT MODAL v7.3.33
+  // ============================================
+
+  const openCompanyEditModal = () => {
+    if (!company) return;
+    
+    setCompanyFormData({
+      name: company.name || '',
+      short_name: company.short_name || '',
+      street: company.street || '',
+      zip_code: company.zip_code || '',
+      city: company.city || '',
+      federal_state: company.federal_state || '',
+      contact_person: company.contact_person || '',
+      contact_email: company.contact_email || '',
+      contact_phone: company.contact_phone || '',
+      internal_notes: company.internal_notes || '',
+      kmu_status: company.kmu_status || '',
+      founding_year: company.founding_year?.toString() || '',
+      industry_sector: company.industry_sector || '',
+      employee_count: company.employee_count?.toString() || '',
+      annual_revenue: company.annual_revenue?.toString() || '',
+      balance_sheet_total: company.balance_sheet_total?.toString() || '',
+      commercial_register: company.commercial_register || '',
+      vat_id: company.vat_id || '',
+    });
+    setCompanyFormError(null);
+    setShowCompanyModal(true);
+  };
+
+  const closeCompanyModal = () => {
+    setShowCompanyModal(false);
+    setCompanyFormData(EMPTY_COMPANY_FORM);
+    setCompanyFormError(null);
+  };
+
+  const handleSaveCompany = async () => {
+    // Validierung
+    if (!companyFormData.name.trim()) {
+      setCompanyFormError('Firmenname ist erforderlich');
+      return;
+    }
+
+    // E-Mail Validierung
+    if (companyFormData.contact_email && !companyFormData.contact_email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+      setCompanyFormError('Ungültiges E-Mail-Format');
+      return;
+    }
+
+    // PLZ Validierung (5 Ziffern)
+    if (companyFormData.zip_code && !companyFormData.zip_code.match(/^\d{5}$/)) {
+      setCompanyFormError('PLZ muss 5 Ziffern haben');
+      return;
+    }
+
+    // Gründungsjahr Validierung
+    const foundingYear = companyFormData.founding_year ? parseInt(companyFormData.founding_year) : null;
+    if (foundingYear && (foundingYear < 1800 || foundingYear > new Date().getFullYear())) {
+      setCompanyFormError('Ungültiges Gründungsjahr');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const updateData = {
+        name: companyFormData.name.trim(),
+        short_name: companyFormData.short_name.trim() || null,
+        street: companyFormData.street.trim() || null,
+        zip_code: companyFormData.zip_code.trim() || null,
+        city: companyFormData.city.trim() || null,
+        federal_state: companyFormData.federal_state || null,
+        contact_person: companyFormData.contact_person.trim() || null,
+        contact_email: companyFormData.contact_email.trim() || null,
+        contact_phone: companyFormData.contact_phone.trim() || null,
+        internal_notes: companyFormData.internal_notes.trim() || null,
+        kmu_status: companyFormData.kmu_status || null,
+        founding_year: foundingYear,
+        industry_sector: companyFormData.industry_sector.trim() || null,
+        employee_count: companyFormData.employee_count ? parseInt(companyFormData.employee_count) : null,
+        annual_revenue: companyFormData.annual_revenue ? parseFloat(companyFormData.annual_revenue) : null,
+        balance_sheet_total: companyFormData.balance_sheet_total ? parseFloat(companyFormData.balance_sheet_total) : null,
+        commercial_register: companyFormData.commercial_register.trim() || null,
+        vat_id: companyFormData.vat_id.trim() || null,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error: updateError } = await supabase
+        .from('v7_client_companies')
+        .update(updateData)
+        .eq('id', companyId);
+
+      if (updateError) {
+        setCompanyFormError(updateError.message);
+        return;
+      }
+
+      closeCompanyModal();
+      await loadAllData();
+
+    } catch (err: any) {
+      setCompanyFormError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // KMU-Status Label Helper
+  const getKmuStatusLabel = (status: string | null): string => {
+    const option = KMU_STATUS_OPTIONS.find(o => o.value === status);
+    return option?.label.split(' (')[0] || '-';
   };
 
   // ============================================
@@ -1291,14 +1303,14 @@ export default function FirmaDetailPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="bg-white rounded-lg shadow-lg p-8 max-w-md text-center">
-          <div className="text-red-500 text-5xl mb-4">⚠️</div>
+          <div className="text-red-500 text-5xl mb-4">âš ï¸</div>
           <h2 className="text-xl font-bold text-gray-900 mb-2">Fehler</h2>
           <p className="text-gray-600 mb-6">{error || 'Firma nicht gefunden'}</p>
           <button
             onClick={() => router.push('/v7/berater/foerderung')}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
           >
-            Zurück zur Übersicht
+            ZurÃ¼ck zur Ãœbersicht
           </button>
         </div>
       </div>
@@ -1311,7 +1323,7 @@ export default function FirmaDetailPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header - BLAU für Berater-Portal */}
+      {/* Header - BLAU fÃ¼r Berater-Portal */}
       <header className="text-white shadow-lg" style={{ backgroundColor: '#0369a1' }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
@@ -1323,16 +1335,22 @@ export default function FirmaDetailPage() {
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
-                Zurück
+                ZurÃ¼ck
               </button>
               <div className="h-6 w-px bg-white/30"></div>
               <div>
                 <h1 className="text-xl font-bold">{company.name}</h1>
                 <p className="text-sm text-white/80">
-                  Förderberatung · {BUNDESLAND_NAMES[company.federal_state || ''] || company.federal_state || 'Kein Bundesland'}
+                  FÃ¶rderberatung Â· {BUNDESLAND_NAMES[company.federal_state || ''] || company.federal_state || 'Kein Bundesland'}
                 </p>
               </div>
             </div>
+            <Link
+              href="/v7/berater/foerderung/import"
+              className="px-4 py-2 bg-white/10 border border-white/30 text-white rounded-lg hover:bg-white/20 text-sm font-medium"
+            >
+              + Projekt importieren
+            </Link>
           </div>
         </div>
       </header>
@@ -1342,9 +1360,10 @@ export default function FirmaDetailPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <nav className="flex gap-8">
             {[
-              { id: 'overview', label: 'Übersicht', icon: '📊' },
-              { id: 'projects', label: `Projekte (${projects.length})`, icon: '📁' },
-              { id: 'employees', label: `Mitarbeiter (${employees.length})`, icon: '👥' },
+              { id: 'overview', label: 'Ãœbersicht', icon: 'ðŸ“Š' },
+              { id: 'projects', label: `Projekte (${projects.length})`, icon: 'ðŸ“' },
+              { id: 'employees', label: `Mitarbeiter (${employees.length})`, icon: 'ðŸ‘¥' },
+              { id: 'workpackages', label: `Arbeitspakete (${workPackages.length})`, icon: 'ðŸ“‹' },
             ].map(tab => (
               <button
                 key={tab.id}
@@ -1367,25 +1386,47 @@ export default function FirmaDetailPage() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
         {/* ============================================ */}
-        {/* TAB: ÜBERSICHT */}
+        {/* TAB: ÃœBERSICHT */}
         {/* ============================================ */}
         {activeTab === 'overview' && (
           <div className="space-y-6">
+            {/* Statistik-Karten */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="text-3xl font-bold text-blue-600">{projects.length}</div>
+                <div className="text-sm text-gray-500 mt-1">FÃ¶rderprojekte</div>
+              </div>
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="text-3xl font-bold text-green-600">{employees.length}</div>
+                <div className="text-sm text-gray-500 mt-1">Mitarbeiter</div>
+              </div>
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="text-3xl font-bold text-purple-600">{workPackages.length}</div>
+                <div className="text-sm text-gray-500 mt-1">Arbeitspakete</div>
+              </div>
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="text-3xl font-bold text-orange-600">{formatCurrency(totalFunding)}</div>
+                <div className="text-sm text-gray-500 mt-1">FÃ¶rdervolumen gesamt</div>
+              </div>
+            </div>
+
             {/* Firmendaten */}
             <div className="bg-white rounded-lg shadow p-6">
-              <div className="flex items-center gap-2 mb-4">
+              <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-semibold text-gray-900">Firmendaten</h3>
                 <button
                   onClick={openCompanyEditModal}
-                  className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"
+                  className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                   title="Firmendaten bearbeiten"
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                   </svg>
                 </button>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              
+              {/* Stammdaten */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 <div>
                   <div className="text-sm text-gray-500">Firmenname</div>
                   <div className="font-medium text-gray-900">{company.name}</div>
@@ -1432,6 +1473,66 @@ export default function FirmaDetailPage() {
                   <div className="font-medium text-gray-900">{formatDate(company.created_at)}</div>
                 </div>
               </div>
+
+              {/* Förderrelevante Daten - nur anzeigen wenn mindestens ein Feld gepflegt */}
+              {(company.kmu_status || company.founding_year || company.industry_sector || 
+                company.employee_count || company.annual_revenue || company.commercial_register || company.vat_id) && (
+                <>
+                  <div className="border-t pt-4 mt-4">
+                    <h4 className="text-sm font-medium text-gray-700 mb-3">Förderrelevante Angaben</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                      {company.kmu_status && (
+                        <div>
+                          <div className="text-sm text-gray-500">KMU-Status</div>
+                          <div className="font-medium text-gray-900">{getKmuStatusLabel(company.kmu_status)}</div>
+                        </div>
+                      )}
+                      {company.founding_year && (
+                        <div>
+                          <div className="text-sm text-gray-500">Gründungsjahr</div>
+                          <div className="font-medium text-gray-900">{company.founding_year}</div>
+                        </div>
+                      )}
+                      {company.employee_count && (
+                        <div>
+                          <div className="text-sm text-gray-500">Mitarbeiterzahl</div>
+                          <div className="font-medium text-gray-900">{company.employee_count}</div>
+                        </div>
+                      )}
+                      {company.industry_sector && (
+                        <div>
+                          <div className="text-sm text-gray-500">Branche</div>
+                          <div className="font-medium text-gray-900">{company.industry_sector}</div>
+                        </div>
+                      )}
+                      {company.annual_revenue && (
+                        <div>
+                          <div className="text-sm text-gray-500">Jahresumsatz</div>
+                          <div className="font-medium text-gray-900">{formatCurrency(company.annual_revenue)}</div>
+                        </div>
+                      )}
+                      {company.balance_sheet_total && (
+                        <div>
+                          <div className="text-sm text-gray-500">Bilanzsumme</div>
+                          <div className="font-medium text-gray-900">{formatCurrency(company.balance_sheet_total)}</div>
+                        </div>
+                      )}
+                      {company.commercial_register && (
+                        <div>
+                          <div className="text-sm text-gray-500">Handelsregister</div>
+                          <div className="font-medium text-gray-900">{company.commercial_register}</div>
+                        </div>
+                      )}
+                      {company.vat_id && (
+                        <div>
+                          <div className="text-sm text-gray-500">USt-IdNr.</div>
+                          <div className="font-medium text-gray-900">{company.vat_id}</div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Aktuelle Projekte */}
@@ -1442,7 +1543,7 @@ export default function FirmaDetailPage() {
                   onClick={() => setActiveTab('projects')}
                   className="text-blue-600 hover:underline text-sm"
                 >
-                  Alle anzeigen →
+                  Alle anzeigen â†’
                 </button>
               </div>
               {projects.length === 0 ? (
@@ -1462,7 +1563,7 @@ export default function FirmaDetailPage() {
                         <span className="text-sm text-gray-500">
                           {formatDate(project.start_date)} - {formatDate(project.end_date)}
                         </span>
-                        {/* Bearbeiten/Löschen Icons */}
+                        {/* Bearbeiten/LÃ¶schen Icons */}
                         <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button
                             onClick={() => openEditProjectModal(project)}
@@ -1476,7 +1577,7 @@ export default function FirmaDetailPage() {
                           <button
                             onClick={() => openDeleteConfirmation('project', project)}
                             className="p-1.5 bg-white hover:bg-red-50 rounded text-gray-600 hover:text-red-600"
-                            title="Löschen"
+                            title="LÃ¶schen"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -1497,57 +1598,37 @@ export default function FirmaDetailPage() {
         {/* ============================================ */}
         {activeTab === 'projects' && (
           <div className="space-y-4">
-            {/* Header mit Buttons */}
+            {/* Header mit Button */}
             <div className="flex justify-between items-center">
               <h3 className="text-lg font-semibold text-gray-900">Projekte</h3>
-              <div className="flex gap-2">
-                <button
-                  onClick={openCreateProjectModal}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium flex items-center gap-2"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
-                  Neues Projekt
-                </button>
-                <Link
-                  href="/v7/berater/foerderung/import"
-                  className="px-4 py-2 border border-gray-300 bg-white text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium flex items-center gap-2"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                  </svg>
-                  Projekt importieren
-                </Link>
-              </div>
+              <button
+                onClick={openCreateProjectModal}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Neues Projekt
+              </button>
             </div>
 
             {projects.length === 0 ? (
               <div className="bg-white rounded-lg shadow p-12 text-center">
-                <div className="text-5xl mb-4">📁</div>
+                <div className="text-5xl mb-4">ðŸ“</div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">Keine Projekte vorhanden</h3>
                 <p className="text-gray-500 mb-4">Legen Sie ein neues Projekt an oder importieren Sie einen ZIM-Antrag.</p>
-                <div className="flex justify-center gap-3">
-                  <button
-                    onClick={openCreateProjectModal}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                  >
-                    + Neues Projekt
-                  </button>
-                  <Link
-                    href="/v7/berater/foerderung/import"
-                    className="px-4 py-2 border border-gray-300 bg-white text-gray-700 rounded-lg hover:bg-gray-50"
-                  >
-                    Projekt importieren
-                  </Link>
-                </div>
+                <button
+                  onClick={openCreateProjectModal}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  + Neues Projekt
+                </button>
               </div>
             ) : (
               <div className="space-y-4">
                 {projects.map(project => {
                   const budget = projectBudgets[project.id];
                   const wps = getWorkPackagesForProject(project.id);
-                  const isExpanded = expandedProjects.has(project.id);
 
                   return (
                     <div key={project.id} className="bg-white rounded-lg shadow p-6 hover:shadow-md transition-shadow group relative">
@@ -1565,7 +1646,7 @@ export default function FirmaDetailPage() {
                         <button
                           onClick={() => openDeleteConfirmation('project', project)}
                           className="p-1.5 bg-gray-100 hover:bg-red-100 rounded text-gray-600 hover:text-red-600"
-                          title="Löschen"
+                          title="LÃ¶schen"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -1597,11 +1678,11 @@ export default function FirmaDetailPage() {
                             <div className="font-semibold text-gray-900">{formatCurrency(budget.total_costs)}</div>
                           </div>
                           <div>
-                            <div className="text-xs text-gray-500 uppercase">Förderung</div>
+                            <div className="text-xs text-gray-500 uppercase">FÃ¶rderung</div>
                             <div className="font-semibold text-green-600">{formatCurrency(budget.funding_amount)}</div>
                           </div>
                           <div>
-                            <div className="text-xs text-gray-500 uppercase">Förderquote</div>
+                            <div className="text-xs text-gray-500 uppercase">FÃ¶rderquote</div>
                             <div className="font-semibold text-gray-900">{formatPercent(budget.funding_rate)}</div>
                           </div>
                           <div>
@@ -1639,7 +1720,7 @@ export default function FirmaDetailPage() {
                                   key={emp.id}
                                   className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
                                 >
-                                  👤 {emp.display_name}
+                                  ðŸ‘¤ {emp.display_name}
                                 </span>
                               ))}
                             </div>
@@ -1647,117 +1728,15 @@ export default function FirmaDetailPage() {
                         })()}
                       </div>
 
-                      {/* Arbeitspakete - klickbar zum Aufklappen */}
-                      <div className="border-t pt-3">
-                        <button
-                          onClick={() => toggleProjectExpanded(project.id)}
-                          className="w-full flex items-center justify-between text-left hover:bg-gray-50 rounded p-2 -m-2 transition-colors"
-                        >
-                          <div className="flex items-center gap-4 text-sm text-gray-600">
-                            <span className="font-medium">📋 {wps.length} Arbeitspakete</span>
-                            {wps.length > 0 && (
-                              <>
-                                <span>·</span>
-                                <span>
-                                  {wps.reduce((sum, wp) => sum + (wp.total_person_months || 0), 0).toFixed(1)} PM gesamt
-                                </span>
-                              </>
-                            )}
-                          </div>
-                          <svg
-                            className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                          </svg>
-                        </button>
-
-                        {/* Expandierte Arbeitspakete-Liste - klare Tabellenstruktur */}
-                        {isExpanded && (
-                          <div className="mt-3">
-                            {wps.length === 0 ? (
-                              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                                <span className="text-sm text-gray-500 italic">Keine Arbeitspakete vorhanden.</span>
-                                <button
-                                  onClick={() => openCreateWPModal(project.id)}
-                                  className="px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 rounded flex items-center gap-1"
-                                >
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                                  </svg>
-                                  Hinzufügen
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="border rounded-lg overflow-hidden">
-                                {/* Tabellen-Header */}
-                                <div className="bg-gray-100 px-4 py-2 flex items-center text-xs font-medium text-gray-600 uppercase border-b">
-                                  <div className="w-16">AP</div>
-                                  <div className="flex-1">Bezeichnung</div>
-                                  <div className="w-24 text-right">PM</div>
-                                  <div className="w-32 text-right">
-                                    <button
-                                      onClick={() => openCreateWPModal(project.id)}
-                                      className="text-blue-600 hover:text-blue-800 normal-case font-normal flex items-center gap-1 ml-auto"
-                                    >
-                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                                      </svg>
-                                      Hinzufügen
-                                    </button>
-                                  </div>
-                                </div>
-                                {/* Tabellen-Body */}
-                                {wps.map((wp, idx) => (
-                                  <div
-                                    key={wp.id}
-                                    className={`px-4 py-3 flex items-center hover:bg-gray-50 ${idx < wps.length - 1 ? 'border-b' : ''}`}
-                                  >
-                                    <div className="w-16">
-                                      <span className="text-xs font-mono bg-gray-200 px-1.5 py-0.5 rounded">
-                                        AP{wp.ap_number}
-                                      </span>
-                                    </div>
-                                    <div className="flex-1 text-sm text-gray-900">{wp.name}</div>
-                                    <div className="w-24 text-right text-sm text-gray-600">
-                                      {wp.total_person_months ? `${wp.total_person_months} PM` : '-'}
-                                    </div>
-                                    <div className="w-32 flex justify-end gap-1">
-                                      <button
-                                        onClick={() => openWPAssignmentModal(wp)}
-                                        className="p-1.5 text-purple-600 hover:bg-purple-100 rounded"
-                                        title="Mitarbeiter zuordnen"
-                                      >
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-                                        </svg>
-                                      </button>
-                                      <button
-                                        onClick={() => openEditWPModal(wp)}
-                                        className="p-1.5 text-gray-600 hover:bg-gray-200 rounded"
-                                        title="Bearbeiten"
-                                      >
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                                        </svg>
-                                      </button>
-                                      <button
-                                        onClick={() => openDeleteConfirmation('workpackage', wp)}
-                                        className="p-1.5 text-red-500 hover:bg-red-100 rounded"
-                                        title="Löschen"
-                                      >
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                        </svg>
-                                      </button>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
+                      <div className="flex items-center gap-4 text-sm text-gray-500">
+                        <span>ðŸ“‹ {wps.length} Arbeitspakete</span>
+                        {wps.length > 0 && (
+                          <>
+                            <span>Â·</span>
+                            <span>
+                              {wps.reduce((sum, wp) => sum + (wp.total_person_months || 0), 0).toFixed(1)} PM gesamt
+                            </span>
+                          </>
                         )}
                       </div>
                     </div>
@@ -1789,9 +1768,9 @@ export default function FirmaDetailPage() {
 
             {employees.length === 0 ? (
               <div className="bg-white rounded-lg shadow p-12 text-center">
-                <div className="text-5xl mb-4">👥</div>
+                <div className="text-5xl mb-4">ðŸ‘¥</div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">Keine Mitarbeiter vorhanden</h3>
-                <p className="text-gray-500 mb-4">Legen Sie Mitarbeiter an, die an Förderprojekten arbeiten.</p>
+                <p className="text-gray-500 mb-4">Legen Sie Mitarbeiter an, die an FÃ¶rderprojekten arbeiten.</p>
                 <button
                   onClick={openCreateEmployeeModal}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
@@ -1807,7 +1786,7 @@ export default function FirmaDetailPage() {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Position / Qualifikation</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Wochenstunden</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Beschäftigt seit</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">BeschÃ¤ftigt seit</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Aktionen</th>
                     </tr>
@@ -1852,7 +1831,7 @@ export default function FirmaDetailPage() {
                             <button
                               onClick={() => openDeleteConfirmation('employee', emp)}
                               className="p-1.5 bg-gray-100 hover:bg-red-100 rounded text-gray-600 hover:text-red-600"
-                              title="Löschen"
+                              title="LÃ¶schen"
                             >
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -1864,6 +1843,213 @@ export default function FirmaDetailPage() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ============================================ */}
+        {/* TAB: ARBEITSPAKETE */}
+        {/* ============================================ */}
+        {activeTab === 'workpackages' && (
+          <div className="space-y-4">
+            {/* Header mit Button */}
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-semibold text-gray-900">Arbeitspakete</h3>
+              <button
+                onClick={() => openCreateWPModal()}
+                disabled={projects.length === 0}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Neues Arbeitspaket
+              </button>
+            </div>
+
+            {projects.length === 0 ? (
+              <div className="bg-white rounded-lg shadow p-12 text-center">
+                <div className="text-5xl mb-4">ðŸ“‹</div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">Keine Projekte vorhanden</h3>
+                <p className="text-gray-500">Bitte legen Sie zuerst ein Projekt an, um Arbeitspakete hinzuzufÃ¼gen.</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {projects.map(project => {
+                  const wps = getWorkPackagesForProject(project.id);
+                  const isExpanded = expandedProjects.has(project.id);
+                  const projectPM = wps.reduce((sum, wp) => sum + (wp.total_person_months || 0), 0);
+
+                  return (
+                    <div key={project.id} className="bg-white rounded-lg shadow">
+                      {/* Projekt-Header */}
+                      <div className="px-6 py-4 flex justify-between items-center border-b">
+                        <button
+                          onClick={() => toggleProjectExpanded(project.id)}
+                          className="flex items-center gap-3 flex-1 text-left"
+                        >
+                          <svg
+                            className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                          <div>
+                            <div className="font-medium text-gray-900">{project.name}</div>
+                            {project.funding_reference && (
+                              <div className="text-sm text-gray-500">FKZ: {project.funding_reference}</div>
+                            )}
+                          </div>
+                        </button>
+                        <div className="flex items-center gap-4">
+                          {getFundingFormatBadge(project.funding_format)}
+                          <span className="text-sm text-gray-500">{wps.length} AP</span>
+                          {projectPM > 0 && (
+                            <span className="text-sm text-gray-500">{formatPM(projectPM)} ({pmToHours(projectPM)})</span>
+                          )}
+                          <button
+                            onClick={() => openCreateWPModal(project.id)}
+                            className="p-1.5 bg-blue-100 hover:bg-blue-200 rounded text-blue-600"
+                            title="Arbeitspaket hinzufÃ¼gen"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Arbeitspakete-Liste */}
+                      {isExpanded && (
+                        <div className="divide-y">
+                          {wps.length === 0 ? (
+                            <div className="px-6 py-8 text-center text-gray-500">
+                              Keine Arbeitspakete vorhanden.
+                              <button onClick={() => openCreateWPModal(project.id)} className="ml-2 text-blue-600 hover:underline">
+                                Jetzt anlegen
+                              </button>
+                            </div>
+                          ) : (
+                            wps.map(wp => {
+                              const wpEmps = getWPAssignedEmployees(wp.id);
+                              const wpAssigns = getWPAssignments(wp.id);
+                              const assignedPM = wpAssigns.reduce((sum, a) => sum + (a.planned_person_months || 0), 0);
+                              
+                              return (
+                                <div key={wp.id} className="px-6 py-4 pl-14 hover:bg-gray-50 group">
+                                  <div className="flex justify-between items-start">
+                                    <div className="flex-1">
+                                      <div className="flex items-center gap-2">
+                                        <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-800 text-sm font-medium">
+                                          {wp.ap_code || `AP${wp.ap_number}`}
+                                        </span>
+                                        <span className="font-medium text-gray-900">{wp.name}</span>
+                                      </div>
+                                      {wp.description && (
+                                        <p className="text-sm text-gray-500 mt-1 ml-10 line-clamp-2">{wp.description}</p>
+                                      )}
+                                      {(wp.start_month || wp.end_month) && (
+                                        <p className="text-sm text-gray-500 mt-1 ml-10">
+                                          ðŸ“… Monat {wp.start_month || '?'} - {wp.end_month || '?'}
+                                        </p>
+                                      )}
+                                      
+                                      {/* Zugeordnete MA mit PM */}
+                                      <div className="mt-2 ml-10">
+                                        <div className="flex items-center gap-2 mb-1">
+                                          <span className="text-xs text-gray-500 font-medium">Zugeordnete MA:</span>
+                                          <button
+                                            onClick={() => openWPAssignmentModal(wp)}
+                                            className="text-xs text-blue-600 hover:text-blue-800"
+                                          >
+                                            Bearbeiten
+                                          </button>
+                                        </div>
+                                        {wpEmps.length === 0 ? (
+                                          <p className="text-xs text-gray-400 italic">Keine MA zugeordnet</p>
+                                        ) : (
+                                          <div className="flex flex-wrap gap-1.5">
+                                            {wpEmps.map(emp => {
+                                              const pm = getWPAssignmentPM(wp.id, emp.id);
+                                              return (
+                                                <span
+                                                  key={emp.id}
+                                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-800"
+                                                >
+                                                  {emp.display_name}
+                                                  {pm !== null && (
+                                                    <span className="font-medium">({pm.toFixed(2)} PM)</span>
+                                                  )}
+                                                </span>
+                                              );
+                                            })}
+                                          </div>
+                                        )}
+                                        {wpEmps.length > 0 && wp.total_person_months && (
+                                          <p className="text-xs text-gray-500 mt-1">
+                                            Verteilt: {assignedPM.toFixed(2)} / {wp.total_person_months.toFixed(2)} PM
+                                            {assignedPM > wp.total_person_months && (
+                                              <span className="text-red-600 ml-1">âš ï¸ Ãœberbucht!</span>
+                                            )}
+                                          </p>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-4">
+                                      <div className="text-right">
+                                        {wp.total_person_months && (
+                                          <div className="text-sm font-medium text-gray-900">{formatPM(wp.total_person_months)}</div>
+                                        )}
+                                        {wp.total_person_months && (
+                                          <div className="text-xs text-gray-500">= {pmToHours(wp.total_person_months)}</div>
+                                        )}
+                                        {wp.total_costs && (
+                                          <div className="text-sm text-gray-500">{formatCurrency(wp.total_costs)}</div>
+                                        )}
+                                      </div>
+                                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button
+                                          onClick={() => openWPAssignmentModal(wp)}
+                                          className="p-1.5 bg-purple-100 hover:bg-purple-200 rounded text-purple-600"
+                                          title="MA zuordnen"
+                                        >
+                                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                                          </svg>
+                                        </button>
+                                        <button
+                                          onClick={() => openEditWPModal(wp)}
+                                          className="p-1.5 bg-gray-100 hover:bg-gray-200 rounded text-gray-600"
+                                          title="Bearbeiten"
+                                        >
+                                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                          </svg>
+                                        </button>
+                                        <button
+                                          onClick={() => openDeleteConfirmation('workpackage', wp)}
+                                          className="p-1.5 bg-gray-100 hover:bg-red-100 rounded text-gray-600 hover:text-red-600"
+                                          title="LÃ¶schen"
+                                        >
+                                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                          </svg>
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1912,11 +2098,11 @@ export default function FirmaDetailPage() {
                     value={projectFormData.short_name}
                     onChange={handleProjectInputChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    placeholder="Kürzel"
+                    placeholder="KÃ¼rzel"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Förderkennzeichen (FKZ)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">FÃ¶rderkennzeichen (FKZ)</label>
                   <input
                     type="text"
                     name="funding_reference"
@@ -1927,7 +2113,7 @@ export default function FirmaDetailPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Förderformat</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">FÃ¶rderformat</label>
                   <select
                     name="funding_format"
                     value={projectFormData.funding_format}
@@ -2091,7 +2277,7 @@ export default function FirmaDetailPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Beschäftigt seit</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">BeschÃ¤ftigt seit</label>
                   <input
                     type="date"
                     name="employment_start"
@@ -2101,7 +2287,7 @@ export default function FirmaDetailPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Beschäftigt bis</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">BeschÃ¤ftigt bis</label>
                   <input
                     type="date"
                     name="employment_end"
@@ -2163,7 +2349,7 @@ export default function FirmaDetailPage() {
                     disabled={wpModalMode === 'edit'}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
                   >
-                    <option value="">-- Projekt auswählen --</option>
+                    <option value="">-- Projekt auswÃ¤hlen --</option>
                     {projects.map(p => (
                       <option key={p.id} value={p.id}>
                         {p.name} {p.funding_reference ? `(${p.funding_reference})` : ''}
@@ -2271,7 +2457,7 @@ export default function FirmaDetailPage() {
                   )}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Gesamtkosten (€)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Gesamtkosten (â‚¬)</label>
                   <input
                     type="number"
                     name="total_costs"
@@ -2304,27 +2490,27 @@ export default function FirmaDetailPage() {
       )}
 
       {/* ============================================ */}
-      {/* MODAL: Löschen bestätigen */}
+      {/* MODAL: LÃ¶schen bestÃ¤tigen */}
       {/* ============================================ */}
       {showDeleteConfirm && itemToDelete && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
             <div className="p-6 text-center">
-              <div className="text-red-500 text-5xl mb-4">🗑️</div>
+              <div className="text-red-500 text-5xl mb-4">ðŸ—‘ï¸</div>
               <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                {deleteType === 'project' ? 'Projekt löschen?' : 
-                 deleteType === 'employee' ? 'Mitarbeiter löschen?' : 
-                 'Arbeitspaket löschen?'}
+                {deleteType === 'project' ? 'Projekt lÃ¶schen?' : 
+                 deleteType === 'employee' ? 'Mitarbeiter lÃ¶schen?' : 
+                 'Arbeitspaket lÃ¶schen?'}
               </h3>
               <p className="text-gray-600 mb-4">
-                Möchten Sie <strong>{getDeleteItemName()}</strong> wirklich löschen?
+                MÃ¶chten Sie <strong>{getDeleteItemName()}</strong> wirklich lÃ¶schen?
               </p>
               <p className="text-gray-500 text-sm">
                 {deleteType === 'project' 
-                  ? 'Das Projekt und zugehörige Arbeitspakete werden deaktiviert.'
+                  ? 'Das Projekt und zugehÃ¶rige Arbeitspakete werden deaktiviert.'
                   : deleteType === 'employee'
-                  ? 'Der Mitarbeiter wird deaktiviert und kann später wiederhergestellt werden.'
-                  : 'Das Arbeitspaket wird deaktiviert und kann später wiederhergestellt werden.'}
+                  ? 'Der Mitarbeiter wird deaktiviert und kann spÃ¤ter wiederhergestellt werden.'
+                  : 'Das Arbeitspaket wird deaktiviert und kann spÃ¤ter wiederhergestellt werden.'}
               </p>
             </div>
             <div className="flex gap-3 px-6 py-4 border-t bg-gray-50">
@@ -2342,7 +2528,7 @@ export default function FirmaDetailPage() {
                 disabled={saving}
                 className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
               >
-                {saving ? 'Lösche...' : 'Löschen'}
+                {saving ? 'LÃ¶sche...' : 'LÃ¶schen'}
               </button>
             </div>
           </div>
@@ -2405,11 +2591,11 @@ export default function FirmaDetailPage() {
                 )}
               </div>
 
-              {/* Verfügbare Mitarbeiter */}
+              {/* VerfÃ¼gbare Mitarbeiter */}
               <div>
                 <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
                   <span className="w-2 h-2 bg-gray-400 rounded-full"></span>
-                  Verfügbar ({getUnassignedEmployees(assignmentProject.id).length})
+                  VerfÃ¼gbar ({getUnassignedEmployees(assignmentProject.id).length})
                 </h4>
                 {getUnassignedEmployees(assignmentProject.id).length === 0 ? (
                   <p className="text-sm text-gray-400 italic pl-4">Alle Mitarbeiter sind bereits zugeordnet</p>
@@ -2430,7 +2616,7 @@ export default function FirmaDetailPage() {
                           onClick={() => handleAddAssignment(emp.id)}
                           disabled={saving}
                           className="p-1.5 text-green-600 hover:bg-green-100 rounded disabled:opacity-50"
-                          title="Zum Projekt hinzufügen"
+                          title="Zum Projekt hinzufÃ¼gen"
                         >
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -2524,7 +2710,7 @@ export default function FirmaDetailPage() {
                               min="0"
                               value={currentPM?.toString() || ''}
                               onChange={(e) => {
-                                // Lokaler State für Live-Anzeige
+                                // Lokaler State fÃ¼r Live-Anzeige
                                 const val = e.target.value;
                                 setWPAssignmentPM(prev => ({ ...prev, [emp.id]: val }));
                               }}
@@ -2567,11 +2753,11 @@ export default function FirmaDetailPage() {
                 )}
               </div>
 
-              {/* Verfügbare Mitarbeiter (nur die, die dem Projekt zugeordnet sind) */}
+              {/* VerfÃ¼gbare Mitarbeiter (nur die, die dem Projekt zugeordnet sind) */}
               <div>
                 <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
                   <span className="w-2 h-2 bg-gray-400 rounded-full"></span>
-                  Verfügbar aus Projekt ({getWPAvailableEmployees(assignmentWP).length})
+                  VerfÃ¼gbar aus Projekt ({getWPAvailableEmployees(assignmentWP).length})
                 </h4>
                 {getWPAvailableEmployees(assignmentWP).length === 0 ? (
                   <p className="text-sm text-gray-400 italic pl-4">
@@ -2610,7 +2796,7 @@ export default function FirmaDetailPage() {
                             disabled={saving}
                             className="px-3 py-1 text-sm bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50"
                           >
-                            Hinzufügen
+                            HinzufÃ¼gen
                           </button>
                         </div>
                       </div>
@@ -2633,7 +2819,7 @@ export default function FirmaDetailPage() {
       )}
 
       {/* ============================================ */}
-      {/* MODAL: FIRMA BEARBEITEN v7.3.35 */}
+      {/* MODAL: FIRMA BEARBEITEN v7.3.33 */}
       {/* ============================================ */}
       {showCompanyModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -2670,6 +2856,7 @@ export default function FirmaDetailPage() {
                       value={companyFormData.name}
                       onChange={(e) => setCompanyFormData(prev => ({ ...prev, name: e.target.value }))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Firma GmbH"
                     />
                   </div>
                   <div>
@@ -2679,6 +2866,7 @@ export default function FirmaDetailPage() {
                       value={companyFormData.short_name}
                       onChange={(e) => setCompanyFormData(prev => ({ ...prev, short_name: e.target.value }))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Firma"
                     />
                   </div>
                 </div>
@@ -2695,6 +2883,7 @@ export default function FirmaDetailPage() {
                       value={companyFormData.street}
                       onChange={(e) => setCompanyFormData(prev => ({ ...prev, street: e.target.value }))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Musterstraße 123"
                     />
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -2705,6 +2894,7 @@ export default function FirmaDetailPage() {
                         value={companyFormData.zip_code}
                         onChange={(e) => setCompanyFormData(prev => ({ ...prev, zip_code: e.target.value }))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="12345"
                         maxLength={5}
                       />
                     </div>
@@ -2715,6 +2905,7 @@ export default function FirmaDetailPage() {
                         value={companyFormData.city}
                         onChange={(e) => setCompanyFormData(prev => ({ ...prev, city: e.target.value }))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="Musterstadt"
                       />
                     </div>
                   </div>
@@ -2745,6 +2936,7 @@ export default function FirmaDetailPage() {
                       value={companyFormData.contact_person}
                       onChange={(e) => setCompanyFormData(prev => ({ ...prev, contact_person: e.target.value }))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Max Mustermann"
                     />
                   </div>
                   <div>
@@ -2754,6 +2946,7 @@ export default function FirmaDetailPage() {
                       value={companyFormData.contact_email}
                       onChange={(e) => setCompanyFormData(prev => ({ ...prev, contact_email: e.target.value }))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="kontakt@firma.de"
                     />
                   </div>
                   <div className="md:col-span-2">
@@ -2763,6 +2956,7 @@ export default function FirmaDetailPage() {
                       value={companyFormData.contact_phone}
                       onChange={(e) => setCompanyFormData(prev => ({ ...prev, contact_phone: e.target.value }))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="+49 123 456789"
                     />
                   </div>
                 </div>
@@ -2791,6 +2985,7 @@ export default function FirmaDetailPage() {
                       value={companyFormData.founding_year}
                       onChange={(e) => setCompanyFormData(prev => ({ ...prev, founding_year: e.target.value }))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="2000"
                       min="1800"
                       max={new Date().getFullYear()}
                     />
@@ -2802,6 +2997,7 @@ export default function FirmaDetailPage() {
                       value={companyFormData.employee_count}
                       onChange={(e) => setCompanyFormData(prev => ({ ...prev, employee_count: e.target.value }))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="50"
                       min="0"
                     />
                   </div>
@@ -2812,6 +3008,7 @@ export default function FirmaDetailPage() {
                       value={companyFormData.industry_sector}
                       onChange={(e) => setCompanyFormData(prev => ({ ...prev, industry_sector: e.target.value }))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Maschinenbau"
                     />
                   </div>
                   <div>
@@ -2821,6 +3018,7 @@ export default function FirmaDetailPage() {
                       value={companyFormData.annual_revenue}
                       onChange={(e) => setCompanyFormData(prev => ({ ...prev, annual_revenue: e.target.value }))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="5000000"
                       min="0"
                     />
                   </div>
@@ -2831,6 +3029,7 @@ export default function FirmaDetailPage() {
                       value={companyFormData.balance_sheet_total}
                       onChange={(e) => setCompanyFormData(prev => ({ ...prev, balance_sheet_total: e.target.value }))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="3000000"
                       min="0"
                     />
                   </div>
@@ -2865,6 +3064,7 @@ export default function FirmaDetailPage() {
                   onChange={(e) => setCompanyFormData(prev => ({ ...prev, internal_notes: e.target.value }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   rows={3}
+                  placeholder="Interne Notizen zur Firma..."
                 />
               </div>
             </div>

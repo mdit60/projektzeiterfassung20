@@ -1,8 +1,7 @@
 // src/app/v7/berater/foerderung/import/page.tsx
-// V7 Import-Seite - VERSION 7.3.39
-// DATUM: 20. Januar 2026
+// V7 Import-Seite - VERSION 7.3.36
+// DATUM: 19. Januar 2026
 // ÄNDERUNG v7.3.37: Header-Layout korrigiert (Zurück links, konsistentes Design)
-// ÄNDERUNG v7.3.39: AP-Import sucht nach ap_code statt ap_number für hierarchische Nummern (1.1, 1.2)
 'use client'
 
 import { useState, useCallback, useRef } from 'react'
@@ -479,7 +478,7 @@ export default function V7ImportPage() {
               entry_date: parseGermanDate(ma.angestellt_seit),
               weekly_hours: ma.wochenstunden || 40,
               annual_leave_days: 30,
-              notes: `Qual.Grp: ${ma.qualifikation_gruppe}, Stundensatz: ${ma.stundensatz}â‚¬`,
+              notes: `Qual.Grp: ${ma.qualifikation_gruppe}, Stundensatz: ${ma.stundensatz}€`,
               is_active: true,
             })
             .select('id')
@@ -529,13 +528,12 @@ export default function V7ImportPage() {
       const arbeitspaketeArray = parsedData.arbeitspakete || []
       
       for (const ap of arbeitspaketeArray) {
-        // Arbeitspaket anlegen oder finden - NACH AP_CODE SUCHEN (nicht ap_number!)
-        // Dies ermöglicht hierarchische AP-Nummern wie 1.1, 1.2, 2, 2.1 etc.
+        // Arbeitspaket anlegen oder finden
         const { data: existingWp } = await supabase
           .from('v7_work_packages')
           .select('id')
           .eq('project_id', projectId)
-          .eq('ap_code', ap.ap_code)
+          .eq('ap_number', ap.ap_nummer)
           .maybeSingle()
 
         let workPackageId: string
@@ -544,16 +542,11 @@ export default function V7ImportPage() {
           workPackageId = existingWp.id
           console.log('Bestehendes AP gefunden:', ap.ap_code)
         } else {
-          // ap_sub_number aus ap_code extrahieren (z.B. "AP1.2" -> 2, "AP1" -> 0)
-          const apCodeMatch = ap.ap_code.match(/AP?(\d+)(?:\.(\d+))?/i)
-          const apSubNumber = apCodeMatch && apCodeMatch[2] ? parseInt(apCodeMatch[2]) : 0
-          
           const { data: newWp, error: wpError } = await supabase
             .from('v7_work_packages')
             .insert({
               project_id: projectId,
               ap_number: ap.ap_nummer,
-              ap_sub_number: apSubNumber,
               ap_code: ap.ap_code,
               name: ap.name,
               start_month: ap.start_monat,
@@ -624,11 +617,11 @@ export default function V7ImportPage() {
       setState({
         loading: false,
         error: '',
-        success: `âœ… Import erfolgreich!\n` +
-          `â€¢ Firma: "${parsedData.antragsteller.firma}"\n` +
-          `â€¢ Projekt: "${parsedData.projekt.kurzname || parsedData.projekt.name}" (${parsedData.projekt.fkz})\n` +
-          `â€¢ ${importedEmployees} neue Mitarbeiter, ${assignedEmployees} Projektzuordnungen\n` +
-          `â€¢ ${importedWorkPackages} Arbeitspakete, ${importedWpAssignments} AP-Zuordnungen`
+        success: `✅ Import erfolgreich!\n` +
+          `• Firma: "${parsedData.antragsteller.firma}"\n` +
+          `• Projekt: "${parsedData.projekt.kurzname || parsedData.projekt.name}" (${parsedData.projekt.fkz})\n` +
+          `• ${importedEmployees} neue Mitarbeiter, ${assignedEmployees} Projektzuordnungen\n` +
+          `• ${importedWorkPackages} Arbeitspakete, ${importedWpAssignments} AP-Zuordnungen`
       })
 
       // Reset nach 10 Sekunden
@@ -707,7 +700,7 @@ export default function V7ImportPage() {
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              ðŸ“„ ZIM-Antrag (PDF)
+              📄 ZIM-Antrag (PDF)
             </button>
             <button
               onClick={() => setActiveTab('stundennachweis')}
@@ -717,7 +710,7 @@ export default function V7ImportPage() {
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              ðŸ“Š Stundennachweis
+              📊 Stundennachweis
             </button>
             <button
               onClick={() => setActiveTab('manuell')}
@@ -727,7 +720,7 @@ export default function V7ImportPage() {
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              âœï¸ Manuell
+              ✏️ Manuell
             </button>
           </div>
         </div>
@@ -737,7 +730,7 @@ export default function V7ImportPage() {
           <div className="space-y-6">
             {/* Upload Area */}
             <div className="bg-white rounded-lg shadow-sm border p-6">
-              <h3 className="font-medium text-gray-900 mb-4">ðŸ“„ ZIM-Förderantrag hochladen</h3>
+              <h3 className="font-medium text-gray-900 mb-4">📄 ZIM-Förderantrag hochladen</h3>
               <p className="text-gray-500 mb-6">
                 Laden Sie einen ausgefüllten ZIM-Förderantrag (PDF) hoch. Das System extrahiert automatisch:
                 Projektdaten, Antragsteller, Mitarbeiter, Budget und <strong>Arbeitspakete mit MA-Zuordnungen</strong>.
@@ -757,7 +750,7 @@ export default function V7ImportPage() {
                       disabled={state.loading}
                       className="hidden"
                     />
-                    <span className="text-4xl mb-2 block">ðŸ“„</span>
+                    <span className="text-4xl mb-2 block">📄</span>
                     <p className="font-medium text-gray-900">
                       {state.loading ? 'Analysiere...' : 'PDF hochladen'}
                     </p>
@@ -778,7 +771,7 @@ export default function V7ImportPage() {
                       disabled={state.loading}
                       className="hidden"
                     />
-                    <span className="text-4xl mb-2 block">ðŸ“‹</span>
+                    <span className="text-4xl mb-2 block">📋</span>
                     <p className="font-medium text-gray-900">JSON laden</p>
                     <p className="text-sm text-gray-500 mt-1">Bereits extrahierte Daten</p>
                   </div>
@@ -805,7 +798,7 @@ export default function V7ImportPage() {
                   {/* Projekt */}
                   <div>
                     <h4 className="font-medium text-gray-900 mb-3 flex items-center">
-                      <span className="mr-2">ðŸ“‹</span> Projekt
+                      <span className="mr-2">📋</span> Projekt
                     </h4>
                     <div className="grid md:grid-cols-3 gap-4 text-sm bg-gray-50 p-4 rounded-lg">
                       <div>
@@ -845,7 +838,7 @@ export default function V7ImportPage() {
                   {/* Antragsteller */}
                   <div>
                     <h4 className="font-medium text-gray-900 mb-3 flex items-center">
-                      <span className="mr-2">ðŸ¢</span> Antragsteller
+                      <span className="mr-2">🏢</span> Antragsteller
                     </h4>
                     <div className="grid md:grid-cols-2 gap-4 text-sm bg-gray-50 p-4 rounded-lg">
                       <div>
@@ -876,7 +869,7 @@ export default function V7ImportPage() {
                   {parsedData.budget && (
                     <div>
                       <h4 className="font-medium text-gray-900 mb-3 flex items-center">
-                        <span className="mr-2">ðŸ’°</span> Budget
+                        <span className="mr-2">💰</span> Budget
                       </h4>
                       <div className="grid md:grid-cols-4 gap-4 text-sm bg-gray-50 p-4 rounded-lg">
                         <div>
@@ -903,7 +896,7 @@ export default function V7ImportPage() {
                   {parsedData.mitarbeiter.length > 0 && (
                     <div>
                       <h4 className="font-medium text-gray-900 mb-3 flex items-center">
-                        <span className="mr-2">ðŸ‘¥</span> Mitarbeiter ({parsedData.mitarbeiter.length})
+                        <span className="mr-2">👥</span> Mitarbeiter ({parsedData.mitarbeiter.length})
                       </h4>
                       <div className="overflow-x-auto">
                         <table className="min-w-full text-sm">
@@ -928,7 +921,7 @@ export default function V7ImportPage() {
                                   </span>
                                   {ma.qualifikation}
                                 </td>
-                                <td className="px-3 py-2 text-right">{ma.stundensatz?.toFixed(2) || '0.00'} â‚¬</td>
+                                <td className="px-3 py-2 text-right">{ma.stundensatz?.toFixed(2) || '0.00'} €</td>
                                 <td className="px-3 py-2 text-right">{ma.pm_gesamt?.toFixed(1) || '0'}</td>
                                 <td className="px-3 py-2 text-right">{formatCurrency(ma.kosten_gesamt || 0)}</td>
                               </tr>
@@ -954,7 +947,7 @@ export default function V7ImportPage() {
                   {parsedData.arbeitspakete && Array.isArray(parsedData.arbeitspakete) && parsedData.arbeitspakete.length > 0 && (
                     <div>
                       <h4 className="font-medium text-gray-900 mb-3 flex items-center">
-                        <span className="mr-2">ðŸ“¦</span> Arbeitspakete ({parsedData.arbeitspakete.length})
+                        <span className="mr-2">📦</span> Arbeitspakete ({parsedData.arbeitspakete.length})
                       </h4>
                       <div className="overflow-x-auto">
                         <table className="min-w-full text-sm">
@@ -1036,7 +1029,7 @@ export default function V7ImportPage() {
                           Importiere...
                         </span>
                       ) : (
-                        'âœ… In Datenbank importieren'
+                        '✅ In Datenbank importieren'
                       )}
                     </button>
                   </div>
@@ -1049,12 +1042,12 @@ export default function V7ImportPage() {
         {/* TAB: Stundennachweis */}
         {activeTab === 'stundennachweis' && (
           <div className="bg-white rounded-lg shadow-sm border p-6">
-            <h3 className="font-medium text-gray-900 mb-4">ðŸ“Š Stundennachweis importieren</h3>
+            <h3 className="font-medium text-gray-900 mb-4">📊 Stundennachweis importieren</h3>
             <p className="text-gray-500 mb-6">
               Importiere Stundenerfassungen aus Excel-Dateien.
             </p>
             <div className="bg-gray-50 rounded-lg p-8 text-center">
-              <span className="text-4xl mb-4 block">ðŸš§</span>
+              <span className="text-4xl mb-4 block">🚧</span>
               <p className="text-gray-600">Wird in Phase 2 implementiert</p>
             </div>
           </div>
@@ -1063,7 +1056,7 @@ export default function V7ImportPage() {
         {/* TAB: Manuell */}
         {activeTab === 'manuell' && (
           <div className="bg-white rounded-lg shadow-sm border p-6">
-            <h3 className="font-medium text-gray-900 mb-4">âœï¸ Manuelle Eingabe</h3>
+            <h3 className="font-medium text-gray-900 mb-4">✏️ Manuelle Eingabe</h3>
             <p className="text-gray-500 mb-6">
               Lege Firmen, Projekte und Mitarbeiter manuell an.
             </p>
@@ -1072,21 +1065,21 @@ export default function V7ImportPage() {
                 onClick={() => router.push('/v7?new=company')}
                 className="p-6 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-colors text-center"
               >
-                <span className="text-3xl mb-2 block">ðŸ¢</span>
+                <span className="text-3xl mb-2 block">🏢</span>
                 <span className="font-medium text-gray-900">Neue Firma</span>
               </button>
               <button
                 onClick={() => router.push('/v7')}
                 className="p-6 border-2 border-dashed border-gray-300 rounded-lg hover:border-green-400 hover:bg-green-50 transition-colors text-center"
               >
-                <span className="text-3xl mb-2 block">ðŸ“</span>
+                <span className="text-3xl mb-2 block">📁</span>
                 <span className="font-medium text-gray-900">Neues Projekt</span>
               </button>
               <button
                 onClick={() => router.push('/v7')}
                 className="p-6 border-2 border-dashed border-gray-300 rounded-lg hover:border-purple-400 hover:bg-purple-50 transition-colors text-center"
               >
-                <span className="text-3xl mb-2 block">ðŸ‘¤</span>
+                <span className="text-3xl mb-2 block">👤</span>
                 <span className="font-medium text-gray-900">Neuer Mitarbeiter</span>
               </button>
             </div>

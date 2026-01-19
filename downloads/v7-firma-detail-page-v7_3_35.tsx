@@ -1,5 +1,5 @@
 // src/app/v7/berater/foerderung/firma/[id]/page.tsx
-// VERSION: v7.3.38 - Arbeitspakete-Liste mit Tabellenstruktur
+// VERSION: v7.3.35 - Firmen-Detailseite bereinigt
 // DATUM: 19. Januar 2026
 // ÄNDERUNG v7.1.6: MA zu Arbeitspaket zuordnen mit PM-Verteilung
 // ÄNDERUNG v7.3.23: Förderformat-Liste erweitert
@@ -8,8 +8,6 @@
 // ÄNDERUNG v7.3.30: Projekt-Bearbeitung direkt in Übersicht möglich
 // ÄNDERUNG v7.3.31: Header-Farbe korrigiert auf Ozeanblau #0369a1
 // ÄNDERUNG v7.3.35: Arbeitspakete-Tab entfernt, Statistik-Karten entfernt, Firmendaten-Edit
-// ÄNDERUNG v7.3.37: Projekt importieren im Projekte-Tab, Arbeitspakete aufklappbar
-// ÄNDERUNG v7.3.38: Arbeitspakete-Tabelle mit immer sichtbaren Aktions-Buttons
 
 'use client';
 
@@ -1333,6 +1331,12 @@ export default function FirmaDetailPage() {
                 </p>
               </div>
             </div>
+            <Link
+              href="/v7/berater/foerderung/import"
+              className="px-4 py-2 bg-white/10 border border-white/30 text-white rounded-lg hover:bg-white/20 text-sm font-medium"
+            >
+              + Projekt importieren
+            </Link>
           </div>
         </div>
       </header>
@@ -1497,29 +1501,18 @@ export default function FirmaDetailPage() {
         {/* ============================================ */}
         {activeTab === 'projects' && (
           <div className="space-y-4">
-            {/* Header mit Buttons */}
+            {/* Header mit Button */}
             <div className="flex justify-between items-center">
               <h3 className="text-lg font-semibold text-gray-900">Projekte</h3>
-              <div className="flex gap-2">
-                <button
-                  onClick={openCreateProjectModal}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium flex items-center gap-2"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
-                  Neues Projekt
-                </button>
-                <Link
-                  href="/v7/berater/foerderung/import"
-                  className="px-4 py-2 border border-gray-300 bg-white text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium flex items-center gap-2"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                  </svg>
-                  Projekt importieren
-                </Link>
-              </div>
+              <button
+                onClick={openCreateProjectModal}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Neues Projekt
+              </button>
             </div>
 
             {projects.length === 0 ? (
@@ -1527,27 +1520,18 @@ export default function FirmaDetailPage() {
                 <div className="text-5xl mb-4">📁</div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">Keine Projekte vorhanden</h3>
                 <p className="text-gray-500 mb-4">Legen Sie ein neues Projekt an oder importieren Sie einen ZIM-Antrag.</p>
-                <div className="flex justify-center gap-3">
-                  <button
-                    onClick={openCreateProjectModal}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                  >
-                    + Neues Projekt
-                  </button>
-                  <Link
-                    href="/v7/berater/foerderung/import"
-                    className="px-4 py-2 border border-gray-300 bg-white text-gray-700 rounded-lg hover:bg-gray-50"
-                  >
-                    Projekt importieren
-                  </Link>
-                </div>
+                <button
+                  onClick={openCreateProjectModal}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  + Neues Projekt
+                </button>
               </div>
             ) : (
               <div className="space-y-4">
                 {projects.map(project => {
                   const budget = projectBudgets[project.id];
                   const wps = getWorkPackagesForProject(project.id);
-                  const isExpanded = expandedProjects.has(project.id);
 
                   return (
                     <div key={project.id} className="bg-white rounded-lg shadow p-6 hover:shadow-md transition-shadow group relative">
@@ -1647,117 +1631,15 @@ export default function FirmaDetailPage() {
                         })()}
                       </div>
 
-                      {/* Arbeitspakete - klickbar zum Aufklappen */}
-                      <div className="border-t pt-3">
-                        <button
-                          onClick={() => toggleProjectExpanded(project.id)}
-                          className="w-full flex items-center justify-between text-left hover:bg-gray-50 rounded p-2 -m-2 transition-colors"
-                        >
-                          <div className="flex items-center gap-4 text-sm text-gray-600">
-                            <span className="font-medium">📋 {wps.length} Arbeitspakete</span>
-                            {wps.length > 0 && (
-                              <>
-                                <span>·</span>
-                                <span>
-                                  {wps.reduce((sum, wp) => sum + (wp.total_person_months || 0), 0).toFixed(1)} PM gesamt
-                                </span>
-                              </>
-                            )}
-                          </div>
-                          <svg
-                            className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                          </svg>
-                        </button>
-
-                        {/* Expandierte Arbeitspakete-Liste - klare Tabellenstruktur */}
-                        {isExpanded && (
-                          <div className="mt-3">
-                            {wps.length === 0 ? (
-                              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                                <span className="text-sm text-gray-500 italic">Keine Arbeitspakete vorhanden.</span>
-                                <button
-                                  onClick={() => openCreateWPModal(project.id)}
-                                  className="px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 rounded flex items-center gap-1"
-                                >
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                                  </svg>
-                                  Hinzufügen
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="border rounded-lg overflow-hidden">
-                                {/* Tabellen-Header */}
-                                <div className="bg-gray-100 px-4 py-2 flex items-center text-xs font-medium text-gray-600 uppercase border-b">
-                                  <div className="w-16">AP</div>
-                                  <div className="flex-1">Bezeichnung</div>
-                                  <div className="w-24 text-right">PM</div>
-                                  <div className="w-32 text-right">
-                                    <button
-                                      onClick={() => openCreateWPModal(project.id)}
-                                      className="text-blue-600 hover:text-blue-800 normal-case font-normal flex items-center gap-1 ml-auto"
-                                    >
-                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                                      </svg>
-                                      Hinzufügen
-                                    </button>
-                                  </div>
-                                </div>
-                                {/* Tabellen-Body */}
-                                {wps.map((wp, idx) => (
-                                  <div
-                                    key={wp.id}
-                                    className={`px-4 py-3 flex items-center hover:bg-gray-50 ${idx < wps.length - 1 ? 'border-b' : ''}`}
-                                  >
-                                    <div className="w-16">
-                                      <span className="text-xs font-mono bg-gray-200 px-1.5 py-0.5 rounded">
-                                        AP{wp.ap_number}
-                                      </span>
-                                    </div>
-                                    <div className="flex-1 text-sm text-gray-900">{wp.name}</div>
-                                    <div className="w-24 text-right text-sm text-gray-600">
-                                      {wp.total_person_months ? `${wp.total_person_months} PM` : '-'}
-                                    </div>
-                                    <div className="w-32 flex justify-end gap-1">
-                                      <button
-                                        onClick={() => openWPAssignmentModal(wp)}
-                                        className="p-1.5 text-purple-600 hover:bg-purple-100 rounded"
-                                        title="Mitarbeiter zuordnen"
-                                      >
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-                                        </svg>
-                                      </button>
-                                      <button
-                                        onClick={() => openEditWPModal(wp)}
-                                        className="p-1.5 text-gray-600 hover:bg-gray-200 rounded"
-                                        title="Bearbeiten"
-                                      >
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                                        </svg>
-                                      </button>
-                                      <button
-                                        onClick={() => openDeleteConfirmation('workpackage', wp)}
-                                        className="p-1.5 text-red-500 hover:bg-red-100 rounded"
-                                        title="Löschen"
-                                      >
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                        </svg>
-                                      </button>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
+                      <div className="flex items-center gap-4 text-sm text-gray-500">
+                        <span>📋 {wps.length} Arbeitspakete</span>
+                        {wps.length > 0 && (
+                          <>
+                            <span>·</span>
+                            <span>
+                              {wps.reduce((sum, wp) => sum + (wp.total_person_months || 0), 0).toFixed(1)} PM gesamt
+                            </span>
+                          </>
                         )}
                       </div>
                     </div>

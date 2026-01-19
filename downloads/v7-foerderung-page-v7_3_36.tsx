@@ -1,7 +1,7 @@
 // src/app/v7/berater/foerderung/page.tsx
-// VERSION: v7.3.37 - Firmenübersicht mit korrigiertem Header-Layout
+// VERSION: v7.3.36 - Firmenübersicht mit korrigiertem Header-Layout
 // DATUM: 19. Januar 2026
-// ÄNDERUNG v7.3.37: Header korrigiert (Zurück links, Benutzer+Abmelden rechts), Statistik entfernt
+// ÄNDERUNG v7.3.36: Header korrigiert (Zurück links, Benutzer+Abmelden rechts), Statistik entfernt
 
 'use client';
 
@@ -200,7 +200,7 @@ export default function FoerderungPage() {
     }
   };
 
-  // Logout-Funktion v7.3.37
+  // Logout-Funktion v7.3.36
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.push('/v7/login');

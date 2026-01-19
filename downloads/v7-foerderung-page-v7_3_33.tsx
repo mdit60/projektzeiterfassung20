@@ -1,7 +1,7 @@
 // src/app/v7/berater/foerderung/page.tsx
-// VERSION: v7.3.37 - Firmenübersicht mit korrigiertem Header-Layout
+// VERSION: v7.3.33 - Firmenübersicht ohne Statistik-Zeile
 // DATUM: 19. Januar 2026
-// ÄNDERUNG v7.3.37: Header korrigiert (Zurück links, Benutzer+Abmelden rechts), Statistik entfernt
+// ÄNDERUNG v7.3.33: Statistik-Karten entfernt (gehört in Berichte)
 
 'use client';
 
@@ -86,11 +86,11 @@ const EMPTY_FORM: CompanyFormData = {
 };
 
 // ============================================
-// BUNDESLÄNDER
+// BUNDESLÃ„NDER
 // ============================================
 
 const BUNDESLAENDER = [
-  { code: 'DE-BW', name: 'Baden-Württemberg' },
+  { code: 'DE-BW', name: 'Baden-WÃ¼rttemberg' },
   { code: 'DE-BY', name: 'Bayern' },
   { code: 'DE-BE', name: 'Berlin' },
   { code: 'DE-BB', name: 'Brandenburg' },
@@ -105,7 +105,7 @@ const BUNDESLAENDER = [
   { code: 'DE-SN', name: 'Sachsen' },
   { code: 'DE-ST', name: 'Sachsen-Anhalt' },
   { code: 'DE-SH', name: 'Schleswig-Holstein' },
-  { code: 'DE-TH', name: 'Thüringen' },
+  { code: 'DE-TH', name: 'ThÃ¼ringen' },
 ];
 
 const BUNDESLAND_NAMES: Record<string, string> = Object.fromEntries(
@@ -114,10 +114,10 @@ const BUNDESLAND_NAMES: Record<string, string> = Object.fromEntries(
 
 // Status-Konfiguration
 const STATUS_CONFIG = {
-  invited: { label: 'Eingeladen', color: 'yellow', icon: '🟡' },
-  registered: { label: 'Registriert', color: 'orange', icon: '🟠' },
-  active: { label: 'Aktiv', color: 'green', icon: '🟢' },
-  inactive: { label: 'Inaktiv', color: 'gray', icon: '⚫' },
+  invited: { label: 'Eingeladen', color: 'yellow', icon: 'ðŸŸ¡' },
+  registered: { label: 'Registriert', color: 'orange', icon: 'ðŸŸ ' },
+  active: { label: 'Aktiv', color: 'green', icon: 'ðŸŸ¢' },
+  inactive: { label: 'Inaktiv', color: 'gray', icon: 'âš«' },
 };
 
 // Festes Entwicklungs-Passwort
@@ -200,19 +200,13 @@ export default function FoerderungPage() {
     }
   };
 
-  // Logout-Funktion v7.3.37
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push('/v7/login');
-  };
-
   const loadCompanies = async (consultantCompanyId: string | null) => {
     if (!consultantCompanyId) {
       setCompanies([]);
       return;
     }
 
-    // Firmen laden (inkl. inaktive für Statusanzeige)
+    // Firmen laden (inkl. inaktive fÃ¼r Statusanzeige)
     const { data: companiesData, error: companiesError } = await supabase
       .from('v7_client_companies')
       .select('*')
@@ -227,14 +221,14 @@ export default function FoerderungPage() {
     // Erweiterte Daten laden
     const companiesWithData = await Promise.all(
       (companiesData || []).map(async (company) => {
-        // Projekte zählen
+        // Projekte zÃ¤hlen
         const { count: projectCount } = await supabase
           .from('v7_projects')
           .select('*', { count: 'exact', head: true })
           .eq('client_company_id', company.id)
           .eq('is_active', true);
 
-        // Mitarbeiter zählen
+        // Mitarbeiter zÃ¤hlen
         const { count: employeeCount } = await supabase
           .from('v7_employees')
           .select('*', { count: 'exact', head: true })
@@ -330,14 +324,14 @@ export default function FoerderungPage() {
       return;
     }
 
-    // Validierung für Admin-Erstellung
+    // Validierung fÃ¼r Admin-Erstellung
     if (modalMode === 'create' && formData.create_admin) {
       if (!formData.admin_email.trim()) {
         setFormError('E-Mail des Administrators ist erforderlich');
         return;
       }
       if (!formData.admin_email.includes('@')) {
-        setFormError('Ungültige E-Mail-Adresse');
+        setFormError('UngÃ¼ltige E-Mail-Adresse');
         return;
       }
     }
@@ -385,7 +379,7 @@ export default function FoerderungPage() {
           return;
         }
 
-        // 2. Admin-User anlegen (falls gewünscht)
+        // 2. Admin-User anlegen (falls gewÃ¼nscht)
         if (formData.create_admin && newCompany) {
           // Supabase Auth User erstellen
           const { data: authData, error: authError } = await supabase.auth.admin.createUser({
@@ -394,9 +388,9 @@ export default function FoerderungPage() {
             email_confirm: true,
           });
 
-          // Falls admin.createUser nicht verfügbar (Client-seitig), alternativer Ansatz
+          // Falls admin.createUser nicht verfÃ¼gbar (Client-seitig), alternativer Ansatz
           if (authError && authError.message.includes('not authorized')) {
-            // Fallback: User über signUp erstellen
+            // Fallback: User Ã¼ber signUp erstellen
             const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
               email: formData.admin_email.trim(),
               password: DEV_PASSWORD,
@@ -481,12 +475,12 @@ export default function FoerderungPage() {
           setFormError(updateError.message);
           return;
         }
-        setSuccessMessage('Änderungen gespeichert.');
+        setSuccessMessage('Ã„nderungen gespeichert.');
       }
 
       await loadCompanies(userProfile.consultant_company_id);
 
-      // Modal nach kurzer Verzögerung schließen (damit Erfolgsmeldung sichtbar ist)
+      // Modal nach kurzer VerzÃ¶gerung schlieÃŸen (damit Erfolgsmeldung sichtbar ist)
       setTimeout(() => {
         closeModal();
       }, 2000);
@@ -577,7 +571,7 @@ export default function FoerderungPage() {
     if (statusFilter !== 'all' && company.status !== statusFilter) {
       return false;
     }
-    // Inaktive ausblenden außer explizit gewählt
+    // Inaktive ausblenden auÃŸer explizit gewÃ¤hlt
     if (statusFilter === 'all' && company.status === 'inactive') {
       return false;
     }
@@ -624,14 +618,14 @@ export default function FoerderungPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="bg-white rounded-lg shadow-lg p-8 max-w-md text-center">
-          <div className="text-red-500 text-5xl mb-4">⚠️</div>
+          <div className="text-red-500 text-5xl mb-4">âš ï¸</div>
           <h2 className="text-xl font-bold text-gray-900 mb-2">Fehler</h2>
           <p className="text-gray-600 mb-6">{error}</p>
           <button
             onClick={() => router.push('/login')}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
           >
-            Zurück zum Login
+            ZurÃ¼ck zum Login
           </button>
         </div>
       </div>
@@ -645,11 +639,19 @@ export default function FoerderungPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-[#0369a1] shadow-sm">
+      <header className="bg-[#002451] shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
-            {/* Links: Zurück, PZE, Titel */}
             <div className="flex items-center gap-4">
+              <div className="bg-white rounded-lg px-3 py-1.5 text-sm font-bold text-[#002451]">
+                PZE
+              </div>
+              <div>
+                <h1 className="text-lg font-semibold text-white">FÃ¶rderberatung</h1>
+                <p className="text-sm text-blue-200">ZIM / BMBF Projekte</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
               <button
                 onClick={() => router.push('/v7/berater')}
                 className="text-blue-200 hover:text-white text-sm flex items-center gap-1"
@@ -657,29 +659,9 @@ export default function FoerderungPage() {
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
-                Zurück
+                ZurÃ¼ck
               </button>
-              <div className="h-6 w-px bg-white/30"></div>
-              <div className="bg-white rounded-lg px-3 py-1.5 text-sm font-bold text-[#0369a1]">
-                PZE
-              </div>
-              <div>
-                <h1 className="text-lg font-semibold text-white">Förderberatung</h1>
-                <p className="text-sm text-blue-200">ZIM / BMBF Projekte</p>
-              </div>
-            </div>
-            {/* Rechts: Benutzer, Abmelden */}
-            <div className="flex items-center gap-4">
               <span className="text-white text-sm">{userProfile?.display_name}</span>
-              <button
-                onClick={handleLogout}
-                className="text-blue-200 hover:text-white text-sm flex items-center gap-1"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                </svg>
-                Abmelden
-              </button>
             </div>
           </div>
         </div>
@@ -701,10 +683,10 @@ export default function FoerderungPage() {
               className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm"
             >
               <option value="all">Alle aktiven ({statusCounts.all})</option>
-              <option value="active">🟢 Aktiv ({statusCounts.active})</option>
-              <option value="invited">🟡 Eingeladen ({statusCounts.invited})</option>
-              <option value="registered">🟠 Registriert ({statusCounts.registered})</option>
-              <option value="inactive">⚫ Inaktiv ({statusCounts.inactive})</option>
+              <option value="active">ðŸŸ¢ Aktiv ({statusCounts.active})</option>
+              <option value="invited">ðŸŸ¡ Eingeladen ({statusCounts.invited})</option>
+              <option value="registered">ðŸŸ  Registriert ({statusCounts.registered})</option>
+              <option value="inactive">âš« Inaktiv ({statusCounts.inactive})</option>
             </select>
             {/* Suchfeld */}
             <div className="relative">
@@ -747,12 +729,13 @@ export default function FoerderungPage() {
           </div>
         </div>
 
+
         {/* Firmenliste */}
         {filteredCompanies.length === 0 ? (
           <div className="bg-white rounded-lg shadow p-12 text-center">
             {companies.length === 0 ? (
               <>
-                <div className="text-5xl mb-4">🏢</div>
+                <div className="text-5xl mb-4">ðŸ¢</div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">Keine Kundenfirmen vorhanden</h3>
                 <p className="text-gray-500 mb-6">
                   Legen Sie eine neue Firma an oder importieren Sie einen ZIM-Antrag.
@@ -774,9 +757,9 @@ export default function FoerderungPage() {
               </>
             ) : (
               <>
-                <div className="text-5xl mb-4">🔍</div>
+                <div className="text-5xl mb-4">ðŸ”</div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">Keine Treffer</h3>
-                <p className="text-gray-500">Keine Firma gefunden für die gewählten Filter</p>
+                <p className="text-gray-500">Keine Firma gefunden fÃ¼r die gewÃ¤hlten Filter</p>
               </>
             )}
           </div>
@@ -830,7 +813,17 @@ export default function FoerderungPage() {
                         </svg>
                       </button>
                     )}
-                    {/* Löschen */}
+                    {/* Bearbeiten */}
+                    <button
+                      onClick={(e) => openEditModal(company, e)}
+                      className="p-1.5 bg-gray-100 hover:bg-gray-200 rounded text-gray-600"
+                      title="Bearbeiten"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                      </svg>
+                    </button>
+                    {/* LÃ¶schen */}
                     <button
                       onClick={(e) => openDeleteConfirm(company, e)}
                       className="p-1.5 bg-gray-100 hover:bg-red-100 rounded text-gray-600 hover:text-red-600"
@@ -870,7 +863,7 @@ export default function FoerderungPage() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                       </svg>
                       {company.city && <span>{company.city}</span>}
-                      {company.city && company.federal_state && <span>·</span>}
+                      {company.city && company.federal_state && <span>Â·</span>}
                       {company.federal_state && (
                         <span>{BUNDESLAND_NAMES[company.federal_state] || company.federal_state}</span>
                       )}
@@ -880,9 +873,9 @@ export default function FoerderungPage() {
                     {/* Onboarding-Info */}
                     {company.onboarding_type && (
                       <div className="text-xs text-gray-400 mb-3">
-                        {company.onboarding_type === 'by_consultant' ? '📋 Vom Berater angelegt' : '🔗 Selbst-Registrierung'}
+                        {company.onboarding_type === 'by_consultant' ? 'ðŸ“‹ Vom Berater angelegt' : 'ðŸ”— Selbst-Registrierung'}
                         {company.registered_at && (
-                          <span> · {new Date(company.registered_at).toLocaleDateString('de-DE')}</span>
+                          <span> Â· {new Date(company.registered_at).toLocaleDateString('de-DE')}</span>
                         )}
                       </div>
                     )}
@@ -930,7 +923,7 @@ export default function FoerderungPage() {
               {/* Erfolgsmeldung */}
               {successMessage && (
                 <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg">
-                  ✅ {successMessage}
+                  âœ… {successMessage}
                 </div>
               )}
 
@@ -973,7 +966,7 @@ export default function FoerderungPage() {
                   </div>
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Straße
+                      StraÃŸe
                     </label>
                     <input
                       type="text"
@@ -981,7 +974,7 @@ export default function FoerderungPage() {
                       value={formData.street}
                       onChange={handleInputChange}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="Musterstraße 123"
+                      placeholder="MusterstraÃŸe 123"
                     />
                   </div>
                   <div>
@@ -1020,7 +1013,7 @@ export default function FoerderungPage() {
                       onChange={handleInputChange}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
-                      <option value="">Bitte wählen...</option>
+                      <option value="">Bitte wÃ¤hlen...</option>
                       {BUNDESLAENDER.map(bl => (
                         <option key={bl.code} value={bl.code}>{bl.name}</option>
                       ))}
@@ -1092,7 +1085,7 @@ export default function FoerderungPage() {
                         Administrator-Zugang erstellen
                       </label>
                       <p className="text-sm text-blue-700 mt-1">
-                        Erstellt einen Login für den Firmen-Admin (z.B. Geschäftsführer).
+                        Erstellt einen Login fÃ¼r den Firmen-Admin (z.B. GeschÃ¤ftsfÃ¼hrer).
                         Passwort: <code className="bg-blue-100 px-1 rounded">{DEV_PASSWORD}</code>
                       </p>
                     </div>
@@ -1155,7 +1148,7 @@ export default function FoerderungPage() {
                   onChange={handleInputChange}
                   rows={3}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Nur für Berater sichtbar..."
+                  placeholder="Nur fÃ¼r Berater sichtbar..."
                 />
               </div>
             </div>
@@ -1192,7 +1185,7 @@ export default function FoerderungPage() {
       )}
 
       {/* ============================================ */}
-      {/* MODAL: Löschen bestätigen */}
+      {/* MODAL: LÃ¶schen bestÃ¤tigen */}
       {/* ============================================ */}
 
       {showDeleteConfirm && companyToDelete && (
@@ -1200,8 +1193,8 @@ export default function FoerderungPage() {
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-2">Firma deaktivieren?</h3>
             <p className="text-gray-600 mb-6">
-              Möchten Sie die Firma <strong>"{companyToDelete.name}"</strong> wirklich deaktivieren?
-              Die Daten bleiben erhalten und können später wiederhergestellt werden.
+              MÃ¶chten Sie die Firma <strong>"{companyToDelete.name}"</strong> wirklich deaktivieren?
+              Die Daten bleiben erhalten und kÃ¶nnen spÃ¤ter wiederhergestellt werden.
             </p>
             <div className="flex justify-end gap-3">
               <button
@@ -1230,9 +1223,9 @@ export default function FoerderungPage() {
       {showInviteModal && inviteCompany && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Einladungslink kopiert! ✅</h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Einladungslink kopiert! âœ…</h3>
             <p className="text-gray-600 mb-4">
-              Der Einladungslink für <strong>"{inviteCompany.name}"</strong> wurde in die Zwischenablage kopiert.
+              Der Einladungslink fÃ¼r <strong>"{inviteCompany.name}"</strong> wurde in die Zwischenablage kopiert.
             </p>
             <div className="bg-gray-100 rounded-lg p-3 mb-4 break-all text-sm font-mono">
               {generateInviteLink(inviteCompany)}
@@ -1245,7 +1238,7 @@ export default function FoerderungPage() {
                 onClick={() => { setShowInviteModal(false); setInviteCompany(null); }}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
               >
-                Schließen
+                SchlieÃŸen
               </button>
             </div>
           </div>

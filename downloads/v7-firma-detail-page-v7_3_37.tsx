@@ -1,5 +1,5 @@
 // src/app/v7/berater/foerderung/firma/[id]/page.tsx
-// VERSION: v7.3.38 - Arbeitspakete-Liste mit Tabellenstruktur
+// VERSION: v7.3.37 - Arbeitspakete im Projekt aufklappbar
 // DATUM: 19. Januar 2026
 // ÄNDERUNG v7.1.6: MA zu Arbeitspaket zuordnen mit PM-Verteilung
 // ÄNDERUNG v7.3.23: Förderformat-Liste erweitert
@@ -8,8 +8,7 @@
 // ÄNDERUNG v7.3.30: Projekt-Bearbeitung direkt in Übersicht möglich
 // ÄNDERUNG v7.3.31: Header-Farbe korrigiert auf Ozeanblau #0369a1
 // ÄNDERUNG v7.3.35: Arbeitspakete-Tab entfernt, Statistik-Karten entfernt, Firmendaten-Edit
-// ÄNDERUNG v7.3.37: Projekt importieren im Projekte-Tab, Arbeitspakete aufklappbar
-// ÄNDERUNG v7.3.38: Arbeitspakete-Tabelle mit immer sichtbaren Aktions-Buttons
+// ÄNDERUNG v7.3.37: Projekt importieren im Projekte-Tab, Arbeitspakete im Projekt aufklappbar
 
 'use client';
 
@@ -1674,60 +1673,57 @@ export default function FirmaDetailPage() {
                           </svg>
                         </button>
 
-                        {/* Expandierte Arbeitspakete-Liste - klare Tabellenstruktur */}
+                        {/* Expandierte Arbeitspakete-Liste */}
                         {isExpanded && (
-                          <div className="mt-3">
+                          <div className="mt-3 space-y-2">
                             {wps.length === 0 ? (
-                              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                                <span className="text-sm text-gray-500 italic">Keine Arbeitspakete vorhanden.</span>
+                              <div className="text-sm text-gray-400 italic p-2">
+                                Keine Arbeitspakete vorhanden.
                                 <button
                                   onClick={() => openCreateWPModal(project.id)}
-                                  className="px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 rounded flex items-center gap-1"
+                                  className="ml-2 text-blue-600 hover:text-blue-800"
                                 >
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                                  </svg>
-                                  Hinzufügen
+                                  + Hinzufügen
                                 </button>
                               </div>
                             ) : (
-                              <div className="border rounded-lg overflow-hidden">
-                                {/* Tabellen-Header */}
-                                <div className="bg-gray-100 px-4 py-2 flex items-center text-xs font-medium text-gray-600 uppercase border-b">
-                                  <div className="w-16">AP</div>
-                                  <div className="flex-1">Bezeichnung</div>
-                                  <div className="w-24 text-right">PM</div>
-                                  <div className="w-32 text-right">
-                                    <button
-                                      onClick={() => openCreateWPModal(project.id)}
-                                      className="text-blue-600 hover:text-blue-800 normal-case font-normal flex items-center gap-1 ml-auto"
-                                    >
-                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                                      </svg>
-                                      Hinzufügen
-                                    </button>
-                                  </div>
+                              <>
+                                <div className="flex justify-end mb-2">
+                                  <button
+                                    onClick={() => openCreateWPModal(project.id)}
+                                    className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                                  >
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                    </svg>
+                                    Arbeitspaket hinzufügen
+                                  </button>
                                 </div>
-                                {/* Tabellen-Body */}
-                                {wps.map((wp, idx) => (
+                                {wps.map(wp => (
                                   <div
                                     key={wp.id}
-                                    className={`px-4 py-3 flex items-center hover:bg-gray-50 ${idx < wps.length - 1 ? 'border-b' : ''}`}
+                                    className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors group/wp"
                                   >
-                                    <div className="w-16">
-                                      <span className="text-xs font-mono bg-gray-200 px-1.5 py-0.5 rounded">
-                                        AP{wp.ap_number}
-                                      </span>
+                                    <div className="flex-1">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs font-mono bg-gray-200 px-1.5 py-0.5 rounded">
+                                          AP{wp.ap_number}
+                                        </span>
+                                        <span className="font-medium text-gray-900">{wp.name}</span>
+                                      </div>
+                                      <div className="text-xs text-gray-500 mt-1">
+                                        {wp.start_month && wp.end_month && (
+                                          <span>Monat {wp.start_month}-{wp.end_month}</span>
+                                        )}
+                                        {wp.total_person_months && (
+                                          <span className="ml-3">{wp.total_person_months} PM</span>
+                                        )}
+                                      </div>
                                     </div>
-                                    <div className="flex-1 text-sm text-gray-900">{wp.name}</div>
-                                    <div className="w-24 text-right text-sm text-gray-600">
-                                      {wp.total_person_months ? `${wp.total_person_months} PM` : '-'}
-                                    </div>
-                                    <div className="w-32 flex justify-end gap-1">
+                                    <div className="flex gap-1 opacity-0 group-hover/wp:opacity-100 transition-opacity">
                                       <button
                                         onClick={() => openWPAssignmentModal(wp)}
-                                        className="p-1.5 text-purple-600 hover:bg-purple-100 rounded"
+                                        className="p-1 text-purple-600 hover:bg-purple-100 rounded"
                                         title="Mitarbeiter zuordnen"
                                       >
                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1736,7 +1732,7 @@ export default function FirmaDetailPage() {
                                       </button>
                                       <button
                                         onClick={() => openEditWPModal(wp)}
-                                        className="p-1.5 text-gray-600 hover:bg-gray-200 rounded"
+                                        className="p-1 text-gray-600 hover:bg-gray-200 rounded"
                                         title="Bearbeiten"
                                       >
                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1745,7 +1741,7 @@ export default function FirmaDetailPage() {
                                       </button>
                                       <button
                                         onClick={() => openDeleteConfirmation('workpackage', wp)}
-                                        className="p-1.5 text-red-500 hover:bg-red-100 rounded"
+                                        className="p-1 text-gray-600 hover:bg-red-100 hover:text-red-600 rounded"
                                         title="Löschen"
                                       >
                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1755,7 +1751,7 @@ export default function FirmaDetailPage() {
                                     </div>
                                   </div>
                                 ))}
-                              </div>
+                              </>
                             )}
                           </div>
                         )}
