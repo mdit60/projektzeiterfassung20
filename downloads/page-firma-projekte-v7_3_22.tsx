@@ -1,10 +1,9 @@
 // src/app/v7/firma/projekte/page.tsx
-// VERSION: v7.3.26 (SW-Release V7.3)
+// VERSION: v7.3.22 (SW-Release V7.3)
 // DATUM: 20. Januar 2026
 // BESCHREIBUNG: Firmen-Projektseite mit vollständiger CRUD-Funktionalität
 // ÄNDERUNG v7.3.18: Statistik-Zeile von Übersichtsseite entfernt (verschoben nach Berichte)
-// ÄNDERUNG v7.3.26: Förderformat-Liste ergänzt um ZIM Einzel und ZIM Durchführbarkeitsstudie
-// ÄNDERUNG v7.3.26: UTF-8 Encoding-Fehler behoben
+// ÄNDERUNG v7.3.22: Förderformat-Liste ergänzt um ZIM Einzel und ZIM Durchführbarkeitsstudie
 // BERECHTIGUNG: client_admin + project_leader können bearbeiten, employee nur ansehen
 
 'use client';
@@ -21,7 +20,7 @@ import { createClient } from '@/lib/supabase/client';
 // ============================================
 
 const COLORS = {
-  firmenPortal: '#65A655',  // Cubintec-Grün
+  firmenPortal: '#65A655',  // Cubintec-GrÃ¼n
 };
 
 // ============================================
@@ -187,7 +186,7 @@ const FUNDING_FORMATS = [
 // ============================================
 
 const BUNDESLAND_NAMES: Record<string, string> = {
-  'DE-BW': 'Baden-Württemberg',
+  'DE-BW': 'Baden-WÃ¼rttemberg',
   'DE-BY': 'Bayern',
   'DE-BE': 'Berlin',
   'DE-BB': 'Brandenburg',
@@ -202,7 +201,7 @@ const BUNDESLAND_NAMES: Record<string, string> = {
   'DE-SN': 'Sachsen',
   'DE-ST': 'Sachsen-Anhalt',
   'DE-SH': 'Schleswig-Holstein',
-  'DE-TH': 'Thüringen',
+  'DE-TH': 'ThÃ¼ringen',
 };
 
 // ============================================
@@ -262,7 +261,7 @@ export default function FirmaProjektePage() {
   const [wpAssignFormData, setWPAssignFormData] = useState<WPAssignmentFormData[]>([]);
   const [wpAssignFormError, setWPAssignFormError] = useState<string | null>(null);
 
-  // Berechtigungen - client_admin ODER project_leader dürfen bearbeiten
+  // Berechtigungen - client_admin ODER project_leader dÃ¼rfen bearbeiten
   const canEdit = userProfile?.role === 'client_admin' || userProfile?.role === 'project_leader';
   const isAdmin = userProfile?.role === 'client_admin';
 
@@ -632,7 +631,7 @@ export default function FirmaProjektePage() {
   };
 
   const handleDeleteProject = async (proj: Project) => {
-    if (!confirm(`Projekt "${proj.name}" wirklich löschen?`)) return;
+    if (!confirm(`Projekt "${proj.name}" wirklich lÃ¶schen?`)) return;
 
     setSaving(true);
     try {
@@ -759,7 +758,7 @@ export default function FirmaProjektePage() {
   };
 
   const handleDeleteWP = async (wp: WorkPackage) => {
-    if (!confirm(`Arbeitspaket "${wp.ap_code || 'AP' + wp.ap_number}" wirklich löschen?`)) return;
+    if (!confirm(`Arbeitspaket "${wp.ap_code || 'AP' + wp.ap_number}" wirklich lÃ¶schen?`)) return;
 
     setSaving(true);
     try {
@@ -895,17 +894,17 @@ export default function FirmaProjektePage() {
     return employees.filter(e => assignedIds.includes(e.id));
   };
 
-  // Natürliche Sortierung für AP-Codes (AP1, AP1.1, AP1.2, AP2, AP10, etc.)
+  // NatÃ¼rliche Sortierung fÃ¼r AP-Codes (AP1, AP1.1, AP1.2, AP2, AP10, etc.)
   const sortWorkPackages = (wps: WorkPackage[]): WorkPackage[] => {
     return [...wps].sort((a, b) => {
       const codeA = a.ap_code || `AP${a.ap_number}`;
       const codeB = b.ap_code || `AP${b.ap_number}`;
       
-      // Extrahiere Zahlen aus dem AP-Code für natürliche Sortierung
+      // Extrahiere Zahlen aus dem AP-Code fÃ¼r natÃ¼rliche Sortierung
       const partsA = codeA.replace(/^AP/i, '').split('.').map(p => parseInt(p) || 0);
       const partsB = codeB.replace(/^AP/i, '').split('.').map(p => parseInt(p) || 0);
       
-      // Vergleiche Teil für Teil
+      // Vergleiche Teil fÃ¼r Teil
       for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
         const numA = partsA[i] || 0;
         const numB = partsB[i] || 0;
@@ -1005,7 +1004,7 @@ export default function FirmaProjektePage() {
             onClick={() => router.push('/v7/firma')}
             className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
           >
-            Zurück zum Dashboard
+            ZurÃ¼ck zum Dashboard
           </button>
         </div>
       </div>
@@ -1030,7 +1029,7 @@ export default function FirmaProjektePage() {
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
-                Zurück
+                ZurÃ¼ck
               </button>
               <div className="bg-white rounded-lg px-3 py-1.5 text-sm font-bold" style={{ color: COLORS.firmenPortal }}>
                 PZE
@@ -1038,7 +1037,7 @@ export default function FirmaProjektePage() {
               <div>
                 <h1 className="text-lg font-semibold text-white">{company.name}</h1>
                 <p className="text-sm text-green-100">
-                  Firmen-Portal · {BUNDESLAND_NAMES[company.federal_state || ''] || company.federal_state || 'Kein Bundesland'}
+                  Firmen-Portal â€¢ {BUNDESLAND_NAMES[company.federal_state || ''] || company.federal_state || 'Kein Bundesland'}
                 </p>
               </div>
             </div>
@@ -1064,10 +1063,10 @@ export default function FirmaProjektePage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <nav className="flex gap-8">
             {[
-              { id: 'overview', label: 'Übersicht', icon: '📊' },
-              { id: 'projects', label: `Projekte (${projects.length})`, icon: '📁' },
-              { id: 'employees', label: `Mitarbeiter (${employees.length})`, icon: '👥' },
-              { id: 'workpackages', label: `Arbeitspakete (${workPackages.length})`, icon: '📋' },
+              { id: 'overview', label: 'Ãœbersicht', icon: 'ðŸ“Š' },
+              { id: 'projects', label: `Projekte (${projects.length})`, icon: 'ðŸ“' },
+              { id: 'employees', label: `Mitarbeiter (${employees.length})`, icon: 'ðŸ‘¥' },
+              { id: 'workpackages', label: `Arbeitspakete (${workPackages.length})`, icon: 'ðŸ“‹' },
             ].map(tab => (
               <button
                 key={tab.id}
@@ -1089,7 +1088,7 @@ export default function FirmaProjektePage() {
       {/* Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
-        {/* TAB: ÜBERSICHT */}
+        {/* TAB: ÃœBERSICHT */}
         {activeTab === 'overview' && (
           <div className="space-y-6">
             <div className="bg-white rounded-lg shadow p-6">
@@ -1165,7 +1164,7 @@ export default function FirmaProjektePage() {
                                 <button
                                   onClick={() => handleDeleteProject(project)}
                                   className="p-1 text-gray-400 hover:text-red-600"
-                                  title="Projekt löschen"
+                                  title="Projekt lÃ¶schen"
                                 >
                                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -1245,7 +1244,7 @@ export default function FirmaProjektePage() {
                                   <button
                                     onClick={(e) => { e.stopPropagation(); handleDeleteProject(project); }}
                                     className="p-1 text-gray-400 hover:text-red-600"
-                                    title="Projekt löschen"
+                                    title="Projekt lÃ¶schen"
                                   >
                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -1262,7 +1261,7 @@ export default function FirmaProjektePage() {
                                 <div className="flex flex-wrap gap-1 mt-1">
                                   {projectEmployees.map(emp => (
                                     <span key={emp.id} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-blue-50 text-blue-700">
-                                      👤 {emp.display_name}
+                                      ðŸ‘¤ {emp.display_name}
                                     </span>
                                   ))}
                                 </div>
@@ -1276,8 +1275,8 @@ export default function FirmaProjektePage() {
                       </div>
                       
                       <div className="mt-3 pt-3 border-t flex items-center gap-6 text-sm text-gray-500">
-                        <span>📋 {projectWPs.length} Arbeitspakete</span>
-                        <span>·</span>
+                        <span>ðŸ“‹ {projectWPs.length} Arbeitspakete</span>
+                        <span>â€¢</span>
                         <span>{totalPM.toFixed(1)} PM gesamt</span>
                       </div>
                     </div>
@@ -1294,7 +1293,7 @@ export default function FirmaProjektePage() {
                               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                               </svg>
-                              AP hinzufügen
+                              AP hinzufÃ¼gen
                             </button>
                           )}
                         </div>
@@ -1333,7 +1332,7 @@ export default function FirmaProjektePage() {
                                           <button
                                             onClick={() => handleDeleteWP(wp)}
                                             className="p-1 text-gray-400 hover:text-red-600"
-                                            title="Arbeitspaket löschen"
+                                            title="Arbeitspaket lÃ¶schen"
                                           >
                                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -1405,7 +1404,7 @@ export default function FirmaProjektePage() {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Position / Qualifikation</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Wochenstunden</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Beschäftigt seit</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">BeschÃ¤ftigt seit</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                       {canEdit && (
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Aktionen</th>
@@ -1448,7 +1447,7 @@ export default function FirmaProjektePage() {
                               <button
                                 onClick={() => confirmDeleteEmployee(emp)}
                                 className="p-1 text-gray-400 hover:text-red-600"
-                                title="Löschen"
+                                title="LÃ¶schen"
                               >
                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -1491,7 +1490,7 @@ export default function FirmaProjektePage() {
                         <span className="text-sm text-gray-500">FKZ: {project.funding_reference}</span>
                       </div>
                       <div className="text-sm text-gray-500">
-                        {projectWPs.length} AP · {totalPM.toFixed(1)} PM ({(totalPM * HOURS_PER_PM).toFixed(0)} h)
+                        {projectWPs.length} AP â€¢ {totalPM.toFixed(1)} PM ({(totalPM * HOURS_PER_PM).toFixed(0)} h)
                       </div>
                     </div>
 
@@ -1549,7 +1548,7 @@ export default function FirmaProjektePage() {
       <footer className="bg-white border-t mt-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <p className="text-center text-sm text-gray-500">
-            Projektzeiterfassung v7.3.26 · Firmen-Portal · © {new Date().getFullYear()}
+            Projektzeiterfassung v7.3.22 · Firmen-Portal · © {new Date().getFullYear()}
           </p>
         </div>
       </footer>
@@ -1653,7 +1652,7 @@ export default function FirmaProjektePage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Beschäftigt seit</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">BeschÃ¤ftigt seit</label>
                   <input
                     type="date"
                     name="employment_start"
@@ -1682,7 +1681,7 @@ export default function FirmaProjektePage() {
         </div>
       )}
 
-      {/* MODAL: Löschen bestätigen */}
+      {/* MODAL: LÃ¶schen bestÃ¤tigen */}
       {showDeleteConfirm && employeeToDelete && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
@@ -1694,9 +1693,9 @@ export default function FirmaProjektePage() {
                   </svg>
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900">Mitarbeiter löschen?</h3>
+                  <h3 className="text-lg font-semibold text-gray-900">Mitarbeiter lÃ¶schen?</h3>
                   <p className="text-gray-500 mt-1">
-                    Möchten Sie <strong>{employeeToDelete.display_name}</strong> wirklich löschen?
+                    MÃ¶chten Sie <strong>{employeeToDelete.display_name}</strong> wirklich lÃ¶schen?
                   </p>
                 </div>
               </div>
@@ -1713,7 +1712,7 @@ export default function FirmaProjektePage() {
                 disabled={saving}
                 className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
               >
-                Löschen
+                LÃ¶schen
               </button>
             </div>
           </div>
@@ -1764,7 +1763,7 @@ export default function FirmaProjektePage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Förderkennzeichen (FKZ)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">FÃ¶rderkennzeichen (FKZ)</label>
                   <input
                     type="text"
                     name="funding_reference"
@@ -1775,7 +1774,7 @@ export default function FirmaProjektePage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Förderformat</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">FÃ¶rderformat</label>
                   <select
                     name="funding_format"
                     value={projectFormData.funding_format}
@@ -1960,7 +1959,7 @@ export default function FirmaProjektePage() {
                       onChange={(e) => handleWPAssignChange(index, 'employee_id', e.target.value)}
                       className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
                     >
-                      <option value="">-- Mitarbeiter wählen --</option>
+                      <option value="">-- Mitarbeiter wÃ¤hlen --</option>
                       {employees.map(emp => (
                         <option key={emp.id} value={emp.id}>{emp.display_name}</option>
                       ))}
@@ -1996,7 +1995,7 @@ export default function FirmaProjektePage() {
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
-                Weiteren Mitarbeiter hinzufügen
+                Weiteren Mitarbeiter hinzufÃ¼gen
               </button>
 
               <div className="bg-blue-50 p-3 rounded-lg text-sm">

@@ -1,12 +1,11 @@
 // src/app/v7/berater/foerderung/firma/[id]/page.tsx
-// VERSION: v7.3.32 - Firmen-Detailseite mit MA-AP-Zuordnung
+// VERSION: v7.3.31 - Firmen-Detailseite mit MA-AP-Zuordnung
 // DATUM: 20. Januar 2026
 // ÄNDERUNG v7.1.6: MA zu Arbeitspaket zuordnen mit PM-Verteilung
 // ÄNDERUNG v7.3.23: Förderformat-Liste erweitert
 // ÄNDERUNG v7.3.24: UTF-8 Encoding-Fehler behoben
 // ÄNDERUNG v7.3.28: Blauer Header wiederhergestellt
 // ÄNDERUNG v7.3.30: Projekt-Bearbeitung direkt in Übersicht möglich
-// ÄNDERUNG v7.3.31: Header-Farbe korrigiert auf Ozeanblau #0369a1
 
 'use client';
 
@@ -1143,7 +1142,7 @@ export default function FirmaDetailPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header - BLAU für Berater-Portal */}
-      <header className="text-white shadow-lg" style={{ backgroundColor: '#0369a1' }}>
+      <header className="text-white shadow-lg" style={{ backgroundColor: '#002451' }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center gap-4">

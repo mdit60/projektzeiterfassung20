@@ -1,8 +1,7 @@
 // src/app/v7/firma/page.tsx
-// VERSION: v7.3.27 - Firmen-Dashboard (Client-Sicht)
+// VERSION: v7.3.25 - Firmen-Dashboard (Client-Sicht)
 // DATUM: 20. Januar 2026
 // ÄNDERUNG v7.3.25: UTF-8 Encoding-Fehler behoben
-// ÄNDERUNG v7.3.27: Grüner Header wiederhergestellt, Uhr-Emojis korrigiert
 
 'use client';
 
@@ -259,31 +258,28 @@ export default function FirmaDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header - GRÜN für Firmen-Portal */}
-      <header className="text-white shadow-lg" style={{ backgroundColor: '#65A655' }}>
+      {/* Header */}
+      <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
+          <div className="flex justify-between items-center py-4">
             <div className="flex items-center space-x-4">
-              <div className="w-10 h-10 bg-white/20 text-white rounded-lg flex items-center justify-center font-bold">
+              <div className="w-10 h-10 bg-green-600 text-white rounded-lg flex items-center justify-center font-bold">
                 {company?.short_name?.substring(0, 2).toUpperCase() || company?.name?.substring(0, 2).toUpperCase() || 'F'}
               </div>
               <div>
-                <h1 className="text-xl font-bold">{company?.name}</h1>
-                <p className="text-sm text-white/80">Firmen-Portal</p>
+                <h1 className="text-xl font-bold text-gray-900">{company?.name}</h1>
+                <p className="text-sm text-gray-500">Firmen-Portal</p>
               </div>
             </div>
             <div className="flex items-center space-x-4">
-              <span className="text-sm text-white/90">
+              <span className="text-sm text-gray-600">
                 👤 {userName}
+                {isAdmin && <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded-full">Admin</span>}
               </span>
-              {isAdmin && <span className="px-2 py-0.5 bg-white/20 text-white text-xs rounded-full">Admin</span>}
               <button
                 onClick={handleLogout}
-                className="flex items-center gap-1 text-sm text-white/90 hover:text-white"
+                className="text-sm text-gray-500 hover:text-gray-700"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                </svg>
                 Abmelden
               </button>
             </div>
@@ -356,7 +352,7 @@ export default function FirmaDashboard() {
                 <p className="text-3xl font-bold text-gray-900 mt-1">{stats.timesheetEntriesThisMonth}</p>
               </div>
               <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
-                <span className="text-2xl">⏱️</span>
+                <span className="text-2xl">â±ï¸</span>
               </div>
             </div>
           </div>
@@ -370,7 +366,7 @@ export default function FirmaDashboard() {
             <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100 hover:shadow-md hover:border-blue-200 transition-all cursor-pointer">
               <div className="flex items-start space-x-4">
                 <div className="w-14 h-14 bg-blue-100 rounded-xl flex items-center justify-center">
-                  <span className="text-3xl">⏱️</span>
+                  <span className="text-3xl">â±ï¸</span>
                 </div>
                 <div className="flex-1">
                   <h4 className="text-lg font-semibold text-gray-900">Zeiterfassung</h4>

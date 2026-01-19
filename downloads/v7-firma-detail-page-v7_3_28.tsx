@@ -1,12 +1,10 @@
 // src/app/v7/berater/foerderung/firma/[id]/page.tsx
-// VERSION: v7.3.32 - Firmen-Detailseite mit MA-AP-Zuordnung
+// VERSION: v7.3.28 - Firmen-Detailseite mit MA-AP-Zuordnung
 // DATUM: 20. Januar 2026
 // ÄNDERUNG v7.1.6: MA zu Arbeitspaket zuordnen mit PM-Verteilung
 // ÄNDERUNG v7.3.23: Förderformat-Liste erweitert
 // ÄNDERUNG v7.3.24: UTF-8 Encoding-Fehler behoben
-// ÄNDERUNG v7.3.28: Blauer Header wiederhergestellt
-// ÄNDERUNG v7.3.30: Projekt-Bearbeitung direkt in Übersicht möglich
-// ÄNDERUNG v7.3.31: Header-Farbe korrigiert auf Ozeanblau #0369a1
+// ÄNDERUNG v7.3.28: Blauer Header wiederhergestellt, Benutzeranzeige hinzugefügt, Pfeil-Symbol korrigiert
 
 'use client';
 
@@ -1143,7 +1141,7 @@ export default function FirmaDetailPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header - BLAU für Berater-Portal */}
-      <header className="text-white shadow-lg" style={{ backgroundColor: '#0369a1' }}>
+      <header className="text-white shadow-lg" style={{ backgroundColor: '#002451' }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center gap-4">
@@ -1164,13 +1162,27 @@ export default function FirmaDetailPage() {
                 </p>
               </div>
             </div>
-            <Link
-              href="/v7/berater/foerderung/import"
-              className="px-4 py-2 bg-white/10 border border-white/30 text-white rounded-lg hover:bg-white/20 text-sm font-medium"
-            >
-              + Projekt importieren
-            </Link>
+            <div className="flex items-center gap-4">
+              <span className="text-sm text-white/90">{userProfile?.display_name || userProfile?.email}</span>
+              <Link
+                href="/v7/berater/foerderung/import"
+                className="px-4 py-2 bg-white/10 border border-white/30 text-white rounded-lg hover:bg-white/20 text-sm font-medium"
+              >
+                + Projekt importieren
+              </Link>
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-1 text-sm text-white/80 hover:text-white"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                Abmelden
+              </button>
+            </div>
           </div>
+        </div>
+      </header>
         </div>
       </header>
 
@@ -1297,7 +1309,7 @@ export default function FirmaDetailPage() {
               ) : (
                 <div className="space-y-3">
                   {projects.slice(0, 3).map(project => (
-                    <div key={project.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg group">
+                    <div key={project.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
                       <div>
                         <div className="font-medium text-gray-900">{project.name}</div>
                         {project.funding_reference && (
@@ -1309,27 +1321,6 @@ export default function FirmaDetailPage() {
                         <span className="text-sm text-gray-500">
                           {formatDate(project.start_date)} - {formatDate(project.end_date)}
                         </span>
-                        {/* Bearbeiten/Löschen Icons */}
-                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button
-                            onClick={() => openEditProjectModal(project)}
-                            className="p-1.5 bg-white hover:bg-gray-100 rounded text-gray-600"
-                            title="Bearbeiten"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                            </svg>
-                          </button>
-                          <button
-                            onClick={() => openDeleteConfirmation('project', project)}
-                            className="p-1.5 bg-white hover:bg-red-50 rounded text-gray-600 hover:text-red-600"
-                            title="Löschen"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                          </button>
-                        </div>
                       </div>
                     </div>
                   ))}
