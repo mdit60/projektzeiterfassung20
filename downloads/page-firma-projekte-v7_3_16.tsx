@@ -1,8 +1,8 @@
 // src/app/v7/firma/projekte/page.tsx
-// VERSION: v7.3.18 (SW-Release V7.3)
+// VERSION: v7.3.16 (SW-Release V7.3)
 // DATUM: 20. Januar 2026
 // BESCHREIBUNG: Firmen-Projektseite mit vollständiger CRUD-Funktionalität
-// ÄNDERUNG: Statistik-Zeile von Übersichtsseite entfernt (verschoben nach Berichte)
+// ÄNDERUNG: Natürliche Sortierung für Arbeitspakete (AP1.1 vor AP1.2 vor AP2)
 // BERECHTIGUNG: client_admin + project_leader können bearbeiten, employee nur ansehen
 
 'use client';
@@ -1089,6 +1089,25 @@ export default function FirmaProjektePage() {
         {/* TAB: ÜBERSICHT */}
         {activeTab === 'overview' && (
           <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="text-3xl font-bold text-blue-600">{projects.length}</div>
+                <div className="text-sm text-gray-500 mt-1">Förderprojekte</div>
+              </div>
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="text-3xl font-bold text-green-600">{employees.length}</div>
+                <div className="text-sm text-gray-500 mt-1">Mitarbeiter</div>
+              </div>
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="text-3xl font-bold text-purple-600">{workPackages.length}</div>
+                <div className="text-sm text-gray-500 mt-1">Arbeitspakete</div>
+              </div>
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="text-3xl font-bold text-orange-600">{formatCurrency(totalFunding)}</div>
+                <div className="text-sm text-gray-500 mt-1">Fördervolumen gesamt</div>
+              </div>
+            </div>
+
             <div className="bg-white rounded-lg shadow p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Firmendaten</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1142,34 +1161,12 @@ export default function FirmaProjektePage() {
               ) : (
                 <div className="space-y-3">
                   {projects.slice(0, 3).map(project => (
-                    <div key={project.id} className="border rounded-lg p-4 hover:bg-gray-50">
+                    <div key={project.id} className="border rounded-lg p-4">
                       <div className="flex justify-between items-start">
-                        <div className="flex-1">
+                        <div>
                           <div className="flex items-center gap-2">
                             <span className="font-medium text-gray-900">{project.name}</span>
                             {getFundingFormatBadge(project.funding_format)}
-                            {canEdit && (
-                              <>
-                                <button
-                                  onClick={() => openEditProjectModal(project)}
-                                  className="p-1 text-gray-400 hover:text-blue-600"
-                                  title="Projekt bearbeiten"
-                                >
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                                  </svg>
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteProject(project)}
-                                  className="p-1 text-gray-400 hover:text-red-600"
-                                  title="Projekt löschen"
-                                >
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                  </svg>
-                                </button>
-                              </>
-                            )}
                           </div>
                           <p className="text-sm text-gray-500">FKZ: {project.funding_reference || '-'}</p>
                         </div>
@@ -1546,7 +1543,7 @@ export default function FirmaProjektePage() {
       <footer className="bg-white border-t mt-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <p className="text-center text-sm text-gray-500">
-            Projektzeiterfassung v7.3.18 · Firmen-Portal · © {new Date().getFullYear()}
+            Projektzeiterfassung v7.3.16 · Firmen-Portal · © {new Date().getFullYear()}
           </p>
         </div>
       </footer>

@@ -1,8 +1,8 @@
 // src/app/v7/firma/projekte/page.tsx
-// VERSION: v7.3.18 (SW-Release V7.3)
+// VERSION: v7.3.17 (SW-Release V7.3)
 // DATUM: 20. Januar 2026
 // BESCHREIBUNG: Firmen-Projektseite mit vollständiger CRUD-Funktionalität
-// ÄNDERUNG: Statistik-Zeile von Übersichtsseite entfernt (verschoben nach Berichte)
+// ÄNDERUNG: Bearbeiten-Buttons direkt bei "Aktuelle Projekte" auf Übersichtsseite
 // BERECHTIGUNG: client_admin + project_leader können bearbeiten, employee nur ansehen
 
 'use client';
@@ -1089,6 +1089,25 @@ export default function FirmaProjektePage() {
         {/* TAB: ÜBERSICHT */}
         {activeTab === 'overview' && (
           <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="text-3xl font-bold text-blue-600">{projects.length}</div>
+                <div className="text-sm text-gray-500 mt-1">Förderprojekte</div>
+              </div>
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="text-3xl font-bold text-green-600">{employees.length}</div>
+                <div className="text-sm text-gray-500 mt-1">Mitarbeiter</div>
+              </div>
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="text-3xl font-bold text-purple-600">{workPackages.length}</div>
+                <div className="text-sm text-gray-500 mt-1">Arbeitspakete</div>
+              </div>
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="text-3xl font-bold text-orange-600">{formatCurrency(totalFunding)}</div>
+                <div className="text-sm text-gray-500 mt-1">Fördervolumen gesamt</div>
+              </div>
+            </div>
+
             <div className="bg-white rounded-lg shadow p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Firmendaten</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1546,7 +1565,7 @@ export default function FirmaProjektePage() {
       <footer className="bg-white border-t mt-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <p className="text-center text-sm text-gray-500">
-            Projektzeiterfassung v7.3.18 · Firmen-Portal · © {new Date().getFullYear()}
+            Projektzeiterfassung v7.3.17 · Firmen-Portal · © {new Date().getFullYear()}
           </p>
         </div>
       </footer>
