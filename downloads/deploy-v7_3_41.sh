@@ -1,10 +1,10 @@
 #!/bin/bash
 # ============================================
-# DEPLOYMENT SCRIPT v7.3.39
-# AP-Code Anzeige korrigiert (AP1.1, AP1.2 etc.)
+# DEPLOYMENT SCRIPT v7.3.41
+# Finale bereinigte Version - Berater-Detailseite
 # ============================================
 
-echo "=== PZE V7.3.39 Deployment ==="
+echo "=== PZE V7.3.41 Deployment ==="
 echo ""
 
 # Prüfen ob wir im richtigen Verzeichnis sind
@@ -19,14 +19,8 @@ DL="downloads"
 
 echo "1. Dateien kopieren..."
 
-# Import-Seite
-cp -v "$DL/page-v7-import-v7_3_39.tsx" src/app/v7/berater/foerderung/import/page.tsx
-
-# Firmen-Projekt-Seite
-cp -v "$DL/page-firma-projekte-v7_3_39.tsx" src/app/v7/firma/projekte/page.tsx
-
-# Berater Firmen-Detailseite (NEU)
-cp -v "$DL/v7-firma-detail-page-v7_3_39.tsx" src/app/v7/berater/foerderung/firma/\[id\]/page.tsx
+# Berater Firmen-Detailseite
+cp -v "$DL/v7-firma-detail-page-v7_3_41.tsx" src/app/v7/berater/foerderung/firma/\[id\]/page.tsx
 
 echo ""
 echo "2. Build testen..."
@@ -36,8 +30,15 @@ if [ $? -eq 0 ]; then
     echo ""
     echo "=== BUILD ERFOLGREICH ==="
     echo ""
+    echo "Änderungen in v7.3.41:"
+    echo "  - Tabellen-Layout für Arbeitspakete (AP | Bezeichnung | PM | +Hinzufügen)"
+    echo "  - AP-Code korrekt angezeigt (AP1.1, AP1.2 statt nur AP1)"
+    echo "  - Sortierung nach ap_number + ap_sub_number"
+    echo "  - Mitarbeiter-Icons permanent sichtbar"
+    echo "  - UTF-8 sauber"
+    echo ""
     echo "3. Deployment mit:"
-    echo "   git add . && git commit -m \"v7.3.39: AP-Code Anzeige korrigiert\" && git push"
+    echo "   git add . && git commit -m \"v7.3.41: Finale bereinigte Berater-Detailseite\" && git push"
     echo ""
     echo "=== FERTIG ==="
 else

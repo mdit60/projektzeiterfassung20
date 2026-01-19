@@ -1,7 +1,7 @@
 // src/app/v7/berater/foerderung/firma/[id]/page.tsx
-// VERSION: v7.3.41-1 - Einheitliches Tabellen-Design
+// VERSION: v7.3.41 - Finale bereinigte Version
 // DATUM: 20. Januar 2026
-// ÄNDERUNG v7.3.41-1: Mitarbeiter-Tabelle im gleichen Stil wie Arbeitspakete-Tabelle
+// ÄNDERUNG v7.3.41: Tabellen-Layout für APs, AP-Code korrekt (AP1.1, AP1.2), Sortierung, UTF-8 sauber, Icons permanent
 
 'use client';
 
@@ -1826,67 +1826,70 @@ export default function FirmaDetailPage() {
                 </button>
               </div>
             ) : (
-              <div className="border rounded-lg overflow-hidden">
-                {/* Tabellen-Header */}
-                <div className="bg-gray-100 px-4 py-2 flex items-center text-xs font-medium text-gray-600 uppercase border-b">
-                  <div className="w-48">Name</div>
-                  <div className="flex-1">Position / Qualifikation</div>
-                  <div className="w-28 text-center">Stunden</div>
-                  <div className="w-28 text-center">Seit</div>
-                  <div className="w-20 text-center">Status</div>
-                  <div className="w-24 text-right">Aktionen</div>
-                </div>
-                {/* Tabellen-Body */}
-                {employees.map((emp, idx) => (
-                  <div
-                    key={emp.id}
-                    className={`px-4 py-3 flex items-center hover:bg-gray-50 ${idx < employees.length - 1 ? 'border-b' : ''}`}
-                  >
-                    <div className="w-48">
-                      <div className="font-medium text-gray-900">{emp.display_name}</div>
-                      {emp.email && <div className="text-xs text-gray-500">{emp.email}</div>}
-                    </div>
-                    <div className="flex-1">
-                      <div className="text-sm text-gray-900">{emp.position_title || '-'}</div>
-                      {emp.qualification && <div className="text-xs text-gray-500">{emp.qualification}</div>}
-                    </div>
-                    <div className="w-28 text-center text-sm text-gray-600">
-                      {emp.weekly_hours ? `${emp.weekly_hours} h` : '-'}
-                    </div>
-                    <div className="w-28 text-center text-sm text-gray-500">
-                      {formatDate(emp.employment_start)}
-                    </div>
-                    <div className="w-20 text-center">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                        emp.is_active && !emp.employment_end
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-gray-100 text-gray-800'
-                      }`}>
-                        {emp.is_active && !emp.employment_end ? 'Aktiv' : 'Inaktiv'}
-                      </span>
-                    </div>
-                    <div className="w-24 flex justify-end gap-1">
-                      <button
-                        onClick={() => openEditEmployeeModal(emp)}
-                        className="p-1.5 text-gray-600 hover:bg-gray-200 rounded"
-                        title="Bearbeiten"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={() => openDeleteConfirmation('employee', emp)}
-                        className="p-1.5 text-red-500 hover:bg-red-100 rounded"
-                        title="Löschen"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                ))}
+              <div className="bg-white rounded-lg shadow overflow-hidden">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Position / Qualifikation</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Wochenstunden</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Beschäftigt seit</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Aktionen</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {employees.map(emp => (
+                      <tr key={emp.id} className="hover:bg-gray-50 group">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="font-medium text-gray-900">{emp.display_name}</div>
+                          {emp.email && <div className="text-sm text-gray-500">{emp.email}</div>}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-900">{emp.position_title || '-'}</div>
+                          {emp.qualification && <div className="text-sm text-gray-500">{emp.qualification}</div>}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {emp.weekly_hours ? `${emp.weekly_hours} h` : '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {formatDate(emp.employment_start)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            emp.is_active && !emp.employment_end
+                              ? 'bg-green-100 text-green-800'
+                              : 'bg-gray-100 text-gray-800'
+                          }`}>
+                            {emp.is_active && !emp.employment_end ? 'Aktiv' : 'Inaktiv'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right">
+                          <div className="flex justify-end gap-1">
+                            <button
+                              onClick={() => openEditEmployeeModal(emp)}
+                              className="p-1.5 bg-gray-100 hover:bg-blue-100 rounded text-gray-600 hover:text-blue-600"
+                              title="Bearbeiten"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                              </svg>
+                            </button>
+                            <button
+                              onClick={() => openDeleteConfirmation('employee', emp)}
+                              className="p-1.5 bg-gray-100 hover:bg-red-100 rounded text-gray-600 hover:text-red-600"
+                              title="Löschen"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>

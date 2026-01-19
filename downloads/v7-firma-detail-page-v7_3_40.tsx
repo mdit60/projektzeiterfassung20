@@ -1,7 +1,7 @@
 // src/app/v7/berater/foerderung/firma/[id]/page.tsx
-// VERSION: v7.3.41-1 - Einheitliches Tabellen-Design
+// VERSION: v7.3.40 - Komplette Bereinigung
 // DATUM: 20. Januar 2026
-// ÄNDERUNG v7.3.41-1: Mitarbeiter-Tabelle im gleichen Stil wie Arbeitspakete-Tabelle
+// ÄNDERUNG v7.3.40: UTF-8 Fehler behoben, Mitarbeiter-Icons permanent sichtbar, AP-Sortierung korrekt
 
 'use client';
 
@@ -228,10 +228,10 @@ const EMPTY_COMPANY_FORM: CompanyFormData = {
 
 const KMU_STATUS_OPTIONS = [
   { value: '', label: 'Bitte wählen...' },
-  { value: 'micro', label: 'Kleinstunternehmen (< 10 MA, ≤ 2 Mio. €)' },
-  { value: 'small', label: 'Kleines Unternehmen (< 50 MA, ≤ 10 Mio. €)' },
-  { value: 'medium', label: 'Mittleres Unternehmen (< 250 MA, ≤ 50 Mio. €)' },
-  { value: 'large', label: 'Großunternehmen (≥ 250 MA)' },
+  { value: 'micro', label: 'Kleinstunternehmen (< 10 MA, â‰¤ 2 Mio. €)' },
+  { value: 'small', label: 'Kleines Unternehmen (< 50 MA, â‰¤ 10 Mio. €)' },
+  { value: 'medium', label: 'Mittleres Unternehmen (< 250 MA, â‰¤ 50 Mio. €)' },
+  { value: 'large', label: 'Großunternehmen (â‰¥ 250 MA)' },
 ];
 
 // ============================================
@@ -1317,7 +1317,7 @@ export default function FirmaDetailPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="bg-white rounded-lg shadow-lg p-8 max-w-md text-center">
-          <div className="text-red-500 text-5xl mb-4">⚠️</div>
+          <div className="text-red-500 text-5xl mb-4">âš ï¸</div>
           <h2 className="text-xl font-bold text-gray-900 mb-2">Fehler</h2>
           <p className="text-gray-600 mb-6">{error || 'Firma nicht gefunden'}</p>
           <button
@@ -1468,7 +1468,7 @@ export default function FirmaDetailPage() {
                   onClick={() => setActiveTab('projects')}
                   className="text-blue-600 hover:underline text-sm"
                 >
-                  Alle anzeigen →
+                  Alle anzeigen â†’
                 </button>
               </div>
               {projects.length === 0 ? (
@@ -1700,60 +1700,57 @@ export default function FirmaDetailPage() {
                           </svg>
                         </button>
 
-                        {/* Expandierte Arbeitspakete-Liste - klare Tabellenstruktur */}
+                        {/* Expandierte Arbeitspakete-Liste */}
                         {isExpanded && (
-                          <div className="mt-3">
+                          <div className="mt-3 space-y-2">
                             {wps.length === 0 ? (
-                              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                                <span className="text-sm text-gray-500 italic">Keine Arbeitspakete vorhanden.</span>
+                              <div className="text-sm text-gray-400 italic p-2">
+                                Keine Arbeitspakete vorhanden.
                                 <button
                                   onClick={() => openCreateWPModal(project.id)}
-                                  className="px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 rounded flex items-center gap-1"
+                                  className="ml-2 text-blue-600 hover:text-blue-800"
                                 >
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                                  </svg>
-                                  Hinzufügen
+                                  + Hinzufügen
                                 </button>
                               </div>
                             ) : (
-                              <div className="border rounded-lg overflow-hidden">
-                                {/* Tabellen-Header */}
-                                <div className="bg-gray-100 px-4 py-2 flex items-center text-xs font-medium text-gray-600 uppercase border-b">
-                                  <div className="w-16">AP</div>
-                                  <div className="flex-1">Bezeichnung</div>
-                                  <div className="w-24 text-right">PM</div>
-                                  <div className="w-32 text-right">
-                                    <button
-                                      onClick={() => openCreateWPModal(project.id)}
-                                      className="text-blue-600 hover:text-blue-800 normal-case font-normal flex items-center gap-1 ml-auto"
-                                    >
-                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                                      </svg>
-                                      Hinzufügen
-                                    </button>
-                                  </div>
+                              <>
+                                <div className="flex justify-end mb-2">
+                                  <button
+                                    onClick={() => openCreateWPModal(project.id)}
+                                    className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                                  >
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                    </svg>
+                                    Arbeitspaket hinzufügen
+                                  </button>
                                 </div>
-                                {/* Tabellen-Body */}
-                                {wps.map((wp, idx) => (
+                                {wps.map(wp => (
                                   <div
                                     key={wp.id}
-                                    className={`px-4 py-3 flex items-center hover:bg-gray-50 ${idx < wps.length - 1 ? 'border-b' : ''}`}
+                                    className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors group/wp"
                                   >
-                                    <div className="w-16">
-                                      <span className="text-xs font-mono bg-gray-200 px-1.5 py-0.5 rounded">
-                                        {wp.ap_code || `AP${wp.ap_number}`}
-                                      </span>
+                                    <div className="flex-1">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs font-mono bg-gray-200 px-1.5 py-0.5 rounded">
+                                          {wp.ap_code || `AP${wp.ap_number}`}
+                                        </span>
+                                        <span className="font-medium text-gray-900">{wp.name}</span>
+                                      </div>
+                                      <div className="text-xs text-gray-500 mt-1">
+                                        {wp.start_month && wp.end_month && (
+                                          <span>Monat {wp.start_month}-{wp.end_month}</span>
+                                        )}
+                                        {wp.total_person_months && (
+                                          <span className="ml-3">{wp.total_person_months} PM</span>
+                                        )}
+                                      </div>
                                     </div>
-                                    <div className="flex-1 text-sm text-gray-900">{wp.name}</div>
-                                    <div className="w-24 text-right text-sm text-gray-600">
-                                      {wp.total_person_months ? `${wp.total_person_months} PM` : '-'}
-                                    </div>
-                                    <div className="w-32 flex justify-end gap-1">
+                                    <div className="flex gap-1 opacity-0 group-hover/wp:opacity-100 transition-opacity">
                                       <button
                                         onClick={() => openWPAssignmentModal(wp)}
-                                        className="p-1.5 text-purple-600 hover:bg-purple-100 rounded"
+                                        className="p-1 text-purple-600 hover:bg-purple-100 rounded"
                                         title="Mitarbeiter zuordnen"
                                       >
                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1762,7 +1759,7 @@ export default function FirmaDetailPage() {
                                       </button>
                                       <button
                                         onClick={() => openEditWPModal(wp)}
-                                        className="p-1.5 text-gray-600 hover:bg-gray-200 rounded"
+                                        className="p-1 text-gray-600 hover:bg-gray-200 rounded"
                                         title="Bearbeiten"
                                       >
                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1771,7 +1768,7 @@ export default function FirmaDetailPage() {
                                       </button>
                                       <button
                                         onClick={() => openDeleteConfirmation('workpackage', wp)}
-                                        className="p-1.5 text-red-500 hover:bg-red-100 rounded"
+                                        className="p-1 text-gray-600 hover:bg-red-100 hover:text-red-600 rounded"
                                         title="Löschen"
                                       >
                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1781,7 +1778,7 @@ export default function FirmaDetailPage() {
                                     </div>
                                   </div>
                                 ))}
-                              </div>
+                              </>
                             )}
                           </div>
                         )}
@@ -1826,67 +1823,70 @@ export default function FirmaDetailPage() {
                 </button>
               </div>
             ) : (
-              <div className="border rounded-lg overflow-hidden">
-                {/* Tabellen-Header */}
-                <div className="bg-gray-100 px-4 py-2 flex items-center text-xs font-medium text-gray-600 uppercase border-b">
-                  <div className="w-48">Name</div>
-                  <div className="flex-1">Position / Qualifikation</div>
-                  <div className="w-28 text-center">Stunden</div>
-                  <div className="w-28 text-center">Seit</div>
-                  <div className="w-20 text-center">Status</div>
-                  <div className="w-24 text-right">Aktionen</div>
-                </div>
-                {/* Tabellen-Body */}
-                {employees.map((emp, idx) => (
-                  <div
-                    key={emp.id}
-                    className={`px-4 py-3 flex items-center hover:bg-gray-50 ${idx < employees.length - 1 ? 'border-b' : ''}`}
-                  >
-                    <div className="w-48">
-                      <div className="font-medium text-gray-900">{emp.display_name}</div>
-                      {emp.email && <div className="text-xs text-gray-500">{emp.email}</div>}
-                    </div>
-                    <div className="flex-1">
-                      <div className="text-sm text-gray-900">{emp.position_title || '-'}</div>
-                      {emp.qualification && <div className="text-xs text-gray-500">{emp.qualification}</div>}
-                    </div>
-                    <div className="w-28 text-center text-sm text-gray-600">
-                      {emp.weekly_hours ? `${emp.weekly_hours} h` : '-'}
-                    </div>
-                    <div className="w-28 text-center text-sm text-gray-500">
-                      {formatDate(emp.employment_start)}
-                    </div>
-                    <div className="w-20 text-center">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                        emp.is_active && !emp.employment_end
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-gray-100 text-gray-800'
-                      }`}>
-                        {emp.is_active && !emp.employment_end ? 'Aktiv' : 'Inaktiv'}
-                      </span>
-                    </div>
-                    <div className="w-24 flex justify-end gap-1">
-                      <button
-                        onClick={() => openEditEmployeeModal(emp)}
-                        className="p-1.5 text-gray-600 hover:bg-gray-200 rounded"
-                        title="Bearbeiten"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={() => openDeleteConfirmation('employee', emp)}
-                        className="p-1.5 text-red-500 hover:bg-red-100 rounded"
-                        title="Löschen"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                ))}
+              <div className="bg-white rounded-lg shadow overflow-hidden">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Position / Qualifikation</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Wochenstunden</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Beschäftigt seit</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Aktionen</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {employees.map(emp => (
+                      <tr key={emp.id} className="hover:bg-gray-50 group">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="font-medium text-gray-900">{emp.display_name}</div>
+                          {emp.email && <div className="text-sm text-gray-500">{emp.email}</div>}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-900">{emp.position_title || '-'}</div>
+                          {emp.qualification && <div className="text-sm text-gray-500">{emp.qualification}</div>}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {emp.weekly_hours ? `${emp.weekly_hours} h` : '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {formatDate(emp.employment_start)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            emp.is_active && !emp.employment_end
+                              ? 'bg-green-100 text-green-800'
+                              : 'bg-gray-100 text-gray-800'
+                          }`}>
+                            {emp.is_active && !emp.employment_end ? 'Aktiv' : 'Inaktiv'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right">
+                          <div className="flex justify-end gap-1">
+                            <button
+                              onClick={() => openEditEmployeeModal(emp)}
+                              className="p-1.5 bg-gray-100 hover:bg-blue-100 rounded text-gray-600 hover:text-blue-600"
+                              title="Bearbeiten"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                              </svg>
+                            </button>
+                            <button
+                              onClick={() => openDeleteConfirmation('employee', emp)}
+                              className="p-1.5 bg-gray-100 hover:bg-red-100 rounded text-gray-600 hover:text-red-600"
+                              title="Löschen"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>

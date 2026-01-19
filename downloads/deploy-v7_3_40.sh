@@ -1,10 +1,10 @@
 #!/bin/bash
 # ============================================
-# DEPLOYMENT SCRIPT v7.3.39
-# AP-Code Anzeige korrigiert (AP1.1, AP1.2 etc.)
+# DEPLOYMENT SCRIPT v7.3.40
+# Berater-Detailseite komplett bereinigt
 # ============================================
 
-echo "=== PZE V7.3.39 Deployment ==="
+echo "=== PZE V7.3.40 Deployment ==="
 echo ""
 
 # Prüfen ob wir im richtigen Verzeichnis sind
@@ -19,14 +19,8 @@ DL="downloads"
 
 echo "1. Dateien kopieren..."
 
-# Import-Seite
-cp -v "$DL/page-v7-import-v7_3_39.tsx" src/app/v7/berater/foerderung/import/page.tsx
-
-# Firmen-Projekt-Seite
-cp -v "$DL/page-firma-projekte-v7_3_39.tsx" src/app/v7/firma/projekte/page.tsx
-
-# Berater Firmen-Detailseite (NEU)
-cp -v "$DL/v7-firma-detail-page-v7_3_39.tsx" src/app/v7/berater/foerderung/firma/\[id\]/page.tsx
+# Berater Firmen-Detailseite
+cp -v "$DL/v7-firma-detail-page-v7_3_40.tsx" src/app/v7/berater/foerderung/firma/\[id\]/page.tsx
 
 echo ""
 echo "2. Build testen..."
@@ -37,7 +31,7 @@ if [ $? -eq 0 ]; then
     echo "=== BUILD ERFOLGREICH ==="
     echo ""
     echo "3. Deployment mit:"
-    echo "   git add . && git commit -m \"v7.3.39: AP-Code Anzeige korrigiert\" && git push"
+    echo "   git add . && git commit -m \"v7.3.40: Berater-Detailseite UTF-8 und Icons fix\" && git push"
     echo ""
     echo "=== FERTIG ==="
 else
