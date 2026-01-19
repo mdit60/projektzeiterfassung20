@@ -1,6 +1,7 @@
 // src/app/login/page.tsx
-// VERSION: v7.1.1 - Login mit rollenbasiertem Redirect
-// DATUM: 02. Januar 2026
+// VERSION: v7.1.2 - Login nur für V7-registrierte User
+// DATUM: 19. Januar 2026
+// ÄNDERUNG: Kein V6-Fallback mehr, nur V7-User werden akzeptiert
 
 'use client';
 
@@ -32,7 +33,7 @@ export default function LoginPage() {
       if (signInError) throw signInError;
 
       if (data.user) {
-        // Rollenbasierter Redirect
+        // Prüfe ob User in V7 registriert ist
         const { data: profile } = await supabase
           .from('v7_user_profiles')
           .select('role, consultant_company_id, client_company_id')
@@ -40,15 +41,16 @@ export default function LoginPage() {
           .maybeSingle();
 
         if (profile) {
-          // V7-Profil vorhanden
+          // V7-Profil vorhanden -> rollenbasierter Redirect
           if (profile.role === 'consultant' || profile.role === 'system_admin') {
             router.push('/v7/berater');
           } else {
             router.push('/v7/firma');
           }
         } else {
-          // Kein V7-Profil -> V6 Dashboard (Fallback)
-          router.push('/dashboard');
+          // Kein V7-Profil -> Ausloggen und Fehlermeldung
+          await supabase.auth.signOut();
+          setError('Ihr Konto ist noch nicht für V7 freigeschaltet. Bitte wenden Sie sich an Ihren Administrator.');
         }
       }
     } catch (error: any) {
@@ -146,7 +148,7 @@ export default function LoginPage() {
 
         {/* Footer */}
         <p className="mt-8 text-center text-xs text-gray-500">
-          Projektzeiterfassung v7.1 · © {new Date().getFullYear()}
+          Projektzeiterfassung v7.1.2 · © {new Date().getFullYear()}
         </p>
       </div>
     </div>
