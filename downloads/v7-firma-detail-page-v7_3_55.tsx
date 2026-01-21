@@ -17,14 +17,14 @@ import { createClient } from '@/lib/supabase/client';
 
 // Shared Components
 import WorkPackageList, { 
-  WorkPackage, 
-  WorkPackageAssignment as WPAssignment,
-  Employee as WPEmployee,
+  WorkPackage as WPListWorkPackage, 
+  WorkPackageAssignment as WPListAssignment,
+  Employee as WPListEmployee,
   sortWorkPackages, 
   formatAPCode 
 } from '@/components/shared/WorkPackageList';
 import WorkPackageEditModal, { 
-  WorkPackageFormData, 
+  WorkPackageFormData as WPEditFormData, 
   Project as WPProject 
 } from '@/components/shared/WorkPackageEditModal';
 import WorkPackageAssignmentModal from '@/components/shared/WorkPackageAssignmentModal';
@@ -50,7 +50,7 @@ interface ClientCompany {
   internal_notes: string | null;
   is_active: boolean;
   created_at: string;
-  // FÃ¶rderrelevante Felder v7.3.35
+  // Foerderrelevante Felder v7.3.35
   kmu_status: string | null;
   founding_year: number | null;
   industry_sector: string | null;
@@ -246,11 +246,11 @@ const EMPTY_COMPANY_FORM: CompanyFormData = {
 };
 
 const KMU_STATUS_OPTIONS = [
-  { value: '', label: 'Bitte wÃ¤hlen...' },
+  { value: '', label: 'Bitte waehlen...' },
   { value: 'micro', label: 'Kleinstunternehmen (< 10 MA, â‰¤ 2 Mio. â‚¬)' },
   { value: 'small', label: 'Kleines Unternehmen (< 50 MA, â‰¤ 10 Mio. â‚¬)' },
   { value: 'medium', label: 'Mittleres Unternehmen (< 250 MA, â‰¤ 50 Mio. â‚¬)' },
-  { value: 'large', label: 'GroÃŸunternehmen (â‰¥ 250 MA)' },
+  { value: 'large', label: 'Grossunternehmen (>= 250 MA)' },
 ];
 
 // ============================================
@@ -258,7 +258,7 @@ const KMU_STATUS_OPTIONS = [
 // ============================================
 
 const BUNDESLAND_NAMES: Record<string, string> = {
-  'DE-BW': 'Baden-WÃ¼rttemberg',
+  'DE-BW': 'Baden-Wuerttemberg',
   'DE-BY': 'Bayern',
   'DE-BE': 'Berlin',
   'DE-BB': 'Brandenburg',
@@ -273,14 +273,14 @@ const BUNDESLAND_NAMES: Record<string, string> = {
   'DE-SN': 'Sachsen',
   'DE-ST': 'Sachsen-Anhalt',
   'DE-SH': 'Schleswig-Holstein',
-  'DE-TH': 'ThÃ¼ringen',
+  'DE-TH': 'Thueringen',
 };
 
 const FUNDING_FORMATS = [
   { code: 'ZIM_EINZEL', name: 'ZIM Einzel' },
   { code: 'ZIM_KOOP', name: 'ZIM Kooperation' },
   { code: 'ZIM_NETZWERK', name: 'ZIM Netzwerk' },
-  { code: 'ZIM_DURCHFUEHRBARKEIT', name: 'ZIM DurchfÃ¼hrbarkeitsstudie' },
+  { code: 'ZIM_DURCHFUEHRBARKEIT', name: 'ZIM Durchfuehrbarkeitsstudie' },
   { code: 'BMBF_KMU', name: 'BMBF KMU-innovativ' },
   { code: 'FZUL', name: 'Forschungszulage' },
   { code: 'OTHER', name: 'Sonstige' },
@@ -936,7 +936,7 @@ export default function FirmaDetailPage() {
 
   const openWPAssignmentModal = (wp: WorkPackage) => {
     setAssignmentWP(wp);
-    // PM-Werte fÃ¼r bestehende Zuordnungen laden
+    // PM-Werte fuer bestehende Zuordnungen laden
     const pmValues: Record<string, string> = {};
     const assigns = getWPAssignments(wp.id);
     assigns.forEach(a => {
@@ -1095,7 +1095,7 @@ export default function FirmaDetailPage() {
     }
     
     if (companyFormData.contact_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(companyFormData.contact_email)) {
-      setCompanyFormError('UngÃ¼ltige E-Mail-Adresse');
+      setCompanyFormError('Ungueltige E-Mail-Adresse');
       return;
     }
     
@@ -1241,22 +1241,22 @@ export default function FirmaDetailPage() {
     return '';
   };
 
-  // NatÃ¼rliche Sortierung fÃ¼r AP-Codes (AP1, AP1.1, AP1.2, AP2, AP10, etc.)
+  // Natuerliche Sortierung fuer AP-Codes (AP1, AP1.1, AP1.2, AP2, AP10, etc.)
   const sortWorkPackages = (wps: WorkPackage[]): WorkPackage[] => {
     return [...wps].sort((a, b) => {
-      // PrimÃ¤r: Nach ap_number sortieren
+      // Primaer: Nach ap_number sortieren
       if (a.ap_number !== b.ap_number) {
         return a.ap_number - b.ap_number;
       }
       
-      // SekundÃ¤r: Nach ap_sub_number (0 fÃ¼r Hauptpakete, 1/2/3 fÃ¼r Unterpakete)
+      // Sekundaer: Nach ap_sub_number (0 fuer Hauptpakete, 1/2/3 fuer Unterpakete)
       const subA = a.ap_sub_number ?? 0;
       const subB = b.ap_sub_number ?? 0;
       if (subA !== subB) {
         return subA - subB;
       }
       
-      // Fallback: ap_code parsen (fÃ¼r Ã¤ltere Daten ohne ap_sub_number)
+      // Fallback: ap_code parsen (fuer aeltere Daten ohne ap_sub_number)
       const codeA = a.ap_code || `AP${a.ap_number}`;
       const codeB = b.ap_code || `AP${b.ap_number}`;
       
@@ -1335,7 +1335,7 @@ export default function FirmaDetailPage() {
             onClick={() => router.push('/v7/berater/foerderung')}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
           >
-            ZurÃ¼ck zur Ãœbersicht
+            Zurueck zur Uebersicht
           </button>
         </div>
       </div>
@@ -1348,10 +1348,11 @@ export default function FirmaDetailPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header - BLAU fÃ¼r Berater-Portal */}
+      {/* Header - BLAU fuer Berater-Portal */}
       <header className="text-white shadow-lg" style={{ backgroundColor: '#0369a1' }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
+            {/* Links: Zurueck + Firma-Info */}
             <div className="flex items-center gap-4">
               <button
                 onClick={() => router.push('/v7/berater/foerderung')}
@@ -1360,15 +1361,31 @@ export default function FirmaDetailPage() {
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
-                ZurÃ¼ck
+                Zurueck
               </button>
-              <div className="h-6 w-px bg-white/30"></div>
+              <span className="px-2 py-1 bg-white/20 rounded text-sm font-medium">PZE</span>
               <div>
                 <h1 className="text-xl font-bold">{company.name}</h1>
                 <p className="text-sm text-white/80">
-                  FÃ¶rderberatung Â· {BUNDESLAND_NAMES[company.federal_state || ''] || company.federal_state || 'Kein Bundesland'}
+                  Foerderberatung
                 </p>
               </div>
+            </div>
+            {/* Rechts: Eingeloggter Berater */}
+            <div className="flex items-center gap-4">
+              <div className="text-right">
+                <div className="font-medium">Martin Ditscherlein</div>
+                <div className="text-sm text-white/70">Berater</div>
+              </div>
+              <button
+                onClick={async () => {
+                  await supabase.auth.signOut();
+                  router.push('/login');
+                }}
+                className="px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded text-sm flex items-center gap-2"
+              >
+                Abmelden
+              </button>
             </div>
           </div>
         </div>
@@ -1379,9 +1396,9 @@ export default function FirmaDetailPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <nav className="flex gap-8">
             {[
-              { id: 'overview', label: 'Ãœbersicht', icon: 'ðŸ“Š' },
-              { id: 'projects', label: `Projekte (${projects.length})`, icon: 'ðŸ“' },
-              { id: 'employees', label: `Mitarbeiter (${employees.length})`, icon: 'ðŸ‘¥' },
+              { id: 'overview', label: 'Uebersicht' },
+              { id: 'projects', label: `Projekte (${projects.length})` },
+              { id: 'employees', label: `Mitarbeiter (${employees.length})` },
             ].map(tab => (
               <button
                 key={tab.id}
@@ -1392,7 +1409,6 @@ export default function FirmaDetailPage() {
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
-                <span className="mr-2">{tab.icon}</span>
                 {tab.label}
               </button>
             ))}
@@ -1404,7 +1420,7 @@ export default function FirmaDetailPage() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
         {/* ============================================ */}
-        {/* TAB: ÃœBERSICHT */}
+        {/* TAB: UeBERSICHT */}
         {/* ============================================ */}
         {activeTab === 'overview' && (
           <div className="space-y-6">
@@ -1499,7 +1515,7 @@ export default function FirmaDetailPage() {
                         <span className="text-sm text-gray-500">
                           {formatDate(project.start_date)} - {formatDate(project.end_date)}
                         </span>
-                        {/* Bearbeiten/LÃ¶schen Icons */}
+                        {/* Bearbeiten/Loeschen Icons */}
                         <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button
                             onClick={() => openEditProjectModal(project)}
@@ -1513,7 +1529,7 @@ export default function FirmaDetailPage() {
                           <button
                             onClick={() => openDeleteConfirmation('project', project)}
                             className="p-1.5 bg-white hover:bg-red-50 rounded text-gray-600 hover:text-red-600"
-                            title="LÃ¶schen"
+                            title="Loeschen"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -1561,7 +1577,7 @@ export default function FirmaDetailPage() {
 
             {projects.length === 0 ? (
               <div className="bg-white rounded-lg shadow p-12 text-center">
-                <div className="text-5xl mb-4">ðŸ“</div>
+                <div className="text-5xl mb-4"></div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">Keine Projekte vorhanden</h3>
                 <p className="text-gray-500 mb-4">Legen Sie ein neues Projekt an oder importieren Sie einen ZIM-Antrag.</p>
                 <div className="flex justify-center gap-3">
@@ -1602,7 +1618,7 @@ export default function FirmaDetailPage() {
                         <button
                           onClick={() => openDeleteConfirmation('project', project)}
                           className="p-1.5 bg-gray-100 hover:bg-red-100 rounded text-gray-600 hover:text-red-600"
-                          title="LÃ¶schen"
+                          title="Loeschen"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -1634,11 +1650,11 @@ export default function FirmaDetailPage() {
                             <div className="font-semibold text-gray-900">{formatCurrency(budget.total_costs)}</div>
                           </div>
                           <div>
-                            <div className="text-xs text-gray-500 uppercase">FÃ¶rderung</div>
+                            <div className="text-xs text-gray-500 uppercase">Foerderung</div>
                             <div className="font-semibold text-green-600">{formatCurrency(budget.funding_amount)}</div>
                           </div>
                           <div>
-                            <div className="text-xs text-gray-500 uppercase">FÃ¶rderquote</div>
+                            <div className="text-xs text-gray-500 uppercase">Foerderquote</div>
                             <div className="font-semibold text-gray-900">{formatPercent(budget.funding_rate)}</div>
                           </div>
                           <div>
@@ -1676,7 +1692,7 @@ export default function FirmaDetailPage() {
                                   key={emp.id}
                                   className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
                                 >
-                                  ðŸ‘¤ {emp.display_name}
+                                   {emp.display_name}
                                 </span>
                               ))}
                             </div>
@@ -1739,9 +1755,9 @@ export default function FirmaDetailPage() {
 
             {employees.length === 0 ? (
               <div className="bg-white rounded-lg shadow p-12 text-center">
-                <div className="text-5xl mb-4">ðŸ‘¥</div>
+                <div className="text-5xl mb-4"></div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">Keine Mitarbeiter vorhanden</h3>
-                <p className="text-gray-500 mb-4">Legen Sie Mitarbeiter an, die an FÃ¶rderprojekten arbeiten.</p>
+                <p className="text-gray-500 mb-4">Legen Sie Mitarbeiter an, die an Foerderprojekten arbeiten.</p>
                 <button
                   onClick={openCreateEmployeeModal}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
@@ -1802,7 +1818,7 @@ export default function FirmaDetailPage() {
                       <button
                         onClick={() => openDeleteConfirmation('employee', emp)}
                         className="p-1.5 text-red-500 hover:bg-red-100 rounded"
-                        title="LÃ¶schen"
+                        title="Loeschen"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -1859,11 +1875,11 @@ export default function FirmaDetailPage() {
                     value={projectFormData.short_name}
                     onChange={handleProjectInputChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    placeholder="KÃ¼rzel"
+                    placeholder="Kuerzel"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">FÃ¶rderkennzeichen (FKZ)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Foerderkennzeichen (FKZ)</label>
                   <input
                     type="text"
                     name="funding_reference"
@@ -1874,7 +1890,7 @@ export default function FirmaDetailPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">FÃ¶rderformat</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Foerderformat</label>
                   <select
                     name="funding_format"
                     value={projectFormData.funding_format}
@@ -2038,7 +2054,7 @@ export default function FirmaDetailPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">BeschÃ¤ftigt seit</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Beschaeftigt seit</label>
                   <input
                     type="date"
                     name="employment_start"
@@ -2048,7 +2064,7 @@ export default function FirmaDetailPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">BeschÃ¤ftigt bis</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Beschaeftigt bis</label>
                   <input
                     type="date"
                     name="employment_end"
@@ -2099,27 +2115,27 @@ export default function FirmaDetailPage() {
       />
 
       {/* ============================================ */}
-      {/* MODAL: LÃ¶schen bestÃ¤tigen */}
+      {/* MODAL: Loeschen bestaetigen */}
       {/* ============================================ */}
       {showDeleteConfirm && itemToDelete && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
             <div className="p-6 text-center">
-              <div className="text-red-500 text-5xl mb-4">ðŸ—‘ï¸</div>
+              <div className="text-red-500 text-5xl mb-4">X</div>
               <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                {deleteType === 'project' ? 'Projekt lÃ¶schen?' : 
-                 deleteType === 'employee' ? 'Mitarbeiter lÃ¶schen?' : 
-                 'Arbeitspaket lÃ¶schen?'}
+                {deleteType === 'project' ? 'Projekt loeschen?' : 
+                 deleteType === 'employee' ? 'Mitarbeiter loeschen?' : 
+                 'Arbeitspaket loeschen?'}
               </h3>
               <p className="text-gray-600 mb-4">
-                MÃ¶chten Sie <strong>{getDeleteItemName()}</strong> wirklich lÃ¶schen?
+                Moechten Sie <strong>{getDeleteItemName()}</strong> wirklich loeschen?
               </p>
               <p className="text-gray-500 text-sm">
                 {deleteType === 'project' 
-                  ? 'Das Projekt und zugehÃ¶rige Arbeitspakete werden deaktiviert.'
+                  ? 'Das Projekt und zugehoerige Arbeitspakete werden deaktiviert.'
                   : deleteType === 'employee'
-                  ? 'Der Mitarbeiter wird deaktiviert und kann spÃ¤ter wiederhergestellt werden.'
-                  : 'Das Arbeitspaket wird deaktiviert und kann spÃ¤ter wiederhergestellt werden.'}
+                  ? 'Der Mitarbeiter wird deaktiviert und kann spaeter wiederhergestellt werden.'
+                  : 'Das Arbeitspaket wird deaktiviert und kann spaeter wiederhergestellt werden.'}
               </p>
             </div>
             <div className="flex gap-3 px-6 py-4 border-t bg-gray-50">
@@ -2137,7 +2153,7 @@ export default function FirmaDetailPage() {
                 disabled={saving}
                 className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
               >
-                {saving ? 'LÃ¶sche...' : 'LÃ¶schen'}
+                {saving ? 'Loesche...' : 'Loeschen'}
               </button>
             </div>
           </div>
@@ -2200,11 +2216,11 @@ export default function FirmaDetailPage() {
                 )}
               </div>
 
-              {/* VerfÃ¼gbare Mitarbeiter */}
+              {/* Verfuegbare Mitarbeiter */}
               <div>
                 <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
                   <span className="w-2 h-2 bg-gray-400 rounded-full"></span>
-                  VerfÃ¼gbar ({getUnassignedEmployees(assignmentProject.id).length})
+                  Verfuegbar ({getUnassignedEmployees(assignmentProject.id).length})
                 </h4>
                 {getUnassignedEmployees(assignmentProject.id).length === 0 ? (
                   <p className="text-sm text-gray-400 italic pl-4">Alle Mitarbeiter sind bereits zugeordnet</p>
@@ -2225,7 +2241,7 @@ export default function FirmaDetailPage() {
                           onClick={() => handleAddAssignment(emp.id)}
                           disabled={saving}
                           className="p-1.5 text-green-600 hover:bg-green-100 rounded disabled:opacity-50"
-                          title="Zum Projekt hinzufÃ¼gen"
+                          title="Zum Projekt hinzufuegen"
                         >
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -2330,7 +2346,7 @@ export default function FirmaDetailPage() {
                 <h3 className="text-sm font-medium text-gray-700 mb-3 pb-2 border-b">Adresse</h3>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm text-gray-600 mb-1">StraÃŸe</label>
+                    <label className="block text-sm text-gray-600 mb-1">Strasse</label>
                     <input
                       type="text"
                       value={companyFormData.street}
@@ -2366,7 +2382,7 @@ export default function FirmaDetailPage() {
                       onChange={(e) => setCompanyFormData(prev => ({ ...prev, federal_state: e.target.value }))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     >
-                      <option value="">Bitte wÃ¤hlen...</option>
+                      <option value="">Bitte waehlen...</option>
                       {Object.entries(BUNDESLAND_NAMES).map(([code, name]) => (
                         <option key={code} value={code}>{name}</option>
                       ))}
@@ -2409,9 +2425,9 @@ export default function FirmaDetailPage() {
                 </div>
               </div>
 
-              {/* FÃ¶rderrelevante Angaben */}
+              {/* Foerderrelevante Angaben */}
               <div className="mb-6">
-                <h3 className="text-sm font-medium text-gray-700 mb-3 pb-2 border-b">FÃ¶rderrelevante Angaben</h3>
+                <h3 className="text-sm font-medium text-gray-700 mb-3 pb-2 border-b">Foerderrelevante Angaben</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm text-gray-600 mb-1">KMU-Status</label>
@@ -2426,7 +2442,7 @@ export default function FirmaDetailPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm text-gray-600 mb-1">GrÃ¼ndungsjahr</label>
+                    <label className="block text-sm text-gray-600 mb-1">Gruendungsjahr</label>
                     <input
                       type="number"
                       value={companyFormData.founding_year}

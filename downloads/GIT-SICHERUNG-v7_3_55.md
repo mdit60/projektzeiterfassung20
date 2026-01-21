@@ -3,30 +3,38 @@
 ## Datum: 21. Januar 2026
 
 ## Zusammenfassung
-Berater-Portal Firmen-Detailseite nutzt jetzt die Shared Components.
-Beide Portale haben nun identisches Design und Verhalten fuer Arbeitspakete.
+Berater-Portal: UTF-8 Fixes, Header-Anpassung, Shared Components fuer Arbeitspakete.
+Phase 3 (Shared Components) weitgehend abgeschlossen.
 
 ## Aenderungen in dieser Version
 
 ### Geaenderte Dateien
 
 1. **src/app/v7/berater/foerderung/firma/[id]/page.tsx** (v7.3.55)
+   - UTF-8 Umlaute korrigiert (ue, oe, ae statt kaputte Zeichen)
+   - Header: Ozeanblau (#0369a1), rechts Berater-Info + Abmelden
+   - Bundesland aus Header entfernt
+   - Kaputte Emojis entfernt
+   - Login-URL korrigiert (/login statt /v7/login)
    - WorkPackageList Shared Component integriert
    - WorkPackageEditModal Shared Component integriert
    - WorkPackageAssignmentModal Shared Component integriert
-   - Handler-Funktionen angepasst (Signatur fuer Shared Components)
-   - ~380 Zeilen Code reduziert (2924 -> 2542)
+   - Import-Konflikte behoben (Typ-Aliase)
 
-### Vorteile der Integration
-- **Einheitliches Design**: Beide Portale zeigen APs identisch an
-- **Weniger Code**: Inline-Rendering durch Komponenten ersetzt
-- **Zentrale Wartung**: Aenderungen an Shared Components wirken auf beide Portale
-- **MA-Zuordnungen inline**: Wie im Firmen-Portal
+2. **src/components/shared/WorkPackageList.tsx** (v7.3.54)
+   - MA-Zuordnungen inline anzeigen
+   - Klare Tabellenstruktur mit Borders
+
+3. **src/app/v7/firma/projekte/[id]/page.tsx** (v7.3.54)
+   - Nutzt WorkPackageList mit MA-Zuordnungen
 
 ## Git-Befehle
 
 ```bash
 cd ~/Documents/Dev/PZE
+
+# Auf v7-dev Branch wechseln
+git checkout v7-dev
 
 # Status pruefen
 git status
@@ -35,42 +43,36 @@ git status
 git add -A
 
 # Commit
-git commit -m "v7.3.55: Berater-Portal nutzt Shared Components
+git commit -m "v7.3.55: Berater-Portal UTF-8 Fix + Shared Components
 
-- WorkPackageList fuer AP-Anzeige mit MA-Zuordnungen
-- WorkPackageEditModal fuer AP-Bearbeitung
-- WorkPackageAssignmentModal fuer MA-Zuordnung
-- Einheitliches Design fuer beide Portale
-- ~380 Zeilen Code reduziert"
+- UTF-8 Umlaute korrigiert (ue, oe, ae)
+- Header: Ozeanblau, Berater-Info rechts, Abmelden-Button
+- Bundesland aus Header entfernt
+- WorkPackageList/EditModal/AssignmentModal integriert
+- Login-URL korrigiert
+- Import-Konflikte behoben"
 
-# Push zu GitHub
-git push origin main
+# Push zu GitHub (v7-dev Branch!)
+git push origin v7-dev
 
-# Tag erstellen
-git tag -a v7.3.55 -m "Berater-Portal Shared Components Integration"
+# Optional: Tag erstellen
+git tag -a v7.3.55 -m "Berater-Portal UTF-8 Fix + Shared Components"
 git push origin v7.3.55
 ```
 
 ## Vercel Deployment
-Nach dem Push wird Vercel automatisch deployen.
+Nach Push auf v7-dev wird Vercel automatisch deployen.
+Preview-URL: https://projektzeiterfassung20-git-v7-dev-martin-ds-projects-....vercel.app
 
-## Architektur nach v7.3.55
+## Offene Punkte fuer morgen
 
-```
-/src/components/shared/
-  ├── WorkPackageList.tsx          (v7.3.54)
-  ├── WorkPackageEditModal.tsx     (v7.3.52)
-  ├── WorkPackageAssignmentModal.tsx (v7.3.52)
-  ├── PortalHeader.tsx             (v7.3.42)
-  ├── Modal.tsx                    (v7.3.42)
-  └── DataTable.tsx                (v7.3.42)
+1. **Strukturangleichung Berater-Portal**
+   - Gleiche Tab-Struktur wie Firmen-Portal
+   - Projekt-Detail als eigene Seite statt aufklappbar
 
-Beide Portale nutzen dieselben Komponenten:
-- /v7/berater/foerderung/firma/[id]/ → portal="berater" (blau)
-- /v7/firma/projekte/[id]/          → portal="firma" (gruen)
-```
+2. **EmployeeTable Shared Component**
+   - Mitarbeiter-Tabelle mit Wochenstunden + Stundensatz
+   - Fuer beide Portale
 
-## Naechste Schritte
-- Weitere Komponenten konsolidieren (TeamTable, ProjectOverview)
-- Phase 4: FZul-Migration vorbereiten
-- Git-Sicherung und Vercel-Deployment
+3. **Weitere Konsolidierung**
+   - TeamTable, ProjectOverview als Shared Components
