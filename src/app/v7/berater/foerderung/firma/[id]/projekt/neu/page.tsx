@@ -1,6 +1,6 @@
-// src/app/v7/firma/projekte/neu/page.tsx
+// src/app/v7/berater/foerderung/firma/[id]/projekt/neu/page.tsx
 // ============================================================================
-// PZE V7 - Neues Projekt anlegen (Firmen-Portal)
+// PZE V7 - Neues Projekt anlegen (Berater-Portal)
 // ============================================================================
 // Datum: 21. Januar 2026
 // Version: 7.3.57
@@ -11,14 +11,12 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { ArrowLeft, AlertCircle } from 'lucide-react';
 
 import PortalHeader from '@/components/shared/PortalHeader';
 import ProjectCreateForm from '@/components/shared/ProjectCreateForm';
-
-import { V7UserRole, V7EmployeePortalRole, V7Employee, V7ClientCompany } from '@/types/v7-types';
 
 // ============================================================================
 // TYPEN
@@ -27,35 +25,40 @@ import { V7UserRole, V7EmployeePortalRole, V7Employee, V7ClientCompany } from '@
 interface UserProfile {
   id: string;
   email: string;
-  role: V7UserRole;
+  role: string;
   first_name: string | null;
   last_name: string | null;
   display_name: string | null;
-  client_company_id: string | null;
+}
+
+interface ClientCompany {
+  id: string;
+  name: string;
 }
 
 // ============================================================================
 // KOMPONENTE
 // ============================================================================
 
-export default function FirmaNeuesProjekt() {
+export default function BeraterNeuesProjekt() {
   const router = useRouter();
+  const params = useParams();
+  const companyId = params.id as string;
   const supabase = createClient();
 
   // State
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [employee, setEmployee] = useState<V7Employee | null>(null);
-  const [company, setCompany] = useState<V7ClientCompany | null>(null);
+  const [company, setCompany] = useState<ClientCompany | null>(null);
 
   // ============================================================================
   // DATEN LADEN
   // ============================================================================
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (companyId) loadData();
+  }, [companyId]);
 
   const loadData = async () => {
     try {
@@ -71,30 +74,25 @@ export default function FirmaNeuesProjekt() {
         .eq('email', user.email)
         .maybeSingle();
 
-      if (!profile || !profile.client_company_id) {
-        setError('Kein Zugriff auf das Firmen-Portal');
+      if (!profile || !['system_admin', 'consultant'].includes(profile.role)) {
+        setError('Keine Berater-Berechtigung');
         setLoading(false);
         return;
       }
-
       setUserProfile(profile);
 
-      const { data: companyData } = await supabase
+      const { data: companyData, error: companyError } = await supabase
         .from('v7_client_companies')
-        .select('*')
-        .eq('id', profile.client_company_id)
+        .select('id, name')
+        .eq('id', companyId)
         .single();
 
-      if (companyData) setCompany(companyData);
-
-      const { data: employeeData } = await supabase
-        .from('v7_employees')
-        .select('*')
-        .eq('client_company_id', profile.client_company_id)
-        .eq('email', user.email)
-        .maybeSingle();
-
-      if (employeeData) setEmployee(employeeData);
+      if (companyError) {
+        setError('Firma nicht gefunden');
+        setLoading(false);
+        return;
+      }
+      setCompany(companyData);
 
     } catch (err: any) {
       setError(err.message);
@@ -112,13 +110,7 @@ export default function FirmaNeuesProjekt() {
     if (userProfile?.first_name && userProfile?.last_name) {
       return `${userProfile.first_name} ${userProfile.last_name}`;
     }
-    return userProfile?.email?.split('@')[0] || 'Benutzer';
-  };
-
-  const getPortalRole = (): V7EmployeePortalRole => {
-    if (userProfile?.role === 'client_admin') return 'client_admin';
-    if (employee?.portal_role) return employee.portal_role;
-    return 'employee';
+    return userProfile?.email?.split('@')[0] || 'Berater';
   };
 
   // ============================================================================
@@ -128,38 +120,35 @@ export default function FirmaNeuesProjekt() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="w-10 h-10 border-4 border-green-200 border-t-green-600 rounded-full animate-spin"></div>
+        <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
       </div>
     );
   }
 
-  if (error || !company) {
+  if (!company) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="bg-white p-8 rounded-lg shadow-md text-center">
           <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
           <p className="text-gray-600 mb-4">{error || 'Firma nicht gefunden'}</p>
           <button
-            onClick={() => router.push('/v7/firma')}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+            onClick={() => router.push('/v7/berater/foerderung')}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
           >
-            Zurueck zum Dashboard
+            Zurueck zur Uebersicht
           </button>
         </div>
       </div>
     );
   }
 
-  const userName = getUserName();
-  const portalRole = getPortalRole();
-
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Header */}
       <PortalHeader
-        portal="firma"
-        userName={userName}
-        userRole={portalRole}
+        portal="berater"
+        userName={getUserName()}
+        userRole={userProfile?.role as any || 'consultant'}
         companyName={company.name}
       />
 
@@ -168,14 +157,14 @@ export default function FirmaNeuesProjekt() {
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-4 py-4">
             <button
-              onClick={() => router.push('/v7/firma/projekte')}
+              onClick={() => router.push(`/v7/berater/foerderung/firma/${companyId}?tab=projekte`)}
               className="flex items-center gap-1 text-gray-500 hover:text-gray-900 transition-colors"
             >
               <ArrowLeft size={18} />
-              <span className="text-sm">Zurueck zu Projekte</span>
+              <span className="text-sm">Zurueck</span>
             </button>
             <div className="h-6 w-px bg-gray-200"></div>
-            <h1 className="text-lg font-semibold text-gray-900">Neues Projekt</h1>
+            <h1 className="text-lg font-semibold text-gray-900">Neues Projekt fuer {company.name}</h1>
           </div>
         </div>
       </div>
@@ -183,11 +172,11 @@ export default function FirmaNeuesProjekt() {
       {/* Content */}
       <main className="flex-1 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
         <ProjectCreateForm
-          portal="firma"
+          portal="berater"
           companyId={company.id}
           companyName={company.name}
-          onSuccess={(projectId) => router.push(`/v7/firma/projekte/${projectId}`)}
-          onCancel={() => router.push('/v7/firma/projekte')}
+          onSuccess={(projectId) => router.push(`/v7/berater/foerderung/firma/${companyId}/projekt/${projectId}`)}
+          onCancel={() => router.push(`/v7/berater/foerderung/firma/${companyId}?tab=projekte`)}
         />
       </main>
 
@@ -195,7 +184,7 @@ export default function FirmaNeuesProjekt() {
       <footer className="bg-white border-t mt-auto">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <p className="text-center text-sm text-gray-500">
-            PZE v7.3.57 - Firmen-Portal
+            PZE v7.3.57 | {company.name}
           </p>
         </div>
       </footer>
