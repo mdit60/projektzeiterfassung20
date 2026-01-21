@@ -1,32 +1,25 @@
 // src/app/v7/firma/mitarbeiter/page.tsx
-// VERSION: v7.3.47 (SW-Release V7.3)
-// DATUM: 21. Januar 2026
+// VERSION: v7.3.43 (SW-Release V7.3)
+// DATUM: 20. Januar 2026
 // BESCHREIBUNG: Mitarbeiter-Verwaltung im Firmen-Portal
-// AENDERUNG v7.3.20: hourly_rate entfernt (gehoert zu v7_project_assignments, nicht v7_employees)
-// AENDERUNG v7.3.43: Ueberfluessigen Stundensatz-Hinweis entfernt
-// AENDERUNG v7.3.47: Konsistenter Header mit PortalHeader + Sub-Navigation
+// Ã„NDERUNG v7.3.20: hourly_rate entfernt (gehÃ¶rt zu v7_project_assignments, nicht v7_employees)
+// Ã„NDERUNG v7.3.43: ÃœberflÃ¼ssigen Stundensatz-Hinweis entfernt
 // BERECHTIGUNG: client_admin kann alle verwalten, project_leader nur ansehen
 
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import {
-  Building2,
-  FolderKanban,
-  Users,
-} from 'lucide-react';
-
-// Gemeinsame Komponenten
-import PortalHeader from '@/components/shared/PortalHeader';
-
-// Types
-import { V7EmployeePortalRole } from '@/types/v7-types';
 
 // ============================================
 // FARBEN
+// ============================================
+
+const COLORS = {
+  firmenPortal: '#65A655',  // Cubintec-GrÃ¼n
+};
+
 // ============================================
 // TYPEN
 // ============================================
@@ -400,14 +393,14 @@ export default function FirmaMitarbeiterPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="bg-white rounded-lg shadow-lg p-8 max-w-md text-center">
-          <div className="text-red-500 text-5xl mb-4">!</div>
+          <div className="text-red-500 text-5xl mb-4">âš ï¸</div>
           <h2 className="text-xl font-bold text-gray-900 mb-2">Fehler</h2>
           <p className="text-gray-600 mb-6">{error || 'Firma nicht gefunden'}</p>
           <button
             onClick={() => router.push('/v7/firma')}
             className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
           >
-            Zurueck zum Dashboard
+            ZurÃ¼ck zum Dashboard
           </button>
         </div>
       </div>
@@ -424,42 +417,45 @@ export default function FirmaMitarbeiterPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Header */}
-      <PortalHeader
-        portal="firma"
-        userName={userProfile?.display_name || userProfile?.email || 'Benutzer'}
-        userRole={userProfile?.role === 'client_admin' ? 'client_admin' : 'employee'}
-        companyName={company.name}
-      />
-
-      {/* Sub-Navigation */}
-      <div className="bg-white border-b border-gray-200">
+      {/* HEADER */}
+      <header 
+        className="text-white shadow-lg"
+        style={{ backgroundColor: COLORS.firmenPortal }}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <nav className="flex gap-8">
-            <Link
-              href="/v7/firma/firmendaten"
-              className="flex items-center gap-2 py-4 px-1 border-b-2 border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300 font-medium text-sm transition-colors"
-            >
-              <Building2 size={18} />
-              Firmendaten
-            </Link>
-            <Link
-              href="/v7/firma/projekte"
-              className="flex items-center gap-2 py-4 px-1 border-b-2 border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300 font-medium text-sm transition-colors"
-            >
-              <FolderKanban size={18} />
-              Projekte
-            </Link>
-            <Link
-              href="/v7/firma/mitarbeiter"
-              className="flex items-center gap-2 py-4 px-1 border-b-2 border-green-600 text-green-600 font-medium text-sm"
-            >
-              <Users size={18} />
-              Mitarbeiter
-            </Link>
-          </nav>
+          <div className="flex items-center justify-between h-16">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => router.push('/v7/firma/dashboard')}
+                className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                title="ZurÃ¼ck zum Dashboard"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <div>
+                <h1 className="text-xl font-bold">Mitarbeiter</h1>
+                <p className="text-sm text-white/80">{company.name}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-white/80 hidden sm:block">
+                {userProfile?.display_name || userProfile?.email}
+              </span>
+              <button
+                onClick={handleLogout}
+                className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                title="Abmelden"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
+      </header>
 
       {/* MAIN CONTENT */}
       <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
@@ -502,7 +498,7 @@ export default function FirmaMitarbeiterPage() {
         {/* Mitarbeiter-Liste */}
         {displayEmployees.length === 0 ? (
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center">
-            <div className="text-gray-400 text-6xl mb-4">👥</div>
+            <div className="text-gray-400 text-6xl mb-4">ðŸ‘¥</div>
             <h3 className="text-lg font-medium text-gray-900 mb-2">Keine Mitarbeiter</h3>
             <p className="text-gray-500 mb-6">
               {showInactive 
@@ -540,7 +536,7 @@ export default function FirmaMitarbeiterPage() {
                       Wochenstunden
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Beschaeftigt seit
+                      BeschÃ¤ftigt seit
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Status
@@ -641,7 +637,7 @@ export default function FirmaMitarbeiterPage() {
       <footer className="bg-white border-t border-gray-200 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <p className="text-center text-sm text-gray-500">
-            Projektzeiterfassung v7.3.47 | Firmen-Portal | © {new Date().getFullYear()}
+            Projektzeiterfassung v7.3.43 Â· Firmen-Portal Â· Â© {new Date().getFullYear()}
           </p>
         </div>
       </footer>
@@ -731,7 +727,7 @@ export default function FirmaMitarbeiterPage() {
                     onChange={handleEmployeeInputChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
                   >
-                    <option value="">-- Bitte waehlen --</option>
+                    <option value="">-- Bitte wÃ¤hlen --</option>
                     {QUALIFICATION_OPTIONS.map(q => (
                       <option key={q} value={q}>{q}</option>
                     ))}
@@ -751,10 +747,10 @@ export default function FirmaMitarbeiterPage() {
                   />
                 </div>
                 <div>
-                  {/* Platzhalter fuer symmetrisches Layout */}
+                  {/* Platzhalter fÃ¼r symmetrisches Layout */}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Beschaeftigt seit</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">BeschÃ¤ftigt seit</label>
                   <input
                     type="date"
                     name="employment_start"
@@ -764,7 +760,7 @@ export default function FirmaMitarbeiterPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Beschaeftigt bis</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">BeschÃ¤ftigt bis</label>
                   <input
                     type="date"
                     name="employment_end"
@@ -772,7 +768,7 @@ export default function FirmaMitarbeiterPage() {
                     onChange={handleEmployeeInputChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
                   />
-                  <p className="text-xs text-gray-500 mt-1">Leer lassen wenn noch beschaeftigt</p>
+                  <p className="text-xs text-gray-500 mt-1">Leer lassen wenn noch beschÃ¤ftigt</p>
                 </div>
               </div>
             </div>
@@ -794,7 +790,7 @@ export default function FirmaMitarbeiterPage() {
         </div>
       )}
 
-      {/* MODAL: Loeschen bestaetigen */}
+      {/* MODAL: LÃ¶schen bestÃ¤tigen */}
       {showDeleteConfirm && employeeToDelete && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
@@ -808,10 +804,10 @@ export default function FirmaMitarbeiterPage() {
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900">Mitarbeiter deaktivieren?</h3>
                   <p className="text-gray-500 mt-1">
-                    Moechten Sie <strong>{employeeToDelete.display_name}</strong> wirklich deaktivieren?
+                    MÃ¶chten Sie <strong>{employeeToDelete.display_name}</strong> wirklich deaktivieren?
                   </p>
                   <p className="text-sm text-gray-400 mt-2">
-                    Der Mitarbeiter wird nicht geloescht und kann spaeter reaktiviert werden.
+                    Der Mitarbeiter wird nicht gelÃ¶scht und kann spÃ¤ter reaktiviert werden.
                   </p>
                 </div>
               </div>

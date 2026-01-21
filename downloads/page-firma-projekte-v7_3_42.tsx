@@ -1,9 +1,9 @@
 // src/app/v7/firma/projekte/page.tsx
 // ============================================================================
-// PZE V7 - Projektliste (Firmen-Portal)
+// PZE V7 - Projektliste
 // ============================================================================
 // Datum: 21. Januar 2026
-// Version: 7.3.43
+// Version: 7.3.42
 //
 // Liste aller Projekte der Firma
 // Klick auf Projekt oeffnet Projekt-Detail
@@ -95,7 +95,7 @@ export default function ProjektListe() {
         .maybeSingle();
 
       if (!profile || !profile.client_company_id) {
-        setError('Kein Zugriff auf das Firmen-Portal');
+        setError('Kein Zugriff');
         setLoading(false);
         return;
       }
@@ -229,7 +229,7 @@ export default function ProjektListe() {
               />
             </div>
             
-            {/* Neues Projekt Button - nur fuer client_admin */}
+            {/* Neues Projekt Button */}
             {portalRole === 'client_admin' && (
               <button
                 onClick={() => router.push('/v7/firma/projekte/neu')}
@@ -257,7 +257,7 @@ export default function ProjektListe() {
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Projekt</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase hidden sm:table-cell">Foerderprogramm</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase hidden sm:table-cell">Format</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase hidden md:table-cell">FKZ</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase hidden lg:table-cell">Laufzeit</th>
                   <th className="w-10"></th>
@@ -312,7 +312,7 @@ export default function ProjektListe() {
       <footer className="bg-white border-t mt-auto">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <p className="text-center text-sm text-gray-500">
-            PZE v7.3.43 - Firmen-Portal
+            PZE v7.3.42 | {company?.name}
           </p>
         </div>
       </footer>
