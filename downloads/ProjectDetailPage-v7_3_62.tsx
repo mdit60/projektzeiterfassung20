@@ -37,6 +37,7 @@ import {
   Save,
   X,
   Plus,
+  Trash2,
 } from 'lucide-react';
 
 // Shared Components
@@ -203,6 +204,10 @@ export default function ProjectDetailPage({
     notes: '',
   });
   const [savingProject, setSavingProject] = useState(false);
+
+  // State - Projekt-Loeschen
+  const [showProjectDeleteConfirm, setShowProjectDeleteConfirm] = useState(false);
+  const [deletingProject, setDeletingProject] = useState(false);
 
   // ============================================================================
   // DATEN LADEN
@@ -818,6 +823,38 @@ export default function ProjectDetailPage({
       alert('Fehler beim Speichern: ' + err.message);
     } finally {
       setSavingProject(false);
+    }
+  };
+
+  // ============================================================================
+  // PROJEKT LOESCHEN
+  // ============================================================================
+
+  const handleDeleteProject = async () => {
+    if (!project) return;
+    
+    setDeletingProject(true);
+    try {
+      // Soft-Delete: is_active = false setzen
+      const { error: deleteError } = await supabase
+        .from('v7_projects')
+        .update({ 
+          is_active: false, 
+          updated_at: new Date().toISOString() 
+        })
+        .eq('id', project.id);
+
+      if (deleteError) {
+        throw deleteError;
+      }
+
+      // Zurueck zur Projektliste navigieren
+      router.push(backUrl || '/v7/firma/projekte');
+    } catch (err: any) {
+      alert('Fehler beim Loeschen: ' + err.message);
+    } finally {
+      setDeletingProject(false);
+      setShowProjectDeleteConfirm(false);
     }
   };
 
@@ -1457,31 +1494,97 @@ export default function ProjectDetailPage({
               </div>
             </div>
 
-            <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-lg sticky bottom-0">
+            <div className="flex justify-between gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-lg sticky bottom-0">
+              {/* Loeschen-Button links */}
               <button
-                onClick={closeProjectEditModal}
-                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                onClick={() => setShowProjectDeleteConfirm(true)}
+                className="flex items-center gap-2 px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
               >
-                Abbrechen
+                <Trash2 size={16} />
+                Loeschen
               </button>
-              <button
-                onClick={handleProjectSave}
-                disabled={savingProject || !projectEditData.name.trim()}
-                className={`flex items-center gap-2 px-4 py-2 ${buttonBg} text-white rounded-lg 
-                           disabled:opacity-50 transition-colors`}
-              >
-                {savingProject ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                    Speichern...
-                  </>
-                ) : (
-                  <>
-                    <Save size={16} />
-                    Speichern
-                  </>
-                )}
-              </button>
+              
+              {/* Abbrechen und Speichern rechts */}
+              <div className="flex gap-3">
+                <button
+                  onClick={closeProjectEditModal}
+                  className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  Abbrechen
+                </button>
+                <button
+                  onClick={handleProjectSave}
+                  disabled={savingProject || !projectEditData.name.trim()}
+                  className={`flex items-center gap-2 px-4 py-2 ${buttonBg} text-white rounded-lg 
+                             disabled:opacity-50 transition-colors`}
+                >
+                  {savingProject ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                      Speichern...
+                    </>
+                  ) : (
+                    <>
+                      <Save size={16} />
+                      Speichern
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Loeschen-Bestaetigung Modal fuer Projekt */}
+      {showProjectDeleteConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+            <div className="p-6">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                  <Trash2 className="w-6 h-6 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    Projekt loeschen?
+                  </h3>
+                  <p className="text-sm text-gray-500">
+                    {project?.name}
+                  </p>
+                </div>
+              </div>
+              <p className="text-gray-600 mb-6">
+                Moechten Sie dieses Projekt wirklich loeschen? 
+                Diese Aktion kann nicht rueckgaengig gemacht werden.
+              </p>
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setShowProjectDeleteConfirm(false)}
+                  disabled={deletingProject}
+                  className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  Abbrechen
+                </button>
+                <button
+                  onClick={handleDeleteProject}
+                  disabled={deletingProject}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg 
+                             hover:bg-red-700 disabled:opacity-50 transition-colors"
+                >
+                  {deletingProject ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                      Loeschen...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 size={16} />
+                      Endgueltig loeschen
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1491,7 +1594,7 @@ export default function ProjectDetailPage({
       <footer className="bg-white border-t mt-auto">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <p className="text-center text-sm text-gray-500">
-            PZE v7.3.56 | {company?.name}
+            PZE v7.3.62 | {company?.name}
           </p>
         </div>
       </footer>
