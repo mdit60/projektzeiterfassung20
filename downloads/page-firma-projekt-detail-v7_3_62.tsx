@@ -1,30 +1,24 @@
-// src/components/shared/ProjectDetailPage.tsx
+// src/app/v7/firma/projekte/[id]/page.tsx
 // ============================================================================
-// PZE V7 - Shared Project Detail Page
+// PZE V7 - Projekt-Detail
 // ============================================================================
 // Datum: 21. Januar 2026
 // Version: 7.3.62
 //
-// Gemeinsame Projekt-Detailseite fuer beide Portale:
-// - Berater-Portal: /v7/berater/foerderung/firma/[firmaId]/projekt/[projektId]
-// - Firmen-Portal: /v7/firma/projekte/[id]
+// Projekt-Detailseite mit Tabs:
+// - Uebersicht: Stammdaten
+// - Arbeitspakete: APs mit Aktionen (Bearbeiten, Loeschen, MA zuordnen)
+// - Team: Zugeordnete Mitarbeiter MIT Wochenstunden + Stundensatz
+// - Zeiterfassung: Stunden auf dieses Projekt
 //
 // v7.3.62: Team-Tab Button entfernt (MA werden ueber APs zugeordnet)
 //          Hinweis hinzugefuegt dass MA-Zuordnung ueber APs erfolgt
-//
-// Props:
-// - portal: 'berater' | 'firma' (steuert Farben)
-// - projectId: string
-// - companyId?: string (nur Berater - fuer Zurueck-Navigation)
-// - backUrl?: string (optional - wohin Zurueck fuehrt)
-//
-// Tabs: Uebersicht | Arbeitspakete | Team | Zeiterfassung
 // ============================================================================
 
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import {
   ArrowLeft,
@@ -50,20 +44,11 @@ import WorkPackageAssignmentModal, {
 
 // Types
 import { V7UserRole, V7EmployeePortalRole, V7Employee, V7ClientCompany } from '@/types/v7-types';
-import { HOURS_PER_PM, PORTAL_COLORS } from '@/lib/v7-constants';
+import { HOURS_PER_PM } from '@/lib/v7-constants';
 
 // ============================================================================
 // TYPEN
 // ============================================================================
-
-export type PortalType = 'berater' | 'firma';
-
-interface ProjectDetailPageProps {
-  portal: PortalType;
-  projectId: string;
-  companyId?: string;  // Nur Berater-Portal
-  backUrl?: string;    // Wohin Zurueck fuehrt
-}
 
 interface UserProfile {
   id: string;
@@ -85,7 +70,6 @@ interface Project {
   end_date: string | null;
   notes: string | null;
   is_active: boolean;
-  client_company_id: string;
 }
 
 interface TeamMember {
@@ -132,22 +116,11 @@ type TabKey = 'uebersicht' | 'arbeitspakete' | 'team' | 'zeiterfassung';
 // KOMPONENTE
 // ============================================================================
 
-export default function ProjectDetailPage({ 
-  portal, 
-  projectId, 
-  companyId,
-  backUrl 
-}: ProjectDetailPageProps) {
+export default function ProjektDetail() {
   const router = useRouter();
+  const params = useParams();
+  const projectId = params.id as string;
   const supabase = createClient();
-
-  // Portal-spezifische Farben
-  const colors = PORTAL_COLORS[portal];
-  const buttonBg = portal === 'firma' ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700';
-  const buttonBgLight = portal === 'firma' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700';
-  const focusRing = portal === 'firma' ? 'focus:ring-green-500 focus:border-green-500' : 'focus:ring-blue-500 focus:border-blue-500';
-  const borderActive = portal === 'firma' ? 'border-green-600 text-green-600' : 'border-blue-600 text-blue-600';
-  const spinnerColor = portal === 'firma' ? 'border-green-200 border-t-green-600' : 'border-blue-200 border-t-blue-600';
 
   // State - Basis
   const [loading, setLoading] = useState(true);
@@ -210,7 +183,7 @@ export default function ProjectDetailPage({
 
   useEffect(() => {
     loadData();
-  }, [projectId, companyId]);
+  }, [projectId]);
 
   const loadData = async () => {
     try {
@@ -226,7 +199,7 @@ export default function ProjectDetailPage({
         .eq('email', user.email)
         .maybeSingle();
 
-      if (!profile) {
+      if (!profile || !profile.client_company_id) {
         setError('Kein Zugriff');
         setLoading(false);
         return;
@@ -234,59 +207,29 @@ export default function ProjectDetailPage({
 
       setUserProfile(profile);
 
-      // Firmen-ID bestimmen (je nach Portal)
-      let targetCompanyId: string;
-      
-      if (portal === 'berater') {
-        // Berater: Berechtigung pruefen und companyId verwenden
-        if (!['system_admin', 'consultant'].includes(profile.role)) {
-          setError('Keine Berater-Berechtigung');
-          setLoading(false);
-          return;
-        }
-        if (!companyId) {
-          setError('Keine Firma angegeben');
-          setLoading(false);
-          return;
-        }
-        targetCompanyId = companyId;
-      } else {
-        // Firma: Eigene Firma des Users
-        if (!profile.client_company_id) {
-          setError('Kein Zugriff');
-          setLoading(false);
-          return;
-        }
-        targetCompanyId = profile.client_company_id;
-      }
-
-      // Firma laden
       const { data: companyData } = await supabase
         .from('v7_client_companies')
         .select('*')
-        .eq('id', targetCompanyId)
+        .eq('id', profile.client_company_id)
         .single();
 
       if (companyData) setCompany(companyData);
 
-      // Employee laden (nur Firmen-Portal)
-      if (portal === 'firma') {
-        const { data: employeeData } = await supabase
-          .from('v7_employees')
-          .select('*')
-          .eq('client_company_id', targetCompanyId)
-          .eq('email', user.email)
-          .maybeSingle();
+      const { data: employeeData } = await supabase
+        .from('v7_employees')
+        .select('*')
+        .eq('client_company_id', profile.client_company_id)
+        .eq('email', user.email)
+        .maybeSingle();
 
-        if (employeeData) setEmployee(employeeData);
-      }
+      if (employeeData) setEmployee(employeeData);
 
       // Projekt laden
       const { data: projectData, error: projectError } = await supabase
         .from('v7_projects')
         .select('*')
         .eq('id', projectId)
-        .eq('client_company_id', targetCompanyId)
+        .eq('client_company_id', profile.client_company_id)
         .single();
 
       if (projectError || !projectData) {
@@ -301,7 +244,7 @@ export default function ProjectDetailPage({
       const { data: allEmpsData } = await supabase
         .from('v7_employees')
         .select('id, display_name, position_title, weekly_hours')
-        .eq('client_company_id', targetCompanyId)
+        .eq('client_company_id', profile.client_company_id)
         .eq('is_active', true)
         .order('display_name');
 
@@ -351,7 +294,7 @@ export default function ProjectDetailPage({
         setProjectEmployeeIds(assignmentData.map((a: any) => a.employee_id));
 
         // WP-Assignments fuer PM-Aggregation
-        const { data: wpAssignmentsData } = await supabase
+        const { data: wpAssignments } = await supabase
           .from('v7_work_package_assignments')
           .select(`
             employee_id,
@@ -364,7 +307,7 @@ export default function ProjectDetailPage({
           .eq('is_active', true);
 
         const team = assignmentData.map((a: any) => {
-          const maWpAssignments = wpAssignmentsData?.filter(
+          const maWpAssignments = wpAssignments?.filter(
             (wpa: any) => wpa.employee_id === a.employee_id
           ) || [];
 
@@ -408,20 +351,10 @@ export default function ProjectDetailPage({
     return userProfile?.email?.split('@')[0] || 'Benutzer';
   };
 
-  const getPortalRole = (): string => {
-    if (portal === 'berater') {
-      return userProfile?.role === 'system_admin' ? 'Admin' : 'Berater';
-    }
+  const getPortalRole = (): V7EmployeePortalRole => {
     if (userProfile?.role === 'client_admin') return 'client_admin';
     if (employee?.portal_role) return employee.portal_role;
     return 'employee';
-  };
-
-  const isAdmin = (): boolean => {
-    if (portal === 'berater') {
-      return ['system_admin', 'consultant'].includes(userProfile?.role || '');
-    }
-    return getPortalRole() === 'client_admin';
   };
 
   const formatDate = (dateStr: string | null): string => {
@@ -448,19 +381,6 @@ export default function ProjectDetailPage({
     const projectWPs = workPackages.filter(wp => wp.project_id === pId);
     if (projectWPs.length === 0) return 1;
     return Math.max(...projectWPs.map(wp => wp.ap_number)) + 1;
-  };
-
-  const getBackUrl = (): string => {
-    if (backUrl) return backUrl;
-    if (portal === 'berater' && companyId) {
-      return `/v7/berater/foerderung/firma/${companyId}?tab=projekte`;
-    }
-    return '/v7/firma/projekte';
-  };
-
-  const getBackLabel = (): string => {
-    if (portal === 'berater') return 'Firma';
-    return 'Projekte';
   };
 
   // ============================================================================
@@ -839,7 +759,7 @@ export default function ProjectDetailPage({
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className={`w-10 h-10 border-4 ${spinnerColor} rounded-full animate-spin`}></div>
+        <div className="w-10 h-10 border-4 border-green-200 border-t-green-600 rounded-full animate-spin"></div>
       </div>
     );
   }
@@ -851,10 +771,10 @@ export default function ProjectDetailPage({
           <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
           <p className="text-gray-600 mb-4">{error || 'Projekt nicht gefunden'}</p>
           <button
-            onClick={() => router.push(getBackUrl())}
-            className={`px-4 py-2 ${buttonBg} text-white rounded-lg`}
+            onClick={() => router.push('/v7/firma/projekte')}
+            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
           >
-            Zurueck
+            Zurueck zur Liste
           </button>
         </div>
       </div>
@@ -863,7 +783,7 @@ export default function ProjectDetailPage({
 
   const userName = getUserName();
   const portalRole = getPortalRole();
-  const adminUser = isAdmin();
+  const isAdmin = portalRole === 'client_admin';
 
   // Projekt als WPProject fuer Modal
   const wpProjects: WPProject[] = project ? [{
@@ -876,7 +796,7 @@ export default function ProjectDetailPage({
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Header */}
       <PortalHeader
-        portal={portal}
+        portal="firma"
         userName={userName}
         userRole={portalRole}
         companyName={company?.name || 'Firma'}
@@ -888,18 +808,18 @@ export default function ProjectDetailPage({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button
-                onClick={() => router.push(getBackUrl())}
+                onClick={() => router.push('/v7/firma/projekte')}
                 className="flex items-center gap-1 text-gray-600 hover:text-gray-900 transition-colors"
               >
                 <ArrowLeft size={20} />
-                <span className="text-sm">{getBackLabel()}</span>
+                <span className="text-sm">Projekte</span>
               </button>
               <div className="h-6 w-px bg-gray-300"></div>
               <div>
                 <h1 className="text-xl font-bold text-gray-900">{project.name}</h1>
                 <div className="flex items-center gap-3 text-sm text-gray-500">
                   {project.funding_format && (
-                    <span className={`px-2 py-0.5 ${buttonBgLight} rounded text-xs font-medium`}>
+                    <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-medium">
                       {project.funding_format}
                     </span>
                   )}
@@ -910,7 +830,7 @@ export default function ProjectDetailPage({
               </div>
             </div>
 
-            {adminUser && (
+            {isAdmin && (
               <button
                 onClick={openProjectEditModal}
                 className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-gray-900 
@@ -936,7 +856,7 @@ export default function ProjectDetailPage({
                   flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 
                   transition-colors whitespace-nowrap
                   ${activeTab === tab.key
-                    ? borderActive
+                    ? 'border-green-600 text-green-600'
                     : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
                   }
                 `}
@@ -1012,11 +932,11 @@ export default function ProjectDetailPage({
           <div>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-gray-900">Arbeitspakete</h2>
-              {adminUser && (
+              {isAdmin && (
                 <button
                   onClick={openCreateWPModal}
-                  className={`flex items-center gap-2 px-4 py-2 ${buttonBg} text-white 
-                             rounded-lg transition-colors text-sm`}
+                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white 
+                             rounded-lg hover:bg-green-700 transition-colors text-sm"
                 >
                   <Plus size={18} />
                   AP hinzufuegen
@@ -1028,10 +948,10 @@ export default function ProjectDetailPage({
               <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
                 <Package className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                 <p className="text-gray-500 mb-4">Keine Arbeitspakete vorhanden</p>
-                {adminUser && (
+                {isAdmin && (
                   <button
                     onClick={openCreateWPModal}
-                    className={`px-4 py-2 ${buttonBg} text-white rounded-lg`}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
                   >
                     Erstes AP anlegen
                   </button>
@@ -1040,17 +960,17 @@ export default function ProjectDetailPage({
             ) : (
               <div className="bg-white rounded-lg border border-gray-200 overflow-hidden p-4">
                 <WorkPackageList
-                  portal={portal}
+                  portal="firma"
                   workPackages={workPackages}
                   projectId={projectId}
                   assignments={wpAssignments}
                   employees={allEmployees}
-                  onAddWorkPackage={adminUser ? openCreateWPModal : undefined}
-                  onEditWorkPackage={adminUser ? openEditWPModal : undefined}
-                  onDeleteWorkPackage={adminUser ? openDeleteConfirmation : undefined}
-                  onAssignEmployees={adminUser ? openWPAssignModal : undefined}
-                  showAddButton={adminUser}
-                  showActionButtons={adminUser}
+                  onAddWorkPackage={isAdmin ? openCreateWPModal : undefined}
+                  onEditWorkPackage={isAdmin ? openEditWPModal : undefined}
+                  onDeleteWorkPackage={isAdmin ? openDeleteConfirmation : undefined}
+                  onAssignEmployees={isAdmin ? openWPAssignModal : undefined}
+                  showAddButton={isAdmin}
+                  showActionButtons={isAdmin}
                   showAssignments={true}
                 />
               </div>
@@ -1077,6 +997,7 @@ export default function ProjectDetailPage({
                   Ordnen Sie Mitarbeiter ueber den Tab "Arbeitspakete" zu
                 </p>
               </div>
+              </div>
             ) : (
               <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
                 <table className="w-full">
@@ -1087,7 +1008,7 @@ export default function ProjectDetailPage({
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Stundensatz</th>
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">PM gesamt</th>
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Gepl. Stunden</th>
-                      {adminUser && (
+                      {isAdmin && (
                         <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase w-20">Aktion</th>
                       )}
                     </tr>
@@ -1125,7 +1046,7 @@ export default function ProjectDetailPage({
                         <td className="px-4 py-3 text-right text-gray-600">
                           {calcPlannedHours(member.planned_pm, member.weekly_hours) || '-'}
                         </td>
-                        {adminUser && (
+                        {isAdmin && (
                           <td className="px-4 py-3 text-center">
                             <button
                               onClick={() => openTeamEditModal(member)}
@@ -1148,7 +1069,7 @@ export default function ProjectDetailPage({
                       <td className="px-4 py-3 text-right font-semibold text-gray-900">
                         {teamMembers.reduce((sum, m) => sum + calcPlannedHours(m.planned_pm, m.weekly_hours), 0)}
                       </td>
-                      {adminUser && <td></td>}
+                      {isAdmin && <td></td>}
                     </tr>
                   </tfoot>
                 </table>
@@ -1192,7 +1113,7 @@ export default function ProjectDetailPage({
                     type="text"
                     value={teamEditData.role_in_project}
                     onChange={(e) => setTeamEditData(prev => ({ ...prev, role_in_project: e.target.value }))}
-                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                     placeholder="z.B. Entwickler, Projektleiter"
                   />
                 </div>
@@ -1205,7 +1126,7 @@ export default function ProjectDetailPage({
                     type="number"
                     value={teamEditData.hourly_rate}
                     onChange={(e) => setTeamEditData(prev => ({ ...prev, hourly_rate: e.target.value }))}
-                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                     placeholder="z.B. 45.50"
                     step="0.01"
                     min="0"
@@ -1221,7 +1142,7 @@ export default function ProjectDetailPage({
                     id="is_project_leader"
                     checked={teamEditData.is_project_leader}
                     onChange={(e) => setTeamEditData(prev => ({ ...prev, is_project_leader: e.target.checked }))}
-                    className={`w-4 h-4 ${portal === 'firma' ? 'text-green-600' : 'text-blue-600'} border-gray-300 rounded focus:ring-${portal === 'firma' ? 'green' : 'blue'}-500`}
+                    className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
                   />
                   <label htmlFor="is_project_leader" className="text-sm text-gray-700">
                     Projektleiter
@@ -1239,8 +1160,8 @@ export default function ProjectDetailPage({
                 <button
                   onClick={handleTeamSave}
                   disabled={savingTeam}
-                  className={`flex items-center gap-2 px-4 py-2 ${buttonBg} text-white rounded-lg 
-                             disabled:opacity-50 transition-colors`}
+                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg 
+                             hover:bg-green-700 disabled:opacity-50 transition-colors"
                 >
                   {savingTeam ? (
                     <>
@@ -1281,7 +1202,7 @@ export default function ProjectDetailPage({
 
       {/* Modal: WorkPackage bearbeiten/anlegen */}
       <WorkPackageEditModal
-        portal={portal}
+        portal="firma"
         isOpen={showWPEditModal}
         onClose={closeWPEditModal}
         onSave={handleSaveWP}
@@ -1296,7 +1217,7 @@ export default function ProjectDetailPage({
 
       {/* Modal: WorkPackage MA zuordnen */}
       <WorkPackageAssignmentModal
-        portal={portal}
+        portal="firma"
         isOpen={showWPAssignModal}
         onClose={closeWPAssignModal}
         workPackage={assignmentWP}
@@ -1372,7 +1293,7 @@ export default function ProjectDetailPage({
                   type="text"
                   value={projectEditData.name}
                   onChange={(e) => setProjectEditData(prev => ({ ...prev, name: e.target.value }))}
-                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                   placeholder="z.B. DigiTrans"
                 />
               </div>
@@ -1385,7 +1306,7 @@ export default function ProjectDetailPage({
                   type="text"
                   value={projectEditData.short_name}
                   onChange={(e) => setProjectEditData(prev => ({ ...prev, short_name: e.target.value }))}
-                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                   placeholder="z.B. DT"
                 />
               </div>
@@ -1397,7 +1318,7 @@ export default function ProjectDetailPage({
                 <select
                   value={projectEditData.funding_format}
                   onChange={(e) => setProjectEditData(prev => ({ ...prev, funding_format: e.target.value }))}
-                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                 >
                   {FUNDING_FORMATS.map(f => (
                     <option key={f.value} value={f.value}>{f.label}</option>
@@ -1413,7 +1334,7 @@ export default function ProjectDetailPage({
                   type="text"
                   value={projectEditData.funding_reference}
                   onChange={(e) => setProjectEditData(prev => ({ ...prev, funding_reference: e.target.value }))}
-                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                   placeholder="z.B. 16KN087502"
                 />
               </div>
@@ -1427,7 +1348,7 @@ export default function ProjectDetailPage({
                     type="date"
                     value={projectEditData.start_date}
                     onChange={(e) => setProjectEditData(prev => ({ ...prev, start_date: e.target.value }))}
-                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                   />
                 </div>
                 <div>
@@ -1438,7 +1359,7 @@ export default function ProjectDetailPage({
                     type="date"
                     value={projectEditData.end_date}
                     onChange={(e) => setProjectEditData(prev => ({ ...prev, end_date: e.target.value }))}
-                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                   />
                 </div>
               </div>
@@ -1450,7 +1371,7 @@ export default function ProjectDetailPage({
                 <textarea
                   value={projectEditData.notes}
                   onChange={(e) => setProjectEditData(prev => ({ ...prev, notes: e.target.value }))}
-                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                   rows={3}
                   placeholder="Optionale Notizen zum Projekt"
                 />
@@ -1467,8 +1388,8 @@ export default function ProjectDetailPage({
               <button
                 onClick={handleProjectSave}
                 disabled={savingProject || !projectEditData.name.trim()}
-                className={`flex items-center gap-2 px-4 py-2 ${buttonBg} text-white rounded-lg 
-                           disabled:opacity-50 transition-colors`}
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg 
+                           hover:bg-green-700 disabled:opacity-50 transition-colors"
               >
                 {savingProject ? (
                   <>
@@ -1491,7 +1412,7 @@ export default function ProjectDetailPage({
       <footer className="bg-white border-t mt-auto">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <p className="text-center text-sm text-gray-500">
-            PZE v7.3.56 | {company?.name}
+            PZE v7.3.54 | {company?.name}
           </p>
         </div>
       </footer>
