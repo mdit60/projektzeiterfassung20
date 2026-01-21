@@ -3,7 +3,7 @@
 // PZE V7 - Projekt-Detail
 // ============================================================================
 // Datum: 21. Januar 2026
-// Version: 7.3.54
+// Version: 7.3.53
 //
 // Projekt-Detailseite mit Tabs:
 // - Uebersicht: Stammdaten
@@ -13,8 +13,9 @@
 //
 // v7.3.51: Projekt-Bearbeiten-Modal
 // v7.3.53: Shared Components fuer Arbeitspakete integriert
-// v7.3.54: MA-Zuordnungen inline in Arbeitspakete-Liste anzeigen
-//          - assignments + employees Props an WorkPackageList
+//          - WorkPackageList
+//          - WorkPackageEditModal
+//          - WorkPackageAssignmentModal
 // ============================================================================
 
 'use client';
@@ -932,6 +933,20 @@ export default function ProjektDetail() {
         {/* Tab: Arbeitspakete - mit Shared Component */}
         {activeTab === 'arbeitspakete' && (
           <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900">Arbeitspakete</h2>
+              {isAdmin && (
+                <button
+                  onClick={openCreateWPModal}
+                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white 
+                             rounded-lg hover:bg-green-700 transition-colors text-sm"
+                >
+                  <Plus size={18} />
+                  AP hinzufuegen
+                </button>
+              )}
+            </div>
+
             {workPackages.length === 0 ? (
               <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
                 <Package className="w-12 h-12 text-gray-300 mx-auto mb-3" />
@@ -946,20 +961,27 @@ export default function ProjektDetail() {
                 )}
               </div>
             ) : (
-              <WorkPackageList
-                portal="firma"
-                workPackages={workPackages}
-                projectId={projectId}
-                assignments={wpAssignments}
-                employees={allEmployees}
-                onAddWorkPackage={isAdmin ? openCreateWPModal : undefined}
-                onEditWorkPackage={isAdmin ? openEditWPModal : undefined}
-                onDeleteWorkPackage={isAdmin ? openDeleteConfirmation : undefined}
-                onAssignEmployees={isAdmin ? openWPAssignModal : undefined}
-                showAddButton={isAdmin}
-                showActionButtons={isAdmin}
-                showAssignments={true}
-              />
+              <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                <WorkPackageList
+                  portal="firma"
+                  workPackages={workPackages}
+                  projectId={projectId}
+                  onAddWorkPackage={isAdmin ? openCreateWPModal : undefined}
+                  onEditWorkPackage={isAdmin ? openEditWPModal : undefined}
+                  onDeleteWorkPackage={isAdmin ? openDeleteConfirmation : undefined}
+                  onAssignEmployees={isAdmin ? openWPAssignModal : undefined}
+                  showAddButton={false}
+                  showActionButtons={isAdmin}
+                />
+
+                {/* Summen-Footer */}
+                <div className="bg-gray-50 border-t border-gray-200 px-4 py-3 flex justify-between items-center">
+                  <span className="font-semibold text-gray-900">Gesamt</span>
+                  <span className="font-semibold text-gray-900">
+                    {getTotalPM().toFixed(2)} PM
+                  </span>
+                </div>
+              </div>
             )}
           </div>
         )}
@@ -1397,7 +1419,7 @@ export default function ProjektDetail() {
       <footer className="bg-white border-t mt-auto">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <p className="text-center text-sm text-gray-500">
-            PZE v7.3.54 | {company?.name}
+            PZE v7.3.53 | {company?.name}
           </p>
         </div>
       </footer>
