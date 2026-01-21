@@ -3,7 +3,7 @@
 // PZE V7 - Shared Employee Management Component
 // ============================================================================
 // Datum: 21. Januar 2026
-// Version: 7.3.60
+// Version: 7.3.59
 //
 // Wird von beiden Portalen genutzt:
 // - Firmen-Portal: /v7/firma/mitarbeiter
@@ -15,12 +15,6 @@
 // - Bearbeiten
 // - Deaktivieren/Reaktivieren
 // - Portal-Rolle zuweisen (employee/project_leader/client_admin)
-// - Login erstellen (NEU: Erkennt bereits registrierte Benutzer)
-//
-// FIX v7.3.60:
-// - Bessere Login-Status-Erkennung via v7_user_profiles
-// - Verknuepfungsfunktion fuer bereits registrierte Benutzer
-// - "Hat Login" Badge korrekt anzeigen
 //
 // Props:
 // - portal: 'berater' | 'firma'
@@ -43,8 +37,6 @@ import {
   X,
   Save,
   KeyRound,
-  Link2,
-  Check,
 } from 'lucide-react';
 
 // ============================================================================
@@ -65,8 +57,6 @@ export interface Employee {
   is_active: boolean;
   portal_role: string | null;
   user_id: string | null;
-  // NEU: Aus JOIN mit v7_user_profiles
-  has_login?: boolean;
 }
 
 interface EmployeeFormData {
@@ -87,13 +77,6 @@ interface EmployeeManagementProps {
   companyId: string;
   canEdit: boolean;
   title?: string;
-}
-
-// Cache fuer registrierte E-Mails
-interface RegisteredUser {
-  id: string;
-  email: string;
-  display_name: string | null;
 }
 
 // ============================================================================
@@ -164,9 +147,6 @@ export default function EmployeeManagement({
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [showInactive, setShowInactive] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  
-  // NEU: Cache fuer registrierte User-Profiles (Email -> User)
-  const [registeredEmails, setRegisteredEmails] = useState<Map<string, RegisteredUser>>(new Map());
 
   // State - Modal
   const [showModal, setShowModal] = useState(false);
@@ -185,10 +165,6 @@ export default function EmployeeManagement({
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
   const [creatingLogin, setCreatingLogin] = useState(false);
-  
-  // NEU: Modus fuer Login-Modal (create = neuen User, link = existierenden verknuepfen)
-  const [loginMode, setLoginMode] = useState<'create' | 'link'>('create');
-  const [existingUserId, setExistingUserId] = useState<string | null>(null);
 
   // ============================================================================
   // DATEN LADEN
@@ -197,7 +173,6 @@ export default function EmployeeManagement({
   const loadEmployees = useCallback(async () => {
     setLoading(true);
     try {
-      // Mitarbeiter laden
       let query = supabase
         .from('v7_employees')
         .select('id, display_name, first_name, last_name, email, position_title, qualification, weekly_hours, employment_start, employment_end, is_active, portal_role, user_id')
@@ -208,45 +183,9 @@ export default function EmployeeManagement({
         query = query.eq('is_active', true);
       }
 
-      const { data: employeesData, error } = await query;
+      const { data, error } = await query;
       if (error) throw error;
-      
-      // NEU: Alle E-Mails sammeln und pruefen welche bereits registriert sind
-      const emails = (employeesData || [])
-        .filter(e => e.email)
-        .map(e => e.email!.toLowerCase());
-      
-      if (emails.length > 0) {
-        // Alle User-Profiles fuer diese E-Mails laden
-        const { data: profiles } = await supabase
-          .from('v7_user_profiles')
-          .select('id, email, display_name')
-          .in('email', emails);
-        
-        // Map erstellen: email -> user
-        const emailMap = new Map<string, RegisteredUser>();
-        (profiles || []).forEach(p => {
-          if (p.email) {
-            emailMap.set(p.email.toLowerCase(), {
-              id: p.id,
-              email: p.email,
-              display_name: p.display_name,
-            });
-          }
-        });
-        setRegisteredEmails(emailMap);
-        
-        // has_login Flag setzen basierend auf user_id ODER existierendem Profile
-        const enrichedEmployees = (employeesData || []).map(emp => ({
-          ...emp,
-          has_login: !!(emp.user_id || (emp.email && emailMap.has(emp.email.toLowerCase()))),
-        }));
-        
-        setEmployees(enrichedEmployees);
-      } else {
-        setEmployees(employeesData || []);
-      }
-      
+      setEmployees(data || []);
     } catch (err) {
       console.error('Fehler beim Laden:', err);
     } finally {
@@ -281,8 +220,8 @@ export default function EmployeeManagement({
       position_title: emp.position_title || '',
       qualification: emp.qualification || '',
       weekly_hours: emp.weekly_hours?.toString() || '40',
-      employment_start: emp.employment_start || '',
-      employment_end: emp.employment_end || '',
+      employment_start: emp.employment_start?.split('T')[0] || '',
+      employment_end: emp.employment_end?.split('T')[0] || '',
       portal_role: emp.portal_role || 'employee',
     });
     setFormError(null);
@@ -298,49 +237,44 @@ export default function EmployeeManagement({
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-
-    // Auto-generate display_name from first + last name
-    if (name === 'first_name' || name === 'last_name') {
-      const firstName = name === 'first_name' ? value : formData.first_name;
-      const lastName = name === 'last_name' ? value : formData.last_name;
-      if (firstName || lastName) {
-        setFormData(prev => ({
-          ...prev,
-          [name]: value,
-          display_name: `${lastName}${lastName && firstName ? ', ' : ''}${firstName}`.trim(),
-        }));
+    setFormData(prev => {
+      const updated = { ...prev, [name]: value };
+      // Auto-generate display_name
+      if (name === 'first_name' || name === 'last_name') {
+        const firstName = name === 'first_name' ? value : prev.first_name;
+        const lastName = name === 'last_name' ? value : prev.last_name;
+        if (lastName || firstName) {
+          updated.display_name = lastName && firstName
+            ? `${lastName}, ${firstName}`
+            : lastName || firstName;
+        }
       }
-    }
+      return updated;
+    });
   };
 
-  const validateForm = (): boolean => {
-    if (!formData.display_name.trim()) {
-      setFormError('Name ist ein Pflichtfeld.');
-      return false;
-    }
-    if (formData.email && !formData.email.includes('@')) {
-      setFormError('Bitte eine gueltige E-Mail-Adresse eingeben.');
-      return false;
-    }
-    return true;
-  };
+  // ============================================================================
+  // CRUD FUNKTIONEN
+  // ============================================================================
 
   const handleSave = async () => {
-    if (!validateForm()) return;
+    if (!formData.display_name.trim()) {
+      setFormError('Anzeigename ist erforderlich');
+      return;
+    }
 
     setSaving(true);
     setFormError(null);
 
     try {
-      const saveData = {
+      const employeeData = {
         display_name: formData.display_name.trim(),
         first_name: formData.first_name.trim() || null,
         last_name: formData.last_name.trim() || null,
         email: formData.email.trim() || null,
         position_title: formData.position_title.trim() || null,
-        qualification: formData.qualification || null,
-        weekly_hours: formData.weekly_hours ? parseFloat(formData.weekly_hours) : null,
+        qualification: formData.qualification.trim() || null,
+        weekly_hours: formData.weekly_hours ? parseFloat(formData.weekly_hours) : 40,
         employment_start: formData.employment_start || null,
         employment_end: formData.employment_end || null,
         portal_role: formData.portal_role || 'employee',
@@ -351,34 +285,39 @@ export default function EmployeeManagement({
         const { error } = await supabase
           .from('v7_employees')
           .insert({
-            ...saveData,
+            ...employeeData,
             client_company_id: companyId,
             is_active: true,
           });
 
-        if (error) throw error;
+        if (error) {
+          if (error.code === '23505') {
+            setFormError('Ein Mitarbeiter mit diesem Namen existiert bereits');
+          } else {
+            setFormError(error.message);
+          }
+          return;
+        }
       } else if (editingEmployee) {
         const { error } = await supabase
           .from('v7_employees')
-          .update(saveData)
+          .update(employeeData)
           .eq('id', editingEmployee.id);
 
-        if (error) throw error;
+        if (error) {
+          setFormError(error.message);
+          return;
+        }
       }
 
       closeModal();
       await loadEmployees();
     } catch (err: any) {
-      console.error('Fehler beim Speichern:', err);
-      setFormError(err.message || 'Fehler beim Speichern.');
+      setFormError(err.message);
     } finally {
       setSaving(false);
     }
   };
-
-  // ============================================================================
-  // DELETE FUNKTIONEN
-  // ============================================================================
 
   const confirmDelete = (emp: Employee) => {
     setEmployeeToDelete(emp);
@@ -392,10 +331,7 @@ export default function EmployeeManagement({
     try {
       const { error } = await supabase
         .from('v7_employees')
-        .update({
-          is_active: false,
-          updated_at: new Date().toISOString(),
-        })
+        .update({ is_active: false, updated_at: new Date().toISOString() })
         .eq('id', employeeToDelete.id);
 
       if (error) throw error;
@@ -403,7 +339,7 @@ export default function EmployeeManagement({
       setShowDeleteConfirm(false);
       setEmployeeToDelete(null);
       await loadEmployees();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Fehler beim Deaktivieren:', err);
     } finally {
       setSaving(false);
@@ -415,15 +351,12 @@ export default function EmployeeManagement({
     try {
       const { error } = await supabase
         .from('v7_employees')
-        .update({
-          is_active: true,
-          updated_at: new Date().toISOString(),
-        })
+        .update({ is_active: true, updated_at: new Date().toISOString() })
         .eq('id', emp.id);
 
       if (error) throw error;
       await loadEmployees();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Fehler beim Reaktivieren:', err);
     } finally {
       setSaving(false);
@@ -431,28 +364,14 @@ export default function EmployeeManagement({
   };
 
   // ============================================================================
-  // LOGIN FUNKTIONEN (ERWEITERT)
+  // LOGIN ERSTELLEN
   // ============================================================================
 
   const openLoginModal = (emp: Employee) => {
     if (!emp.email) {
-      alert('Mitarbeiter hat keine E-Mail-Adresse.');
+      alert('Mitarbeiter hat keine E-Mail-Adresse hinterlegt.');
       return;
     }
-    
-    // Pruefen ob E-Mail bereits registriert ist
-    const existingUser = registeredEmails.get(emp.email.toLowerCase());
-    
-    if (existingUser) {
-      // E-Mail ist bereits registriert -> Verknuepfungs-Modus
-      setLoginMode('link');
-      setExistingUserId(existingUser.id);
-    } else {
-      // Neuen Login erstellen
-      setLoginMode('create');
-      setExistingUserId(null);
-    }
-    
     setLoginEmployee(emp);
     setLoginPassword('');
     setLoginError(null);
@@ -464,39 +383,6 @@ export default function EmployeeManagement({
     setLoginEmployee(null);
     setLoginPassword('');
     setLoginError(null);
-    setLoginMode('create');
-    setExistingUserId(null);
-  };
-
-  // NEU: Bestehenden User mit Mitarbeiter verknuepfen
-  const handleLinkExistingUser = async () => {
-    if (!loginEmployee || !existingUserId) return;
-    
-    setCreatingLogin(true);
-    setLoginError(null);
-    
-    try {
-      // Mitarbeiter mit bestehendem User verknuepfen
-      const { error } = await supabase
-        .from('v7_employees')
-        .update({ 
-          user_id: existingUserId,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', loginEmployee.id);
-      
-      if (error) throw error;
-      
-      closeLoginModal();
-      await loadEmployees();
-      alert(`Mitarbeiter ${loginEmployee.display_name} wurde mit dem bestehenden Login verknuepft.`);
-      
-    } catch (err: any) {
-      console.error('Fehler beim Verknuepfen:', err);
-      setLoginError(err.message || 'Ein Fehler ist aufgetreten.');
-    } finally {
-      setCreatingLogin(false);
-    }
   };
 
   const handleCreateLogin = async () => {
@@ -532,52 +418,7 @@ export default function EmployeeManagement({
 
         if (signUpError) {
           if (signUpError.message.includes('already registered')) {
-            // E-Mail bereits registriert - User-ID finden und verknuepfen
-            
-            // 1. Zuerst in v7_user_profiles suchen
-            const { data: existingProfile } = await supabase
-              .from('v7_user_profiles')
-              .select('id')
-              .eq('email', loginEmployee.email.toLowerCase())
-              .maybeSingle();
-            
-            if (existingProfile) {
-              // User gefunden in v7_user_profiles -> direkt verknuepfen
-              await linkEmployeeToUser(loginEmployee.id, existingProfile.id);
-              closeLoginModal();
-              await loadEmployees();
-              alert(`Mitarbeiter ${loginEmployee.display_name} wurde mit dem bestehenden Login verknuepft.`);
-              return;
-            }
-            
-            // 2. Nicht in v7_user_profiles -> via Admin API suchen
-            try {
-              const { data: authUser, error: getUserError } = await supabase.auth.admin.getUserByEmail(
-                loginEmployee.email
-              );
-              
-              if (authUser && authUser.user) {
-                // User in auth.users gefunden
-                const userId = authUser.user.id;
-                
-                // user_profile erstellen (falls noch nicht vorhanden)
-                await createUserProfile(userId, loginEmployee);
-                
-                // Mitarbeiter verknuepfen
-                await linkEmployeeToUser(loginEmployee.id, userId);
-                
-                closeLoginModal();
-                await loadEmployees();
-                alert(`Mitarbeiter ${loginEmployee.display_name} wurde mit dem bestehenden Login verknuepft.`);
-                return;
-              }
-            } catch (adminErr) {
-              console.log('Admin API nicht verfuegbar, zeige Verknuepfungs-Option');
-            }
-            
-            // 3. Fallback: Manuell auf Link-Modus wechseln (ohne User-ID)
-            setLoginError('Diese E-Mail ist bereits registriert. Bitte kontaktieren Sie den Administrator.');
-            return;
+            setLoginError('Diese E-Mail ist bereits registriert.');
           } else {
             setLoginError(signUpError.message);
           }
@@ -622,12 +463,14 @@ export default function EmployeeManagement({
   };
 
   const createUserProfile = async (userId: string, emp: Employee) => {
+    // v7_user_profiles.role kann sein: 'system_admin', 'consultant', 'client_user'
+    // Firmen-Mitarbeiter sind immer 'client_user' - die Portal-Rolle steht in v7_employees.portal_role
     const { error } = await supabase
       .from('v7_user_profiles')
       .insert({
         id: userId,
         email: emp.email,
-        role: emp.portal_role === 'client_admin' ? 'client_admin' : 'employee',
+        role: 'client_user',  // Alle Firmen-MA sind client_user
         display_name: emp.display_name,
         first_name: emp.first_name,
         last_name: emp.last_name,
@@ -677,61 +520,62 @@ export default function EmployeeManagement({
   if (loading) {
     return (
       <div className="flex justify-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-4 border-gray-300 border-t-gray-600"></div>
+        <div className={`w-10 h-10 border-4 border-gray-200 rounded-full animate-spin ${
+          portal === 'berater' ? 'border-t-blue-600' : 'border-t-green-600'
+        }`}></div>
       </div>
     );
   }
 
   // ============================================================================
-  // RENDER - HAUPT
+  // RENDER - MAIN
   // ============================================================================
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-            <Users className="h-6 w-6 text-gray-600" />
-            {title}
-          </h2>
+          <h1 className="text-2xl font-bold text-gray-900">{title}</h1>
           <p className="text-sm text-gray-500 mt-1">
-            {activeCount} aktiv{inactiveCount > 0 && `, ${inactiveCount} inaktiv`}
+            {activeCount} aktiv{showInactive && inactiveCount > 0 && `, ${inactiveCount} inaktiv`}
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4">
           {/* Suche */}
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               type="text"
               placeholder="Suchen..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className={`pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 ${colors.focus} w-48`}
+              className={`pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm w-48
+                         focus:outline-none focus:ring-2 ${colors.focus} focus:border-transparent`}
             />
           </div>
 
-          {/* Inaktive anzeigen */}
-          <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+          {/* Inaktive Checkbox */}
+          <label className="flex items-center gap-2 text-sm text-gray-600 whitespace-nowrap">
             <input
               type="checkbox"
               checked={showInactive}
               onChange={(e) => setShowInactive(e.target.checked)}
-              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              className={`rounded border-gray-300 ${colors.text} ${colors.focus}`}
             />
             Inaktive
           </label>
 
-          {/* Neu-Button */}
+          {/* Neu Button */}
           {canEdit && (
             <button
               onClick={openCreateModal}
-              className={`flex items-center gap-2 px-4 py-2 text-white rounded-lg ${colors.button}`}
+              className={`flex items-center gap-2 px-4 py-2 text-white rounded-lg
+                         transition-colors text-sm font-medium ${colors.button}`}
             >
               <Plus size={18} />
-              Neu
+              <span className="hidden sm:inline">Neu</span>
             </button>
           )}
         </div>
@@ -739,30 +583,42 @@ export default function EmployeeManagement({
 
       {/* Tabelle */}
       {filteredEmployees.length === 0 ? (
-        <div className="bg-white rounded-xl border p-8 text-center text-gray-500">
-          {searchTerm ? 'Keine Mitarbeiter gefunden.' : 'Noch keine Mitarbeiter erfasst.'}
+        <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
+          <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+          <p className="text-gray-500 text-lg">
+            {searchTerm ? 'Keine Mitarbeiter gefunden.' : 'Noch keine Mitarbeiter vorhanden.'}
+          </p>
+          {canEdit && !searchTerm && (
+            <button
+              onClick={openCreateModal}
+              className={`mt-4 inline-flex items-center gap-2 px-4 py-2 text-white rounded-lg ${colors.button}`}
+            >
+              <Plus size={18} />
+              Ersten Mitarbeiter anlegen
+            </button>
+          )}
         </div>
       ) : (
-        <div className="bg-white rounded-xl border overflow-hidden">
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Mitarbeiter</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Position</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Rolle</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Std./Woche</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase hidden sm:table-cell">Position</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase hidden md:table-cell">Rolle</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase hidden lg:table-cell">Std./Woche</th>
                   <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>
                   {canEdit && (
                     <th className="px-6 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Aktionen</th>
                   )}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="divide-y divide-gray-200">
                 {filteredEmployees.map((emp) => (
                   <tr
                     key={emp.id}
-                    className={`hover:bg-gray-50 ${!emp.is_active ? 'opacity-50' : ''}`}
+                    className={`hover:bg-gray-50 ${!emp.is_active ? 'opacity-60' : ''}`}
                   >
                     <td className="px-6 py-4">
                       <div className="font-medium text-gray-900">{emp.display_name}</div>
@@ -770,10 +626,10 @@ export default function EmployeeManagement({
                         <div className="text-sm text-gray-500">{emp.email}</div>
                       )}
                     </td>
-                    <td className="px-6 py-4 text-gray-700">
+                    <td className="px-6 py-4 hidden sm:table-cell text-gray-600">
                       {emp.position_title || '-'}
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-6 py-4 hidden md:table-cell">
                       {emp.portal_role === 'client_admin' && (
                         <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-700">
                           Admin
@@ -785,27 +641,26 @@ export default function EmployeeManagement({
                         </span>
                       )}
                       {(!emp.portal_role || emp.portal_role === 'employee') && (
-                        <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-700">
+                        <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-600">
                           Mitarbeiter
                         </span>
                       )}
                     </td>
-                    <td className="px-6 py-4 text-gray-700">
-                      {emp.weekly_hours ? `${emp.weekly_hours} h` : '-'}
+                    <td className="px-6 py-4 hidden lg:table-cell text-gray-600">
+                      {emp.weekly_hours || 40} h
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex flex-col gap-1">
                         {emp.is_active ? (
-                          <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700">
+                          <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${colors.badge}`}>
                             Aktiv
                           </span>
                         ) : (
-                          <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-gray-200 text-gray-600">
+                          <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-600">
                             Inaktiv
                           </span>
                         )}
-                        {/* NEU: Login-Status basierend auf has_login Flag */}
-                        {emp.has_login ? (
+                        {emp.user_id ? (
                           <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700">
                             Login
                           </span>
@@ -819,24 +674,14 @@ export default function EmployeeManagement({
                     {canEdit && (
                       <td className="px-6 py-4 text-right">
                         <div className="flex justify-end gap-2">
-                          {/* Login erstellen/verknuepfen - nur wenn noch nicht verknuepft und E-Mail vorhanden */}
+                          {/* Login erstellen - nur wenn noch kein Login und E-Mail vorhanden */}
                           {!emp.user_id && emp.email && emp.is_active && (
                             <button
                               onClick={() => openLoginModal(emp)}
-                              className={`p-1.5 rounded ${
-                                registeredEmails.has(emp.email.toLowerCase()) 
-                                  ? 'text-blue-600 hover:text-blue-800' 
-                                  : 'text-orange-600 hover:text-orange-800'
-                              }`}
-                              title={registeredEmails.has(emp.email.toLowerCase()) 
-                                ? 'Login verknuepfen (bereits registriert)' 
-                                : 'Login erstellen'
-                              }
+                              className="p-1.5 text-orange-600 hover:text-orange-800 rounded"
+                              title="Login erstellen"
                             >
-                              {registeredEmails.has(emp.email.toLowerCase()) 
-                                ? <Link2 size={18} /> 
-                                : <KeyRound size={18} />
-                              }
+                              <KeyRound size={18} />
                             </button>
                           )}
                           <button
@@ -880,12 +725,12 @@ export default function EmployeeManagement({
       </div>
 
       {/* ================================================================ */}
-      {/* MODAL: Mitarbeiter erstellen/bearbeiten */}
+      {/* MODAL: Mitarbeiter anlegen/bearbeiten */}
       {/* ================================================================ */}
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center px-6 py-4 border-b sticky top-0 bg-white">
+            <div className="flex justify-between items-center px-6 py-4 border-b">
               <h3 className="text-lg font-semibold text-gray-900">
                 {modalMode === 'create' ? 'Neuer Mitarbeiter' : 'Mitarbeiter bearbeiten'}
               </h3>
@@ -894,26 +739,14 @@ export default function EmployeeManagement({
               </button>
             </div>
 
-            <div className="px-6 py-4 space-y-6">
+            <div className="px-6 py-4 space-y-4">
               {formError && (
-                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
                   {formError}
                 </div>
               )}
 
-              {/* Name */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Nachname</label>
-                  <input
-                    type="text"
-                    name="last_name"
-                    value={formData.last_name}
-                    onChange={handleInputChange}
-                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
-                    placeholder="z.B. Mueller"
-                  />
-                </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Vorname</label>
                   <input
@@ -922,77 +755,61 @@ export default function EmployeeManagement({
                     value={formData.first_name}
                     onChange={handleInputChange}
                     className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
-                    placeholder="z.B. Max"
+                    placeholder="Max"
                   />
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Anzeigename <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  name="display_name"
-                  value={formData.display_name}
-                  onChange={handleInputChange}
-                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
-                  placeholder="z.B. Mueller, Max"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Wird automatisch aus Vor- und Nachname erzeugt, kann aber angepasst werden.
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">E-Mail</label>
-                <input
-                  type="email"
-                  name="email"
-                  value={formData.email}
-                  onChange={handleInputChange}
-                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
-                  placeholder="z.B. max.mueller@firma.de"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Erforderlich fuer Portal-Login.
-                </p>
-              </div>
-
-              {/* Portal-Rolle */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Portal-Rolle</label>
-                <div className="space-y-2">
-                  {PORTAL_ROLE_OPTIONS.map(opt => (
-                    <label
-                      key={opt.value}
-                      className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
-                        formData.portal_role === opt.value
-                          ? 'border-blue-500 bg-blue-50'
-                          : 'border-gray-200 hover:border-gray-300'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="portal_role"
-                        value={opt.value}
-                        checked={formData.portal_role === opt.value}
-                        onChange={handleInputChange}
-                        className="mt-0.5"
-                      />
-                      <div>
-                        <div className="font-medium text-gray-900">{opt.label}</div>
-                        <div className="text-sm text-gray-500">{opt.description}</div>
-                      </div>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              {/* Weitere Felder */}
-              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Position/Titel</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Nachname</label>
+                  <input
+                    type="text"
+                    name="last_name"
+                    value={formData.last_name}
+                    onChange={handleInputChange}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
+                    placeholder="Mustermann"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Anzeigename *</label>
+                  <input
+                    type="text"
+                    name="display_name"
+                    value={formData.display_name}
+                    onChange={handleInputChange}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
+                    placeholder="Mustermann, Max"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Wird automatisch aus Vor- und Nachname generiert</p>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">E-Mail</label>
+                  <input
+                    type="email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleInputChange}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
+                    placeholder="max.mustermann@firma.de"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Portal-Rolle</label>
+                  <select
+                    name="portal_role"
+                    value={formData.portal_role}
+                    onChange={handleInputChange}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
+                  >
+                    {PORTAL_ROLE_OPTIONS.map(role => (
+                      <option key={role.value} value={role.value}>{role.label}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {PORTAL_ROLE_OPTIONS.find(r => r.value === formData.portal_role)?.description}
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Position</label>
                   <input
                     type="text"
                     name="position_title"
@@ -1117,14 +934,14 @@ export default function EmployeeManagement({
       )}
 
       {/* ================================================================ */}
-      {/* MODAL: Login erstellen / verknuepfen */}
+      {/* MODAL: Login erstellen */}
       {/* ================================================================ */}
       {showLoginModal && loginEmployee && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
             <div className="flex justify-between items-center px-6 py-4 border-b">
               <h3 className="text-lg font-semibold text-gray-900">
-                {loginMode === 'link' ? 'Login verknuepfen' : 'Login erstellen'}
+                Login erstellen
               </h3>
               <button onClick={closeLoginModal} className="text-gray-400 hover:text-gray-600">
                 <X size={24} />
@@ -1138,90 +955,56 @@ export default function EmployeeManagement({
                 </div>
               )}
 
-              {/* Modus: Verknuepfen (bereits registriert) */}
-              {loginMode === 'link' ? (
-                <>
-                  <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded-lg text-sm">
-                    <strong>Bereits registriert:</strong> Diese E-Mail-Adresse hat bereits einen Login. 
-                    Moechten Sie diesen mit dem Mitarbeiter verknuepfen?
-                  </div>
+              <div className="bg-orange-50 border border-orange-200 text-orange-800 px-4 py-3 rounded-lg text-sm">
+                <strong>Test-Modus:</strong> Es wird keine E-Mail versendet. 
+                Der Mitarbeiter kann sich direkt mit diesen Zugangsdaten einloggen.
+              </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Mitarbeiter</label>
-                    <div className="px-3 py-2 bg-gray-100 rounded-lg text-gray-700">
-                      {loginEmployee.display_name}
-                    </div>
-                  </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Mitarbeiter</label>
+                <div className="px-3 py-2 bg-gray-100 rounded-lg text-gray-700">
+                  {loginEmployee.display_name}
+                </div>
+              </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">E-Mail</label>
-                    <div className="px-3 py-2 bg-gray-100 rounded-lg text-gray-700">
-                      {loginEmployee.email}
-                    </div>
-                  </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">E-Mail</label>
+                <div className="px-3 py-2 bg-gray-100 rounded-lg text-gray-700">
+                  {loginEmployee.email}
+                </div>
+              </div>
 
-                  <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg text-sm flex items-start gap-2">
-                    <Check size={18} className="mt-0.5 flex-shrink-0" />
-                    <div>
-                      Der Mitarbeiter kann sich mit seinen bestehenden Zugangsdaten einloggen.
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  {/* Modus: Neuen Login erstellen */}
-                  <div className="bg-orange-50 border border-orange-200 text-orange-800 px-4 py-3 rounded-lg text-sm">
-                    <strong>Test-Modus:</strong> Es wird keine E-Mail versendet. 
-                    Der Mitarbeiter kann sich direkt mit diesen Zugangsdaten einloggen.
-                  </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Portal-Rolle</label>
+                <div className="px-3 py-2 bg-gray-100 rounded-lg">
+                  {loginEmployee.portal_role === 'client_admin' && (
+                    <span className="text-purple-700">Administrator</span>
+                  )}
+                  {loginEmployee.portal_role === 'project_leader' && (
+                    <span className="text-blue-700">Projektleiter</span>
+                  )}
+                  {(!loginEmployee.portal_role || loginEmployee.portal_role === 'employee') && (
+                    <span className="text-gray-700">Mitarbeiter</span>
+                  )}
+                </div>
+              </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Mitarbeiter</label>
-                    <div className="px-3 py-2 bg-gray-100 rounded-lg text-gray-700">
-                      {loginEmployee.display_name}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">E-Mail</label>
-                    <div className="px-3 py-2 bg-gray-100 rounded-lg text-gray-700">
-                      {loginEmployee.email}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Portal-Rolle</label>
-                    <div className="px-3 py-2 bg-gray-100 rounded-lg">
-                      {loginEmployee.portal_role === 'client_admin' && (
-                        <span className="text-purple-700">Administrator</span>
-                      )}
-                      {loginEmployee.portal_role === 'project_leader' && (
-                        <span className="text-blue-700">Projektleiter</span>
-                      )}
-                      {(!loginEmployee.portal_role || loginEmployee.portal_role === 'employee') && (
-                        <span className="text-gray-700">Mitarbeiter</span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Passwort <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={loginPassword}
-                      onChange={(e) => setLoginPassword(e.target.value)}
-                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
-                      placeholder="Mind. 6 Zeichen"
-                      autoComplete="new-password"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Dieses Passwort muss dem Mitarbeiter mitgeteilt werden.
-                    </p>
-                  </div>
-                </>
-              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Passwort <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
+                  placeholder="Mind. 6 Zeichen"
+                  autoComplete="new-password"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Dieses Passwort muss dem Mitarbeiter mitgeteilt werden.
+                </p>
+              </div>
             </div>
 
             <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50">
@@ -1231,29 +1014,13 @@ export default function EmployeeManagement({
               >
                 Abbrechen
               </button>
-              
-              {loginMode === 'link' ? (
-                <button
-                  onClick={handleLinkExistingUser}
-                  disabled={creatingLogin}
-                  className={`px-4 py-2 text-white rounded-lg disabled:opacity-50 flex items-center gap-2 bg-blue-600 hover:bg-blue-700`}
-                >
-                  {creatingLogin ? 'Verknuepfe...' : (
-                    <>
-                      <Link2 size={18} />
-                      Verknuepfen
-                    </>
-                  )}
-                </button>
-              ) : (
-                <button
-                  onClick={handleCreateLogin}
-                  disabled={creatingLogin || !loginPassword}
-                  className={`px-4 py-2 text-white rounded-lg disabled:opacity-50 ${colors.button}`}
-                >
-                  {creatingLogin ? 'Erstelle...' : 'Login erstellen'}
-                </button>
-              )}
+              <button
+                onClick={handleCreateLogin}
+                disabled={creatingLogin || !loginPassword}
+                className={`px-4 py-2 text-white rounded-lg disabled:opacity-50 ${colors.button}`}
+              >
+                {creatingLogin ? 'Erstelle...' : 'Login erstellen'}
+              </button>
             </div>
           </div>
         </div>
