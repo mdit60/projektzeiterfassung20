@@ -3,16 +3,15 @@
 // PZE V7 - Zeiterfassung (Firmen-Portal)
 // ============================================================================
 // Datum: 21. Januar 2026
-// Version: 7.3.58
+// Version: 7.3.57
 //
 // Nutzt Shared Component: TimesheetForm
-// URL-Parameter: ?projekt=<projectId> (optional - waehlt Projekt vor)
 // ============================================================================
 
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
 import TimesheetForm from '@/components/shared/TimesheetForm';
@@ -69,8 +68,6 @@ interface ClientCompany {
 
 export default function FirmaZeiterfassung() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const projektParam = searchParams.get('projekt');
   const supabase = createClient();
 
   // State
@@ -82,7 +79,6 @@ export default function FirmaZeiterfassung() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [workPackages, setWorkPackages] = useState<WorkPackage[]>([]);
   const [initialEmployeeId, setInitialEmployeeId] = useState<string>('');
-  const [initialProjectId, setInitialProjectId] = useState<string>('');
 
   // ============================================================================
   // DATEN LADEN
@@ -161,13 +157,6 @@ export default function FirmaZeiterfassung() {
         .eq('is_active', true);
 
       setProjects(projectsData || []);
-
-      // Projekt aus URL-Parameter oder erstes Projekt
-      if (projektParam && projectsData?.some(p => p.id === projektParam)) {
-        setInitialProjectId(projektParam);
-      } else if (projectsData && projectsData.length > 0) {
-        setInitialProjectId(projectsData[0].id);
-      }
 
       // Arbeitspakete laden
       if (projectsData && projectsData.length > 0) {
@@ -259,7 +248,7 @@ export default function FirmaZeiterfassung() {
       isAdmin={isAdmin}
       onBack={() => router.push('/v7/firma')}
       initialEmployeeId={initialEmployeeId}
-      initialProjectId={initialProjectId || projects[0]?.id}
+      initialProjectId={projects[0]?.id}
     />
   );
 }

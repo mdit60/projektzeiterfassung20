@@ -1,18 +1,19 @@
-// src/app/v7/firma/zeiterfassung/page.tsx
+// src/app/v7/berater/foerderung/firma/[id]/zeiterfassung/page.tsx
 // ============================================================================
-// PZE V7 - Zeiterfassung (Firmen-Portal)
+// PZE V7 - Zeiterfassung (Berater-Portal)
 // ============================================================================
 // Datum: 21. Januar 2026
 // Version: 7.3.58
 //
 // Nutzt Shared Component: TimesheetForm
+// Firma-ID kommt aus URL-Parameter [id]
 // URL-Parameter: ?projekt=<projectId> (optional - waehlt Projekt vor)
 // ============================================================================
 
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
 import TimesheetForm from '@/components/shared/TimesheetForm';
@@ -28,7 +29,6 @@ interface UserProfile {
   display_name: string | null;
   first_name: string | null;
   last_name: string | null;
-  client_company_id: string | null;
 }
 
 interface Employee {
@@ -37,7 +37,6 @@ interface Employee {
   first_name: string | null;
   last_name: string | null;
   weekly_hours: number | null;
-  user_id: string | null;
 }
 
 interface Project {
@@ -67,9 +66,11 @@ interface ClientCompany {
 // KOMPONENTE
 // ============================================================================
 
-export default function FirmaZeiterfassung() {
+export default function BeraterZeiterfassung() {
   const router = useRouter();
+  const params = useParams();
   const searchParams = useSearchParams();
+  const companyId = params.id as string;
   const projektParam = searchParams.get('projekt');
   const supabase = createClient();
 
@@ -81,7 +82,6 @@ export default function FirmaZeiterfassung() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [workPackages, setWorkPackages] = useState<WorkPackage[]>([]);
-  const [initialEmployeeId, setInitialEmployeeId] = useState<string>('');
   const [initialProjectId, setInitialProjectId] = useState<string>('');
 
   // ============================================================================
@@ -89,8 +89,8 @@ export default function FirmaZeiterfassung() {
   // ============================================================================
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (companyId) loadData();
+  }, [companyId]);
 
   const loadData = async () => {
     try {
@@ -100,60 +100,45 @@ export default function FirmaZeiterfassung() {
         return;
       }
 
-      // Profil laden
+      // Profil laden (Berater-Check)
       const { data: profile } = await supabase
         .from('v7_user_profiles')
         .select('*')
         .eq('email', user.email)
         .maybeSingle();
 
-      if (!profile || !profile.client_company_id) {
-        setError('Kein Firmenprofil gefunden.');
+      if (!profile || !['system_admin', 'consultant'].includes(profile.role)) {
+        setError('Keine Berater-Berechtigung.');
         setLoading(false);
         return;
       }
       setUserProfile(profile);
 
-      const companyId = profile.client_company_id;
-
       // Firma laden
-      const { data: companyData } = await supabase
+      const { data: companyData, error: companyError } = await supabase
         .from('v7_client_companies')
         .select('id, name, federal_state')
         .eq('id', companyId)
         .single();
 
-      if (!companyData) {
+      if (companyError || !companyData) {
         setError('Firma nicht gefunden.');
         setLoading(false);
         return;
       }
       setCompany(companyData);
 
-      // Mitarbeiter laden
+      // Mitarbeiter der Firma laden
       const { data: employeesData } = await supabase
         .from('v7_employees')
-        .select('id, display_name, first_name, last_name, weekly_hours, user_id')
+        .select('id, display_name, first_name, last_name, weekly_hours')
         .eq('client_company_id', companyId)
         .eq('is_active', true)
         .order('display_name');
 
       setEmployees(employeesData || []);
 
-      // Eigenen MA finden oder ersten waehlen
-      const isAdmin = profile.role === 'client_admin';
-      if (isAdmin && employeesData && employeesData.length > 0) {
-        setInitialEmployeeId(employeesData[0].id);
-      } else {
-        const ownEmployee = employeesData?.find(e => e.user_id === user.id);
-        if (ownEmployee) {
-          setInitialEmployeeId(ownEmployee.id);
-        } else if (employeesData && employeesData.length > 0) {
-          setInitialEmployeeId(employeesData[0].id);
-        }
-      }
-
-      // Projekte laden
+      // Projekte der Firma laden
       const { data: projectsData } = await supabase
         .from('v7_projects')
         .select('id, name, short_name, funding_reference, funding_format')
@@ -199,7 +184,7 @@ export default function FirmaZeiterfassung() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">Lade Zeiterfassung...</p>
         </div>
       </div>
@@ -212,10 +197,10 @@ export default function FirmaZeiterfassung() {
         <div className="bg-white p-8 rounded-lg shadow-md text-center">
           <p className="text-red-600 mb-4">{error || 'Fehler beim Laden'}</p>
           <button
-            onClick={() => router.push('/v7/firma')}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+            onClick={() => router.push('/v7/berater/foerderung')}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
           >
-            Zurueck zum Dashboard
+            Zurueck zur Uebersicht
           </button>
         </div>
       </div>
@@ -227,28 +212,45 @@ export default function FirmaZeiterfassung() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="bg-white p-8 rounded-lg shadow-md text-center max-w-md">
           <p className="text-gray-600 mb-4">
-            Keine Projekte vorhanden. Bitte legen Sie zuerst ein Projekt an.
+            Keine Projekte fuer {company.name} vorhanden.
           </p>
           <button
-            onClick={() => router.push('/v7/firma/projekte')}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+            onClick={() => router.push(`/v7/berater/foerderung/firma/${companyId}?tab=projekte`)}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
           >
-            Zu den Projekten
+            Projekte verwalten
           </button>
         </div>
       </div>
     );
   }
 
-  const isAdmin = userProfile.role === 'client_admin';
+  if (employees.length === 0) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="bg-white p-8 rounded-lg shadow-md text-center max-w-md">
+          <p className="text-gray-600 mb-4">
+            Keine Mitarbeiter fuer {company.name} vorhanden.
+          </p>
+          <button
+            onClick={() => router.push(`/v7/berater/foerderung/firma/${companyId}?tab=mitarbeiter`)}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            Mitarbeiter verwalten
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const displayName = userProfile.display_name ||
     (userProfile.first_name && userProfile.last_name
       ? `${userProfile.first_name} ${userProfile.last_name}`
-      : userProfile.email?.split('@')[0] || 'Benutzer');
+      : userProfile.email?.split('@')[0] || 'Berater');
 
   return (
     <TimesheetForm
-      portal="firma"
+      portal="berater"
       companyId={company.id}
       company={company}
       employees={employees}
@@ -256,9 +258,9 @@ export default function FirmaZeiterfassung() {
       workPackages={workPackages}
       currentUserId={userProfile.id}
       currentUserDisplayName={displayName}
-      isAdmin={isAdmin}
-      onBack={() => router.push('/v7/firma')}
-      initialEmployeeId={initialEmployeeId}
+      isAdmin={true}
+      onBack={() => router.push(`/v7/berater/foerderung/firma/${companyId}`)}
+      initialEmployeeId={employees[0]?.id}
       initialProjectId={initialProjectId || projects[0]?.id}
     />
   );
