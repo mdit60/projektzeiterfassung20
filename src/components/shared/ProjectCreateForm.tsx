@@ -40,7 +40,7 @@ import {
 
 const HOURS_PER_PM = 173.33;
 
-const ZIM_PARSER_URL = process.env.NEXT_PUBLIC_ZIM_PARSER_URL || 'https://web-production-e2e1.up.railway.app';
+// ZIM Parser wird ueber lokale API-Route aufgerufen
 
 const FUNDING_FORMATS = [
   { value: '', label: '-- Bitte waehlen --' },
@@ -254,7 +254,7 @@ export default function ProjectCreateForm({
       const formDataUpload = new FormData();
       formDataUpload.append('file', file);
 
-      const response = await fetch(`${ZIM_PARSER_URL}/api/parse-zim`, {
+      const response = await fetch("/api/parse-zim", {
         method: 'POST',
         body: formDataUpload,
       });

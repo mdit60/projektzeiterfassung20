@@ -11,6 +11,7 @@
 //
 // v7.3.62: Team-Tab Button entfernt (MA werden ueber APs zugeordnet)
 //          Hinweis hinzugefuegt dass MA-Zuordnung ueber APs erfolgt
+//          Zeiterfassung-Tab mit echtem Button zur Zeiterfassung
 //
 // Props:
 // - portal: 'berater' | 'firma' (steuert Farben)
@@ -37,7 +38,6 @@ import {
   Save,
   X,
   Plus,
-  Trash2,
 } from 'lucide-react';
 
 // Shared Components
@@ -204,10 +204,6 @@ export default function ProjectDetailPage({
     notes: '',
   });
   const [savingProject, setSavingProject] = useState(false);
-
-  // State - Projekt-Loeschen
-  const [showProjectDeleteConfirm, setShowProjectDeleteConfirm] = useState(false);
-  const [deletingProject, setDeletingProject] = useState(false);
 
   // ============================================================================
   // DATEN LADEN
@@ -827,38 +823,6 @@ export default function ProjectDetailPage({
   };
 
   // ============================================================================
-  // PROJEKT LOESCHEN
-  // ============================================================================
-
-  const handleDeleteProject = async () => {
-    if (!project) return;
-    
-    setDeletingProject(true);
-    try {
-      // Soft-Delete: is_active = false setzen
-      const { error: deleteError } = await supabase
-        .from('v7_projects')
-        .update({ 
-          is_active: false, 
-          updated_at: new Date().toISOString() 
-        })
-        .eq('id', project.id);
-
-      if (deleteError) {
-        throw deleteError;
-      }
-
-      // Zurueck zur Projektliste navigieren
-      router.push(backUrl || '/v7/firma/projekte');
-    } catch (err: any) {
-      alert('Fehler beim Loeschen: ' + err.message);
-    } finally {
-      setDeletingProject(false);
-      setShowProjectDeleteConfirm(false);
-    }
-  };
-
-  // ============================================================================
   // TABS
   // ============================================================================
 
@@ -1304,8 +1268,27 @@ export default function ProjectDetailPage({
             </div>
 
             <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
-              <Clock className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-              <p className="text-gray-500">Zeiterfassung wird in der naechsten Version implementiert</p>
+              <Clock className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">
+                Stundennachweis erstellen
+              </h3>
+              <p className="text-gray-500 mb-6 max-w-md mx-auto">
+                Erfassen Sie die Arbeitszeiten fuer dieses Projekt. 
+                Das Projekt ist bereits vorausgewaehlt.
+              </p>
+              <button
+                onClick={() => {
+                  const baseUrl = portal === 'berater' 
+                    ? `/v7/berater/foerderung/firma/${companyId}/zeiterfassung`
+                    : '/v7/firma/zeiterfassung';
+                  router.push(`${baseUrl}?projekt=${projectId}`);
+                }}
+                className={`inline-flex items-center gap-2 px-6 py-3 ${buttonBg} text-white rounded-lg 
+                           font-medium transition-colors shadow-sm hover:shadow`}
+              >
+                <Clock size={20} />
+                Zur Zeiterfassung
+              </button>
             </div>
           </div>
         )}
@@ -1494,97 +1477,31 @@ export default function ProjectDetailPage({
               </div>
             </div>
 
-            <div className="flex justify-between gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-lg sticky bottom-0">
-              {/* Loeschen-Button links */}
+            <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-lg sticky bottom-0">
               <button
-                onClick={() => setShowProjectDeleteConfirm(true)}
-                className="flex items-center gap-2 px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                onClick={closeProjectEditModal}
+                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
               >
-                <Trash2 size={16} />
-                Loeschen
+                Abbrechen
               </button>
-              
-              {/* Abbrechen und Speichern rechts */}
-              <div className="flex gap-3">
-                <button
-                  onClick={closeProjectEditModal}
-                  className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                >
-                  Abbrechen
-                </button>
-                <button
-                  onClick={handleProjectSave}
-                  disabled={savingProject || !projectEditData.name.trim()}
-                  className={`flex items-center gap-2 px-4 py-2 ${buttonBg} text-white rounded-lg 
-                             disabled:opacity-50 transition-colors`}
-                >
-                  {savingProject ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                      Speichern...
-                    </>
-                  ) : (
-                    <>
-                      <Save size={16} />
-                      Speichern
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Loeschen-Bestaetigung Modal fuer Projekt */}
-      {showProjectDeleteConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-            <div className="p-6">
-              <div className="flex items-center gap-4 mb-4">
-                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
-                  <Trash2 className="w-6 h-6 text-red-600" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">
-                    Projekt loeschen?
-                  </h3>
-                  <p className="text-sm text-gray-500">
-                    {project?.name}
-                  </p>
-                </div>
-              </div>
-              <p className="text-gray-600 mb-6">
-                Moechten Sie dieses Projekt wirklich loeschen? 
-                Diese Aktion kann nicht rueckgaengig gemacht werden.
-              </p>
-              <div className="flex justify-end gap-3">
-                <button
-                  onClick={() => setShowProjectDeleteConfirm(false)}
-                  disabled={deletingProject}
-                  className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                >
-                  Abbrechen
-                </button>
-                <button
-                  onClick={handleDeleteProject}
-                  disabled={deletingProject}
-                  className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg 
-                             hover:bg-red-700 disabled:opacity-50 transition-colors"
-                >
-                  {deletingProject ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                      Loeschen...
-                    </>
-                  ) : (
-                    <>
-                      <Trash2 size={16} />
-                      Endgueltig loeschen
-                    </>
-                  )}
-                </button>
-              </div>
+              <button
+                onClick={handleProjectSave}
+                disabled={savingProject || !projectEditData.name.trim()}
+                className={`flex items-center gap-2 px-4 py-2 ${buttonBg} text-white rounded-lg 
+                           disabled:opacity-50 transition-colors`}
+              >
+                {savingProject ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                    Speichern...
+                  </>
+                ) : (
+                  <>
+                    <Save size={16} />
+                    Speichern
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>
