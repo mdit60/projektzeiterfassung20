@@ -29,10 +29,10 @@ import { createClient } from '@/lib/supabase/client';
 
 const PORTAL_COLORS = {
   berater: {
-    primary: '#002451',
-    button: 'bg-blue-600 hover:bg-blue-700',
-    text: 'text-blue-600',
-    ring: 'focus:ring-blue-500',
+    primary: '#0369a1',     // Sky-700 (wie in v7-constants)
+    button: 'bg-sky-600 hover:bg-sky-700',
+    text: 'text-sky-700',
+    ring: 'focus:ring-sky-500',
   },
   firma: {
     primary: '#65A655',
