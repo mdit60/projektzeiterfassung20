@@ -1,0 +1,303 @@
+{
+  "projekt": {
+    "name": "WISE – Entwicklung eines mobilen Umweltmesssystems zur präzisen Erfassung gesundheitsrelevanter Einflüsse mit KI-gestützten Vorhersagesystem",
+    "kurzname": "Das Projekt WISE (Wearable Intelligent Sensor for Environment) zielt darauf ab, ein tragbares Umwelt...",
+    "fkz": "",
+    "start": "",
+    "ende": "",
+    "foerderquote": 50.0,
+    "gesamtkosten": 0.0,
+    "zuwendung": 0.0,
+    "gesamt_pm": 53.25,
+    "gesamt_pk": 275091.0,
+    "laufzeit_monate": 0
+  },
+  "antragsteller": {
+    "firma": "Androlite GmbH",
+    "rechtsform": "2",
+    "strasse": "Am Kiefernschlag",
+    "plz": "91126",
+    "ort": "Schwabach",
+    "bundesland": "Bayern",
+    "website": "androlite.de",
+    "ansprechpartner_name": "",
+    "ansprechpartner_funktion": "",
+    "ansprechpartner_telefon": "+49 9122 875711",
+    "ansprechpartner_email": "manfred.herrler@automotive-synergies.com"
+  },
+  "budget": {
+    "gesamtkosten": 0.0,
+    "personalkosten": 275091.0,
+    "foerderquote": 50.0,
+    "gesamt_pm": 53.25
+  },
+  "mitarbeiter": [],
+  "arbeitspakete": [
+    {
+      "ap_number": 1,
+      "ap_sub_number": null,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
+      "ap_code": "AP1",
+      "name": "Anforderungsanalyse und Definition der Spezifikationen",
+      "start_date": null,
+      "end_date": null,
+      "total_person_months": 1.5,
+      "is_technical": false,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 3,
+          "pm": 1.0
+        }
+      ]
+    },
+    {
+      "ap_number": 2,
+      "ap_sub_number": null,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
+      "ap_code": "AP2",
+      "name": "Sensorrecherche und -auswahl",
+      "start_date": null,
+      "end_date": null,
+      "total_person_months": 4.25,
+      "is_technical": false,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 1.0
+        },
+        {
+          "ma_nr": 2,
+          "pm": 0.25
+        },
+        {
+          "ma_nr": 3,
+          "pm": 3.0
+        }
+      ]
+    },
+    {
+      "ap_number": 3,
+      "ap_sub_number": null,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
+      "ap_code": "AP3",
+      "name": "Entwicklung der Hardwarearchitektur",
+      "start_date": null,
+      "end_date": null,
+      "total_person_months": 11.5,
+      "is_technical": false,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 2.0
+        },
+        {
+          "ma_nr": 2,
+          "pm": 1.5
+        },
+        {
+          "ma_nr": 3,
+          "pm": 4.0
+        },
+        {
+          "ma_nr": 4,
+          "pm": 4.0
+        }
+      ]
+    },
+    {
+      "ap_number": 4,
+      "ap_sub_number": null,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
+      "ap_code": "AP4",
+      "name": "Miniaturisierung und Integration der Systemkomponenten",
+      "start_date": null,
+      "end_date": null,
+      "total_person_months": 9.75,
+      "is_technical": false,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 1.75
+        },
+        {
+          "ma_nr": 2,
+          "pm": 2.0
+        },
+        {
+          "ma_nr": 3,
+          "pm": 2.0
+        },
+        {
+          "ma_nr": 4,
+          "pm": 4.0
+        }
+      ]
+    },
+    {
+      "ap_number": 5,
+      "ap_sub_number": null,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
+      "ap_code": "AP5",
+      "name": "Entwicklung des Datenverarbeitungssystems",
+      "start_date": null,
+      "end_date": null,
+      "total_person_months": 12.0,
+      "is_technical": false,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 2.0
+        },
+        {
+          "ma_nr": 2,
+          "pm": 2.0
+        },
+        {
+          "ma_nr": 3,
+          "pm": 4.0
+        },
+        {
+          "ma_nr": 4,
+          "pm": 4.0
+        }
+      ]
+    },
+    {
+      "ap_number": 7,
+      "ap_sub_number": null,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
+      "ap_code": "AP7",
+      "name": "Entwicklung des KI-gestützten Vorhersagesystems",
+      "start_date": null,
+      "end_date": null,
+      "total_person_months": 4.1,
+      "is_technical": false,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 1.35
+        },
+        {
+          "ma_nr": 3,
+          "pm": 1.25
+        },
+        {
+          "ma_nr": 4,
+          "pm": 1.5
+        }
+      ]
+    },
+    {
+      "ap_number": 8,
+      "ap_sub_number": null,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
+      "ap_code": "AP8",
+      "name": "Entwicklung der Software und Benutzeroberfläche",
+      "start_date": null,
+      "end_date": null,
+      "total_person_months": 5.5,
+      "is_technical": false,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 2,
+          "pm": 2.5
+        },
+        {
+          "ma_nr": 3,
+          "pm": 1.5
+        },
+        {
+          "ma_nr": 4,
+          "pm": 1.5
+        }
+      ]
+    },
+    {
+      "ap_number": 9,
+      "ap_sub_number": null,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
+      "ap_code": "AP9",
+      "name": "Integration von Qualitätssicherungsmechanismen",
+      "start_date": null,
+      "end_date": null,
+      "total_person_months": 2.5,
+      "is_technical": false,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 2,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 3,
+          "pm": 1.0
+        },
+        {
+          "ma_nr": 4,
+          "pm": 1.0
+        }
+      ]
+    },
+    {
+      "ap_number": 10,
+      "ap_sub_number": null,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
+      "ap_code": "AP10",
+      "name": "Prototyping",
+      "start_date": null,
+      "end_date": null,
+      "total_person_months": 2.15,
+      "is_technical": false,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 0.4
+        },
+        {
+          "ma_nr": 4,
+          "pm": 1.0
+        },
+        {
+          "ma_nr": 3,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 2,
+          "pm": 0.25
+        }
+      ]
+    }
+  ],
+  "formular_info": {
+    "quelle": "EuroNorm",
+    "formular_typ": "Einzelprojekt (EuroNorm)",
+    "version": null,
+    "stand": null,
+    "richtlinie": null,
+    "projekttraeger": "EuroNorm GmbH (Legacy)",
+    "raw_version_info": null
+  },
+  "parse_datum": "2026-01-23T19:32:27.381861",
+  "quell_datei": "ZIM antrag-einzelprojekt WISE-1.pdf",
+  "format_erkannt": "legacy_euronorm",
+  "statistik": {
+    "anzahl_arbeitspakete": 9,
+    "anzahl_echte_aps": 9,
+    "anzahl_ueberschriften": 0,
+    "anzahl_technisch": 0,
+    "anzahl_nicht_technisch": 9,
+    "gesamt_pm": 53.25
+  }
+}

@@ -2,16 +2,15 @@
 // ============================================================================
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
-// Datum: 23. Januar 2026
-// Version: 7.3.76-2
+// Datum: 21. Januar 2026
+// Version: 7.3.62
 //
 // Gemeinsame Projekt-Detailseite fuer beide Portale:
 // - Berater-Portal: /v7/berater/foerderung/firma/[firmaId]/projekt/[projektId]
 // - Firmen-Portal: /v7/firma/projekte/[id]
 //
-// v7.3.76-2: AP-Nummer mit Sub-Nummer (z.B. AP2.1)
-//            Datumsfelder statt Monatsnummern
-//            is_technical Flag fuer technische APs
+// v7.3.62: Team-Tab Button entfernt (MA werden ueber APs zugeordnet)
+//          Hinweis hinzugefuegt dass MA-Zuordnung ueber APs erfolgt
 //
 // Props:
 // - portal: 'berater' | 'firma' (steuert Farben)
@@ -333,6 +332,11 @@ export default function ProjectDetailPage({
         if (wpaData) setWpAssignments(wpaData);
       }
 
+      // Alle Firmen-Mitarbeiter sind verfuegbar fuer AP-Zuordnung
+      // WICHTIG: Muss AUSSERHALB von if(assignmentData) sein!
+      const allEmployeeIds = allEmpsData?.map(e => e.id) || [];
+      setProjectEmployeeIds(allEmployeeIds);
+
       // Projekt-Zuordnungen laden (fuer Team und WP-Zuordnungen)
       const { data: assignmentData } = await supabase
         .from('v7_project_assignments')
@@ -348,8 +352,6 @@ export default function ProjectDetailPage({
         .eq('is_active', true);
 
       if (assignmentData) {
-        // Employee IDs die dem Projekt zugeordnet sind
-        setProjectEmployeeIds(assignmentData.map((a: any) => a.employee_id));
 
         // WP-Assignments fuer PM-Aggregation
         const { data: wpAssignmentsData } = await supabase
@@ -496,15 +498,14 @@ export default function ProjectDetailPage({
       const wpData = {
         project_id: formData.project_id || projectId,
         ap_number: parseInt(formData.ap_number),
-        // NEU: ap_sub_number aus Formular (z.B. "1" fuer AP2.1)
-        ap_sub_number: formData.ap_sub_number ? parseInt(formData.ap_sub_number) : null,
+        ap_sub_number: null,
         ap_code: formData.ap_code.trim() || `AP${formData.ap_number}`,
         name: formData.name.trim(),
         description: formData.description.trim() || null,
         // NEU: Echte Datumsfelder statt Monatsnummern
         start_date: formData.start_date || null,
         end_date: formData.end_date || null,
-        // Legacy-Felder auf null (nicht mehr verwendet)
+        // Legacy-Felder auf null setzen (nicht mehr verwendet)
         start_month: null,
         end_month: null,
         total_person_months: formData.total_person_months ? parseFloat(formData.total_person_months) : null,
@@ -603,6 +604,7 @@ export default function ProjectDetailPage({
     try {
       const hours = pm ? Math.round(pm * HOURS_PER_PM * 100) / 100 : null;
 
+      // 1. WP-Assignment erstellen
       const { error: insertError } = await supabase
         .from('v7_work_package_assignments')
         .insert({
@@ -629,6 +631,37 @@ export default function ProjectDetailPage({
         } else {
           throw insertError;
         }
+      }
+
+      // 2. AUTOMATISCH Projekt-Assignment erstellen (falls noch nicht vorhanden)
+      // Damit der MA auch im Team-Tab erscheint
+      const { data: existingPA } = await supabase
+        .from('v7_project_assignments')
+        .select('id, is_active')
+        .eq('project_id', projectId)
+        .eq('employee_id', employeeId)
+        .single();
+
+      if (!existingPA) {
+        // Neuen Projekt-Assignment erstellen
+        await supabase
+          .from('v7_project_assignments')
+          .insert({
+            project_id: projectId,
+            employee_id: employeeId,
+            role_in_project: null,
+            is_project_leader: false,
+            is_active: true,
+          });
+      } else if (!existingPA.is_active) {
+        // Inaktiven reaktivieren
+        await supabase
+          .from('v7_project_assignments')
+          .update({
+            is_active: true,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existingPA.id);
       }
 
       await loadData();
@@ -1057,9 +1090,10 @@ export default function ProjectDetailPage({
                   onEditWorkPackage={adminUser ? openEditWPModal : undefined}
                   onDeleteWorkPackage={adminUser ? openDeleteConfirmation : undefined}
                   onAssignEmployees={adminUser ? openWPAssignModal : undefined}
-                  showAddButton={adminUser}
+                  showAddButton={false}
                   showActionButtons={adminUser}
                   showAssignments={true}
+                  showHeader={false}
                 />
               </div>
             )}
@@ -1276,7 +1310,20 @@ export default function ProjectDetailPage({
 
             <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
               <Clock className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-              <p className="text-gray-500">Zeiterfassung wird in der naechsten Version implementiert</p>
+              <p className="text-gray-500 mb-4">
+                Erfassen Sie Arbeitszeiten fuer dieses Projekt
+              </p>
+              <a
+                href={portal === 'berater' 
+                  ? `/v7/berater/foerderung/firma/${companyId}/zeiterfassung?projekt=${projectId}`
+                  : `/v7/firma/zeiterfassung?projekt=${projectId}`
+                }
+                className="inline-flex items-center gap-2 px-4 py-2 text-white rounded-lg transition-colors"
+                style={{ backgroundColor: portal === 'berater' ? '#002451' : '#65A655' }}
+              >
+                <Clock size={18} />
+                Zur Zeiterfassung
+              </a>
             </div>
           </div>
         )}

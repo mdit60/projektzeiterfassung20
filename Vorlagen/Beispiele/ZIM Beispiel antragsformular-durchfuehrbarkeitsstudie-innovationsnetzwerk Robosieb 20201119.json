@@ -1,0 +1,57 @@
+{
+  "projekt": {
+    "name": "",
+    "kurzname": "",
+    "fkz": "",
+    "start": "",
+    "ende": "",
+    "foerderquote": 0.0,
+    "gesamtkosten": 0.0,
+    "zuwendung": 0.0,
+    "gesamt_pm": 0.0,
+    "gesamt_pk": 0.0,
+    "laufzeit_monate": 0
+  },
+  "antragsteller": {
+    "firma": "",
+    "rechtsform": "",
+    "strasse": "",
+    "plz": "",
+    "ort": "",
+    "bundesland": "",
+    "website": "",
+    "ansprechpartner_name": "",
+    "ansprechpartner_funktion": "",
+    "ansprechpartner_telefon": "",
+    "ansprechpartner_email": ""
+  },
+  "budget": {
+    "gesamtkosten": 0.0,
+    "personalkosten": 0.0,
+    "materialkosten": 0.0,
+    "fremdleistungen": 0.0,
+    "gemeinkosten": 0.0,
+    "foerderquote": 0.0,
+    "foerdersumme": 0.0,
+    "eigenanteil": 0.0,
+    "laufzeit_monate": 0,
+    "gesamt_pm": 0.0
+  },
+  "mitarbeiter": [],
+  "arbeitspakete": [],
+  "parse_datum": "2026-01-23T17:38:41.248415",
+  "quell_datei": "ZIM Beispiel antragsformular-durchfuehrbarkeitsstudie-innovationsnetzwerk Robosieb 20201119.pdf",
+  "format_erkannt": "standard_zim",
+  "statistik": {
+    "anzahl_mitarbeiter": 0,
+    "anzahl_arbeitspakete": 0,
+    "anzahl_echte_aps": 0,
+    "anzahl_ueberschriften": 0,
+    "anzahl_technisch": 0,
+    "anzahl_nicht_technisch": 0,
+    "anzahl_ap_zuordnungen": 0,
+    "gesamt_pm": 0.0,
+    "gesamt_pk": 0.0,
+    "laufzeit_monate": 0
+  }
+}

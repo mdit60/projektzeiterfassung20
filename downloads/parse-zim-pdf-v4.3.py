@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
 ZIM PDF zu JSON Konverter
-VERSION: 4.4 - 23.01.2026
+VERSION: 4.3 - 23.01.2026
 
-ERKENNTNISSE aus XFA-Analyse:
-- Tags haben Zeilenumbrueche: <Arbeitspaket_Nr_techn\\n>
-- Datum-Tags heissen: RealisierungVON, RealisierungBIS (nicht von_techn, bis_techn)
-- MA_Nr ist Float (1.00, 2.00) nicht Int
-- Leere Tags sind selbstschliessend: <MA_Nr_techn\\n/>
-- Ueberschrift = leerer MA_Nr Tag
+WICHTIGE ERKENNTNIS:
+- MA-Nr (Mitarbeiter-Nummer aus Anlage 6.1) ist der KEY!
+- Zeile MIT MA-Nr = Echtes AP oder MA-Zuordnung
+- Zeile OHNE MA-Nr = Ueberschrift (PM ignorieren!)
+
+Die MA-Nr bezieht sich auf die laufende Nummer in Anlage 6.1
 """
 
 import sys
@@ -33,41 +33,17 @@ def extract_float(pattern: str, text: str) -> float:
     value = extract_value(pattern, text)
     if not value:
         return 0.0
-    cleaned = value.replace(',', '.')
+    cleaned = value.replace('.', '').replace(',', '.') if ',' in value else value
     try:
         return float(cleaned)
     except:
         return 0.0
 
 
-def extract_all_values_flexible(tag_name: str, text: str) -> list:
-    """
-    Extrahiert Werte mit flexiblem Tag-Matching (mit/ohne Zeilenumbruch)
-    Leere/selbstschliessende Tags werden als leerer String zurueckgegeben
-    """
-    # Pattern fuer Tags mit Inhalt: <tag\n>value</tag\n> oder <tag>value</tag>
-    pattern_with_value = f'<{tag_name}[\\s\\n]*>([^<]+)</{tag_name}'
-    
-    # Pattern fuer leere/selbstschliessende Tags: <tag\n/> oder <tag/>
-    pattern_empty = f'<{tag_name}[\\s\\n]*/>'
-    
-    results = []
-    
-    # Finde alle Vorkommen (mit Inhalt oder leer)
-    # Wir muessen die Position tracken um die richtige Reihenfolge zu behalten
-    
-    # Alle Tags mit Inhalt
-    for match in re.finditer(pattern_with_value, text, re.IGNORECASE | re.DOTALL):
-        results.append((match.start(), match.group(1).strip()))
-    
-    # Alle leeren Tags
-    for match in re.finditer(pattern_empty, text, re.IGNORECASE | re.DOTALL):
-        results.append((match.start(), ''))
-    
-    # Nach Position sortieren
-    results.sort(key=lambda x: x[0])
-    
-    return [r[1] for r in results]
+def extract_all_values(tag_name: str, text: str) -> list:
+    pattern = f'<{tag_name}>([^<]*)</{tag_name}>'
+    matches = re.findall(pattern, text, re.IGNORECASE | re.DOTALL)
+    return [m.strip() for m in matches]
 
 
 def normalize_ap_nr(ap_nr_str: str) -> str:
@@ -129,10 +105,8 @@ def parse_german_date(date_str: str) -> str:
     if not date_str:
         return None
     date_str = date_str.strip()
-    # Bereits ISO-Format (aus XFA)
     if re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
         return date_str
-    # Deutsches Format
     match = re.match(r'^(\d{1,2})\.(\d{1,2})\.(\d{4})$', date_str)
     if match:
         day, month, year = match.groups()
@@ -149,18 +123,8 @@ def parse_pm(pm_str: str) -> float:
         return 0.0
 
 
-def parse_ma_nr(ma_str: str) -> int:
-    """MA_Nr kann als Float kommen (1.00) - wir brauchen Int"""
-    if not ma_str:
-        return None
-    try:
-        return int(float(ma_str.replace(',', '.')))
-    except:
-        return None
-
-
 def detect_format(xfa_text: str) -> str:
-    if 'Antrag_DS' in xfa_text or '<thema' in xfa_text:
+    if 'Antrag_DS' in xfa_text or '<thema>' in xfa_text:
         return 'durchfuehrbarkeitsstudie'
     elif 'cg_VMS_' in xfa_text or 'cg_case_' in xfa_text:
         return 'standard_zim'
@@ -171,15 +135,13 @@ def process_ap_table(ap_nrs: list, ap_names: list, ap_pms: list,
                       ap_von: list, ap_bis: list, ap_ma_nrs: list,
                       is_technical: bool, label: str) -> dict:
     """
-    Verarbeitet AP-Tabelle mit korrekter Ueberschrift-Erkennung
-    Ueberschrift = MA_Nr ist leer
+    WICHTIG: MA-Nr ist der Schluessel!
+    - Zeile MIT MA-Nr = Echtes AP oder Mitarbeiter-Zuordnung
+    - Zeile OHNE MA-Nr = Ueberschrift
     """
     
     print(f"\n  Parsing {label}...")
     print(f"    Rohdaten: {len(ap_nrs)} Nr, {len(ap_names)} Namen, {len(ap_pms)} PM, {len(ap_ma_nrs)} MA-Nr")
-    
-    # Debug: Zeige MA-Nr Werte
-    print(f"    MA-Nr Werte: {ap_ma_nrs[:12]}")
     
     ap_dict = {}
     
@@ -197,7 +159,7 @@ def process_ap_table(ap_nrs: list, ap_names: list, ap_pms: list,
             if name and len(name) >= 3:
                 nummer_zu_name[nr] = name
                 print(f"      {nr} -> '{name[:45]}...'")
-            name_idx += 1
+                name_idx += 1
     
     # ZWEITER DURCHLAUF: Zeilen verarbeiten
     print(f"    --- Zweiter Durchlauf: Zeilen verarbeiten ---")
@@ -214,10 +176,10 @@ def process_ap_table(ap_nrs: list, ap_names: list, ap_pms: list,
         
         key = ap_key(ap_nums)
         
-        # MA-Nr pruefen - LEER = Ueberschrift
-        ma_nr_raw = ap_ma_nrs[i] if i < len(ap_ma_nrs) else ''
-        ma_nr = parse_ma_nr(ma_nr_raw)
-        has_ma_nr = ma_nr is not None
+        # MA-Nr ist der entscheidende Faktor!
+        ma_nr_str = ap_ma_nrs[i] if i < len(ap_ma_nrs) else ''
+        has_ma_nr = ma_nr_str and ma_nr_str.strip().isdigit()
+        ma_nr = int(ma_nr_str) if has_ma_nr else None
         
         pm = parse_pm(ap_pms[i]) if i < len(ap_pms) else 0.0
         von = parse_german_date(ap_von[i]) if i < len(ap_von) else None
@@ -237,20 +199,19 @@ def process_ap_table(ap_nrs: list, ap_names: list, ap_pms: list,
                     'name': name,
                     'start_date': None,
                     'end_date': None,
-                    'total_person_months': None,
+                    'total_person_months': None,  # WICHTIG: None = Ueberschrift
                     'is_technical': is_technical,
                     'mitarbeiter_zuordnungen': []
                 }
                 tech_label = " [TECH]" if is_technical else ""
                 print(f"      [{i}] {nr}: {name[:35]}... -> UEBERSCHRIFT{tech_label}")
-            else:
-                print(f"      [{i}] {nr}: (Ueberschrift bereits erfasst oder kein Name)")
             continue
         
         # MIT MA-Nr = Echtes AP oder Zuordnung
         if key not in ap_dict:
+            # Neues AP anlegen
             if not name:
-                print(f"      [{i}] {nr}: SKIP - kein Name fuer neues AP")
+                print(f"      [{i}] {nr}: SKIP - kein Name")
                 continue
             
             ap_dict[key] = {
@@ -272,9 +233,13 @@ def process_ap_table(ap_nrs: list, ap_names: list, ap_pms: list,
             tech_label = " [TECH]" if is_technical else ""
             print(f"      [{i}] {nr}: {name[:35]}... -> NEW ({pm} PM, MA={ma_nr}){tech_label}")
         else:
-            # AP existiert - PM addieren
+            # AP existiert - PM addieren, MA hinzufuegen
+            # Aber nur wenn es KEIN Ueberschrift-AP ist
             if ap_dict[key]['total_person_months'] is None:
+                # War Ueberschrift, jetzt kommt echte Zuordnung
                 ap_dict[key]['total_person_months'] = pm
+                ap_dict[key]['start_date'] = von
+                ap_dict[key]['end_date'] = bis
             else:
                 ap_dict[key]['total_person_months'] += pm
             
@@ -283,6 +248,7 @@ def process_ap_table(ap_nrs: list, ap_names: list, ap_pms: list,
                 'pm': pm
             })
             
+            # Datum updaten falls noch nicht gesetzt
             if not ap_dict[key]['start_date'] and von:
                 ap_dict[key]['start_date'] = von
             if not ap_dict[key]['end_date'] and bis:
@@ -294,10 +260,10 @@ def process_ap_table(ap_nrs: list, ap_names: list, ap_pms: list,
 
 
 def parse_durchfuehrbarkeitsstudie(xfa_text: str) -> dict:
-    text = xfa_text
+    text = xfa_text.replace('\n>', '>').replace('>\n', '>')
     
     projekt = {
-        'name': extract_value(r'<thema[^>]*>([^<]+)', text),
+        'name': extract_value(r'<thema>([^<]+)', text),
         'kurzname': '',
         'fkz': '',
         'start': '',
@@ -306,29 +272,29 @@ def parse_durchfuehrbarkeitsstudie(xfa_text: str) -> dict:
         'gesamtkosten': 0.0,
         'zuwendung': 0.0,
         'gesamt_pm': 0.0,
-        'gesamt_pk': extract_float(r'<sum_ges_pk[^>]*>([^<]+)', text) or 
-                     extract_float(r'<ges_pk[^>]*>([^<]+)', text),
+        'gesamt_pk': extract_float(r'<sum_ges_pk>([^<]+)', text) or 
+                     extract_float(r'<ges_pk>([^<]+)', text),
         'laufzeit_monate': 0
     }
     
-    kurzfass = extract_value(r'<kurzfass[^>]*>([^<]+)', text)
+    kurzfass = extract_value(r'<kurzfass>([^<]+)', text)
     if kurzfass:
         projekt['kurzname'] = kurzfass[:100] + '...' if len(kurzfass) > 100 else kurzfass
     
     antragsteller = {
         'firma': '',
-        'rechtsform': extract_value(r'<Rechtsform[^>]*>([^<]+)', text),
-        'strasse': extract_value(r'<str[^>]*>([^<]+)', text),
-        'plz': extract_value(r'<plz[^>]*>([^<]+)', text),
-        'ort': extract_value(r'<ort[^>]*>([^<]+)', text) or extract_value(r'<pfach_ort[^>]*>([^<]+)', text),
-        'bundesland': extract_value(r'<ddl_land[^>]*>([^<]+)', text),
-        'website': extract_value(r'<www[^>]*>([^<]+)', text),
+        'rechtsform': extract_value(r'<Rechtsform>([^<]+)', text),
+        'strasse': extract_value(r'<str>([^<]+)', text),
+        'plz': extract_value(r'<plz>([^<]+)', text),
+        'ort': extract_value(r'<ort>([^<]+)', text) or extract_value(r'<pfach_ort>([^<]+)', text),
+        'bundesland': extract_value(r'<ddl_land>([^<]+)', text),
+        'website': extract_value(r'<www>([^<]+)', text),
         'ansprechpartner_name': '',
         'ansprechpartner_funktion': '',
-        'ansprechpartner_telefon': extract_value(r'<tel_ap[^>]*>([^<]+)', text) or 
-                                   extract_value(r'<tel_gf[^>]*>([^<]+)', text),
-        'ansprechpartner_email': extract_value(r'<mail_ap[^>]*>([^<]+)', text) or 
-                                 extract_value(r'<mail_gf[^>]*>([^<]+)', text),
+        'ansprechpartner_telefon': extract_value(r'<tel_ap>([^<]+)', text) or 
+                                   extract_value(r'<tel_gf>([^<]+)', text),
+        'ansprechpartner_email': extract_value(r'<mail_ap>([^<]+)', text) or 
+                                 extract_value(r'<mail_gf>([^<]+)', text),
     }
     
     if antragsteller['website']:
@@ -339,27 +305,25 @@ def parse_durchfuehrbarkeitsstudie(xfa_text: str) -> dict:
         antragsteller['firma'] = domain.capitalize() + ' GmbH'
     
     # NICHT-TECHNISCHE APs (Tabelle A)
-    # Tags: Arbeitspaket_Nr, Arbeitspaket, pm, von, bis, MA_Nr
     ap_dict_a = process_ap_table(
-        ap_nrs=extract_all_values_flexible('Arbeitspaket_Nr', text),
-        ap_names=extract_all_values_flexible('Arbeitspaket', text),
-        ap_pms=extract_all_values_flexible('pm', text),
-        ap_von=extract_all_values_flexible('von', text),
-        ap_bis=extract_all_values_flexible('bis', text),
-        ap_ma_nrs=extract_all_values_flexible('MA_Nr', text),
+        ap_nrs=extract_all_values('Arbeitspaket_Nr', text),
+        ap_names=extract_all_values('Arbeitspaket', text),
+        ap_pms=extract_all_values('pm', text),
+        ap_von=extract_all_values('von', text),
+        ap_bis=extract_all_values('bis', text),
+        ap_ma_nrs=extract_all_values('MA_Nr', text),
         is_technical=False,
         label="NICHT-TECHNISCHE APs (Tabelle A)"
     )
     
     # TECHNISCHE APs (Tabelle B)
-    # Tags: Arbeitspaket_Nr_techn, Arbeitspaket_techn, pm_techn, RealisierungVON, RealisierungBIS, MA_Nr_techn
     ap_dict_b = process_ap_table(
-        ap_nrs=extract_all_values_flexible('Arbeitspaket_Nr_techn', text),
-        ap_names=extract_all_values_flexible('Arbeitspaket_techn', text),
-        ap_pms=extract_all_values_flexible('pm_techn', text),
-        ap_von=extract_all_values_flexible('RealisierungVON', text),
-        ap_bis=extract_all_values_flexible('RealisierungBIS', text),
-        ap_ma_nrs=extract_all_values_flexible('MA_Nr_techn', text),
+        ap_nrs=extract_all_values('Arbeitspaket_Nr_techn', text),
+        ap_names=extract_all_values('Arbeitspaket_techn', text),
+        ap_pms=extract_all_values('pm_techn', text),
+        ap_von=extract_all_values('von_techn', text),
+        ap_bis=extract_all_values('bis_techn', text),
+        ap_ma_nrs=extract_all_values('MA_Nr_techn', text),
         is_technical=True,
         label="TECHNISCHE APs (Tabelle B)"
     )
@@ -389,31 +353,31 @@ def parse_durchfuehrbarkeitsstudie(xfa_text: str) -> dict:
 
 def parse_standard_zim(xfa_text: str) -> dict:
     projekt = {
-        'name': extract_value(r'<cg_VMS_VB_Projekt[^>]*>([^<]+)', xfa_text),
-        'kurzname': extract_value(r'<cg_VMS_VB_KurzName[^>]*>([^<]+)', xfa_text),
-        'fkz': extract_value(r'<cg_case_KENN_2[^>]*>([^<]+)', xfa_text),
-        'start': extract_value(r'<cg_VMS_VB_Beginn[^>]*>([^<]+)', xfa_text),
-        'ende': extract_value(r'<cg_VMS_VB_Ende[^>]*>([^<]+)', xfa_text),
-        'foerderquote': extract_float(r'<cg_VMS_AD_Foerderquote[^>]*>([^<]+)', xfa_text),
-        'gesamtkosten': extract_float(r'<cg_VMS_HB_A_Kosten[^>]*>([^<]+)', xfa_text),
-        'zuwendung': extract_float(r'<cg_VMS_HB_A_ZuwendungFQ[^>]*>([^<]+)', xfa_text),
-        'gesamt_pm': extract_float(r'<sum_ges_pm[^>]*>([^<]+)', xfa_text),
-        'gesamt_pk': extract_float(r'<sum_ges_pk[^>]*>([^<]+)', xfa_text),
+        'name': extract_value(r'<cg_VMS_VB_Projekt>([^<]+)', xfa_text),
+        'kurzname': extract_value(r'<cg_VMS_VB_KurzName>([^<]+)', xfa_text),
+        'fkz': extract_value(r'<cg_case_KENN_2>([^<]+)', xfa_text),
+        'start': extract_value(r'<cg_VMS_VB_Beginn>([^<]+)', xfa_text),
+        'ende': extract_value(r'<cg_VMS_VB_Ende>([^<]+)', xfa_text),
+        'foerderquote': extract_float(r'<cg_VMS_AD_Foerderquote>([^<]+)', xfa_text),
+        'gesamtkosten': extract_float(r'<cg_VMS_HB_A_Kosten>([^<]+)', xfa_text),
+        'zuwendung': extract_float(r'<cg_VMS_HB_A_ZuwendungFQ>([^<]+)', xfa_text),
+        'gesamt_pm': extract_float(r'<sum_ges_pm>([^<]+)', xfa_text),
+        'gesamt_pk': extract_float(r'<sum_ges_pk>([^<]+)', xfa_text),
         'laufzeit_monate': 0
     }
     
     antragsteller = {
-        'firma': extract_value(r'<cg_VMS_firma[^>]*>([^<]+)', xfa_text),
-        'rechtsform': extract_value(r'<cg_VMS_rechtsform[^>]*>([^<]+)', xfa_text),
-        'strasse': extract_value(r'<cg_VMS_str[^>]*>([^<]+)', xfa_text),
-        'plz': extract_value(r'<cg_VMS_plz[^>]*>([^<]+)', xfa_text),
-        'ort': extract_value(r'<cg_VMS_ort[^>]*>([^<]+)', xfa_text),
-        'bundesland': extract_value(r'<cg_VMS_bundesland[^>]*>([^<]+)', xfa_text),
-        'website': extract_value(r'<cg_VMS_www[^>]*>([^<]+)', xfa_text),
-        'ansprechpartner_name': extract_value(r'<cg_VMS_AP_name[^>]*>([^<]+)', xfa_text),
-        'ansprechpartner_funktion': extract_value(r'<cg_VMS_AP_funktion[^>]*>([^<]+)', xfa_text),
-        'ansprechpartner_telefon': extract_value(r'<cg_VMS_AP_tel[^>]*>([^<]+)', xfa_text),
-        'ansprechpartner_email': extract_value(r'<cg_VMS_AP_mail[^>]*>([^<]+)', xfa_text),
+        'firma': extract_value(r'<cg_VMS_firma>([^<]+)', xfa_text),
+        'rechtsform': extract_value(r'<cg_VMS_rechtsform>([^<]+)', xfa_text),
+        'strasse': extract_value(r'<cg_VMS_str>([^<]+)', xfa_text),
+        'plz': extract_value(r'<cg_VMS_plz>([^<]+)', xfa_text),
+        'ort': extract_value(r'<cg_VMS_ort>([^<]+)', xfa_text),
+        'bundesland': extract_value(r'<cg_VMS_bundesland>([^<]+)', xfa_text),
+        'website': extract_value(r'<cg_VMS_www>([^<]+)', xfa_text),
+        'ansprechpartner_name': extract_value(r'<cg_VMS_AP_name>([^<]+)', xfa_text),
+        'ansprechpartner_funktion': extract_value(r'<cg_VMS_AP_funktion>([^<]+)', xfa_text),
+        'ansprechpartner_telefon': extract_value(r'<cg_VMS_AP_tel>([^<]+)', xfa_text),
+        'ansprechpartner_email': extract_value(r'<cg_VMS_AP_mail>([^<]+)', xfa_text),
     }
     
     print("\n  Standard-ZIM Parser noch nicht vollstaendig implementiert")
@@ -429,7 +393,7 @@ def parse_standard_zim(xfa_text: str) -> dict:
 
 def parse_zim_pdf(pdf_path: str) -> dict:
     print(f"\n{'='*60}")
-    print(f"ZIM PDF Parser v4.4")
+    print(f"ZIM PDF Parser v4.3")
     print(f"{'='*60}")
     print(f"Lade PDF: {pdf_path}")
     
@@ -506,7 +470,7 @@ def parse_zim_pdf(pdf_path: str) -> dict:
 
 def main():
     if len(sys.argv) < 2:
-        print("Verwendung: python3 parse-zim-pdf-v4.4.py <pfad-zur-pdf>")
+        print("Verwendung: python3 parse-zim-pdf-v4.3.py <pfad-zur-pdf>")
         sys.exit(1)
     
     pdf_path = sys.argv[1]
@@ -552,10 +516,7 @@ def main():
                 tech = " [TECH]" if ap.get('is_technical') else ""
                 ma_count = len(ap.get('mitarbeiter_zuordnungen', []))
                 ma_str = f" ({ma_count} MA)" if ma_count > 0 else ""
-                dates = ""
-                if ap.get('start_date'):
-                    dates = f" [{ap.get('start_date')} - {ap.get('end_date', '?')}]"
-                print(f"  {ap['ap_code']:10} {ap['name'][:38]:38} {pm_str} PM{tech}{header}{ma_str}{dates}")
+                print(f"  {ap['ap_code']:10} {ap['name'][:40]:40} {pm_str} PM{tech}{header}{ma_str}")
         
         print(f"\nDu kannst diese JSON-Datei jetzt in PZE V7 importieren.")
         

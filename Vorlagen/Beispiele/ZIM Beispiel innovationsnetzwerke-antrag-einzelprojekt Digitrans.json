@@ -1,0 +1,358 @@
+{
+  "projekt": {
+    "name": "Entwicklung eines innov. Verfahrens zur effektiven Herstellung von digitalen Transferdrucken durch innovative Kombination von PU- und UV-Farbsystemen",
+    "kurzname": "DigiTrans",
+    "fkz": "16KN087502",
+    "start": "2023-01-02",
+    "ende": "2024-12-31",
+    "foerderquote": 0.0,
+    "gesamtkosten": 522640.0,
+    "zuwendung": 209056.0,
+    "gesamt_pm": 54.0,
+    "gesamt_pk": 261320.0,
+    "laufzeit_monate": 24
+  },
+  "antragsteller": {
+    "firma": "",
+    "rechtsform": "",
+    "strasse": "",
+    "plz": "",
+    "ort": "",
+    "bundesland": "",
+    "website": "",
+    "ansprechpartner_name": "",
+    "ansprechpartner_funktion": "",
+    "ansprechpartner_telefon": "",
+    "ansprechpartner_email": ""
+  },
+  "budget": {
+    "gesamtkosten": 522640.0,
+    "personalkosten": 261320.0,
+    "foerderquote": 0.0,
+    "gesamt_pm": 54.0
+  },
+  "mitarbeiter": [],
+  "arbeitspakete": [
+    {
+      "ap_number": 1,
+      "ap_sub_number": null,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
+      "ap_code": "AP1",
+      "name": "Konzeption und Entwicklung der technischen Anforderungen an die Gesamtanlage",
+      "start_date": null,
+      "end_date": null,
+      "total_person_months": null,
+      "is_technical": false,
+      "mitarbeiter_zuordnungen": []
+    },
+    {
+      "ap_number": 1,
+      "ap_sub_number": 1,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
+      "ap_code": "AP1.1",
+      "name": "Konzeption und Entwicklung der Anforderungen aller Teilkomponenten",
+      "start_date": "2023-01-02",
+      "end_date": "2023-01-31",
+      "total_person_months": 2.0,
+      "is_technical": false,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 2,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 3,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 4,
+          "pm": 0.5
+        }
+      ]
+    },
+    {
+      "ap_number": 1,
+      "ap_sub_number": 2,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
+      "ap_code": "AP1.2",
+      "name": "Konzeption und Entwickluung der Anforderungen aller Systemprozesse",
+      "start_date": "2023-02-01",
+      "end_date": "2023-05-31",
+      "total_person_months": 12.0,
+      "is_technical": false,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 2.0
+        },
+        {
+          "ma_nr": 2,
+          "pm": 2.0
+        },
+        {
+          "ma_nr": 3,
+          "pm": 4.0
+        },
+        {
+          "ma_nr": 4,
+          "pm": 4.0
+        }
+      ]
+    },
+    {
+      "ap_number": 2,
+      "ap_sub_number": null,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
+      "ap_code": "AP2",
+      "name": "Analyse und  Auswahl des Haftvermittlers zwischen PU-Farben und UV-Farbsystem, Entwicklung und Festlegung des dafür optimalen Prozesses",
+      "start_date": "2023-06-01",
+      "end_date": "2023-07-31",
+      "total_person_months": 5.0,
+      "is_technical": false,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 2,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 3,
+          "pm": 2.0
+        },
+        {
+          "ma_nr": 4,
+          "pm": 2.0
+        }
+      ]
+    },
+    {
+      "ap_number": 3,
+      "ap_sub_number": null,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
+      "ap_code": "AP3",
+      "name": "Analyse und Auswahl einer geeigneten Digitaldruckeinheit, des UV-Farbsystems und der Druckköpfe für den Digitaldruck",
+      "start_date": "2023-08-01",
+      "end_date": "2023-08-31",
+      "total_person_months": 2.0,
+      "is_technical": false,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 2,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 3,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 4,
+          "pm": 0.5
+        }
+      ]
+    },
+    {
+      "ap_number": 4,
+      "ap_sub_number": null,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
+      "ap_code": "AP4",
+      "name": "Entwicklung und Konstruktion der Mechanik der Gesamtanlage",
+      "start_date": "2023-09-01",
+      "end_date": "2023-11-30",
+      "total_person_months": 9.0,
+      "is_technical": false,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 1.5
+        },
+        {
+          "ma_nr": 2,
+          "pm": 1.5
+        },
+        {
+          "ma_nr": 3,
+          "pm": 3.0
+        },
+        {
+          "ma_nr": 4,
+          "pm": 3.0
+        }
+      ]
+    },
+    {
+      "ap_number": 5,
+      "ap_sub_number": null,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
+      "ap_code": "AP5",
+      "name": "Entwicklung und Konstruktion des robotergestützten Bogentransportsystems zwischen Sieb- und Digitaldruckanlage",
+      "start_date": "2023-12-01",
+      "end_date": "2023-12-31",
+      "total_person_months": 5.0,
+      "is_technical": false,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 2,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 3,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 4,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 1,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 2,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 3,
+          "pm": 1.0
+        },
+        {
+          "ma_nr": 4,
+          "pm": 1.0
+        }
+      ]
+    },
+    {
+      "ap_number": 7,
+      "ap_sub_number": null,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
+      "ap_code": "AP7",
+      "name": "Entwicklung der digitalisierten automatischen Prozesssteuerung der Gesamtanlage und der Teilkomponenten",
+      "start_date": "2024-06-03",
+      "end_date": "2024-08-30",
+      "total_person_months": 9.0,
+      "is_technical": false,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 1.5
+        },
+        {
+          "ma_nr": 2,
+          "pm": 1.5
+        },
+        {
+          "ma_nr": 3,
+          "pm": 3.0
+        },
+        {
+          "ma_nr": 4,
+          "pm": 3.0
+        }
+      ]
+    },
+    {
+      "ap_number": 8,
+      "ap_sub_number": null,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
+      "ap_code": "AP8",
+      "name": "Programmierung der Software für die Prozesssteuerung der Gesamtanlage",
+      "start_date": "2024-09-02",
+      "end_date": "2024-10-31",
+      "total_person_months": 6.0,
+      "is_technical": false,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 1.0
+        },
+        {
+          "ma_nr": 2,
+          "pm": 1.0
+        },
+        {
+          "ma_nr": 3,
+          "pm": 2.0
+        },
+        {
+          "ma_nr": 4,
+          "pm": 2.0
+        }
+      ]
+    },
+    {
+      "ap_number": 9,
+      "ap_sub_number": null,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
+      "ap_code": "AP9",
+      "name": "Aufbau und Inbetriebnahme des Demonstrator",
+      "start_date": "2024-11-01",
+      "end_date": "2024-12-31",
+      "total_person_months": 4.0,
+      "is_technical": false,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 1.0
+        },
+        {
+          "ma_nr": 2,
+          "pm": 1.0
+        },
+        {
+          "ma_nr": 3,
+          "pm": 1.0
+        },
+        {
+          "ma_nr": 4,
+          "pm": 1.0
+        }
+      ]
+    }
+  ],
+  "formular_info": {
+    "quelle": "VDI/VDE",
+    "formular_typ": "Einzelprojekt",
+    "version": "12.10",
+    "stand": "16.08.2022",
+    "richtlinie": null,
+    "projekttraeger": "VDI/VDE Innovation + Technik GmbH",
+    "raw_version_info": [
+      "Version: 12.10 Stand: 16.08.2022"
+    ]
+  },
+  "parse_datum": "2026-01-23T19:33:05.763718",
+  "quell_datei": "ZIM Beispiel innovationsnetzwerke-antrag-einzelprojekt Digitrans.pdf",
+  "format_erkannt": "standard_zim",
+  "statistik": {
+    "anzahl_arbeitspakete": 10,
+    "anzahl_echte_aps": 9,
+    "anzahl_ueberschriften": 1,
+    "anzahl_technisch": 0,
+    "anzahl_nicht_technisch": 9,
+    "gesamt_pm": 54.0
+  }
+}

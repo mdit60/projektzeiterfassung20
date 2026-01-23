@@ -1,14 +1,22 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 ZIM PDF zu JSON Konverter
-VERSION: 4.4 - 23.01.2026
+VERSION: 4.6 - 23.01.2026
 
-ERKENNTNISSE aus XFA-Analyse:
-- Tags haben Zeilenumbrueche: <Arbeitspaket_Nr_techn\\n>
-- Datum-Tags heissen: RealisierungVON, RealisierungBIS (nicht von_techn, bis_techn)
-- MA_Nr ist Float (1.00, 2.00) nicht Int
-- Leere Tags sind selbstschliessend: <MA_Nr_techn\\n/>
-- Ueberschrift = leerer MA_Nr Tag
+UNTERSTUETZT:
+- Durchfuehrbarkeitsstudien (DS) mit technisch/nicht-technisch
+- Standard-ZIM (Einzelprojekt, Kooperation, Netzwerk)
+
+NEU IN 4.6:
+- Formular-Versionserkennung (VDI/VDE, EuroNorm)
+- Formular-Stand/Datum wird extrahiert
+- Projekttraeger-Erkennung
+
+TAG-STRUKTUR:
+DS nicht-technisch: Arbeitspaket_Nr, Arbeitspaket, von, bis, MA_Nr, pm
+DS technisch: Arbeitspaket_Nr_techn, Arbeitspaket_techn, RealisierungVON, RealisierungBIS, MA_Nr_techn, pm_techn
+Standard-ZIM: lfd, ap, von, bis, ma_nr, pm
 """
 
 import sys
@@ -41,32 +49,17 @@ def extract_float(pattern: str, text: str) -> float:
 
 
 def extract_all_values_flexible(tag_name: str, text: str) -> list:
-    """
-    Extrahiert Werte mit flexiblem Tag-Matching (mit/ohne Zeilenumbruch)
-    Leere/selbstschliessende Tags werden als leerer String zurueckgegeben
-    """
-    # Pattern fuer Tags mit Inhalt: <tag\n>value</tag\n> oder <tag>value</tag>
+    """Extrahiert Werte mit flexiblem Tag-Matching"""
     pattern_with_value = f'<{tag_name}[\\s\\n]*>([^<]+)</{tag_name}'
-    
-    # Pattern fuer leere/selbstschliessende Tags: <tag\n/> oder <tag/>
     pattern_empty = f'<{tag_name}[\\s\\n]*/>'
     
     results = []
-    
-    # Finde alle Vorkommen (mit Inhalt oder leer)
-    # Wir muessen die Position tracken um die richtige Reihenfolge zu behalten
-    
-    # Alle Tags mit Inhalt
     for match in re.finditer(pattern_with_value, text, re.IGNORECASE | re.DOTALL):
         results.append((match.start(), match.group(1).strip()))
-    
-    # Alle leeren Tags
     for match in re.finditer(pattern_empty, text, re.IGNORECASE | re.DOTALL):
         results.append((match.start(), ''))
     
-    # Nach Position sortieren
     results.sort(key=lambda x: x[0])
-    
     return [r[1] for r in results]
 
 
@@ -129,10 +122,8 @@ def parse_german_date(date_str: str) -> str:
     if not date_str:
         return None
     date_str = date_str.strip()
-    # Bereits ISO-Format (aus XFA)
     if re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
         return date_str
-    # Deutsches Format
     match = re.match(r'^(\d{1,2})\.(\d{1,2})\.(\d{4})$', date_str)
     if match:
         day, month, year = match.groups()
@@ -150,13 +141,126 @@ def parse_pm(pm_str: str) -> float:
 
 
 def parse_ma_nr(ma_str: str) -> int:
-    """MA_Nr kann als Float kommen (1.00) - wir brauchen Int"""
     if not ma_str:
         return None
     try:
         return int(float(ma_str.replace(',', '.')))
     except:
         return None
+
+
+def detect_formular_version(xfa_text: str) -> dict:
+    """
+    Erkennt Formular-Quelle, Version und Stand.
+    
+    Bekannte Quellen:
+    - VDI/VDE Innovation + Technik GmbH (Standard-ZIM)
+    - EuroNorm GmbH (Durchfuehrbarkeitsstudien)
+    
+    Rueckgabe:
+    {
+        'quelle': 'VDI/VDE' | 'EuroNorm' | 'unbekannt',
+        'formular_typ': 'Einzelprojekt' | 'Kooperation' | 'Netzwerk' | 'Durchfuehrbarkeitsstudie' | ...,
+        'version': 'Version 12' | None,
+        'stand': '16.8.2022' | None,
+        'projekttraeger': 'VDI/VDE Innovation + Technik GmbH' | 'EuroNorm GmbH' | None
+    }
+    """
+    result = {
+        'quelle': 'unbekannt',
+        'formular_typ': None,
+        'version': None,
+        'stand': None,
+        'projekttraeger': None,
+        'raw_version_info': None
+    }
+    
+    # === VDI/VDE Erkennung ===
+    # Typische Marker: "VDI/VDE", "VDI/VDE Innovation", "VDI/VDE-IT"
+    if re.search(r'VDI[/\\]?VDE', xfa_text, re.IGNORECASE):
+        result['quelle'] = 'VDI/VDE'
+        result['projekttraeger'] = 'VDI/VDE Innovation + Technik GmbH'
+    
+    # === EuroNorm Erkennung ===
+    # Typische Marker: "EuroNorm", "EURONORM", "Euro Norm"
+    if re.search(r'Euro\s*Norm', xfa_text, re.IGNORECASE):
+        result['quelle'] = 'EuroNorm'
+        result['projekttraeger'] = 'EuroNorm GmbH'
+    
+    # === Formular-Typ Erkennung ===
+    # Durchfuehrbarkeitsstudie
+    if 'Antrag_DS' in xfa_text or '<thema' in xfa_text:
+        result['formular_typ'] = 'Durchfuehrbarkeitsstudie'
+        if result['quelle'] == 'unbekannt':
+            result['quelle'] = 'EuroNorm'
+            result['projekttraeger'] = 'EuroNorm GmbH'
+    
+    # Standard-ZIM Typen
+    elif 'cg_VMS_' in xfa_text or 'cg_case_' in xfa_text:
+        # Netzwerk-Projekt
+        if re.search(r'Netzwerk|NW_|_NW', xfa_text, re.IGNORECASE):
+            result['formular_typ'] = 'Netzwerk'
+        # Kooperationsprojekt
+        elif re.search(r'Kooperation|KP_|_KP', xfa_text, re.IGNORECASE):
+            result['formular_typ'] = 'Kooperation'
+        # Einzelprojekt (Default fuer Standard-ZIM)
+        else:
+            result['formular_typ'] = 'Einzelprojekt'
+        
+        if result['quelle'] == 'unbekannt':
+            result['quelle'] = 'VDI/VDE'
+            result['projekttraeger'] = 'VDI/VDE Innovation + Technik GmbH'
+    
+    # === Version und Stand extrahieren ===
+    # Muster: "Version 12", "Version: 12", "V12", "v.12"
+    version_match = re.search(
+        r'[Vv]ersion[:\s]*(\d+(?:\.\d+)?)|[Vv]\.?\s*(\d+(?:\.\d+)?)',
+        xfa_text
+    )
+    if version_match:
+        ver = version_match.group(1) or version_match.group(2)
+        result['version'] = f"Version {ver}"
+    
+    # Muster: "Stand: 16.8.2022", "Stand 16.08.2022", "(Stand: 16.8.2022)"
+    stand_match = re.search(
+        r'[Ss]tand[:\s]*(\d{1,2}\.\d{1,2}\.\d{4})',
+        xfa_text
+    )
+    if stand_match:
+        result['stand'] = stand_match.group(1)
+    
+    # Alternative: Datum im Format "dd.mm.yyyy" nach "Version"
+    if not result['stand'] and result['version']:
+        date_after_version = re.search(
+            r'[Vv]ersion[^<]*?(\d{1,2}\.\d{1,2}\.\d{4})',
+            xfa_text
+        )
+        if date_after_version:
+            result['stand'] = date_after_version.group(1)
+    
+    # === Raw Version Info (kompletter String fuer Debugging) ===
+    # Suche nach typischen Versionszeilen
+    raw_patterns = [
+        r'([Vv]ersion[^<\n]{0,50})',
+        r'([Ss]tand[:\s][^<\n]{0,30})',
+        r'(Formular[^<\n]{0,50})',
+    ]
+    raw_matches = []
+    for pattern in raw_patterns:
+        matches = re.findall(pattern, xfa_text)
+        raw_matches.extend([m.strip() for m in matches if m.strip()])
+    
+    if raw_matches:
+        # Deduplizieren und auf 3 beschraenken
+        seen = set()
+        unique = []
+        for m in raw_matches:
+            if m not in seen and len(m) > 5:
+                seen.add(m)
+                unique.append(m)
+        result['raw_version_info'] = unique[:3] if unique else None
+    
+    return result
 
 
 def detect_format(xfa_text: str) -> str:
@@ -170,16 +274,13 @@ def detect_format(xfa_text: str) -> str:
 def process_ap_table(ap_nrs: list, ap_names: list, ap_pms: list, 
                       ap_von: list, ap_bis: list, ap_ma_nrs: list,
                       is_technical: bool, label: str) -> dict:
-    """
-    Verarbeitet AP-Tabelle mit korrekter Ueberschrift-Erkennung
-    Ueberschrift = MA_Nr ist leer
-    """
+    """Verarbeitet AP-Tabelle - gemeinsame Logik fuer alle Formate"""
     
     print(f"\n  Parsing {label}...")
     print(f"    Rohdaten: {len(ap_nrs)} Nr, {len(ap_names)} Namen, {len(ap_pms)} PM, {len(ap_ma_nrs)} MA-Nr")
     
-    # Debug: Zeige MA-Nr Werte
-    print(f"    MA-Nr Werte: {ap_ma_nrs[:12]}")
+    if len(ap_ma_nrs) > 0:
+        print(f"    MA-Nr Werte (erste 12): {ap_ma_nrs[:12]}")
     
     ap_dict = {}
     
@@ -214,7 +315,6 @@ def process_ap_table(ap_nrs: list, ap_names: list, ap_pms: list,
         
         key = ap_key(ap_nums)
         
-        # MA-Nr pruefen - LEER = Ueberschrift
         ma_nr_raw = ap_ma_nrs[i] if i < len(ap_ma_nrs) else ''
         ma_nr = parse_ma_nr(ma_nr_raw)
         has_ma_nr = ma_nr is not None
@@ -243,14 +343,12 @@ def process_ap_table(ap_nrs: list, ap_names: list, ap_pms: list,
                 }
                 tech_label = " [TECH]" if is_technical else ""
                 print(f"      [{i}] {nr}: {name[:35]}... -> UEBERSCHRIFT{tech_label}")
-            else:
-                print(f"      [{i}] {nr}: (Ueberschrift bereits erfasst oder kein Name)")
             continue
         
         # MIT MA-Nr = Echtes AP oder Zuordnung
         if key not in ap_dict:
             if not name:
-                print(f"      [{i}] {nr}: SKIP - kein Name fuer neues AP")
+                print(f"      [{i}] {nr}: SKIP - kein Name")
                 continue
             
             ap_dict[key] = {
@@ -272,7 +370,6 @@ def process_ap_table(ap_nrs: list, ap_names: list, ap_pms: list,
             tech_label = " [TECH]" if is_technical else ""
             print(f"      [{i}] {nr}: {name[:35]}... -> NEW ({pm} PM, MA={ma_nr}){tech_label}")
         else:
-            # AP existiert - PM addieren
             if ap_dict[key]['total_person_months'] is None:
                 ap_dict[key]['total_person_months'] = pm
             else:
@@ -294,6 +391,7 @@ def process_ap_table(ap_nrs: list, ap_names: list, ap_pms: list,
 
 
 def parse_durchfuehrbarkeitsstudie(xfa_text: str) -> dict:
+    """Parser fuer Durchfuehrbarkeitsstudien"""
     text = xfa_text
     
     projekt = {
@@ -338,8 +436,7 @@ def parse_durchfuehrbarkeitsstudie(xfa_text: str) -> dict:
         domain = antragsteller['ansprechpartner_email'].split('@')[-1].split('.')[0]
         antragsteller['firma'] = domain.capitalize() + ' GmbH'
     
-    # NICHT-TECHNISCHE APs (Tabelle A)
-    # Tags: Arbeitspaket_Nr, Arbeitspaket, pm, von, bis, MA_Nr
+    # NICHT-TECHNISCHE APs
     ap_dict_a = process_ap_table(
         ap_nrs=extract_all_values_flexible('Arbeitspaket_Nr', text),
         ap_names=extract_all_values_flexible('Arbeitspaket', text),
@@ -351,8 +448,7 @@ def parse_durchfuehrbarkeitsstudie(xfa_text: str) -> dict:
         label="NICHT-TECHNISCHE APs (Tabelle A)"
     )
     
-    # TECHNISCHE APs (Tabelle B)
-    # Tags: Arbeitspaket_Nr_techn, Arbeitspaket_techn, pm_techn, RealisierungVON, RealisierungBIS, MA_Nr_techn
+    # TECHNISCHE APs
     ap_dict_b = process_ap_table(
         ap_nrs=extract_all_values_flexible('Arbeitspaket_Nr_techn', text),
         ap_names=extract_all_values_flexible('Arbeitspaket_techn', text),
@@ -388,48 +484,91 @@ def parse_durchfuehrbarkeitsstudie(xfa_text: str) -> dict:
 
 
 def parse_standard_zim(xfa_text: str) -> dict:
+    """Parser fuer Standard-ZIM (Einzelprojekt, Kooperation, Netzwerk)"""
+    text = xfa_text
+    
     projekt = {
-        'name': extract_value(r'<cg_VMS_VB_Projekt[^>]*>([^<]+)', xfa_text),
-        'kurzname': extract_value(r'<cg_VMS_VB_KurzName[^>]*>([^<]+)', xfa_text),
-        'fkz': extract_value(r'<cg_case_KENN_2[^>]*>([^<]+)', xfa_text),
-        'start': extract_value(r'<cg_VMS_VB_Beginn[^>]*>([^<]+)', xfa_text),
-        'ende': extract_value(r'<cg_VMS_VB_Ende[^>]*>([^<]+)', xfa_text),
-        'foerderquote': extract_float(r'<cg_VMS_AD_Foerderquote[^>]*>([^<]+)', xfa_text),
-        'gesamtkosten': extract_float(r'<cg_VMS_HB_A_Kosten[^>]*>([^<]+)', xfa_text),
-        'zuwendung': extract_float(r'<cg_VMS_HB_A_ZuwendungFQ[^>]*>([^<]+)', xfa_text),
-        'gesamt_pm': extract_float(r'<sum_ges_pm[^>]*>([^<]+)', xfa_text),
-        'gesamt_pk': extract_float(r'<sum_ges_pk[^>]*>([^<]+)', xfa_text),
+        'name': extract_value(r'<cg_VMS_VB_Projekt[^>]*>([^<]+)', text),
+        'kurzname': extract_value(r'<cg_VMS_VB_KurzName[^>]*>([^<]+)', text),
+        'fkz': extract_value(r'<cg_case_KENN_2[^>]*>([^<]+)', text),
+        'start': extract_value(r'<cg_VMS_VB_Beginn[^>]*>([^<]+)', text),
+        'ende': extract_value(r'<cg_VMS_VB_Ende[^>]*>([^<]+)', text),
+        'foerderquote': extract_float(r'<cg_VMS_AD_Foerderquote[^>]*>([^<]+)', text),
+        'gesamtkosten': extract_float(r'<cg_VMS_HB_A_Kosten[^>]*>([^<]+)', text),
+        'zuwendung': extract_float(r'<cg_VMS_HB_A_ZuwendungFQ[^>]*>([^<]+)', text),
+        'gesamt_pm': 0.0,
+        'gesamt_pk': extract_float(r'<sum_ges_pk[^>]*>([^<]+)', text),
         'laufzeit_monate': 0
     }
     
+    # Laufzeit berechnen
+    if projekt['start'] and projekt['ende']:
+        try:
+            start_date = projekt['start']
+            end_date = projekt['ende']
+            if '-' in start_date:
+                sy, sm = int(start_date.split('-')[0]), int(start_date.split('-')[1])
+                ey, em = int(end_date.split('-')[0]), int(end_date.split('-')[1])
+            else:
+                parts_s = start_date.split('.')
+                parts_e = end_date.split('.')
+                sy, sm = int(parts_s[2]), int(parts_s[1])
+                ey, em = int(parts_e[2]), int(parts_e[1])
+            projekt['laufzeit_monate'] = (ey - sy) * 12 + (em - sm) + 1
+        except:
+            pass
+    
     antragsteller = {
-        'firma': extract_value(r'<cg_VMS_firma[^>]*>([^<]+)', xfa_text),
-        'rechtsform': extract_value(r'<cg_VMS_rechtsform[^>]*>([^<]+)', xfa_text),
-        'strasse': extract_value(r'<cg_VMS_str[^>]*>([^<]+)', xfa_text),
-        'plz': extract_value(r'<cg_VMS_plz[^>]*>([^<]+)', xfa_text),
-        'ort': extract_value(r'<cg_VMS_ort[^>]*>([^<]+)', xfa_text),
-        'bundesland': extract_value(r'<cg_VMS_bundesland[^>]*>([^<]+)', xfa_text),
-        'website': extract_value(r'<cg_VMS_www[^>]*>([^<]+)', xfa_text),
-        'ansprechpartner_name': extract_value(r'<cg_VMS_AP_name[^>]*>([^<]+)', xfa_text),
-        'ansprechpartner_funktion': extract_value(r'<cg_VMS_AP_funktion[^>]*>([^<]+)', xfa_text),
-        'ansprechpartner_telefon': extract_value(r'<cg_VMS_AP_tel[^>]*>([^<]+)', xfa_text),
-        'ansprechpartner_email': extract_value(r'<cg_VMS_AP_mail[^>]*>([^<]+)', xfa_text),
+        'firma': extract_value(r'<cg_VMS_firma[^>]*>([^<]+)', text),
+        'rechtsform': extract_value(r'<cg_VMS_rechtsform[^>]*>([^<]+)', text),
+        'strasse': extract_value(r'<cg_VMS_str[^>]*>([^<]+)', text),
+        'plz': extract_value(r'<cg_VMS_plz[^>]*>([^<]+)', text),
+        'ort': extract_value(r'<cg_VMS_ort[^>]*>([^<]+)', text),
+        'bundesland': extract_value(r'<cg_VMS_bundesland[^>]*>([^<]+)', text),
+        'website': extract_value(r'<cg_VMS_www[^>]*>([^<]+)', text),
+        'ansprechpartner_name': extract_value(r'<cg_VMS_AP_name[^>]*>([^<]+)', text),
+        'ansprechpartner_funktion': extract_value(r'<cg_VMS_AP_funktion[^>]*>([^<]+)', text),
+        'ansprechpartner_telefon': extract_value(r'<cg_VMS_AP_tel[^>]*>([^<]+)', text),
+        'ansprechpartner_email': extract_value(r'<cg_VMS_AP_mail[^>]*>([^<]+)', text),
     }
     
-    print("\n  Standard-ZIM Parser noch nicht vollstaendig implementiert")
+    # Standard-ZIM: Tags sind lfd, ap, von, bis, ma_nr, pm
+    # KEIN is_technical bei Standard-ZIM!
+    ap_dict = process_ap_table(
+        ap_nrs=extract_all_values_flexible('lfd', text),
+        ap_names=extract_all_values_flexible('ap', text),
+        ap_pms=extract_all_values_flexible('pm', text),
+        ap_von=extract_all_values_flexible('von', text),
+        ap_bis=extract_all_values_flexible('bis', text),
+        ap_ma_nrs=extract_all_values_flexible('ma_nr', text),
+        is_technical=False,  # Standard-ZIM hat keine Unterscheidung
+        label="ARBEITSPAKETE (Anlage 5)"
+    )
+    
+    arbeitspakete = list(ap_dict.values())
+    arbeitspakete.sort(key=lambda ap: (
+        ap['ap_number'], 
+        ap['ap_sub_number'] or 0,
+        ap['ap_sub_sub_number'] or 0,
+        ap['ap_level_4'] or 0
+    ))
+    
+    for ap in arbeitspakete:
+        if ap['total_person_months'] and ap['total_person_months'] > 0:
+            projekt['gesamt_pm'] += ap['total_person_months']
     
     return {
         'projekt': projekt,
         'antragsteller': antragsteller,
         'mitarbeiter': [],
-        'arbeitspakete': [],
+        'arbeitspakete': arbeitspakete,
         'format': 'standard_zim'
     }
 
 
 def parse_zim_pdf(pdf_path: str) -> dict:
     print(f"\n{'='*60}")
-    print(f"ZIM PDF Parser v4.4")
+    print(f"ZIM PDF Parser v4.6")
     print(f"{'='*60}")
     print(f"Lade PDF: {pdf_path}")
     
@@ -460,8 +599,19 @@ def parse_zim_pdf(pdf_path: str) -> dict:
     
     print(f"XFA-Daten extrahiert: {len(xfa_text)} Zeichen")
     
+    # NEU: Formular-Version erkennen
+    formular_info = detect_formular_version(xfa_text)
+    print(f"\nFormular-Info:")
+    print(f"  Quelle: {formular_info['quelle']}")
+    print(f"  Typ: {formular_info['formular_typ']}")
+    print(f"  Version: {formular_info['version'] or '(nicht erkannt)'}")
+    print(f"  Stand: {formular_info['stand'] or '(nicht erkannt)'}")
+    print(f"  Projekttraeger: {formular_info['projekttraeger'] or '(nicht erkannt)'}")
+    if formular_info['raw_version_info']:
+        print(f"  Raw Info: {formular_info['raw_version_info']}")
+    
     pdf_format = detect_format(xfa_text)
-    print(f"Format erkannt: {pdf_format}")
+    print(f"\nFormat erkannt: {pdf_format}")
     
     if pdf_format == 'durchfuehrbarkeitsstudie':
         result = parse_durchfuehrbarkeitsstudie(xfa_text)
@@ -497,6 +647,7 @@ def parse_zim_pdf(pdf_path: str) -> dict:
         },
         'mitarbeiter': result['mitarbeiter'],
         'arbeitspakete': result['arbeitspakete'],
+        'formular_info': formular_info,  # NEU: Formular-Version im Output
         'parse_datum': datetime.now().isoformat(),
         'quell_datei': Path(pdf_path).name,
         'format_erkannt': result['format'],
@@ -506,7 +657,7 @@ def parse_zim_pdf(pdf_path: str) -> dict:
 
 def main():
     if len(sys.argv) < 2:
-        print("Verwendung: python3 parse-zim-pdf-v4.4.py <pfad-zur-pdf>")
+        print("Verwendung: python3 parse-zim-pdf-v4.6.py <pfad-zur-pdf>")
         sys.exit(1)
     
     pdf_path = sys.argv[1]
@@ -529,6 +680,13 @@ def main():
         print(f"\nProjekt: {data['projekt']['name'][:70]}..." if data['projekt']['name'] else "Projekt: (kein Name)")
         print(f"Firma: {data['antragsteller']['firma']}")
         print(f"Format: {data['format_erkannt']}")
+        
+        # NEU: Formular-Info ausgeben
+        fi = data['formular_info']
+        print(f"\nFormular:")
+        print(f"  {fi['quelle']} - {fi['formular_typ']}")
+        if fi['version'] or fi['stand']:
+            print(f"  {fi['version'] or ''} {('Stand: ' + fi['stand']) if fi['stand'] else ''}")
         
         print(f"\nStatistik:")
         print(f"  - Arbeitspakete gesamt: {data['statistik']['anzahl_arbeitspakete']}")

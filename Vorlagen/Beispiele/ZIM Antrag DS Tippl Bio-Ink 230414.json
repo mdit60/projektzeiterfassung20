@@ -8,8 +8,8 @@
     "foerderquote": 50.0,
     "gesamtkosten": 0.0,
     "zuwendung": 0.0,
-    "gesamt_pm": 5.0,
-    "gesamt_pk": 22199.0,
+    "gesamt_pm": 12.5,
+    "gesamt_pk": 6659.7,
     "laufzeit_monate": 0
   },
   "antragsteller": {
@@ -27,98 +27,203 @@
   },
   "budget": {
     "gesamtkosten": 0.0,
-    "personalkosten": 22199.0,
-    "materialkosten": 0.0,
-    "fremdleistungen": 0.0,
-    "gemeinkosten": 0.0,
+    "personalkosten": 6659.7,
     "foerderquote": 50.0,
-    "foerdersumme": 0.0,
-    "eigenanteil": 0.0,
-    "laufzeit_monate": 0,
-    "gesamt_pm": 5.0
+    "gesamt_pm": 12.5
   },
   "mitarbeiter": [],
   "arbeitspakete": [
     {
-      "ap_nummer": 1,
-      "ap_sub_nummer": null,
+      "ap_number": 1,
+      "ap_sub_number": null,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
       "ap_code": "AP1",
       "name": "Analyse Stand der Technik",
-      "start_monat": null,
-      "ende_monat": null,
-      "gesamt_pm": 0.5,
-      "mitarbeiter_zuordnungen": []
+      "start_date": null,
+      "end_date": null,
+      "total_person_months": 0.5,
+      "is_technical": false,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 0.5
+        }
+      ]
     },
     {
-      "ap_nummer": 2,
-      "ap_sub_nummer": 1,
+      "ap_number": 2,
+      "ap_sub_number": 1,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
       "ap_code": "AP2.1",
       "name": "Patentprüfung",
-      "start_monat": null,
-      "ende_monat": null,
-      "gesamt_pm": 0.5,
-      "mitarbeiter_zuordnungen": []
+      "start_date": null,
+      "end_date": null,
+      "total_person_months": 0.5,
+      "is_technical": false,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 2,
+          "pm": 0.5
+        }
+      ]
     },
     {
-      "ap_nummer": 2,
-      "ap_sub_nummer": 2,
+      "ap_number": 2,
+      "ap_sub_number": 2,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
       "ap_code": "AP2.2",
       "name": "Analyse Marktpotential",
-      "start_monat": null,
-      "ende_monat": null,
-      "gesamt_pm": 0.5,
-      "mitarbeiter_zuordnungen": []
+      "start_date": null,
+      "end_date": null,
+      "total_person_months": 0.5,
+      "is_technical": false,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 3,
+          "pm": 0.5
+        }
+      ]
     },
     {
-      "ap_nummer": 3,
-      "ap_sub_nummer": null,
+      "ap_number": 3,
+      "ap_sub_number": null,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
       "ap_code": "AP3",
       "name": "Erstellung AP für FuE-Projekt",
-      "start_monat": null,
-      "ende_monat": null,
-      "gesamt_pm": 1.0,
-      "mitarbeiter_zuordnungen": []
+      "start_date": null,
+      "end_date": null,
+      "total_person_months": 1.0,
+      "is_technical": false,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 1.0
+        }
+      ]
     },
     {
-      "ap_nummer": 4,
-      "ap_sub_nummer": null,
+      "ap_number": 4,
+      "ap_sub_number": null,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
       "ap_code": "AP4",
       "name": "biobasierte Lösemittel, deren Einsatzfähigkeit und Versuche in Markierungs- und Kennzeichnungssystemen",
-      "start_monat": null,
-      "ende_monat": null,
-      "gesamt_pm": 0.5,
+      "start_date": null,
+      "end_date": null,
+      "total_person_months": null,
+      "is_technical": true,
       "mitarbeiter_zuordnungen": []
     },
     {
-      "ap_nummer": 4,
-      "ap_sub_nummer": 1,
+      "ap_number": 4,
+      "ap_sub_number": 1,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
       "ap_code": "AP4.1",
       "name": "Recherche und Anforderungen an biobasierten Lösemitteln, deren Parameter und Einsatzfähigkeit in Markierungs- und Kennzeichnungssystemen",
-      "start_monat": null,
-      "ende_monat": null,
-      "gesamt_pm": 1.0,
-      "mitarbeiter_zuordnungen": []
+      "start_date": "2023-05-01",
+      "end_date": "2023-05-31",
+      "total_person_months": 2.0,
+      "is_technical": true,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 0.5
+        },
+        {
+          "ma_nr": 2,
+          "pm": 1.0
+        },
+        {
+          "ma_nr": 3,
+          "pm": 0.5
+        }
+      ]
     },
     {
-      "ap_nummer": 5,
-      "ap_sub_nummer": null,
+      "ap_number": 4,
+      "ap_sub_number": 2,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
+      "ap_code": "AP4.2",
+      "name": "Beschaffung verfügbarer biobasierten Lösemittel sowie Versuche zur Herstellung von Tinten mit diesen Rohstoffen",
+      "start_date": "2023-11-01",
+      "end_date": "2023-12-29",
+      "total_person_months": 4.0,
+      "is_technical": true,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 1.0
+        },
+        {
+          "ma_nr": 2,
+          "pm": 2.0
+        },
+        {
+          "ma_nr": 3,
+          "pm": 1.0
+        }
+      ]
+    },
+    {
+      "ap_number": 4,
+      "ap_sub_number": 3,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
+      "ap_code": "AP4.3",
+      "name": "Versuche zur Einsatzfähigkeit und den Parametern (aufzutragende Menge, Temperatur, relative Luftfeuchtigkeit bzw. zum Einsatzbereich im industriellen Umfeld",
+      "start_date": "2023-06-01",
+      "end_date": "2023-06-30",
+      "total_person_months": 3.0,
+      "is_technical": true,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 1,
+          "pm": 1.0
+        },
+        {
+          "ma_nr": 2,
+          "pm": 1.0
+        },
+        {
+          "ma_nr": 3,
+          "pm": 1.0
+        }
+      ]
+    },
+    {
+      "ap_number": 5,
+      "ap_sub_number": null,
+      "ap_sub_sub_number": null,
+      "ap_level_4": null,
       "ap_code": "AP5",
       "name": "Ermittl. wissenschaftlich-technischer Ressourcen und möglicher Kooperationspartner",
-      "start_monat": null,
-      "ende_monat": null,
-      "gesamt_pm": 1.0,
-      "mitarbeiter_zuordnungen": []
+      "start_date": null,
+      "end_date": null,
+      "total_person_months": 1.0,
+      "is_technical": false,
+      "mitarbeiter_zuordnungen": [
+        {
+          "ma_nr": 2,
+          "pm": 1.0
+        }
+      ]
     }
   ],
-  "parse_datum": "2026-01-22T14:25:51.268104",
+  "parse_datum": "2026-01-23T18:12:48.316259",
   "quell_datei": "ZIM Antrag DS Tippl Bio-Ink 230414.pdf",
   "format_erkannt": "durchfuehrbarkeitsstudie",
   "statistik": {
-    "anzahl_mitarbeiter": 0,
-    "anzahl_arbeitspakete": 7,
-    "anzahl_ap_zuordnungen": 0,
-    "gesamt_pm": 5.0,
-    "gesamt_pk": 22199.0,
-    "laufzeit_monate": 0
+    "anzahl_arbeitspakete": 9,
+    "anzahl_echte_aps": 8,
+    "anzahl_ueberschriften": 1,
+    "anzahl_technisch": 3,
+    "anzahl_nicht_technisch": 5,
+    "gesamt_pm": 12.5
   }
 }

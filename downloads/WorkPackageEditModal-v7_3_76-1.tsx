@@ -4,14 +4,8 @@
 // ============================================================================
 // PZE V7 - Gemeinsame WorkPackageEditModal-Komponente
 // ============================================================================
-// Datum: 23. Januar 2026
-// Version: 7.3.76-2
-//
-// AENDERUNGEN v7.3.76-2:
-// - AP-Nummer zeigt jetzt korrekt "2.1" statt nur "2"
-// - ap_sub_number wird im Formular angezeigt und bearbeitet
-// - Datumsfelder statt Monatsnummern
-// - Checkbox fuer Technisches Arbeitspaket (B)
+// Datum: 21. Januar 2026
+// Version: 7.3.52
 //
 // Wiederverwendbares Modal fuer:
 // - Arbeitspakete anlegen (create)
@@ -37,13 +31,13 @@ export interface WorkPackage {
   ap_code: string | null;
   name: string;
   description: string | null;
-  start_month: number | null;      // Legacy - fuer Abwaertskompatibilitaet
-  end_month: number | null;        // Legacy - fuer Abwaertskompatibilitaet
+  start_month: number | null;      // Legacy - wird nicht mehr verwendet
+  end_month: number | null;        // Legacy - wird nicht mehr verwendet
   start_date: string | null;       // NEU: Echtes Datum (YYYY-MM-DD)
   end_date: string | null;         // NEU: Echtes Datum (YYYY-MM-DD)
   total_person_months: number | null;
   total_costs: number | null;
-  is_technical: boolean;           // NEU: Technisch (B) oder Nicht-technisch (A)
+  is_technical: boolean;           // NEU: Technisches AP (true) oder Nicht-technisches (false)
   is_active: boolean;
 }
 
@@ -55,16 +49,15 @@ export interface Project {
 
 export interface WorkPackageFormData {
   project_id: string;
-  ap_number: string;           // Hauptnummer (z.B. "2")
-  ap_sub_number: string;       // NEU: Unternummer (z.B. "1" fuer AP2.1)
+  ap_number: string;
   ap_code: string;
   name: string;
   description: string;
-  start_date: string;          // NEU: Datum (YYYY-MM-DD)
-  end_date: string;            // NEU: Datum (YYYY-MM-DD)
+  start_date: string;              // NEU: Datum (YYYY-MM-DD)
+  end_date: string;                // NEU: Datum (YYYY-MM-DD)
   total_person_months: string;
   total_costs: string;
-  is_technical: boolean;       // NEU: Technisch/Nicht-technisch
+  is_technical: boolean;           // NEU: Technisch/Nicht-technisch
 }
 
 interface WorkPackageEditModalProps {
@@ -100,7 +93,6 @@ interface WorkPackageEditModalProps {
 const EMPTY_FORM: WorkPackageFormData = {
   project_id: '',
   ap_number: '',
-  ap_sub_number: '',
   ap_code: '',
   name: '',
   description: '',
@@ -120,15 +112,6 @@ function pmToHours(pm: string | number | null): string {
   const pmNum = typeof pm === 'string' ? parseFloat(pm) : pm;
   if (isNaN(pmNum) || pmNum === 0) return '';
   return `${(pmNum * HOURS_PER_PM).toFixed(0)} h`;
-}
-
-// Generiert AP-Code aus Nummer und Sub-Nummer
-function generateAPCode(apNumber: string, apSubNumber: string): string {
-  if (!apNumber) return '';
-  if (apSubNumber && apSubNumber !== '0' && apSubNumber !== '') {
-    return `AP${apNumber}.${apSubNumber}`;
-  }
-  return `AP${apNumber}`;
 }
 
 // ============================================================================
@@ -161,11 +144,7 @@ export default function WorkPackageEditModal({
       setFormData({
         project_id: workPackage.project_id,
         ap_number: workPackage.ap_number.toString(),
-        ap_sub_number: workPackage.ap_sub_number?.toString() || '',
-        ap_code: workPackage.ap_code || generateAPCode(
-          workPackage.ap_number.toString(), 
-          workPackage.ap_sub_number?.toString() || ''
-        ),
+        ap_code: workPackage.ap_code || '',
         name: workPackage.name || '',
         description: workPackage.description || '',
         start_date: workPackage.start_date || '',
@@ -183,7 +162,6 @@ export default function WorkPackageEditModal({
         ...EMPTY_FORM,
         project_id: projectId,
         ap_number: nextAP.toString(),
-        ap_sub_number: '',
         ap_code: `AP${nextAP}`,
       });
     }
@@ -199,25 +177,12 @@ export default function WorkPackageEditModal({
   const handleInputChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
   ) => {
-    const { name, value, type } = e.target;
-    
-    // Checkbox handling
-    if (type === 'checkbox') {
-      const checked = (e.target as HTMLInputElement).checked;
-      setFormData(prev => ({ ...prev, [name]: checked }));
-      return;
-    }
-    
+    const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
     
-    // Auto-generate ap_code when ap_number or ap_sub_number changes
-    if (name === 'ap_number') {
-      const newCode = generateAPCode(value, formData.ap_sub_number);
-      setFormData(prev => ({ ...prev, ap_number: value, ap_code: newCode }));
-    }
-    if (name === 'ap_sub_number') {
-      const newCode = generateAPCode(formData.ap_number, value);
-      setFormData(prev => ({ ...prev, ap_sub_number: value, ap_code: newCode }));
+    // Auto-generate ap_code when ap_number changes
+    if (name === 'ap_number' && value) {
+      setFormData(prev => ({ ...prev, ap_number: value, ap_code: `AP${value}` }));
     }
     
     // Update project_id and recalculate next AP number
@@ -226,8 +191,7 @@ export default function WorkPackageEditModal({
       setFormData(prev => ({ 
         ...prev, 
         project_id: value, 
-        ap_number: nextAP.toString(),
-        ap_sub_number: '',
+        ap_number: nextAP.toString(), 
         ap_code: `AP${nextAP}` 
       }));
     }
@@ -254,11 +218,6 @@ export default function WorkPackageEditModal({
   
   const displayError = localError || error;
   
-  // Berechne Anzeige-Nummer fuer Header (z.B. "AP2.1")
-  const displayAPNumber = formData.ap_sub_number && formData.ap_sub_number !== '0' && formData.ap_sub_number !== ''
-    ? `${formData.ap_number}.${formData.ap_sub_number}`
-    : formData.ap_number;
-  
   // ============================================
   // RENDER
   // ============================================
@@ -269,7 +228,7 @@ export default function WorkPackageEditModal({
         {/* Header */}
         <div className="flex justify-between items-center px-6 py-4 border-b">
           <h3 className="text-lg font-semibold text-gray-900">
-            {mode === 'create' ? 'Neues Arbeitspaket anlegen' : `Arbeitspaket bearbeiten`}
+            {mode === 'create' ? 'Neues Arbeitspaket anlegen' : 'Arbeitspaket bearbeiten'}
           </h3>
           <button 
             onClick={onClose} 
@@ -311,39 +270,22 @@ export default function WorkPackageEditModal({
               </select>
             </div>
 
-            {/* AP-Nummer, Sub-Nummer und Code */}
+            {/* AP-Nummer und Code */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 AP-Nummer *
               </label>
-              <div className="flex gap-2 items-center">
-                <input
-                  type="number"
-                  name="ap_number"
-                  value={formData.ap_number}
-                  onChange={handleInputChange}
-                  disabled={saving}
-                  className="w-20 px-3 py-2 border border-gray-300 rounded-lg 
-                             focus:ring-2 focus:ring-sky-500 disabled:opacity-50"
-                  min="1"
-                  placeholder="2"
-                />
-                <span className="text-gray-500 text-lg font-medium">.</span>
-                <input
-                  type="number"
-                  name="ap_sub_number"
-                  value={formData.ap_sub_number}
-                  onChange={handleInputChange}
-                  disabled={saving}
-                  className="w-20 px-3 py-2 border border-gray-300 rounded-lg 
-                             focus:ring-2 focus:ring-sky-500 disabled:opacity-50"
-                  min="0"
-                  placeholder="1"
-                />
-                <span className="text-gray-500 text-sm ml-2">
-                  = AP{displayAPNumber}
-                </span>
-              </div>
+              <input
+                type="number"
+                name="ap_number"
+                value={formData.ap_number}
+                onChange={handleInputChange}
+                disabled={saving}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg 
+                           focus:ring-2 focus:ring-sky-500 disabled:opacity-50"
+                min="1"
+                placeholder="1, 2, 3..."
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -395,7 +337,7 @@ export default function WorkPackageEditModal({
               />
             </div>
 
-            {/* Laufzeit - Datumsfelder */}
+            {/* Laufzeit - echte Datumsfelder */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Startdatum
@@ -425,27 +367,25 @@ export default function WorkPackageEditModal({
               />
             </div>
 
-            {/* Technisches Arbeitspaket Checkbox */}
-            <div className="md:col-span-2">
-              <label className="flex items-start gap-3 cursor-pointer">
+            {/* Technisches AP (nur bei Durchfuehrbarkeitsstudien relevant) */}
+            <div className="col-span-2">
+              <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
                   name="is_technical"
                   checked={formData.is_technical}
-                  onChange={handleInputChange}
+                  onChange={(e) => setFormData(prev => ({ ...prev, is_technical: e.target.checked }))}
                   disabled={saving}
-                  className="mt-1 w-4 h-4 text-sky-600 border-gray-300 rounded 
+                  className="w-4 h-4 text-sky-600 border-gray-300 rounded 
                              focus:ring-sky-500 disabled:opacity-50"
                 />
-                <div>
-                  <span className="text-sm font-medium text-gray-700">
-                    Technisches Arbeitspaket (B)
-                  </span>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    Bei Durchfuehrbarkeitsstudien: A) Nicht-technisch (bis 30.000 EUR) vs. B) Technisch (bis 100.000 EUR)
-                  </p>
-                </div>
+                <span className="text-sm text-gray-700">
+                  Technisches Arbeitspaket (B)
+                </span>
               </label>
+              <p className="text-xs text-gray-500 mt-1 ml-6">
+                Bei Durchfuehrbarkeitsstudien: A) Nicht-technisch (bis 30.000 EUR) vs. B) Technisch (bis 100.000 EUR)
+              </p>
             </div>
 
             {/* PM und Kosten */}
