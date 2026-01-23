@@ -387,27 +387,6 @@ export default function ProjectCreateForm({
       
       console.log('[Import] EmployeeIdMap:', employeeIdMap);
 
-      // 2b. Mitarbeiter dem PROJEKT zuordnen (v7_project_assignments für Team-Tab)
-      console.log('[Import] Ordne Mitarbeiter dem Projekt zu...');
-      for (const [maNr, employeeId] of Object.entries(employeeIdMap)) {
-        const { error: projAssignError } = await supabase
-          .from('v7_project_assignments')
-          .insert({
-            project_id: projectId,
-            employee_id: employeeId,
-            is_active: true,
-          });
-        
-        if (projAssignError) {
-          // Ignoriere Duplikat-Fehler (falls MA schon zugeordnet)
-          if (!projAssignError.message?.includes('duplicate')) {
-            console.error(`[Import] Projekt-Zuordnung Fehler MA ${maNr}:`, projAssignError.message);
-          }
-        } else {
-          console.log(`[Import] MA ${maNr} dem Projekt zugeordnet`);
-        }
-      }
-
       // 3. Arbeitspakete anlegen
       console.log(`[Import] Starte AP-Import: ${normalizedAPs.length} APs`);
       for (const ap of normalizedAPs) {

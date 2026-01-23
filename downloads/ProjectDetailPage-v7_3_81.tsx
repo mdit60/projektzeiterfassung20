@@ -39,6 +39,7 @@ import {
   Save,
   X,
   Plus,
+  Trash2,
 } from 'lucide-react';
 
 // Shared Components
@@ -206,6 +207,9 @@ export default function ProjectDetailPage({
     notes: '',
   });
   const [savingProject, setSavingProject] = useState(false);
+  const [showProjectDeleteConfirm, setShowProjectDeleteConfirm] = useState(false);
+  const [projectDeleteConfirmText, setProjectDeleteConfirmText] = useState('');
+  const [deletingProject, setDeletingProject] = useState(false);
 
   // ============================================================================
   // DATEN LADEN
@@ -845,6 +849,70 @@ export default function ProjectDetailPage({
     }
   };
 
+  // Projekt vollstaendig loeschen (nur fuer Berater/Admin)
+  const handleProjectDelete = async () => {
+    if (!project) return;
+    
+    // Sicherheitsabfrage: Projektname muss eingegeben werden
+    const expectedName = project.short_name || project.name;
+    if (projectDeleteConfirmText !== expectedName) {
+      alert(`Bitte geben Sie "${expectedName}" ein, um das Loeschen zu bestaetigen.`);
+      return;
+    }
+
+    setDeletingProject(true);
+    try {
+      // 1. Work Package Assignments loeschen
+      const { data: wpData } = await supabase
+        .from('v7_work_packages')
+        .select('id')
+        .eq('project_id', project.id);
+      
+      if (wpData && wpData.length > 0) {
+        const wpIds = wpData.map(wp => wp.id);
+        await supabase
+          .from('v7_work_package_assignments')
+          .delete()
+          .in('work_package_id', wpIds);
+      }
+
+      // 2. Work Packages loeschen
+      await supabase
+        .from('v7_work_packages')
+        .delete()
+        .eq('project_id', project.id);
+
+      // 3. Project Assignments loeschen
+      await supabase
+        .from('v7_project_assignments')
+        .delete()
+        .eq('project_id', project.id);
+
+      // 4. Timesheets loeschen
+      await supabase
+        .from('v7_timesheets')
+        .delete()
+        .eq('project_id', project.id);
+
+      // 5. Projekt selbst loeschen
+      const { error: deleteError } = await supabase
+        .from('v7_projects')
+        .delete()
+        .eq('id', project.id);
+
+      if (deleteError) throw deleteError;
+
+      // Zurueck zur Firmenseite navigieren
+      router.push(getBackUrl());
+    } catch (err: any) {
+      alert('Fehler beim Loeschen: ' + err.message);
+    } finally {
+      setDeletingProject(false);
+      setShowProjectDeleteConfirm(false);
+      setProjectDeleteConfirmText('');
+    }
+  };
+
   // ============================================================================
   // TABS
   // ============================================================================
@@ -1073,7 +1141,7 @@ export default function ProjectDetailPage({
                   onEditWorkPackage={adminUser ? openEditWPModal : undefined}
                   onDeleteWorkPackage={adminUser ? openDeleteConfirmation : undefined}
                   onAssignEmployees={adminUser ? openWPAssignModal : undefined}
-                  showAddButton={adminUser}
+                  showAddButton={false}
                   showActionButtons={adminUser}
                   showAssignments={true}
                 />
@@ -1481,28 +1549,114 @@ export default function ProjectDetailPage({
               </div>
             </div>
 
-            <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-lg sticky bottom-0">
+            <div className="flex justify-between gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-lg sticky bottom-0">
+              {/* Loeschen-Button nur fuer Berater-Portal */}
+              {portal === 'berater' && (
+                <button
+                  onClick={() => setShowProjectDeleteConfirm(true)}
+                  className="flex items-center gap-2 px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                >
+                  <Trash2 size={16} />
+                  Loeschen
+                </button>
+              )}
+              {portal !== 'berater' && <div></div>}
+              
+              <div className="flex gap-3">
+                <button
+                  onClick={closeProjectEditModal}
+                  className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  Abbrechen
+                </button>
+                <button
+                  onClick={handleProjectSave}
+                  disabled={savingProject || !projectEditData.name.trim()}
+                  className={`flex items-center gap-2 px-4 py-2 ${buttonBg} text-white rounded-lg 
+                             disabled:opacity-50 transition-colors`}
+                >
+                  {savingProject ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                      Speichern...
+                    </>
+                  ) : (
+                    <>
+                      <Save size={16} />
+                      Speichern
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Loeschen-Bestaetigungs-Modal */}
+      {showProjectDeleteConfirm && project && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+            <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-200 bg-red-50">
+              <div className="p-2 bg-red-100 rounded-full">
+                <AlertCircle className="text-red-600" size={24} />
+              </div>
+              <h3 className="text-lg font-semibold text-red-900">
+                Projekt loeschen
+              </h3>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <p className="text-gray-700">
+                Sind Sie sicher, dass Sie das Projekt <strong>{project.name}</strong> loeschen moechten?
+              </p>
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+                <strong>Achtung:</strong> Folgende Daten werden unwiderruflich geloescht:
+                <ul className="list-disc list-inside mt-2 space-y-1">
+                  <li>Alle Arbeitspakete ({workPackages.length})</li>
+                  <li>Alle Mitarbeiter-Zuordnungen ({teamMembers.length})</li>
+                  <li>Alle Zeiteintraege</li>
+                </ul>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Geben Sie <strong>"{project.short_name || project.name}"</strong> ein, um zu bestaetigen:
+                </label>
+                <input
+                  type="text"
+                  value={projectDeleteConfirmText}
+                  onChange={(e) => setProjectDeleteConfirmText(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                  placeholder="Projektname eingeben"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-lg">
               <button
-                onClick={closeProjectEditModal}
+                onClick={() => {
+                  setShowProjectDeleteConfirm(false);
+                  setProjectDeleteConfirmText('');
+                }}
                 className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
               >
                 Abbrechen
               </button>
               <button
-                onClick={handleProjectSave}
-                disabled={savingProject || !projectEditData.name.trim()}
-                className={`flex items-center gap-2 px-4 py-2 ${buttonBg} text-white rounded-lg 
-                           disabled:opacity-50 transition-colors`}
+                onClick={handleProjectDelete}
+                disabled={deletingProject || projectDeleteConfirmText !== (project.short_name || project.name)}
+                className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg 
+                           disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {savingProject ? (
+                {deletingProject ? (
                   <>
                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                    Speichern...
+                    Loeschen...
                   </>
                 ) : (
                   <>
-                    <Save size={16} />
-                    Speichern
+                    <Trash2 size={16} />
+                    Endgueltig loeschen
                   </>
                 )}
               </button>
@@ -1515,7 +1669,7 @@ export default function ProjectDetailPage({
       <footer className="bg-white border-t mt-auto">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <p className="text-center text-sm text-gray-500">
-            PZE v7.3.56 | {company?.name}
+            PZE v7.3.81 | {company?.name}
           </p>
         </div>
       </footer>

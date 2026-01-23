@@ -215,9 +215,18 @@
       ]
     }
   ],
-  "parse_datum": "2026-01-23T18:12:48.316259",
+  "formular_info": {
+    "quelle": "EuroNorm",
+    "formular_typ": "Durchfuehrbarkeitsstudie",
+    "version": null,
+    "stand": null,
+    "richtlinie": null,
+    "projekttraeger": "EuroNorm GmbH (Legacy)",
+    "raw_version_info": null
+  },
+  "parse_datum": "2026-01-23T20:51:02.081934",
   "quell_datei": "ZIM Antrag DS Tippl Bio-Ink 230414.pdf",
-  "format_erkannt": "durchfuehrbarkeitsstudie",
+  "format_erkannt": "legacy_euronorm",
   "statistik": {
     "anzahl_arbeitspakete": 9,
     "anzahl_echte_aps": 8,

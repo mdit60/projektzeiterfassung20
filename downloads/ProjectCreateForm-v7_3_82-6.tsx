@@ -387,46 +387,18 @@ export default function ProjectCreateForm({
       
       console.log('[Import] EmployeeIdMap:', employeeIdMap);
 
-      // 2b. Mitarbeiter dem PROJEKT zuordnen (v7_project_assignments für Team-Tab)
-      console.log('[Import] Ordne Mitarbeiter dem Projekt zu...');
-      for (const [maNr, employeeId] of Object.entries(employeeIdMap)) {
-        const { error: projAssignError } = await supabase
-          .from('v7_project_assignments')
-          .insert({
-            project_id: projectId,
-            employee_id: employeeId,
-            is_active: true,
-          });
-        
-        if (projAssignError) {
-          // Ignoriere Duplikat-Fehler (falls MA schon zugeordnet)
-          if (!projAssignError.message?.includes('duplicate')) {
-            console.error(`[Import] Projekt-Zuordnung Fehler MA ${maNr}:`, projAssignError.message);
-          }
-        } else {
-          console.log(`[Import] MA ${maNr} dem Projekt zugeordnet`);
-        }
-      }
-
       // 3. Arbeitspakete anlegen
-      console.log(`[Import] Starte AP-Import: ${normalizedAPs.length} APs`);
       for (const ap of normalizedAPs) {
         // ap_code generieren: AP1, AP2.1, AP4.3 etc.
         const apCode = ap.ap_sub_number > 0 
           ? `AP${ap.ap_number}.${ap.ap_sub_number}` 
           : `AP${ap.ap_number}`;
         
-        // Kombinierte AP-Nummer für Unique Constraint
-        // z.B. AP2.1 -> 201, AP4.3 -> 403, AP5 -> 500
-        const combinedApNumber = ap.ap_number * 100 + (ap.ap_sub_number || 0);
-        
-        console.log(`[Import] Lege AP an: ${apCode} (combined_ap_number=${combinedApNumber}, total_pm=${ap.total_pm})`);
-        
         const { data: newWP, error: wpError } = await supabase
           .from('v7_work_packages')
           .insert({
             project_id: projectId,
-            ap_number: combinedApNumber,  // Kombinierte Nummer!
+            ap_number: ap.ap_number,
             ap_code: apCode,
             name: ap.name,
             start_month: ap.start_month,
@@ -438,13 +410,13 @@ export default function ProjectCreateForm({
           .single();
 
         if (wpError) {
-          console.error(`[Import] AP-Fehler bei ${apCode}:`, wpError.message || wpError.code || JSON.stringify(wpError));
+          console.error('[Import] AP-Fehler:', wpError);
           continue;
         }
         
-        console.log(`[Import] AP angelegt: ${apCode} (ID: ${newWP.id})`);
+        console.log(`[Import] AP angelegt: ${apCode} - ${ap.name.substring(0, 30)}...`);
 
-        // 4. Zuordnungen (Assignments) - Tabelle: v7_work_package_assignments
+        // 4. Zuordnungen (Assignments)
         console.log(`[Import] AP ${ap.ap_code}: ${ap.assignments?.length || 0} Zuordnungen`);
         for (const assignment of ap.assignments || []) {
           const employeeId = employeeIdMap[assignment.ma_nr];
@@ -459,16 +431,16 @@ export default function ProjectCreateForm({
           const hourlyRate = maData?.stundensatz || 0;
 
           const { error: assignError } = await supabase
-            .from('v7_work_package_assignments')  // Korrekter Tabellenname!
+            .from('v7_project_assignments')
             .insert({
               work_package_id: newWP.id,
               employee_id: employeeId,
-              planned_person_months: assignment.pm,  // Korrekter Spaltenname!
+              planned_pm: assignment.pm,
               hourly_rate: hourlyRate,
             });
           
           if (assignError) {
-            console.error(`[Import]   Zuordnungs-Fehler:`, assignError.message || assignError);
+            console.error(`[Import]   Zuordnungs-Fehler:`, assignError);
           } else {
             console.log(`[Import]   Zuordnung erstellt: WP ${newWP.id} <- MA ${assignment.ma_nr} (${assignment.pm} PM)`);
           }

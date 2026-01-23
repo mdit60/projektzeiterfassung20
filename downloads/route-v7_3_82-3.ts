@@ -25,9 +25,7 @@ import { existsSync } from 'fs'
 
 // Mögliche Pfade zum Python-Parser
 const PARSER_PATHS = [
-  join(process.cwd(), 'src', 'lib', 'parse-zim-pdf-v4_9.py'),
   join(process.cwd(), 'src', 'lib', 'parse-zim-pdf-v4_8.py'),
-  join(process.cwd(), 'parse-zim-pdf-v4_9.py'),
   join(process.cwd(), 'parse-zim-pdf-v4_8.py'),
   join(process.cwd(), 'src', 'lib', 'zim-parser.py'),
 ]
@@ -149,77 +147,77 @@ export async function POST(request: NextRequest) {
     // Python-Parser aufrufen
     const result = await runPythonParser(parserPath, tempPdfPath)
     
-    // Der Parser gibt die Daten direkt zurück (nicht in einem { success, data } wrapper)
-    // Prüfe ob wir gültige Daten haben
-    const data = result.data || result  // result.data falls von Datei gelesen, sonst result direkt
-    
-    if (!data || !data.projekt) {
-      return NextResponse.json(
-        { success: false, error: 'Parser hat keine gültigen Daten zurückgegeben' },
-        { status: 400 }
-      )
+    // Wenn result.data existiert, formatiere es fuer das Frontend
+    if (result.success && result.data) {
+      // Transformiere das Parser-Format in das Frontend-Format
+      const data = result.data
+      
+      // Gib die Daten DIREKT zurück (ohne success wrapper)
+      // Das Frontend erwartet: { projekt: {...}, arbeitspakete: [...], ... }
+      return NextResponse.json({
+        projekt: {
+          name: data.projekt?.name || data.projekt?.thema || '',
+          kurzname: data.projekt?.kurzname || data.projekt?.kurzfass || '',
+          fkz: data.projekt?.fkz || data.projekt?.foerderkennzeichen || '',
+          start: data.projekt?.start || data.projekt?.laufzeit_von || '',
+          ende: data.projekt?.ende || data.projekt?.laufzeit_bis || '',
+          foerderquote: data.projekt?.foerderquote || 50,
+          gesamtkosten: data.projekt?.gesamtkosten || 0,
+          zuwendung: data.projekt?.zuwendung || 0,
+          gesamt_pm: data.projekt?.gesamt_pm || data.statistik?.gesamt_pm || 0,
+          gesamt_pk: data.projekt?.gesamt_pk || 0,
+          laufzeit_monate: data.projekt?.laufzeit_monate || 0
+        },
+        antragsteller: {
+          firma: data.antragsteller?.firma || data.antragsteller?.name || '',
+          rechtsform: data.antragsteller?.rechtsform || '',
+          strasse: data.antragsteller?.strasse || data.antragsteller?.str || '',
+          plz: data.antragsteller?.plz || '',
+          ort: data.antragsteller?.ort || '',
+          bundesland: data.antragsteller?.bundesland || data.antragsteller?.ddl_land || '',
+          website: data.antragsteller?.website || data.antragsteller?.www || '',
+          ansprechpartner_name: data.antragsteller?.ansprechpartner_name || '',
+          ansprechpartner_funktion: data.antragsteller?.ansprechpartner_funktion || '',
+          ansprechpartner_telefon: data.antragsteller?.ansprechpartner_telefon || data.antragsteller?.tel_ap || '',
+          ansprechpartner_email: data.antragsteller?.ansprechpartner_email || data.antragsteller?.mail_ap || ''
+        },
+        mitarbeiter: (data.mitarbeiter || []).map((ma: any) => ({
+          ma_nr: ma.ma_nr || 0,
+          nachname: ma.nachname || '',
+          vorname: ma.vorname || '',
+          qualifikation: ma.qualifikation || '',
+          stundensatz: ma.stundensatz || 0,
+          wochenstunden: ma.wochenstunden || ma.weekly_hours || 40,
+          pm_gesamt: ma.pm_gesamt || 0
+        })),
+        arbeitspakete: (data.arbeitspakete || []).map((ap: any) => ({
+          ap_nummer: ap.ap_number || ap.ap_nr || 0,
+          ap_code: ap.ap_code || `AP${ap.ap_number || ap.ap_nr}`,
+          name: ap.name || ap.bezeichnung || '',
+          start_monat: ap.start_monat || null,
+          ende_monat: ap.ende_monat || null,
+          gesamt_pm: ap.total_person_months ?? ap.gesamt_pm ?? 0,
+          mitarbeiter_zuordnungen: (ap.mitarbeiter_zuordnungen || ap.zuordnungen || []).map((z: any) => ({
+            ma_nr: z.ma_nr || 0,
+            pm: z.pm || 0
+          }))
+        })),
+        formular_info: data.formular_info || {},
+        format_erkannt: data.format_erkannt || data.format || 'unknown',
+        statistik: data.statistik || {
+          anzahl_arbeitspakete: (data.arbeitspakete || []).length,
+          gesamt_pm: data.projekt?.gesamt_pm || 0,
+          anzahl_mitarbeiter: (data.mitarbeiter || []).length
+        }
+      })
     }
     
-    console.log(`[API] Erfolgreich geparst: ${data.projekt?.name || 'Unbenannt'}`)
+    // Fallback: Gib das Ergebnis direkt zurück
+    if (!result.success) {
+      return NextResponse.json(result, { status: 400 })
+    }
     
-    // Transformiere das Parser-Format in das Frontend-Format
-    // Das Frontend erwartet: { projekt: {...}, arbeitspakete: [...], ... }
-    return NextResponse.json({
-      projekt: {
-        name: data.projekt?.name || data.projekt?.thema || '',
-        kurzname: data.projekt?.kurzname || data.projekt?.kurzfass || '',
-        fkz: data.projekt?.fkz || data.projekt?.foerderkennzeichen || '',
-        start: data.projekt?.start || data.projekt?.laufzeit_von || '',
-        ende: data.projekt?.ende || data.projekt?.laufzeit_bis || '',
-        foerderquote: data.projekt?.foerderquote || 50,
-        gesamtkosten: data.projekt?.gesamtkosten || 0,
-        zuwendung: data.projekt?.zuwendung || 0,
-        gesamt_pm: data.projekt?.gesamt_pm || data.statistik?.gesamt_pm || 0,
-        gesamt_pk: data.projekt?.gesamt_pk || 0,
-        laufzeit_monate: data.projekt?.laufzeit_monate || 0
-      },
-      antragsteller: {
-        firma: data.antragsteller?.firma || data.antragsteller?.name || '',
-        rechtsform: data.antragsteller?.rechtsform || '',
-        strasse: data.antragsteller?.strasse || data.antragsteller?.str || '',
-        plz: data.antragsteller?.plz || '',
-        ort: data.antragsteller?.ort || '',
-        bundesland: data.antragsteller?.bundesland || data.antragsteller?.ddl_land || '',
-        website: data.antragsteller?.website || data.antragsteller?.www || '',
-        ansprechpartner_name: data.antragsteller?.ansprechpartner_name || '',
-        ansprechpartner_funktion: data.antragsteller?.ansprechpartner_funktion || '',
-        ansprechpartner_telefon: data.antragsteller?.ansprechpartner_telefon || data.antragsteller?.tel_ap || '',
-        ansprechpartner_email: data.antragsteller?.ansprechpartner_email || data.antragsteller?.mail_ap || ''
-      },
-      mitarbeiter: (data.mitarbeiter || []).map((ma: any) => ({
-        ma_nr: ma.ma_nr || 0,
-        nachname: ma.nachname || '',
-        vorname: ma.vorname || '',
-        qualifikation: ma.qualifikation || '',
-        stundensatz: ma.stundensatz || 0,
-        wochenstunden: ma.wochenstunden || ma.weekly_hours || 40,
-        pm_gesamt: ma.pm_gesamt || 0
-      })),
-      arbeitspakete: (data.arbeitspakete || []).map((ap: any) => ({
-        ap_nummer: ap.ap_number || ap.ap_nr || 0,
-        ap_code: ap.ap_code || `AP${ap.ap_number || ap.ap_nr}`,
-        name: ap.name || ap.bezeichnung || '',
-        start_monat: ap.start_monat || null,
-        ende_monat: ap.ende_monat || null,
-        gesamt_pm: ap.total_person_months ?? ap.gesamt_pm ?? 0,
-        mitarbeiter_zuordnungen: (ap.mitarbeiter_zuordnungen || ap.zuordnungen || []).map((z: any) => ({
-          ma_nr: z.ma_nr || 0,
-          pm: z.pm || 0
-        }))
-      })),
-      formular_info: data.formular_info || {},
-      format_erkannt: data.format_erkannt || data.format || 'unknown',
-      statistik: data.statistik || {
-        anzahl_arbeitspakete: (data.arbeitspakete || []).length,
-        gesamt_pm: data.projekt?.gesamt_pm || 0,
-        anzahl_mitarbeiter: (data.mitarbeiter || []).length
-      }
-    })
+    return NextResponse.json(result)
     
   } catch (error: any) {
     console.error('[API] Fehler:', error)
