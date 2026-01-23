@@ -1304,7 +1304,20 @@ export default function ProjectDetailPage({
 
             <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
               <Clock className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-              <p className="text-gray-500">Zeiterfassung wird in der naechsten Version implementiert</p>
+              <p className="text-gray-500 mb-4">
+                Erfassen Sie Arbeitszeiten fuer dieses Projekt
+              </p>
+              <a
+                href={portal === 'berater' 
+                  ? `/v7/berater/foerderung/firma/${companyId}/zeiterfassung?projekt=${projectId}`
+                  : `/v7/firma/zeiterfassung?projekt=${projectId}`
+                }
+                className="inline-flex items-center gap-2 px-4 py-2 text-white rounded-lg transition-colors"
+                style={{ backgroundColor: portal === 'berater' ? '#002451' : '#65A655' }}
+              >
+                <Clock size={18} />
+                Zur Zeiterfassung
+              </a>
             </div>
           </div>
         )}
