@@ -31,7 +31,36 @@
     "foerderquote": 0.0,
     "gesamt_pm": 54.0
   },
-  "mitarbeiter": [],
+  "mitarbeiter": [
+    {
+      "ma_nr": 1,
+      "nachname": "Dührkop",
+      "vorname": "Thomas",
+      "display_name": "Dührkop, Thomas",
+      "qualifikation": "1"
+    },
+    {
+      "ma_nr": 2,
+      "nachname": "Dührkop",
+      "vorname": "Matthias",
+      "display_name": "Dührkop, Matthias",
+      "qualifikation": "1"
+    },
+    {
+      "ma_nr": 3,
+      "nachname": "Rainer",
+      "vorname": "Schulz",
+      "display_name": "Rainer, Schulz",
+      "qualifikation": "2"
+    },
+    {
+      "ma_nr": 4,
+      "nachname": "Bohlmann",
+      "vorname": "Jens",
+      "display_name": "Bohlmann, Jens",
+      "qualifikation": "3"
+    }
+  ],
   "arbeitspakete": [
     {
       "ap_number": 1,
@@ -344,7 +373,7 @@
       "Version: 12.10 Stand: 16.08.2022"
     ]
   },
-  "parse_datum": "2026-01-23T19:33:05.763718",
+  "parse_datum": "2026-01-23T20:03:58.505284",
   "quell_datei": "ZIM Beispiel innovationsnetzwerke-antrag-einzelprojekt Digitrans.pdf",
   "format_erkannt": "standard_zim",
   "statistik": {

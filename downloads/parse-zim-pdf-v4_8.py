@@ -147,6 +147,74 @@ def parse_pm(pm_str: str) -> float:
         return 0.0
 
 
+def extract_mitarbeiter_liste(xfa_text: str, format_type: str) -> list:
+    """
+    Extrahiert Mitarbeiter aus Anlage 6.1/6.2.
+    
+    VDI/VDE Tags:
+    - cg_VMS_PM_aNachname, cg_VMS_PM_aVorname (Anlage 6.1)
+    - cg_VMS_PK_aQualGruppe (Qualifikation A/B/C)
+    
+    EuroNorm Tags:
+    - name, vorname oder aehnlich
+    
+    Returns: Liste von Mitarbeitern mit ma_nr, name, qualifikation
+    """
+    mitarbeiter = []
+    
+    if format_type == 'standard_zim':
+        # VDI/VDE Format
+        nachnamen = extract_all_values_flexible('cg_VMS_PM_aNachname', xfa_text)
+        vornamen = extract_all_values_flexible('cg_VMS_PM_aVorname', xfa_text)
+        qual_gruppen = extract_all_values_flexible('cg_VMS_PK_aQualGruppe', xfa_text)
+        
+        # Nur nicht-leere Eintraege
+        for i in range(max(len(nachnamen), len(vornamen))):
+            nachname = nachnamen[i] if i < len(nachnamen) else ''
+            vorname = vornamen[i] if i < len(vornamen) else ''
+            qual = qual_gruppen[i] if i < len(qual_gruppen) else ''
+            
+            if nachname or vorname:
+                mitarbeiter.append({
+                    'ma_nr': i + 1,  # 1-basiert
+                    'nachname': nachname,
+                    'vorname': vorname,
+                    'display_name': f"{nachname}, {vorname}" if nachname and vorname else (nachname or vorname),
+                    'qualifikation': qual
+                })
+    
+    else:
+        # EuroNorm Legacy - versuche verschiedene Tag-Varianten
+        # Anlage 6.1 hat oft: Name, Vorname als separate Felder
+        nachnamen = extract_all_values_flexible('Name', xfa_text)
+        vornamen = extract_all_values_flexible('Vorname', xfa_text)
+        
+        # Filtere nach plausiblen Namen (nicht zu kurz, keine Formulartexte)
+        for i in range(min(len(nachnamen), len(vornamen))):
+            nachname = nachnamen[i] if i < len(nachnamen) else ''
+            vorname = vornamen[i] if i < len(vornamen) else ''
+            
+            # Plausibilitaetspruefung
+            if nachname and vorname and len(nachname) >= 2 and len(vorname) >= 2:
+                # Ignoriere offensichtliche Nicht-Namen
+                if nachname.lower() not in ['name', 'nachname', 'firma'] and \
+                   vorname.lower() not in ['vorname', 'name']:
+                    mitarbeiter.append({
+                        'ma_nr': len(mitarbeiter) + 1,
+                        'nachname': nachname,
+                        'vorname': vorname,
+                        'display_name': f"{nachname}, {vorname}",
+                        'qualifikation': ''
+                    })
+    
+    if mitarbeiter:
+        print(f"\n  MITARBEITER aus Anlage 6:")
+        for ma in mitarbeiter:
+            print(f"    MA {ma['ma_nr']}: {ma['display_name']} (Qual: {ma['qualifikation'] or '-'})")
+    
+    return mitarbeiter
+
+
 def parse_ma_nr(ma_str: str) -> int:
     if not ma_str:
         return None
@@ -542,10 +610,13 @@ def parse_legacy_euronorm(xfa_text: str, has_technical: bool = False) -> dict:
         if ap['total_person_months'] and ap['total_person_months'] > 0:
             projekt['gesamt_pm'] += ap['total_person_months']
     
+    # Mitarbeiter aus Anlage 6 extrahieren
+    mitarbeiter = extract_mitarbeiter_liste(text, 'legacy_euronorm')
+    
     return {
         'projekt': projekt,
         'antragsteller': antragsteller,
-        'mitarbeiter': [],
+        'mitarbeiter': mitarbeiter,
         'arbeitspakete': arbeitspakete,
         'format': 'legacy_euronorm'
     }
@@ -629,10 +700,13 @@ def parse_standard_zim(xfa_text: str) -> dict:
         if ap['total_person_months'] and ap['total_person_months'] > 0:
             projekt['gesamt_pm'] += ap['total_person_months']
     
+    # Mitarbeiter aus Anlage 6.1/6.2 extrahieren
+    mitarbeiter = extract_mitarbeiter_liste(text, 'standard_zim')
+    
     return {
         'projekt': projekt,
         'antragsteller': antragsteller,
-        'mitarbeiter': [],
+        'mitarbeiter': mitarbeiter,
         'arbeitspakete': arbeitspakete,
         'format': 'standard_zim'
     }
@@ -778,6 +852,14 @@ def main():
             print(f"  - Technische APs (B): {data['statistik']['anzahl_technisch']}")
             print(f"  - Nicht-technische APs (A): {data['statistik']['anzahl_nicht_technisch']}")
         print(f"  - Gesamt PM: {data['statistik']['gesamt_pm']}")
+        print(f"  - Mitarbeiter: {len(data.get('mitarbeiter', []))}")
+        
+        # Mitarbeiter ausgeben
+        if data.get('mitarbeiter'):
+            print(f"\nMitarbeiter (aus Anlage 6):")
+            for ma in data['mitarbeiter']:
+                qual = f" [{ma.get('qualifikation', '')}]" if ma.get('qualifikation') else ""
+                print(f"  {ma['ma_nr']:3}. {ma['display_name']}{qual}")
         
         if data['arbeitspakete']:
             print(f"\nArbeitspakete:")
