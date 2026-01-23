@@ -370,58 +370,27 @@ export default function TimesheetForm({
         const day = parseInt(entry.work_date.split('-')[2]);
 
         if (entry.work_package_id && wpIds.includes(entry.work_package_id)) {
-          // Eintraege MIT Arbeitspaket
           if (!wpEntryMap.has(entry.work_package_id)) {
             wpEntryMap.set(entry.work_package_id, new Map());
           }
           const value = entry.absence_code || (entry.hours > 0 ? entry.hours.toString() : '');
           wpEntryMap.get(entry.work_package_id)!.set(day, { id: entry.id, value });
-        } else if (entry.absence_code && !entry.work_package_id) {
-          // Fehlzeiten OHNE Arbeitspaket - sammeln fuer spaeter
-          if (!wpEntryMap.has('__absence__')) {
-            wpEntryMap.set('__absence__', new Map());
-          }
-          wpEntryMap.get('__absence__')!.set(day, { id: entry.id, value: entry.absence_code });
         } else if (!entry.is_billable && !entry.work_package_id && !entry.absence_code) {
-          // Nicht zuschussfaehige Stunden
           newNonBillable[day] = { id: entry.id, value: entry.hours > 0 ? entry.hours.toString() : '' };
         }
       });
 
       let rowIndex = 0;
-      let firstWpRowIndex = -1; // Merken welche Zeile das erste AP hat
-      
-      // Zuerst Eintraege mit Arbeitspaketen
       wpEntryMap.forEach((dayMap, wpId) => {
-        if (wpId === '__absence__') return; // Fehlzeiten separat behandeln
         if (rowIndex < 4) {
           const entriesObj: Record<number, CalendarEntry> = {};
           dayMap.forEach((entry, day) => {
             entriesObj[day] = entry;
           });
           newRows[rowIndex] = { workPackageId: wpId, entries: entriesObj };
-          if (firstWpRowIndex === -1) {
-            firstWpRowIndex = rowIndex; // Erste Zeile mit AP merken
-          }
           rowIndex++;
         }
       });
-      
-      // Fehlzeiten in die ERSTE Zeile mit AP einfuegen (nicht in leere Zeile!)
-      const absenceEntries = wpEntryMap.get('__absence__');
-      if (absenceEntries && absenceEntries.size > 0) {
-        // Ziel: Erste Zeile die ein AP hat
-        const targetRow = firstWpRowIndex !== -1 ? firstWpRowIndex : 0;
-        
-        const entriesObj: Record<number, CalendarEntry> = { ...newRows[targetRow].entries };
-        absenceEntries.forEach((entry, day) => {
-          // Nur einfuegen wenn an dem Tag noch kein Eintrag ist
-          if (!entriesObj[day]) {
-            entriesObj[day] = entry;
-          }
-        });
-        newRows[targetRow] = { ...newRows[targetRow], entries: entriesObj };
-      }
 
       setApRows(newRows);
       setNonBillableEntries(newNonBillable);
@@ -715,12 +684,6 @@ export default function TimesheetForm({
     setSuccessMessage(null);
 
     try {
-      // DEBUG: Log was gespeichert werden soll
-      console.log('=== SPEICHERN START ===');
-      console.log('Employee ID:', selectedEmployeeId);
-      console.log('Project ID:', selectedProjectId);
-      console.log('AP Rows:', JSON.stringify(apRows, null, 2));
-      
       const now = new Date().toISOString();
       const daysInMonth = getDaysInMonth(selectedYear, selectedMonth);
       const entriesToSave: any[] = [];
@@ -728,22 +691,18 @@ export default function TimesheetForm({
 
       // AP-Zeilen
       apRows.forEach(row => {
+        if (!row.workPackageId) return;
+
         Object.entries(row.entries).forEach(([dayStr, entry]) => {
           const day = parseInt(dayStr);
           if (!entry.value) return;
 
           const isAbsence = isAbsenceCode(entry.value);
-          
-          // Normale Stunden brauchen ein Arbeitspaket
-          // Fehlzeiten (U/K/S) werden OHNE work_package_id gespeichert (DB Constraint!)
-          if (!isAbsence && !row.workPackageId) return;
-          
           const hours = isAbsence ? 0 : parseFloat(entry.value);
 
           const record = {
             employee_id: selectedEmployeeId,
-            // WICHTIG: Bei Fehlzeiten KEIN work_package_id (DB Constraint)
-            work_package_id: isAbsence ? null : row.workPackageId,
+            work_package_id: row.workPackageId,
             project_id: selectedProjectId,
             work_date: formatWorkDate(day),
             hours: hours,
@@ -817,30 +776,16 @@ export default function TimesheetForm({
           .in('id', idsToDeactivate);
       }
 
-      // Speichern mit Fehlerbehandlung
-      console.log('Eintraege zum Speichern:', entriesToSave.length);
-      
+      // Speichern
       for (const entry of entriesToSave) {
         if (entry.id) {
-          const { error } = await supabase.from('v7_timesheets').update(entry).eq('id', entry.id);
-          if (error) {
-            console.error('Update Fehler:', error, entry);
-            throw new Error(`Update fehlgeschlagen: ${error.message}`);
-          }
+          await supabase.from('v7_timesheets').update(entry).eq('id', entry.id);
         } else {
-          const { error } = await supabase.from('v7_timesheets').insert(entry);
-          if (error) {
-            console.error('Insert Fehler:', error, entry);
-            throw new Error(`Insert fehlgeschlagen: ${error.message}`);
-          }
+          await supabase.from('v7_timesheets').insert(entry);
         }
       }
-      
-      if (entriesToSave.length === 0) {
-        console.warn('Keine Eintraege zum Speichern gefunden!');
-      }
 
-      setSuccessMessage(`Stundennachweis fuer ${MONTH_NAMES[selectedMonth - 1]} ${selectedYear} gespeichert! (${entriesToSave.length} Eintraege)`);
+      setSuccessMessage(`Stundennachweis fuer ${MONTH_NAMES[selectedMonth - 1]} ${selectedYear} gespeichert!`);
       setHasChanges(false);
       setTimeout(() => setSuccessMessage(null), 4000);
 

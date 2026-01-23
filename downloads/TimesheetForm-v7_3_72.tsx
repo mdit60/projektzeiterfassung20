@@ -377,7 +377,8 @@ export default function TimesheetForm({
           const value = entry.absence_code || (entry.hours > 0 ? entry.hours.toString() : '');
           wpEntryMap.get(entry.work_package_id)!.set(day, { id: entry.id, value });
         } else if (entry.absence_code && !entry.work_package_id) {
-          // Fehlzeiten OHNE Arbeitspaket - sammeln fuer spaeter
+          // Fehlzeiten OHNE Arbeitspaket (U/K/S in leerer Zeile)
+          // Diese werden in die erste freie Zeile geladen
           if (!wpEntryMap.has('__absence__')) {
             wpEntryMap.set('__absence__', new Map());
           }
@@ -389,7 +390,6 @@ export default function TimesheetForm({
       });
 
       let rowIndex = 0;
-      let firstWpRowIndex = -1; // Merken welche Zeile das erste AP hat
       
       // Zuerst Eintraege mit Arbeitspaketen
       wpEntryMap.forEach((dayMap, wpId) => {
@@ -400,27 +400,25 @@ export default function TimesheetForm({
             entriesObj[day] = entry;
           });
           newRows[rowIndex] = { workPackageId: wpId, entries: entriesObj };
-          if (firstWpRowIndex === -1) {
-            firstWpRowIndex = rowIndex; // Erste Zeile mit AP merken
-          }
           rowIndex++;
         }
       });
       
-      // Fehlzeiten in die ERSTE Zeile mit AP einfuegen (nicht in leere Zeile!)
+      // Dann Fehlzeiten ohne WP in die erste verfuegbare Zeile
       const absenceEntries = wpEntryMap.get('__absence__');
       if (absenceEntries && absenceEntries.size > 0) {
-        // Ziel: Erste Zeile die ein AP hat
-        const targetRow = firstWpRowIndex !== -1 ? firstWpRowIndex : 0;
-        
-        const entriesObj: Record<number, CalendarEntry> = { ...newRows[targetRow].entries };
-        absenceEntries.forEach((entry, day) => {
-          // Nur einfuegen wenn an dem Tag noch kein Eintrag ist
-          if (!entriesObj[day]) {
+        // Finde erste Zeile ohne WP oder mit passendem WP
+        let targetRow = newRows.findIndex(row => row.workPackageId === null);
+        if (targetRow === -1 && rowIndex < 4) {
+          targetRow = rowIndex;
+        }
+        if (targetRow !== -1) {
+          const entriesObj: Record<number, CalendarEntry> = { ...newRows[targetRow].entries };
+          absenceEntries.forEach((entry, day) => {
             entriesObj[day] = entry;
-          }
-        });
-        newRows[targetRow] = { ...newRows[targetRow], entries: entriesObj };
+          });
+          newRows[targetRow] = { workPackageId: null, entries: entriesObj };
+        }
       }
 
       setApRows(newRows);

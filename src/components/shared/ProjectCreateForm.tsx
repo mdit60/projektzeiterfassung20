@@ -369,7 +369,7 @@ export default function ProjectCreateForm({
             name: ap.name,
             start_month: ap.start_month,
             end_month: ap.end_month,
-            planned_pm: ap.total_pm,
+            total_person_months: ap.total_pm,
             is_active: true,
           })
           .select('id')

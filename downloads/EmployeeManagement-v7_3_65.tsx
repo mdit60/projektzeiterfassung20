@@ -3,7 +3,7 @@
 // PZE V7 - Shared Employee Management Component
 // ============================================================================
 // Datum: 23. Januar 2026
-// Version: 7.3.66
+// Version: 7.3.65
 //
 // Wird von beiden Portalen genutzt:
 // - Firmen-Portal: /v7/firma/mitarbeiter
@@ -17,8 +17,7 @@
 // - Portal-Rolle zuweisen (employee/project_leader/client_admin)
 // - Login erstellen (NEU: Erkennt bereits registrierte Benutzer)
 //
-// FIX v7.3.66:
-// - "E-Mail fehlt" Hinweis bei importierten Mitarbeitern ohne E-Mail
+// FIX v7.3.60:
 // - Bessere Login-Status-Erkennung via v7_user_profiles
 // - Verknuepfungsfunktion fuer bereits registrierte Benutzer
 // - "Hat Login" Badge korrekt anzeigen
@@ -477,33 +476,6 @@ export default function EmployeeManagement({
     setLoginError(null);
     
     try {
-      // Pruefen ob v7_user_profiles existiert, wenn nicht erstellen
-      const { data: existingProfile } = await supabase
-        .from('v7_user_profiles')
-        .select('id')
-        .eq('id', existingUserId)
-        .maybeSingle();
-      
-      if (!existingProfile) {
-        // Profil erstellen fuer bestehenden Auth User
-        const { error: profileError } = await supabase
-          .from('v7_user_profiles')
-          .insert({
-            id: existingUserId,
-            email: loginEmployee.email,
-            role: loginEmployee.portal_role === 'client_admin' ? 'client_admin' : 'client_user',
-            display_name: loginEmployee.display_name,
-            first_name: loginEmployee.first_name,
-            last_name: loginEmployee.last_name,
-            client_company_id: companyId,
-          });
-        
-        if (profileError && profileError.code !== '23505') {
-          console.error('Fehler beim Profil erstellen:', profileError);
-          // Kein throw - wir versuchen trotzdem zu verknuepfen
-        }
-      }
-      
       // Mitarbeiter mit bestehendem User verknuepfen
       const { error } = await supabase
         .from('v7_employees')
@@ -561,8 +533,9 @@ export default function EmployeeManagement({
         if (signUpError) {
           if (signUpError.message.includes('already registered')) {
             // E-Mail bereits registriert - auf Verknuepfungs-Modus wechseln
+            setLoginError('Diese E-Mail ist bereits registriert. Moechten Sie den bestehenden Login verknuepfen?');
             
-            // Versuchen, die User-ID aus v7_user_profiles zu finden
+            // Versuchen, die User-ID zu finden
             const { data: existingProfile } = await supabase
               .from('v7_user_profiles')
               .select('id')
@@ -570,29 +543,9 @@ export default function EmployeeManagement({
               .maybeSingle();
             
             if (existingProfile) {
-              // User existiert in v7_user_profiles - kann direkt verknuepft werden
               setLoginMode('link');
               setExistingUserId(existingProfile.id);
-              setLoginError('Diese E-Mail ist bereits registriert. Klicken Sie auf "Verknuepfen" um den Mitarbeiter mit dem bestehenden Login zu verbinden.');
-            } else {
-              // User existiert in Auth aber NICHT in v7_user_profiles
-              // Versuche die User-ID via RPC-Funktion zu holen
-              const { data: authUserId, error: rpcError } = await supabase
-                .rpc('get_auth_user_id_by_email', { user_email: loginEmployee.email.toLowerCase() });
-              
-              if (authUserId && !rpcError) {
-                // User-ID gefunden! Erstelle v7_user_profiles Eintrag und verknuepfe
-                setLoginMode('link');
-                setExistingUserId(authUserId);
-                setLoginError('Diese E-Mail ist bereits registriert (aus frueheren Tests). Klicken Sie auf "Verknuepfen" um den Mitarbeiter zu verbinden.');
-              } else {
-                // RPC-Funktion nicht verfuegbar oder anderer Fehler
-                // Fallback: Manueller Hinweis
-                setLoginError('Diese E-Mail ist bereits registriert, aber die Verknuepfung konnte nicht automatisch erfolgen. Bitte den Benutzer bitten, sich einmal im Firmenportal einzuloggen.');
-                console.log('RPC Fehler oder nicht installiert:', rpcError);
-              }
             }
-            setCreatingLogin(false);
             return;
           } else {
             setLoginError(signUpError.message);
@@ -782,10 +735,8 @@ export default function EmployeeManagement({
                   >
                     <td className="px-6 py-4">
                       <div className="font-medium text-gray-900">{emp.display_name}</div>
-                      {emp.email ? (
+                      {emp.email && (
                         <div className="text-sm text-gray-500">{emp.email}</div>
-                      ) : (
-                        <div className="text-sm text-orange-500 italic">E-Mail fehlt</div>
                       )}
                     </td>
                     <td className="px-6 py-4 text-gray-700">

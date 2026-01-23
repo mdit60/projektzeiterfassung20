@@ -1,0 +1,124 @@
+{
+  "projekt": {
+    "name": "BioInk: Analyse, Bewertung und Ausarbeitung der Prozessentwicklung zur Herstellung einer biobasierten Spezialtinte  zur Substitution des  konvensionellen Lösemittels",
+    "kurzname": "Schwangere, die mit der solventen Tinte in Berührung kommen, laufen Gefahr, dass dies negativ auf di...",
+    "fkz": "",
+    "start": "",
+    "ende": "",
+    "foerderquote": 50.0,
+    "gesamtkosten": 0.0,
+    "zuwendung": 0.0,
+    "gesamt_pm": 5.0,
+    "gesamt_pk": 22199.0,
+    "laufzeit_monate": 0
+  },
+  "antragsteller": {
+    "firma": "Tippl GmbH",
+    "rechtsform": "2",
+    "strasse": "Im Gehrn 10",
+    "plz": "71737",
+    "ort": "Kirchberg an der Murr",
+    "bundesland": "Baden-Württemberg",
+    "website": "tippl.de",
+    "ansprechpartner_name": "",
+    "ansprechpartner_funktion": "",
+    "ansprechpartner_telefon": "+49 7144 8888-11",
+    "ansprechpartner_email": "mario.tippl@tippl.de"
+  },
+  "budget": {
+    "gesamtkosten": 0.0,
+    "personalkosten": 22199.0,
+    "materialkosten": 0.0,
+    "fremdleistungen": 0.0,
+    "gemeinkosten": 0.0,
+    "foerderquote": 50.0,
+    "foerdersumme": 0.0,
+    "eigenanteil": 0.0,
+    "laufzeit_monate": 0,
+    "gesamt_pm": 5.0
+  },
+  "mitarbeiter": [],
+  "arbeitspakete": [
+    {
+      "ap_nummer": 1,
+      "ap_sub_nummer": null,
+      "ap_code": "AP1",
+      "name": "Analyse Stand der Technik",
+      "start_monat": null,
+      "ende_monat": null,
+      "gesamt_pm": 0.5,
+      "mitarbeiter_zuordnungen": []
+    },
+    {
+      "ap_nummer": 2,
+      "ap_sub_nummer": 1,
+      "ap_code": "AP2.1",
+      "name": "Patentprüfung",
+      "start_monat": null,
+      "ende_monat": null,
+      "gesamt_pm": 0.5,
+      "mitarbeiter_zuordnungen": []
+    },
+    {
+      "ap_nummer": 2,
+      "ap_sub_nummer": 2,
+      "ap_code": "AP2.2",
+      "name": "Analyse Marktpotential",
+      "start_monat": null,
+      "ende_monat": null,
+      "gesamt_pm": 0.5,
+      "mitarbeiter_zuordnungen": []
+    },
+    {
+      "ap_nummer": 3,
+      "ap_sub_nummer": null,
+      "ap_code": "AP3",
+      "name": "Erstellung AP für FuE-Projekt",
+      "start_monat": null,
+      "ende_monat": null,
+      "gesamt_pm": 1.0,
+      "mitarbeiter_zuordnungen": []
+    },
+    {
+      "ap_nummer": 4,
+      "ap_sub_nummer": null,
+      "ap_code": "AP4",
+      "name": "biobasierte Lösemittel, deren Einsatzfähigkeit und Versuche in Markierungs- und Kennzeichnungssystemen",
+      "start_monat": null,
+      "ende_monat": null,
+      "gesamt_pm": 0.5,
+      "mitarbeiter_zuordnungen": []
+    },
+    {
+      "ap_nummer": 4,
+      "ap_sub_nummer": 1,
+      "ap_code": "AP4.1",
+      "name": "Recherche und Anforderungen an biobasierten Lösemitteln, deren Parameter und Einsatzfähigkeit in Markierungs- und Kennzeichnungssystemen",
+      "start_monat": null,
+      "ende_monat": null,
+      "gesamt_pm": 1.0,
+      "mitarbeiter_zuordnungen": []
+    },
+    {
+      "ap_nummer": 5,
+      "ap_sub_nummer": null,
+      "ap_code": "AP5",
+      "name": "Ermittl. wissenschaftlich-technischer Ressourcen und möglicher Kooperationspartner",
+      "start_monat": null,
+      "ende_monat": null,
+      "gesamt_pm": 1.0,
+      "mitarbeiter_zuordnungen": []
+    }
+  ],
+  "parse_datum": "2026-01-22T14:25:51.268104",
+  "quell_datei": "ZIM Antrag DS Tippl Bio-Ink 230414.pdf",
+  "format_erkannt": "durchfuehrbarkeitsstudie",
+  "statistik": {
+    "anzahl_mitarbeiter": 0,
+    "anzahl_arbeitspakete": 7,
+    "anzahl_ap_zuordnungen": 0,
+    "gesamt_pm": 5.0,
+    "gesamt_pk": 22199.0,
+    "laufzeit_monate": 0
+  }
+}
