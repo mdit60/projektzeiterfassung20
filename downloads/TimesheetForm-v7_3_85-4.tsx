@@ -2,8 +2,8 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 24. Januar 2026
-// Version: 7.3.85-5
+// Datum: 21. Januar 2026
+// Version: 7.3.57
 //
 // Wird von beiden Portalen genutzt:
 // - Firmen-Portal: /v7/firma/zeiterfassung
@@ -16,9 +16,6 @@
 // - Fehlzeiten (U/K/S)
 // - Dynamische AP-Zeilen
 // - Durchfuehrbarkeitsstudien-Modus
-// - Jahr 2020-2030 waehlbar
-// - T-Spalte: Zeigt X wenn AP technisch (is_technical === true)
-// - AP-Dropdown: Nur Nummer ohne "AP" Prefix
 // ============================================================================
 
 'use client';
@@ -1153,8 +1150,7 @@ export default function TimesheetForm({
                     </td>
                     {isDurchfuehrbarkeitsstudie && (
                       <td className="border p-1 text-center">
-                          {console.log('selectedWP:', selectedWP?.ap_code, 'is_technical:', selectedWP?.is_technical, 'type:', typeof selectedWP?.is_technical)}
-                          {selectedWP && (selectedWP.is_technical === true || selectedWP.is_technical === 'true') ? (
+                        {selectedWP && selectedWP.is_technical === true ? (
                           <span className="text-green-600 font-bold">X</span>
                         ) : (
                           <span className="text-gray-400">-</span>

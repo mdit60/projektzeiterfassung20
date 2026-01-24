@@ -70,6 +70,7 @@ interface WorkPackage {
   start_date: string | null;
   end_date: string | null;
   planned_pm: number | null;
+  is_technical?: boolean | null;  // NEU: Technisches AP (für ZIM_DS)
 }
 
 interface Assignment {
@@ -87,11 +88,11 @@ interface WorkPackageTableProps {
   projectTeam?: ProjectTeamMember[];  // NEU: Projektspezifische MA-Nummern (optional fuer Rueckwaertskompatibilitaet)
   canEdit: boolean;
   onAssignmentChange: (workPackageId: string, employeeId: string, plannedPm: number | null) => Promise<void>;
-  onDateChange?: (workPackageId: string, field: 'start_date' | 'end_date', value: string | null) => Promise<void>;
   onAddAP?: () => void;
   onEditAP?: (wp: WorkPackage) => void;
   onDeleteAP?: (wp: WorkPackage) => void;
   portal?: 'berater' | 'firma';
+  fundingFormat?: string | null;  // NEU: Um ZIM_DS zu erkennen und "T"-Spalte anzuzeigen
 }
 
 // ============================================================================
@@ -119,7 +120,7 @@ const PORTAL_COLORS = {
 // HILFSFUNKTIONEN
 // ============================================================================
 
-// Datum formatieren: "01.05.23" (TT.MM.JJ)
+// Datum formatieren: "10/25"
 const formatDateShort = (dateStr: string | null): string => {
   if (!dateStr) return '-';
   const date = new Date(dateStr);
@@ -169,7 +170,7 @@ const sortWorkPackages = (wps: WorkPackage[]): WorkPackage[] => {
 };
 
 // ============================================================================
-// INLINE-EDIT ZELLE (PM-Werte)
+// INLINE-EDIT ZELLE
 // ============================================================================
 
 interface EditableCellProps {
@@ -274,173 +275,6 @@ function EditableCell({ value, canEdit, onChange, portalColors }: EditableCellPr
 }
 
 // ============================================================================
-// INLINE-EDIT DATUM ZELLE
-// ============================================================================
-
-interface EditableDateCellProps {
-  value: string | null;  // ISO Date String oder null
-  canEdit: boolean;
-  onChange: (newValue: string | null) => Promise<void>;
-  placeholder?: string;
-}
-
-function EditableDateCell({ value, canEdit, onChange, placeholder = '-' }: EditableDateCellProps) {
-  const [isEditing, setIsEditing] = useState(false);
-  const [editValue, setEditValue] = useState('');
-  const [saving, setSaving] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const handleClick = () => {
-    if (!canEdit) return;
-    // Zeige nur Zahlen zum Bearbeiten (ohne Punkte)
-    if (value) {
-      const formatted = formatDateShort(value);
-      // "01.06.23" -> "010623"
-      setEditValue(formatted.replace(/\./g, ''));
-    } else {
-      setEditValue('');
-    }
-    setIsEditing(true);
-    setTimeout(() => inputRef.current?.select(), 10);
-  };
-
-  // Auto-Formatierung: 010623 -> 01.06.23
-  const formatInput = (input: string): string => {
-    // Nur Zahlen behalten
-    const digits = input.replace(/\D/g, '');
-    
-    if (digits.length <= 2) return digits;
-    if (digits.length <= 4) return digits.slice(0, 2) + '.' + digits.slice(2);
-    return digits.slice(0, 2) + '.' + digits.slice(2, 4) + '.' + digits.slice(4, 6);
-  };
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = e.target.value;
-    // Nur Zahlen erlauben, max 6 Zeichen
-    const digits = raw.replace(/\D/g, '').slice(0, 6);
-    setEditValue(digits);
-  };
-
-  const handleSave = async () => {
-    const digits = editValue.replace(/\D/g, '');
-    
-    // Leer = null
-    if (digits === '') {
-      if (value !== null) {
-        setSaving(true);
-        try {
-          await onChange(null);
-        } catch (err) {
-          console.error('Fehler beim Speichern:', err);
-        } finally {
-          setSaving(false);
-        }
-      }
-      setIsEditing(false);
-      return;
-    }
-    
-    // Braucht genau 6 Ziffern (TTMMJJ)
-    if (digits.length !== 6) {
-      // Nicht genug Ziffern - abbrechen
-      setIsEditing(false);
-      return;
-    }
-    
-    // Parsen: TTMMJJ
-    const day = parseInt(digits.slice(0, 2));
-    const month = parseInt(digits.slice(2, 4));
-    let year = parseInt(digits.slice(4, 6));
-    year += 2000; // 23 -> 2023
-    
-    // Validierung
-    if (month < 1 || month > 12 || day < 1 || day > 31) {
-      setIsEditing(false);
-      return;
-    }
-    
-    const isoDate = `${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
-    
-    // Keine Aenderung?
-    if (isoDate === value) {
-      setIsEditing(false);
-      return;
-    }
-
-    setSaving(true);
-    try {
-      await onChange(isoDate);
-    } catch (err) {
-      console.error('Fehler beim Speichern:', err);
-    } finally {
-      setSaving(false);
-      setIsEditing(false);
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === 'Tab') {
-      e.preventDefault();
-      handleSave();
-      // Tab: Focus auf naechstes Element
-      if (e.key === 'Tab') {
-        setTimeout(() => {
-          const inputs = document.querySelectorAll('input:not([disabled]), [tabindex]:not([tabindex="-1"])');
-          const current = document.activeElement;
-          const currentIndex = Array.from(inputs).indexOf(current as Element);
-          const nextIndex = e.shiftKey ? currentIndex - 1 : currentIndex + 1;
-          if (nextIndex >= 0 && nextIndex < inputs.length) {
-            (inputs[nextIndex] as HTMLElement).focus();
-          }
-        }, 50);
-      }
-    } else if (e.key === 'Escape') {
-      setIsEditing(false);
-    }
-  };
-
-  const handleBlur = () => {
-    // Nur speichern wenn nicht durch Tab ausgeloest (Tab handled es selbst)
-    handleSave();
-  };
-
-  if (isEditing) {
-    return (
-      <input
-        ref={inputRef}
-        type="text"
-        value={formatInput(editValue)}
-        onChange={handleInputChange}
-        onKeyDown={handleKeyDown}
-        onBlur={handleBlur}
-        disabled={saving}
-        placeholder="TTMMJJ"
-        className={`w-full h-full px-1 py-0.5 text-center text-xs border-2 border-blue-500 rounded outline-none ${
-          saving ? 'bg-gray-100' : 'bg-white'
-        }`}
-        style={{ minWidth: '65px' }}
-        autoFocus
-      />
-    );
-  }
-
-  const displayValue = value ? formatDateShort(value) : placeholder;
-  const hasValue = value !== null;
-
-  return (
-    <div
-      onClick={handleClick}
-      className={`w-full h-full px-1 py-1 text-center text-xs cursor-pointer transition-colors ${
-        hasValue ? 'text-gray-600' : 'text-gray-300'
-      } ${canEdit ? 'hover:bg-blue-50 hover:text-blue-700' : ''}`}
-      title={canEdit ? 'Klicken zum Bearbeiten (6 Ziffern: TTMMJJ)' : undefined}
-    >
-      {displayValue}
-    </div>
-  );
-}
-
-// ============================================================================
 // HAUPTKOMPONENTE
 // ============================================================================
 
@@ -452,13 +286,14 @@ export default function WorkPackageTable({
   projectTeam = [],
   canEdit,
   onAssignmentChange,
-  onDateChange,
   onAddAP,
   onEditAP,
   onDeleteAP,
   portal = 'firma',
+  fundingFormat,
 }: WorkPackageTableProps) {
   const colors = PORTAL_COLORS[portal];
+  const isZimDS = fundingFormat === 'ZIM_DS';  // Durchführbarkeitsstudie?
 
   // ProjectTeam-Map: employeeId -> ProjectTeamMember
   const projectTeamMap = useMemo(() => {
@@ -538,7 +373,7 @@ export default function WorkPackageTable({
   if (workPackages.length === 0) {
     return (
       <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
-        <div className="text-4xl mb-4">📋</div>
+        <div className="text-4xl mb-4">ðŸ“‹</div>
         <h3 className="text-lg font-medium text-gray-900 mb-2">Keine Arbeitspakete vorhanden</h3>
         <p className="text-gray-500 mb-4">
           Legen Sie Arbeitspakete an, um den Arbeitsplan zu erstellen.
@@ -560,7 +395,7 @@ export default function WorkPackageTable({
   if (employees.length === 0) {
     return (
       <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
-        <div className="text-4xl mb-4">👥</div>
+        <div className="text-4xl mb-4">ðŸ‘¥</div>
         <h3 className="text-lg font-medium text-gray-900 mb-2">Keine Mitarbeiter zugeordnet</h3>
         <p className="text-gray-500">
           Fuegen Sie zuerst Mitarbeiter zum Projekt-Team hinzu.
@@ -594,17 +429,17 @@ export default function WorkPackageTable({
           <thead>
             {/* Zeile 1: Gruppierung */}
             <tr className="bg-gray-100 border-b">
-              {/* STICKY: Nur AP-Nummer */}
+              {/* STICKY: AP-Nummer */}
               <th 
                 className="px-3 py-2 text-left font-medium text-gray-600 border-r bg-gray-100 sticky left-0 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]"
                 style={{ minWidth: '70px' }}
               >
                 AP
               </th>
-              {/* Beschreibung - scrollt mit */}
+              {/* Beschreibung - schmaler, scrollt mit */}
               <th 
-                className="px-3 py-2 text-left font-medium text-gray-600 border-r"
-                style={{ minWidth: '200px' }}
+                className="px-2 py-2 text-left font-medium text-gray-600 border-r bg-gray-100"
+                style={{ minWidth: '140px', maxWidth: '180px' }}
               >
                 Beschreibung
               </th>
@@ -614,15 +449,23 @@ export default function WorkPackageTable({
               <th className="px-2 py-2 text-center font-medium text-gray-600 border-r" style={{ minWidth: '55px' }}>
                 bis
               </th>
+              {/* T-Spalte nur bei ZIM_DS */}
+              {isZimDS && (
+                <th 
+                  className="px-1 py-2 text-center font-medium text-gray-600 border-r" 
+                  style={{ minWidth: '30px', maxWidth: '35px' }}
+                  title="Technisches Arbeitspaket"
+                >
+                  T
+                </th>
+              )}
               {/* MA-Spalten */}
               {sortedEmployees.map((emp, idx) => {
                 const empNumber = getEmployeeNumber(emp);
                 return (
                   <th
                     key={emp.id}
-                    className={`px-1 py-2 text-center font-medium text-gray-700 ${
-                      idx < sortedEmployees.length - 1 ? 'border-r border-gray-200' : 'border-r'
-                    }`}
+                    className={`px-1 py-2 text-center font-medium text-gray-700 border-r border-gray-300`}
                     style={{ minWidth: '80px', maxWidth: '100px' }}
                     title={`${emp.display_name}${empNumber ? ` (MA #${empNumber})` : ''}`}
                   >
@@ -660,7 +503,7 @@ export default function WorkPackageTable({
                   key={wp.id}
                   className={`border-b hover:bg-blue-50 ${rowBg}`}
                 >
-                  {/* STICKY: Nur AP-Nummer */}
+                  {/* STICKY: AP-Nummer */}
                   <td 
                     className={`px-3 py-2 border-r font-mono text-sm sticky left-0 z-10 ${rowBg} shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] ${
                       isSubAP ? 'text-gray-600 pl-5' : 'font-semibold text-gray-900'
@@ -670,39 +513,49 @@ export default function WorkPackageTable({
                     {wp.ap_code}
                   </td>
 
-                  {/* Beschreibung - scrollt mit */}
-                  <td className="px-3 py-2 border-r">
-                    <div className={`truncate ${isSubAP ? 'text-gray-700' : 'font-medium text-gray-900'}`} 
-                         title={wp.name}>
+                  {/* Beschreibung - schmaler, mehrzeilig */}
+                  <td 
+                    className={`px-2 py-1 border-r ${rowBg}`}
+                    style={{ minWidth: '140px', maxWidth: '180px' }}
+                  >
+                    <div className={`text-xs leading-tight ${isSubAP ? 'text-gray-700' : 'font-medium text-gray-900'}`} 
+                         title={wp.name}
+                         style={{ 
+                           display: '-webkit-box',
+                           WebkitLineClamp: 2,
+                           WebkitBoxOrient: 'vertical',
+                           overflow: 'hidden'
+                         }}>
                       {wp.name}
                     </div>
                   </td>
 
-                  {/* Von - Inline-Edit */}
-                  <td className="px-0 py-0 border-r" style={{ minWidth: '70px' }}>
-                    <EditableDateCell
-                      value={wp.start_date}
-                      canEdit={canEdit && !!onDateChange}
-                      onChange={(newDate) => onDateChange ? onDateChange(wp.id, 'start_date', newDate) : Promise.resolve()}
-                    />
+                  {/* Von */}
+                  <td className="px-2 py-2 text-center text-gray-500 border-r text-xs">
+                    {formatDateShort(wp.start_date)}
                   </td>
 
-                  {/* Bis - Inline-Edit */}
-                  <td className="px-0 py-0 border-r" style={{ minWidth: '70px' }}>
-                    <EditableDateCell
-                      value={wp.end_date}
-                      canEdit={canEdit && !!onDateChange}
-                      onChange={(newDate) => onDateChange ? onDateChange(wp.id, 'end_date', newDate) : Promise.resolve()}
-                    />
+                  {/* Bis */}
+                  <td className="px-2 py-2 text-center text-gray-500 border-r text-xs">
+                    {formatDateShort(wp.end_date)}
                   </td>
+
+                  {/* T-Spalte nur bei ZIM_DS */}
+                  {isZimDS && (
+                    <td className="px-1 py-2 text-center border-r text-xs">
+                      {wp.is_technical !== false ? (
+                        <span className="text-green-600 font-bold">X</span>
+                      ) : (
+                        <span className="text-gray-300">-</span>
+                      )}
+                    </td>
+                  )}
 
                   {/* MA-Zellen */}
-                  {sortedEmployees.map((emp, empIdx) => (
+                  {sortedEmployees.map((emp) => (
                     <td
                       key={emp.id}
-                      className={`px-0 py-0 border-r border-gray-100 ${
-                        empIdx === sortedEmployees.length - 1 ? 'border-r-gray-200' : ''
-                      }`}
+                      className="px-0 py-0 border-r border-gray-300"
                     >
                       <EditableCell
                         value={getPM(wp.id, emp.id)}
@@ -751,20 +604,25 @@ export default function WorkPackageTable({
           {/* Footer mit Summen */}
           <tfoot>
             <tr className={`${colors.header} ${colors.headerText}`}>
-              {/* STICKY: Nur Summe-Label in erster Spalte */}
+              {/* STICKY: Summe Label */}
               <td 
                 className={`px-3 py-2 font-semibold border-r border-white/20 sticky left-0 z-10 ${colors.header} shadow-[2px_0_5px_-2px_rgba(0,0,0,0.2)]`}
                 style={{ minWidth: '70px' }}
               >
                 Summe
               </td>
-              <td colSpan={3} className="px-3 py-2 font-semibold border-r border-white/20">
-                Personenmonate
+              <td 
+                className={`px-2 py-2 text-xs font-semibold border-r border-white/20 ${colors.header}`}
+                style={{ minWidth: '140px', maxWidth: '180px' }}
+              >
+                PM
               </td>
+              <td colSpan={2} className="px-2 py-2 border-r border-white/20"></td>
+              {isZimDS && <td className="px-2 py-2 border-r border-white/20"></td>}
               {sortedEmployees.map((emp) => {
                 const empSum = sums.perEmployee.get(emp.id) || 0;
                 return (
-                  <td key={emp.id} className="px-2 py-2 text-center font-semibold border-r border-white/20">
+                  <td key={emp.id} className="px-2 py-2 text-center font-semibold border-r border-white/30">
                     {empSum > 0 ? empSum.toFixed(2).replace('.', ',') : '-'}
                   </td>
                 );
@@ -782,9 +640,14 @@ export default function WorkPackageTable({
               >
                 =
               </td>
-              <td colSpan={3} className="px-3 py-1.5 text-sm border-r">
+              <td 
+                className="px-2 py-1.5 text-sm border-r bg-gray-100"
+                style={{ minWidth: '140px', maxWidth: '180px' }}
+              >
                 Stunden (× 173,33)
               </td>
+              <td colSpan={2} className="px-2 py-1.5 border-r"></td>
+              {isZimDS && <td className="px-2 py-1.5 border-r"></td>}
               {sortedEmployees.map((emp) => {
                 const empSum = sums.perEmployee.get(emp.id) || 0;
                 const hours = empSum * 173.33;

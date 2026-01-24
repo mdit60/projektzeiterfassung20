@@ -6,7 +6,11 @@
 #
 # Aenderungen:
 # - WorkPackageTable: Excel-Style Arbeitsplan mit Inline-Edit
+# - WorkPackageTable: T-Spalte fuer ZIM_DS (technische APs)
+# - WorkPackageEditModal: Checkbox "Technisches AP" bei ZIM_DS
 # - ProjectDetailPage: Integriert WorkPackageTable im Arbeitspakete-Tab
+# - PortalHeader: KEINE Navigation mehr im Header
+# - TimesheetForm: Jahr 2020-2030 waehlbar
 # - EmployeeManagement: Alle Anlage 6.1 Felder
 # - v7_project_team: Projektspezifische Mitarbeiter-Nummern
 # ============================================================================
@@ -46,23 +50,61 @@ fi
 echo "Kopiere Dateien..."
 echo ""
 
-# WorkPackageTable (NEU - Excel-Style Arbeitsplan)
-if [ -f "$DOWNLOADS_DIR/WorkPackageTable-v7_3_85.tsx" ]; then
-    cp "$DOWNLOADS_DIR/WorkPackageTable-v7_3_85.tsx" "$PROJECT_DIR/components/shared/WorkPackageTable.tsx"
-    echo -e "${GREEN}✓${NC} WorkPackageTable.tsx aktualisiert (Sticky Spalten, Sortierung, MA-Namen)"
-elif [ -f "$DOWNLOADS_DIR/WorkPackageTable-v7_3_84.tsx" ]; then
-    cp "$DOWNLOADS_DIR/WorkPackageTable-v7_3_84.tsx" "$PROJECT_DIR/components/shared/WorkPackageTable.tsx"
-    echo -e "${GREEN}✓${NC} WorkPackageTable.tsx erstellt (Excel-Style mit Inline-Edit)"
+# WorkPackageTable (Excel-Style Arbeitsplan)
+if [ -f "$DOWNLOADS_DIR/WorkPackageTable-v7_3_85-1.tsx" ]; then
+    cp "$DOWNLOADS_DIR/WorkPackageTable-v7_3_85-1.tsx" "$PROJECT_DIR/components/shared/WorkPackageTable.tsx"
+    echo -e "${GREEN}✓${NC} WorkPackageTable.tsx aktualisiert (v7.3.85-1)"
 else
-    echo -e "${RED}✗ FEHLER: WorkPackageTable nicht gefunden!${NC}"
+    echo -e "${YELLOW}⚠ WorkPackageTable-v7_3_85-1.tsx nicht gefunden - uebersprungen${NC}"
+fi
+
+# WorkPackageEditModal (is_technical Checkbox)
+if [ -f "$DOWNLOADS_DIR/WorkPackageEditModal-v7_3_85-1.tsx" ]; then
+    cp "$DOWNLOADS_DIR/WorkPackageEditModal-v7_3_85-1.tsx" "$PROJECT_DIR/components/shared/WorkPackageEditModal.tsx"
+    echo -e "${GREEN}✓${NC} WorkPackageEditModal.tsx aktualisiert (v7.3.85-1 - is_technical Checkbox)"
+elif [ -f "$DOWNLOADS_DIR/WorkPackageEditModal-v7_3_85.tsx" ]; then
+    cp "$DOWNLOADS_DIR/WorkPackageEditModal-v7_3_85.tsx" "$PROJECT_DIR/components/shared/WorkPackageEditModal.tsx"
+    echo -e "${GREEN}✓${NC} WorkPackageEditModal.tsx aktualisiert (is_technical Checkbox bei ZIM_DS)"
+else
+    echo -e "${YELLOW}⚠ WorkPackageEditModal nicht gefunden - uebersprungen${NC}"
+fi
+
+# TimesheetForm (Zeiterfassung)
+if [ -f "$DOWNLOADS_DIR/TimesheetForm-v7_3_85-3.tsx" ]; then
+    cp "$DOWNLOADS_DIR/TimesheetForm-v7_3_85-3.tsx" "$PROJECT_DIR/components/shared/TimesheetForm.tsx"
+    echo -e "${GREEN}✓${NC} TimesheetForm.tsx aktualisiert (v7.3.85-3 - AP ohne Prefix, T fix)"
+elif [ -f "$DOWNLOADS_DIR/TimesheetForm-v7_3_85-2.tsx" ]; then
+    cp "$DOWNLOADS_DIR/TimesheetForm-v7_3_85-2.tsx" "$PROJECT_DIR/components/shared/TimesheetForm.tsx"
+    echo -e "${GREEN}✓${NC} TimesheetForm.tsx aktualisiert (v7.3.85-2)"
+else
+    echo -e "${YELLOW}⚠ TimesheetForm nicht gefunden - uebersprungen${NC}"
+fi
+
+# page-firma-zeiterfassung (is_technical im Query)
+if [ -f "$DOWNLOADS_DIR/page-firma-zeiterfassung-v7_3_85-1.tsx" ]; then
+    cp "$DOWNLOADS_DIR/page-firma-zeiterfassung-v7_3_85-1.tsx" "$PROJECT_DIR/app/v7/firma/zeiterfassung/page.tsx"
+    echo -e "${GREEN}✓${NC} page-firma-zeiterfassung.tsx aktualisiert (v7.3.85-1 - is_technical)"
+else
+    echo -e "${YELLOW}⚠ page-firma-zeiterfassung nicht gefunden - uebersprungen${NC}"
+fi
+
+# page-berater-zeiterfassung (is_technical im Query)
+if [ -f "$DOWNLOADS_DIR/page-berater-zeiterfassung-v7_3_85-1.tsx" ]; then
+    cp "$DOWNLOADS_DIR/page-berater-zeiterfassung-v7_3_85-1.tsx" "$PROJECT_DIR/app/v7/berater/zeiterfassung/page.tsx"
+    echo -e "${GREEN}✓${NC} page-berater-zeiterfassung.tsx aktualisiert (v7.3.85-1 - is_technical)"
+else
+    echo -e "${YELLOW}⚠ page-berater-zeiterfassung nicht gefunden - uebersprungen${NC}"
 fi
 
 # ProjectDetailPage (mit WorkPackageTable Integration)
-if [ -f "$DOWNLOADS_DIR/ProjectDetailPage-v7_3_85.tsx" ]; then
-    cp "$DOWNLOADS_DIR/ProjectDetailPage-v7_3_85.tsx" "$PROJECT_DIR/components/shared/ProjectDetailPage.tsx"
-    echo -e "${GREEN}✓${NC} ProjectDetailPage.tsx aktualisiert (WorkPackageTable integriert)"
+if [ -f "$DOWNLOADS_DIR/ProjectDetailPage-v7_3_85-3.tsx" ]; then
+    cp "$DOWNLOADS_DIR/ProjectDetailPage-v7_3_85-3.tsx" "$PROJECT_DIR/components/shared/ProjectDetailPage.tsx"
+    echo -e "${GREEN}✓${NC} ProjectDetailPage.tsx aktualisiert (v7.3.85-3 - PM-Mapping fix)"
+elif [ -f "$DOWNLOADS_DIR/ProjectDetailPage-v7_3_85-2.tsx" ]; then
+    cp "$DOWNLOADS_DIR/ProjectDetailPage-v7_3_85-2.tsx" "$PROJECT_DIR/components/shared/ProjectDetailPage.tsx"
+    echo -e "${GREEN}✓${NC} ProjectDetailPage.tsx aktualisiert (v7.3.85-2)"
 else
-    echo -e "${YELLOW}⚠ ProjectDetailPage-v7_3_85.tsx nicht gefunden - uebersprungen${NC}"
+    echo -e "${YELLOW}⚠ ProjectDetailPage nicht gefunden - uebersprungen${NC}"
 fi
 
 # EmployeeManagement (Mitarbeiterverwaltung)

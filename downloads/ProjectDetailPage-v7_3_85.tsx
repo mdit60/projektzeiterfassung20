@@ -3,15 +3,12 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 24. Januar 2026
-// Version: 7.3.85
+// Version: 7.3.84
 //
 // Gemeinsame Projekt-Detailseite fuer beide Portale:
 // - Berater-Portal: /v7/berater/foerderung/firma/[firmaId]/projekt/[projektId]
 // - Firmen-Portal: /v7/firma/projekte/[id]
 //
-// v7.3.85: NEU - WorkPackageTable (Excel-Style mit Inline-Edit)
-//          Ersetzt die alte WorkPackageList im Arbeitspakete-Tab
-//          Projektspezifische MA-Nummern aus v7_project_team
 // v7.3.84: Zeiterfassungs-Tab mit Link zur Zeiterfassungsseite
 // v7.3.81: Team-Sortierung nach employee_number (Anlage 6.2)
 // v7.3.76-2: AP-Nummer mit Sub-Nummer (z.B. AP2.1)
@@ -49,7 +46,6 @@ import {
 // Shared Components
 import PortalHeader from '@/components/shared/PortalHeader';
 import WorkPackageList, { WorkPackage, sortWorkPackages, formatAPCode } from '@/components/shared/WorkPackageList';
-import WorkPackageTable from '@/components/shared/WorkPackageTable';
 import WorkPackageEditModal, { WorkPackageFormData, Project as WPProject } from '@/components/shared/WorkPackageEditModal';
 import WorkPackageAssignmentModal, {
   Employee as WPEmployee,
@@ -112,7 +108,6 @@ interface TeamEditData {
   role_in_project: string;
   hourly_rate: string;
   is_project_leader: boolean;
-  employee_number: string;  // NEU: Projektspezifische MA-Nummer
 }
 
 interface ProjectEditData {
@@ -173,16 +168,6 @@ export default function ProjectDetailPage({
   const [wpAssignments, setWpAssignments] = useState<WorkPackageAssignment[]>([]);
   const [allEmployees, setAllEmployees] = useState<WPEmployee[]>([]);
   const [projectEmployeeIds, setProjectEmployeeIds] = useState<string[]>([]);
-  
-  // State - Project Team (projektspezifische MA-Nummern)
-  interface ProjectTeamMember {
-    id: string;
-    project_id: string;
-    employee_id: string;
-    employee_number: number | null;
-    role_in_project: string | null;
-  }
-  const [projectTeam, setProjectTeam] = useState<ProjectTeamMember[]>([]);
 
   // State - WorkPackage Modals
   const [showWPEditModal, setShowWPEditModal] = useState(false);
@@ -208,7 +193,6 @@ export default function ProjectDetailPage({
     role_in_project: '',
     hourly_rate: '',
     is_project_leader: false,
-    employee_number: '',
   });
   const [savingTeam, setSavingTeam] = useState(false);
 
@@ -427,21 +411,6 @@ export default function ProjectDetailPage({
         setTeamMembers(team);
       }
 
-      // Project Team laden (fuer WorkPackageTable - projektspezifische MA-Nummern)
-      try {
-        const { data: projectTeamData } = await supabase
-          .from('v7_project_team')
-          .select('id, project_id, employee_id, employee_number, role_in_project')
-          .eq('project_id', projectId);
-        
-        if (projectTeamData) {
-          setProjectTeam(projectTeamData);
-        }
-      } catch (err) {
-        // Tabelle existiert noch nicht - kein Problem, Fallback nutzen
-        console.log('v7_project_team nicht gefunden, nutze Fallback');
-      }
-
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -638,80 +607,6 @@ export default function ProjectDetailPage({
   // WORKPACKAGE ASSIGNMENT
   // ============================================================================
 
-  // NEU: Handler fuer Inline-Edit in WorkPackageTable
-  const handleAssignmentChange = async (workPackageId: string, employeeId: string, plannedPm: number | null): Promise<void> => {
-    try {
-      const hours = plannedPm ? Math.round(plannedPm * HOURS_PER_PM * 100) / 100 : null;
-
-      // Pruefen ob Assignment existiert
-      const { data: existing } = await supabase
-        .from('v7_work_package_assignments')
-        .select('id')
-        .eq('work_package_id', workPackageId)
-        .eq('employee_id', employeeId)
-        .maybeSingle();
-
-      if (plannedPm === null || plannedPm === 0) {
-        // Loeschen (deaktivieren)
-        if (existing) {
-          await supabase
-            .from('v7_work_package_assignments')
-            .update({ is_active: false, updated_at: new Date().toISOString() })
-            .eq('id', existing.id);
-        }
-      } else if (existing) {
-        // Update
-        await supabase
-          .from('v7_work_package_assignments')
-          .update({
-            planned_person_months: plannedPm,
-            planned_hours: hours,
-            is_active: true,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', existing.id);
-      } else {
-        // Insert
-        await supabase
-          .from('v7_work_package_assignments')
-          .insert({
-            work_package_id: workPackageId,
-            employee_id: employeeId,
-            planned_person_months: plannedPm,
-            planned_hours: hours,
-            is_active: true,
-          });
-      }
-
-      // Daten neu laden
-      await loadData();
-    } catch (err: any) {
-      console.error('Fehler beim Speichern:', err);
-      throw err;
-    }
-  };
-
-  // NEU: Handler fuer Inline-Edit von AP-Datum (von/bis)
-  const handleDateChange = async (workPackageId: string, field: 'start_date' | 'end_date', value: string | null): Promise<void> => {
-    try {
-      const { error } = await supabase
-        .from('v7_work_packages')
-        .update({
-          [field]: value,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', workPackageId);
-
-      if (error) throw error;
-
-      // Daten neu laden
-      await loadData();
-    } catch (err: any) {
-      console.error('Fehler beim Speichern des Datums:', err);
-      throw err;
-    }
-  };
-
   const openWPAssignModal = (wp: WorkPackage) => {
     setAssignmentWP(wp);
     setShowWPAssignModal(true);
@@ -826,7 +721,6 @@ export default function ProjectDetailPage({
       role_in_project: member.role_in_project || '',
       hourly_rate: member.hourly_rate?.toString() || '',
       is_project_leader: member.is_project_leader,
-      employee_number: member.employee_number?.toString() || '',
     });
   };
 
@@ -836,7 +730,6 @@ export default function ProjectDetailPage({
       role_in_project: '',
       hourly_rate: '',
       is_project_leader: false,
-      employee_number: '',
     });
   };
 
@@ -848,61 +741,20 @@ export default function ProjectDetailPage({
       const hourlyRate = teamEditData.hourly_rate
         ? parseFloat(teamEditData.hourly_rate)
         : null;
-      const employeeNumber = teamEditData.employee_number
-        ? parseInt(teamEditData.employee_number)
-        : null;
 
-      // 1. v7_project_assignments aktualisieren
       const { error: paError } = await supabase
         .from('v7_project_assignments')
         .update({
           role_in_project: teamEditData.role_in_project || null,
           hourly_rate: hourlyRate,
           is_project_leader: teamEditData.is_project_leader,
-          employee_number: employeeNumber,
           updated_at: new Date().toISOString(),
         })
         .eq('id', editingMember.id);
 
       if (paError) throw paError;
 
-      // 2. Versuche v7_project_team zu aktualisieren (falls Tabelle existiert)
-      try {
-        // Pruefen ob Eintrag existiert
-        const { data: existingTeam } = await supabase
-          .from('v7_project_team')
-          .select('id')
-          .eq('project_id', projectId)
-          .eq('employee_id', editingMember.employee_id)
-          .maybeSingle();
-
-        if (existingTeam) {
-          // Update
-          await supabase
-            .from('v7_project_team')
-            .update({
-              employee_number: employeeNumber,
-              role_in_project: teamEditData.role_in_project || null,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', existingTeam.id);
-        } else {
-          // Insert
-          await supabase
-            .from('v7_project_team')
-            .insert({
-              project_id: projectId,
-              employee_id: editingMember.employee_id,
-              employee_number: employeeNumber,
-              role_in_project: teamEditData.role_in_project || null,
-            });
-        }
-      } catch (ptErr) {
-        // v7_project_team existiert noch nicht - kein Problem
-        console.log('v7_project_team nicht verfuegbar, nutze nur v7_project_assignments');
-      }
-
-      // 3. Stundensatz auch in work_package_assignments aktualisieren
+      // Stundensatz auch in work_package_assignments aktualisieren
       if (hourlyRate !== null) {
         const wpIds = workPackages.map(wp => wp.id);
         if (wpIds.length > 0) {
@@ -917,7 +769,6 @@ export default function ProjectDetailPage({
         }
       }
 
-      // 4. Lokalen State aktualisieren
       setTeamMembers(prev => prev.map(m =>
         m.id === editingMember.id
           ? {
@@ -925,29 +776,9 @@ export default function ProjectDetailPage({
             role_in_project: teamEditData.role_in_project || null,
             hourly_rate: hourlyRate,
             is_project_leader: teamEditData.is_project_leader,
-            employee_number: employeeNumber,
           }
           : m
       ));
-
-      // 5. Project Team State aktualisieren
-      setProjectTeam(prev => {
-        const existing = prev.find(pt => pt.employee_id === editingMember.employee_id);
-        if (existing) {
-          return prev.map(pt => pt.employee_id === editingMember.employee_id
-            ? { ...pt, employee_number: employeeNumber, role_in_project: teamEditData.role_in_project || null }
-            : pt
-          );
-        } else {
-          return [...prev, {
-            id: crypto.randomUUID(),
-            project_id: projectId,
-            employee_id: editingMember.employee_id,
-            employee_number: employeeNumber,
-            role_in_project: teamEditData.role_in_project || null,
-          }];
-        }
-      });
 
       closeTeamEditModal();
     } catch (err: any) {
@@ -1132,6 +963,7 @@ export default function ProjectDetailPage({
     id: project.id,
     name: project.name,
     funding_reference: project.funding_reference,
+    funding_format: project.funding_format,  // NEU: Für is_technical Checkbox bei ZIM_DS
   }] : [];
 
   return (
@@ -1269,33 +1101,55 @@ export default function ProjectDetailPage({
           </div>
         )}
 
-        {/* Tab: Arbeitspakete - NEU: Excel-Style Tabelle mit Inline-Edit */}
+        {/* Tab: Arbeitspakete - mit Shared Component */}
         {activeTab === 'arbeitspakete' && (
-          <WorkPackageTable
-            projectId={projectId}
-            employees={allEmployees.map(emp => ({
-              ...emp,
-              employee_number: teamMembers.find(tm => tm.employee_id === emp.id)?.employee_number || null,
-            }))}
-            workPackages={workPackages.map(wp => ({
-              ...wp,
-              ap_code: formatAPCode(wp.ap_number, wp.ap_sub_number),
-            }))}
-            assignments={wpAssignments.map(wpa => ({
-              id: wpa.id,
-              work_package_id: wpa.work_package_id,
-              employee_id: wpa.employee_id,
-              planned_pm: wpa.planned_person_months || 0,
-            }))}
-            projectTeam={projectTeam}
-            canEdit={adminUser}
-            onAssignmentChange={handleAssignmentChange}
-            onDateChange={adminUser ? handleDateChange : undefined}
-            onAddAP={adminUser ? openCreateWPModal : undefined}
-            onEditAP={adminUser ? openEditWPModal : undefined}
-            onDeleteAP={adminUser ? openDeleteConfirmation : undefined}
-            portal={portal}
-          />
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900">Arbeitspakete</h2>
+              {adminUser && (
+                <button
+                  onClick={openCreateWPModal}
+                  className={`flex items-center gap-2 px-4 py-2 ${buttonBg} text-white 
+                             rounded-lg transition-colors text-sm`}
+                >
+                  <Plus size={18} />
+                  AP hinzufuegen
+                </button>
+              )}
+            </div>
+
+            {workPackages.length === 0 ? (
+              <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
+                <Package className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500 mb-4">Keine Arbeitspakete vorhanden</p>
+                {adminUser && (
+                  <button
+                    onClick={openCreateWPModal}
+                    className={`px-4 py-2 ${buttonBg} text-white rounded-lg`}
+                  >
+                    Erstes AP anlegen
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="bg-white rounded-lg border border-gray-200 overflow-hidden p-4">
+                <WorkPackageList
+                  portal={portal}
+                  workPackages={workPackages}
+                  projectId={projectId}
+                  assignments={wpAssignments}
+                  employees={allEmployees}
+                  onAddWorkPackage={adminUser ? openCreateWPModal : undefined}
+                  onEditWorkPackage={adminUser ? openEditWPModal : undefined}
+                  onDeleteWorkPackage={adminUser ? openDeleteConfirmation : undefined}
+                  onAssignEmployees={adminUser ? openWPAssignModal : undefined}
+                  showAddButton={false}
+                  showActionButtons={adminUser}
+                  showAssignments={true}
+                />
+              </div>
+            )}
+          </div>
         )}
 
         {/* Tab: Team */}
@@ -1322,7 +1176,6 @@ export default function ProjectDetailPage({
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600 uppercase w-12">Nr.</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Mitarbeiter</th>
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Wochenstd.</th>
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Stundensatz</th>
@@ -1336,15 +1189,6 @@ export default function ProjectDetailPage({
                   <tbody className="divide-y divide-gray-200">
                     {teamMembers.map((member) => (
                       <tr key={member.id} className="hover:bg-gray-50">
-                        <td className="px-3 py-3 text-center">
-                          <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-sm font-medium ${
-                            member.employee_number 
-                              ? 'bg-blue-100 text-blue-700' 
-                              : 'bg-gray-100 text-gray-400'
-                          }`}>
-                            {member.employee_number || '-'}
-                          </span>
-                        </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
                             <div>
@@ -1391,7 +1235,7 @@ export default function ProjectDetailPage({
                   </tbody>
                   <tfoot className="bg-gray-50 border-t border-gray-200">
                     <tr>
-                      <td className="px-4 py-3 font-semibold text-gray-900" colSpan={4}>Gesamt</td>
+                      <td className="px-4 py-3 font-semibold text-gray-900" colSpan={3}>Gesamt</td>
                       <td className="px-4 py-3 text-right font-semibold text-gray-900">
                         {teamMembers.reduce((sum, m) => sum + (m.planned_pm || 0), 0).toFixed(2)}
                       </td>
@@ -1432,23 +1276,6 @@ export default function ProjectDetailPage({
                     <span>Geplante PM: {editingMember.planned_pm?.toFixed(2) || '-'}</span>
                     <span>Geplante Std: {calcPlannedHours(editingMember.planned_pm, editingMember.weekly_hours) || '-'}</span>
                   </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    MA-Nummer im Projekt (lfd. Nr. gem. Anlage 6.1)
-                  </label>
-                  <input
-                    type="number"
-                    value={teamEditData.employee_number}
-                    onChange={(e) => setTeamEditData(prev => ({ ...prev, employee_number: e.target.value }))}
-                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
-                    placeholder="z.B. 1, 2, 3"
-                    min="1"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Projektspezifische Mitarbeiter-Nummer (kann pro Projekt unterschiedlich sein)
-                  </p>
                 </div>
 
                 <div>
@@ -1881,7 +1708,7 @@ export default function ProjectDetailPage({
       <footer className="bg-white border-t mt-auto">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <p className="text-center text-sm text-gray-500">
-            PZE v7.3.85 | {company?.name}
+            PZE v7.3.84 | {company?.name}
           </p>
         </div>
       </footer>

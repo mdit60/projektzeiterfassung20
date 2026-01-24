@@ -60,7 +60,6 @@ interface WorkPackage {
   ap_sub_number: number | null;
   ap_code: string | null;
   name: string;
-  is_technical?: boolean | null;
 }
 
 interface ClientCompany {
@@ -335,7 +334,6 @@ function ZeiterfassungInner() {
         .order('ap_number')
         .order('ap_sub_number');
 
-      console.log('DEBUG wpData from Supabase:', wpData);
       setWorkPackages(wpData || []);
     }
   };

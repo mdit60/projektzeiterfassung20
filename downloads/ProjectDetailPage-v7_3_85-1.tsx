@@ -1157,6 +1157,20 @@ export default function ProjectDetailPage({
         {/* Tab: Arbeitspakete - mit Shared Component */}
         {activeTab === 'arbeitspakete' && (
           <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900">Arbeitspakete</h2>
+              {adminUser && (
+                <button
+                  onClick={openCreateWPModal}
+                  className={`flex items-center gap-2 px-4 py-2 ${buttonBg} text-white 
+                             rounded-lg transition-colors text-sm`}
+                >
+                  <Plus size={18} />
+                  AP hinzufuegen
+                </button>
+              )}
+            </div>
+
             {workPackages.length === 0 ? (
               <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
                 <Package className="w-12 h-12 text-gray-300 mx-auto mb-3" />
@@ -1173,14 +1187,9 @@ export default function ProjectDetailPage({
             ) : (
               <WorkPackageTable
                 projectId={projectId}
-                employees={allEmployees.filter(e => projectEmployeeIds.includes(e.id))}
+                employees={allEmployees.filter(e => projectEmployeeIds.has(e.id))}
                 workPackages={workPackages}
-                assignments={wpAssignments.map(a => ({
-                  id: a.id,
-                  work_package_id: a.work_package_id,
-                  employee_id: a.employee_id,
-                  planned_pm: (a as any).planned_person_months || 0,
-                }))}
+                assignments={wpAssignments}
                 canEdit={adminUser}
                 onAssignmentChange={handleTableAssignmentChange}
                 onAddAP={adminUser ? openCreateWPModal : undefined}

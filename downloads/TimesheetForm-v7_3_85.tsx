@@ -2,8 +2,8 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 24. Januar 2026
-// Version: 7.3.85-5
+// Datum: 21. Januar 2026
+// Version: 7.3.57
 //
 // Wird von beiden Portalen genutzt:
 // - Firmen-Portal: /v7/firma/zeiterfassung
@@ -16,9 +16,6 @@
 // - Fehlzeiten (U/K/S)
 // - Dynamische AP-Zeilen
 // - Durchfuehrbarkeitsstudien-Modus
-// - Jahr 2020-2030 waehlbar
-// - T-Spalte: Zeigt X wenn AP technisch (is_technical === true)
-// - AP-Dropdown: Nur Nummer ohne "AP" Prefix
 // ============================================================================
 
 'use client';
@@ -82,7 +79,6 @@ interface WorkPackage {
   ap_sub_number?: number;
   ap_code: string | null;
   name: string;
-  is_technical?: boolean | null;  // NEU: Technisches AP (für ZIM_DS)
 }
 
 interface ClientCompany {
@@ -1011,7 +1007,7 @@ export default function TimesheetForm({
                 }}
                 className="border rounded px-2 py-1 text-sm"
               >
-                {[2024, 2025, 2026, 2027].map(y => (
+                {[2020, 2021, 2022, 2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030].map(y => (
                   <option key={y} value={y}>{y}</option>
                 ))}
               </select>
@@ -1130,20 +1126,14 @@ export default function TimesheetForm({
                       <select
                         value={row.workPackageId || ''}
                         onChange={(e) => handleAPSelect(rowIndex, e.target.value)}
-                        className="w-full h-full p-1 text-xs border-0 bg-transparent print:appearance-none text-center"
+                        className="w-full h-full p-1 text-xs border-0 bg-transparent print:appearance-none"
                       >
                         <option value="">-</option>
-                        {availableWorkPackages.map(wp => {
-                          // Nur Nummer anzeigen, ohne "AP" Prefix
-                          const apDisplay = wp.ap_code 
-                            ? wp.ap_code.replace(/^AP/i, '') 
-                            : `${wp.ap_number}${wp.ap_sub_number ? `.${wp.ap_sub_number}` : ''}`;
-                          return (
-                            <option key={wp.id} value={wp.id}>
-                              {apDisplay}
-                            </option>
-                          );
-                        })}
+                        {availableWorkPackages.map(wp => (
+                          <option key={wp.id} value={wp.id}>
+                            {wp.ap_code || `AP${wp.ap_number}${wp.ap_sub_number ? `.${wp.ap_sub_number}` : ''}`}
+                          </option>
+                        ))}
                       </select>
                     </td>
                     <td className="border p-1 text-[10px] leading-tight" style={{ maxWidth: '180px' }}>
@@ -1152,14 +1142,7 @@ export default function TimesheetForm({
                       </div>
                     </td>
                     {isDurchfuehrbarkeitsstudie && (
-                      <td className="border p-1 text-center">
-                          {console.log('selectedWP:', selectedWP?.ap_code, 'is_technical:', selectedWP?.is_technical, 'type:', typeof selectedWP?.is_technical)}
-                          {selectedWP && (selectedWP.is_technical === true || selectedWP.is_technical === 'true') ? (
-                          <span className="text-green-600 font-bold">X</span>
-                        ) : (
-                          <span className="text-gray-400">-</span>
-                        )}
-                      </td>
+                      <td className="border p-1 text-center text-gray-400">-</td>
                     )}
                     {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
                       const weekend = isWeekend(selectedYear, selectedMonth, day);
