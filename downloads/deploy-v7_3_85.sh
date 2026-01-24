@@ -87,9 +87,17 @@ fi
 # PortalHeader (Navigation-Fix)
 if [ -f "$DOWNLOADS_DIR/PortalHeader-v7_3_85.tsx" ]; then
     cp "$DOWNLOADS_DIR/PortalHeader-v7_3_85.tsx" "$PROJECT_DIR/components/shared/PortalHeader.tsx"
-    echo -e "${GREEN}✓${NC} PortalHeader.tsx aktualisiert (Dashboard-Link entfernt)"
+    echo -e "${GREEN}✓${NC} PortalHeader.tsx aktualisiert (hideNavigation Option)"
 else
     echo -e "${YELLOW}⚠ PortalHeader nicht gefunden - uebersprungen${NC}"
+fi
+
+# Firmen-Detailseite (Navigation ausgeblendet)
+if [ -f "$DOWNLOADS_DIR/v7-firma-detail-page-v7_3_85.tsx" ]; then
+    cp "$DOWNLOADS_DIR/v7-firma-detail-page-v7_3_85.tsx" "$PROJECT_DIR/app/v7/berater/foerderung/firma/[id]/page.tsx"
+    echo -e "${GREEN}✓${NC} Firmen-Detailseite aktualisiert (Navigation im Header ausgeblendet)"
+else
+    echo -e "${YELLOW}⚠ Firmen-Detailseite nicht gefunden - uebersprungen${NC}"
 fi
 
 # Firma-Dashboard (Redirect-Fix)

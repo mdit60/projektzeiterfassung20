@@ -56,6 +56,7 @@ interface PortalHeaderProps {
   companyName?: string;
   companyLogo?: string | null;
   currentPath?: string;
+  hideNavigation?: boolean;  // NEU: Navigation ausblenden (z.B. auf Firmen-Detailseiten)
 }
 
 // ============================================================================
@@ -143,6 +144,7 @@ export default function PortalHeader({
   companyName,
   companyLogo,
   currentPath,
+  hideNavigation = false,
 }: PortalHeaderProps) {
   const router = useRouter();
   const supabase = createClient();
@@ -150,7 +152,7 @@ export default function PortalHeader({
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
   const colors = PORTAL_COLORS[portal];
-  const navItems = getNavItems(portal, userRole, portalRole);
+  const navItems = hideNavigation ? [] : getNavItems(portal, userRole, portalRole);
 
   // Logout-Handler
   const handleLogout = async () => {
