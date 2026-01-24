@@ -138,7 +138,7 @@ export default function BeraterDashboard() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header - Ein einziger, klarer Header */}
-      <header className="bg-[#0369a1] text-white shadow-lg">
+      <header className="bg-[#002451] text-white shadow-lg">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
             {/* Logo & Titel */}
