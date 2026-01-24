@@ -3,7 +3,7 @@
 // PZE V7 - Shared Employee Management Component
 // ============================================================================
 // Datum: 24. Januar 2026
-// Version: 7.3.85
+// Version: 7.3.84
 //
 // Wird von beiden Portalen genutzt:
 // - Firmen-Portal: /v7/firma/mitarbeiter
@@ -17,10 +17,6 @@
 // - Portal-Rolle zuweisen (employee/project_leader/client_admin)
 // - Login erstellen (NEU: Erkennt bereits registrierte Benutzer)
 //
-// AENDERUNGEN v7.3.85:
-// - Fix: Verknuepfen-Button erscheint jetzt auch wenn User nur in auth.users
-//   existiert (nicht in v7_user_profiles)
-//
 // AENDERUNGEN v7.3.84:
 // - Alle Anlage 6.1 Felder hinzugefuegt:
 //   - Geburtsdatum, Bildungsabschluss, Jahr Ausbildungsabschluss
@@ -28,7 +24,7 @@
 //   - Stundensatz (automatisch berechnet)
 //   - lfd. Nr. (fuer Excel-Import)
 // - Aufklappbarer Bereich fuer persoenliche Daten
-// - Automatische Stundensatz-Berechnung: Jahresbrutto / (pWAZ Ã— 52)
+// - Automatische Stundensatz-Berechnung: Jahresbrutto / (pWAZ × 52)
 //
 // Props:
 // - portal: 'berater' | 'firma'
@@ -532,94 +528,17 @@ export default function EmployeeManagement({
 
   // NEU: Bestehenden User mit Mitarbeiter verknuepfen
   const handleLinkExistingUser = async () => {
-    if (!loginEmployee || !loginEmployee.email) return;
+    if (!loginEmployee || !existingUserId) return;
     
     setCreatingLogin(true);
     setLoginError(null);
     
     try {
-      let userIdToLink = existingUserId;
-      
-      // Falls User-ID noch gesucht werden muss
-      if (!existingUserId || existingUserId === 'LOOKUP_REQUIRED') {
-        // 1. Zuerst in v7_user_profiles suchen
-        const { data: profile } = await supabase
-          .from('v7_user_profiles')
-          .select('id')
-          .eq('email', loginEmployee.email.toLowerCase())
-          .maybeSingle();
-        
-        if (profile) {
-          userIdToLink = profile.id;
-        } else {
-          // 2. User existiert nur in auth.users - wir muessen die ID dort finden
-          // Dafuer nutzen wir einen Trick: Admin listUsers mit E-Mail-Filter
-          const { data: adminData, error: adminError } = await supabase.auth.admin.listUsers({
-            page: 1,
-            perPage: 1,
-          });
-          
-          // Suche den User mit der E-Mail
-          const authUser = adminData?.users?.find(
-            u => u.email?.toLowerCase() === loginEmployee.email!.toLowerCase()
-          );
-          
-          if (authUser) {
-            userIdToLink = authUser.id;
-            
-            // 3. Profil in v7_user_profiles anlegen
-            const { error: profileError } = await supabase
-              .from('v7_user_profiles')
-              .insert({
-                id: authUser.id,
-                email: loginEmployee.email.toLowerCase(),
-                display_name: loginEmployee.display_name,
-                role: 'employee',
-                is_active: true,
-              });
-            
-            if (profileError && !profileError.message.includes('duplicate')) {
-              console.error('Profil anlegen fehlgeschlagen:', profileError);
-              // Trotzdem weitermachen - vielleicht existiert es schon
-            }
-          } else {
-            // Fallback: Ohne Admin-API koennen wir nicht weitermachen
-            // Versuche getUserByEmail (falls verfuegbar)
-            try {
-              // @ts-ignore - getUserByEmail existiert in neueren Versionen
-              const { data: userData } = await supabase.auth.admin.getUserByEmail(loginEmployee.email);
-              if (userData?.user) {
-                userIdToLink = userData.user.id;
-                
-                // Profil anlegen
-                await supabase
-                  .from('v7_user_profiles')
-                  .insert({
-                    id: userData.user.id,
-                    email: loginEmployee.email.toLowerCase(),
-                    display_name: loginEmployee.display_name,
-                    role: 'employee',
-                    is_active: true,
-                  });
-              }
-            } catch (e) {
-              console.log('getUserByEmail nicht verfuegbar');
-            }
-          }
-        }
-      }
-      
-      if (!userIdToLink || userIdToLink === 'LOOKUP_REQUIRED') {
-        setLoginError('User-ID konnte nicht ermittelt werden. Bitte den Benutzer einmal einloggen lassen.');
-        setCreatingLogin(false);
-        return;
-      }
-      
-      // 4. Mitarbeiter mit User verknuepfen
+      // Mitarbeiter mit bestehendem User verknuepfen
       const { error } = await supabase
         .from('v7_employees')
         .update({ 
-          user_id: userIdToLink,
+          user_id: existingUserId,
           updated_at: new Date().toISOString(),
         })
         .eq('id', loginEmployee.id);
@@ -674,7 +593,7 @@ export default function EmployeeManagement({
             // E-Mail bereits registriert - auf Verknuepfungs-Modus wechseln
             setLoginError('Diese E-Mail ist bereits registriert. Moechten Sie den bestehenden Login verknuepfen?');
             
-            // Versuchen, die User-ID zu finden (erst in v7_user_profiles, dann via Admin API)
+            // Versuchen, die User-ID zu finden
             const { data: existingProfile } = await supabase
               .from('v7_user_profiles')
               .select('id')
@@ -684,11 +603,6 @@ export default function EmployeeManagement({
             if (existingProfile) {
               setLoginMode('link');
               setExistingUserId(existingProfile.id);
-            } else {
-              // Kein Profil gefunden - User existiert nur in auth.users
-              // Wir muessen trotzdem verknuepfen lassen - die User-ID wird beim Verknuepfen geholt
-              setLoginMode('link');
-              setExistingUserId('LOOKUP_REQUIRED'); // Marker fuer spaetere Suche
             }
             return;
           } else {
@@ -926,11 +840,7 @@ export default function EmployeeManagement({
                           <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-orange-100 text-orange-700">
                             Kein Login
                           </span>
-                        ) : (
-                          <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-700">
-                            E-Mail fehlt
-                          </span>
-                        )}
+                        ) : null}
                       </div>
                     </td>
                     {canEdit && (
@@ -1259,7 +1169,7 @@ export default function EmployeeManagement({
                       step="0.01"
                       placeholder="Wird berechnet"
                     />
-                    <p className="text-xs text-gray-500 mt-1">= Jahresbrutto / (Wochenstd. Ã— 52)</p>
+                    <p className="text-xs text-gray-500 mt-1">= Jahresbrutto / (Wochenstd. × 52)</p>
                   </div>
                 </div>
               </div>

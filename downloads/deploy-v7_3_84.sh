@@ -5,7 +5,9 @@
 # Datum: 24. Januar 2026
 #
 # Aenderungen:
-# - ProjectDetailPage: Zeiterfassungs-Tab mit Link zur Zeiterfassungsseite
+# - EmployeeManagement: Alle Anlage 6.1 Felder (Gehalt, Stundensatz, etc.)
+# - WorkPackageTable: Neue Excel-Style Arbeitsplan-Tabelle mit Inline-Edit
+# - v7_project_team: Projektspezifische Mitarbeiter-Nummern
 # ============================================================================
 
 # Farben fuer Ausgabe
@@ -70,15 +72,47 @@ else
     echo -e "${YELLOW}⚠ foerderung-page-v7_3_84-3.tsx nicht gefunden - uebersprungen${NC}"
 fi
 
+# EmployeeManagement (Mitarbeiter-Modal mit Anlage 6.1)
+if [ -f "$DOWNLOADS_DIR/EmployeeManagement-v7_3_84.tsx" ]; then
+    cp "$DOWNLOADS_DIR/EmployeeManagement-v7_3_84.tsx" "$PROJECT_DIR/components/shared/EmployeeManagement.tsx"
+    echo -e "${GREEN}✓${NC} EmployeeManagement (Anlage 6.1 Felder) aktualisiert"
+else
+    echo -e "${YELLOW}⚠ EmployeeManagement-v7_3_84.tsx nicht gefunden - uebersprungen${NC}"
+fi
+
+# Hinweis auf Migration
+if [ -f "$DOWNLOADS_DIR/migration-v7_3_84-anlage61.sql" ]; then
+    echo ""
+    echo -e "${YELLOW}=========================================="
+    echo "  WICHTIG: Datenbank-Migration erforderlich!"
+    echo "==========================================${NC}"
+    echo ""
+    echo "Bitte fuehre folgende SQL-Migrationen in Supabase aus:"
+    echo "  1. migration-v7_3_84-anlage61.sql (Anlage 6.1 Felder)"
+    echo "  2. migration-v7_3_84-project-team.sql (Projektspez. MA-Nummern)"
+    echo ""
+fi
+
+# WorkPackageTable (Arbeitsplan-Tabelle)
+if [ -f "$DOWNLOADS_DIR/WorkPackageTable-v7_3_84.tsx" ]; then
+    cp "$DOWNLOADS_DIR/WorkPackageTable-v7_3_84.tsx" "$PROJECT_DIR/components/shared/WorkPackageTable.tsx"
+    echo -e "${GREEN}✓${NC} WorkPackageTable (Arbeitsplan Excel-Style) erstellt"
+else
+    echo -e "${YELLOW}⚠ WorkPackageTable-v7_3_84.tsx nicht gefunden - uebersprungen${NC}"
+fi
+
 echo ""
 echo "=========================================="
 echo -e "${GREEN}  Deployment abgeschlossen!${NC}"
 echo "=========================================="
 echo ""
 echo "Naechste Schritte:"
-echo "  1. Terminal: cd ~/Documents/Dev/PZE && npm run dev"
-echo "  2. Browser: http://localhost:3000"
-echo "  3. Testen:"
-echo "     - Berater-Dashboard: Foerderprojekte-Zaehler"
-echo "     - Projekt oeffnen -> Zeiterfassung Tab"
+echo "  1. SQL-Migrationen in Supabase ausfuehren (falls noch nicht geschehen):"
+echo "     - migration-v7_3_84-anlage61.sql"
+echo "     - migration-v7_3_84-project-team.sql"
+echo "  2. Terminal: cd ~/Documents/Dev/PZE && npm run dev"
+echo "  3. Browser: http://localhost:3000"
+echo "  4. Testen:"
+echo "     - Mitarbeiter bearbeiten -> Anlage 6.1 Felder"
+echo "     - WorkPackageTable ist bereit (wird in naechster Version integriert)"
 echo ""
