@@ -100,6 +100,14 @@ else
     echo -e "${YELLOW}⚠ Firma-Dashboard nicht gefunden - uebersprungen${NC}"
 fi
 
+# Berater-Startseite (ZIM-Varianten Zählung)
+if [ -f "$DOWNLOADS_DIR/berater-page-v7_3_85.tsx" ]; then
+    cp "$DOWNLOADS_DIR/berater-page-v7_3_85.tsx" "$PROJECT_DIR/app/v7/berater/page.tsx"
+    echo -e "${GREEN}✓${NC} Berater-Startseite aktualisiert (ZIM-Varianten in Zählung)"
+else
+    echo -e "${YELLOW}⚠ Berater-Startseite nicht gefunden - uebersprungen${NC}"
+fi
+
 echo ""
 
 # ============================================================================
