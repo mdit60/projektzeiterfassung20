@@ -562,14 +562,14 @@ export default function ProjectCreateForm({
       {/* Meldungen */}
       {error && (
         <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+          <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
           <span className="text-red-800">{error}</span>
         </div>
       )}
 
       {success && (
         <div className={`p-4 ${colors.bg} border ${colors.border} rounded-lg flex items-start gap-3`}>
-          <CheckCircle className={`w-5 h-5 ${colors.text} flex-shrink-0 mt-0.5`} />
+          <CheckCircle className={`w-5 h-5 ${colors.text} shrink-0 mt-0.5`} />
           <span className={colors.text.replace('text-', 'text-').replace('600', '800')}>{success}</span>
         </div>
       )}

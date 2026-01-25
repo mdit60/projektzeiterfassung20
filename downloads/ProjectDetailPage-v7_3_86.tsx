@@ -1545,7 +1545,21 @@ export default function ProjectDetailPage({
         onClose={closeWPEditModal}
         onSave={handleSaveWP}
         mode={wpEditMode}
-        workPackage={editingWP}
+        workPackage={editingWP ? {
+          id: editingWP.id,
+          project_id: editingWP.project_id,
+          ap_number: editingWP.ap_number,
+          ap_sub_number: editingWP.ap_sub_number,
+          ap_code: editingWP.ap_code,
+          name: editingWP.name,
+          description: editingWP.description,
+          start_date: editingWP.start_date,
+          end_date: editingWP.end_date,
+          total_person_months: editingWP.total_person_months,
+          total_costs: editingWP.total_costs,
+          is_active: editingWP.is_active,
+          is_technical: editingWP.is_technical ?? null,
+        } : null}
         projects={wpProjects}
         defaultProjectId={projectId}
         getNextAPNumber={getNextAPNumber}
@@ -1558,8 +1572,21 @@ export default function ProjectDetailPage({
         portal={portal}
         isOpen={showWPAssignModal}
         onClose={closeWPAssignModal}
-        workPackage={assignmentWP}
-        allEmployees={allEmployees}
+        workPackage={assignmentWP ? {
+          id: assignmentWP.id,
+          project_id: assignmentWP.project_id,
+          ap_number: assignmentWP.ap_number,
+          ap_sub_number: assignmentWP.ap_sub_number,
+          ap_code: assignmentWP.ap_code,
+          name: assignmentWP.name,
+          total_person_months: assignmentWP.total_person_months,
+        } : null}
+        allEmployees={allEmployees.map(e => ({
+          id: e.id,
+          display_name: e.display_name,
+          position_title: e.position_title,
+          weekly_hours: e.weekly_hours,
+        }))}
         projectEmployeeIds={projectEmployeeIds}
         assignments={wpAssignments}
         onAddAssignment={handleAddWPAssignment}

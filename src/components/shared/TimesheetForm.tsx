@@ -975,7 +975,7 @@ export default function TimesheetForm({
                   if (hasChanges && !confirm('Ungespeicherte Aenderungen verwerfen?')) return;
                   setSelectedProjectId(e.target.value);
                 }}
-                className="border rounded px-2 py-1 text-sm min-w-[200px]"
+                className="border rounded px-2 py-1 text-sm min-w-50"
               >
                 {projects.map(p => (
                   <option key={p.id} value={p.id}>
