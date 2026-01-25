@@ -109,7 +109,7 @@ interface WPEmployee {
   last_name: string | null;
   position_title: string | null;
   weekly_hours: number | null;
-  employee_number?: number | null;
+  employee_number: number | null;  // Nicht optional, immer definiert
 }
 
 interface ProjectDetailPageProps {
@@ -1253,7 +1253,7 @@ export default function ProjectDetailPage({
                   start_date: wp.start_date,
                   end_date: wp.end_date,
                   planned_pm: wp.total_person_months,
-                  is_technical: wp.is_technical,
+                  is_technical: wp.is_technical ?? null,  // Explizit null wenn undefined
                 }))}
                 assignments={wpAssignments.map(a => ({
                   id: a.id,
@@ -1265,7 +1265,7 @@ export default function ProjectDetailPage({
                 onAssignmentChange={handleTableAssignmentChange}
                 onAddAP={adminUser ? openCreateWPModal : undefined}
                 onEditAP={adminUser ? (wp) => {
-                  // Map zurück zum lokalen WorkPackage Format
+                  // Map zurueck zum lokalen WorkPackage Format
                   const originalWP = workPackages.find(w => w.id === wp.id);
                   if (originalWP) openEditWPModal(originalWP);
                 } : undefined}

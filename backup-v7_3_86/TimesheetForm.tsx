@@ -2,15 +2,14 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 25. Januar 2026
-// Version: 7.3.86
+// Datum: 24. Januar 2026
+// Version: 7.3.85-5
 //
 // Wird von beiden Portalen genutzt:
 // - Firmen-Portal: /v7/firma/zeiterfassung
 // - Berater-Portal: /v7/berater/foerderung/firma/[id]/zeiterfassung
 //
-// v7.3.86: TypeScript Fix - is_technical Vergleich korrigiert
-// v7.3.85-5: Features:
+// Features:
 // - Excel-Navigation (Pfeiltasten, Tab, Shift+Tab, Enter)
 // - PDF-Export mit Speicherdialog
 // - Feiertags-Berechnung pro Bundesland
@@ -83,7 +82,7 @@ interface WorkPackage {
   ap_sub_number?: number;
   ap_code: string | null;
   name: string;
-  is_technical?: boolean | null;  // NEU: Technisches AP (fuer ZIM_DS)
+  is_technical?: boolean | null;  // NEU: Technisches AP (für ZIM_DS)
 }
 
 interface ClientCompany {
@@ -1154,7 +1153,8 @@ export default function TimesheetForm({
                     </td>
                     {isDurchfuehrbarkeitsstudie && (
                       <td className="border p-1 text-center">
-                        {selectedWP && selectedWP.is_technical === true ? (
+                          {console.log('selectedWP:', selectedWP?.ap_code, 'is_technical:', selectedWP?.is_technical, 'type:', typeof selectedWP?.is_technical)}
+                          {selectedWP && (selectedWP.is_technical === true || selectedWP.is_technical === 'true') ? (
                           <span className="text-green-600 font-bold">X</span>
                         ) : (
                           <span className="text-gray-400">-</span>

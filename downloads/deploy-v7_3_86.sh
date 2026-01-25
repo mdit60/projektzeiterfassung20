@@ -9,7 +9,9 @@
 # - TypeScript Typ-Fehler behoben
 # - PortalHeader: userRole akzeptiert V7UserRole | V7EmployeePortalRole | string
 # - PortalHeader: hideNavigation Property hinzugefuegt
+# - PortalHeader: createClient statt auth-helpers-nextjs
 # - ProjectDetailPage: Korrekte Typ-Mappings fuer Employee/WorkPackage
+# - TimesheetForm: is_technical Vergleich korrigiert
 # - v7-types: employee_number zu V7Employee hinzugefuegt (optional)
 #
 # =============================================================================
@@ -38,6 +40,9 @@ fi
 if [ -f "src/components/shared/ProjectDetailPage.tsx" ]; then
     cp src/components/shared/ProjectDetailPage.tsx backup-v7_3_86/
 fi
+if [ -f "src/components/shared/TimesheetForm.tsx" ]; then
+    cp src/components/shared/TimesheetForm.tsx backup-v7_3_86/
+fi
 if [ -f "src/types/v7-types.ts" ]; then
     cp src/types/v7-types.ts backup-v7_3_86/
 fi
@@ -59,6 +64,14 @@ if [ -f "$DOWNLOAD_DIR/ProjectDetailPage-v7_3_86.tsx" ]; then
     echo "   ✓ ProjectDetailPage.tsx aktualisiert"
 else
     echo "   ⚠ ProjectDetailPage-v7_3_86.tsx nicht gefunden"
+fi
+
+# TimesheetForm
+if [ -f "$DOWNLOAD_DIR/TimesheetForm-v7_3_86.tsx" ]; then
+    cp "$DOWNLOAD_DIR/TimesheetForm-v7_3_86.tsx" src/components/shared/TimesheetForm.tsx
+    echo "   ✓ TimesheetForm.tsx aktualisiert"
+else
+    echo "   ⚠ TimesheetForm-v7_3_86.tsx nicht gefunden"
 fi
 
 # v7-types
@@ -91,8 +104,10 @@ if [ $? -eq 0 ]; then
 
 - PortalHeader: userRole akzeptiert V7UserRole | V7EmployeePortalRole | string
 - PortalHeader: hideNavigation Property hinzugefuegt
+- PortalHeader: createClient statt auth-helpers-nextjs
 - ProjectDetailPage: Korrekte Typ-Mappings fuer Employee/WorkPackage
-- v7-types: employee_number zu V7Employee hinzugefuegt (optional)"
+- TimesheetForm: is_technical Vergleich korrigiert
+- v7-types: employee_number zu V7Employee hinzugefuegt"
         
         echo ""
         read -p "Auf v7-dev pushen? (j/n) " PUSH

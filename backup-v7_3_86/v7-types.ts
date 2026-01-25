@@ -2,11 +2,13 @@
 // ============================================================================
 // PZE V7 - TypeScript Interfaces
 // ============================================================================
-// Datum: 21. Januar 2026
-// Version: 7.3.42
+// Datum: 25. Januar 2026
+// Version: 7.3.86
 // 
 // Diese Datei enthaelt alle TypeScript-Typen fuer die V7-Datenbankstruktur.
 // Erweitert um Portal-Rollen und Kapazitaetsmanagement.
+//
+// v7.3.86: employee_number zu V7Employee hinzugefuegt (optional)
 // ============================================================================
 
 
@@ -124,7 +126,7 @@ export type V7FundingFormat =
   | 'BMBF_KMU'             // BMBF KMU-innovativ
   | 'BMBF_VERBUND'         // BMBF Verbundprojekt
   // Forschungszulage
-  | 'FZUL'                 // Forschungszulage (§35a EStG)
+  | 'FZUL'                 // Forschungszulage (Â§35a EStG)
   // Sonstige
   | 'LANDES_FOERDERUNG'    // Landesfoerderprogramme
   | 'EU_FOERDERUNG'        // EU-Foerderprogramme
@@ -496,7 +498,8 @@ export interface V7Employee {
   employment_end: string | null;
   entry_date: string | null;
   exit_date: string | null;
-  portal_role: V7EmployeePortalRole;  // NEU: Portal-Berechtigung
+  portal_role: V7EmployeePortalRole;  // Portal-Berechtigung
+  employee_number?: number | null;    // NEU v7.3.86: Optionale MA-Nummer (fallback aus project_assignments)
   notes: string | null;
   is_active: boolean;
   created_at: string;
