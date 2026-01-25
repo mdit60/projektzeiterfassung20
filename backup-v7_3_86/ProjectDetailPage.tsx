@@ -2,17 +2,13 @@
 // ============================================================================
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
-// Datum: 25. Januar 2026
-// Version: 7.3.86
+// Datum: 24. Januar 2026
+// Version: 7.3.84
 //
 // Gemeinsame Projekt-Detailseite fuer beide Portale:
 // - Berater-Portal: /v7/berater/foerderung/firma/[firmaId]/projekt/[projektId]
 // - Firmen-Portal: /v7/firma/projekte/[id]
 //
-// v7.3.86: TypeScript Typ-Korrekturen:
-//          - PortalHeader userRole/portalRole korrigiert
-//          - Lokale Employee/WorkPackage Typen für Kompatibilität
-//          - hideNavigation für Detailseiten
 // v7.3.84: Zeiterfassungs-Tab mit Link zur Zeiterfassungsseite
 // v7.3.81: Team-Sortierung nach employee_number (Anlage 6.2)
 // v7.3.76-2: AP-Nummer mit Sub-Nummer (z.B. AP2.1)
@@ -50,15 +46,11 @@ import {
 // Shared Components
 import PortalHeader from '@/components/shared/PortalHeader';
 import WorkPackageTable from '@/components/shared/WorkPackageTable';
-import { 
-  WorkPackage as WPListWorkPackage, 
-  sortWorkPackages, 
-  formatAPCode 
-} from '@/components/shared/WorkPackageList';
+import { WorkPackage, sortWorkPackages, formatAPCode } from '@/components/shared/WorkPackageList';
 import WorkPackageEditModal, { WorkPackageFormData, Project as WPProject } from '@/components/shared/WorkPackageEditModal';
 import WorkPackageAssignmentModal, {
-  Employee as WPModalEmployee,
-  WorkPackageAssignment as WPModalAssignment,
+  Employee as WPEmployee,
+  WorkPackageAssignment,
 } from '@/components/shared/WorkPackageAssignmentModal';
 
 // Types
@@ -70,47 +62,6 @@ import { HOURS_PER_PM, PORTAL_COLORS } from '@/lib/v7-constants';
 // ============================================================================
 
 export type PortalType = 'berater' | 'firma';
-
-// Lokale Typen die mit allen Shared Components kompatibel sind
-interface WorkPackage {
-  id: string;
-  project_id: string;
-  ap_number: number;
-  ap_sub_number: number | null;
-  ap_code: string | null;
-  name: string;
-  description: string | null;
-  start_month: number | null;
-  end_month: number | null;
-  start_date: string | null;
-  end_date: string | null;
-  total_person_months: number | null;
-  total_costs: number | null;
-  is_active: boolean;
-  is_technical?: boolean | null;
-  planned_pm?: number | null;
-}
-
-interface WorkPackageAssignment {
-  id: string;
-  work_package_id: string;
-  employee_id: string;
-  planned_person_months: number | null;
-  planned_hours: number | null;
-  role_description: string | null;
-  is_active: boolean;
-}
-
-// Employee für WorkPackageTable
-interface WPEmployee {
-  id: string;
-  display_name: string;
-  first_name: string | null;
-  last_name: string | null;
-  position_title: string | null;
-  weekly_hours: number | null;
-  employee_number?: number | null;
-}
 
 interface ProjectDetailPageProps {
   portal: PortalType;
@@ -358,23 +309,13 @@ export default function ProjectDetailPage({
       // Alle Mitarbeiter der Firma laden
       const { data: allEmpsData } = await supabase
         .from('v7_employees')
-        .select('id, display_name, first_name, last_name, position_title, weekly_hours')
+        .select('id, display_name, position_title, weekly_hours')
         .eq('client_company_id', targetCompanyId)
         .eq('is_active', true)
         .order('display_name');
 
       if (allEmpsData) {
-        // Typen explizit mappen für Kompatibilität
-        const mappedEmployees: WPEmployee[] = allEmpsData.map(emp => ({
-          id: emp.id,
-          display_name: emp.display_name,
-          first_name: emp.first_name || null,
-          last_name: emp.last_name || null,
-          position_title: emp.position_title || null,
-          weekly_hours: emp.weekly_hours || null,
-          employee_number: null,  // Wird aus project_assignments geladen
-        }));
-        setAllEmployees(mappedEmployees);
+        setAllEmployees(allEmpsData as WPEmployee[]);
       }
 
       // Arbeitspakete laden
@@ -490,21 +431,13 @@ export default function ProjectDetailPage({
     return userProfile?.email?.split('@')[0] || 'Benutzer';
   };
 
-  // Gibt die effektive Portal-Rolle zurück (für Navigation und Berechtigungen)
-  const getPortalRole = (): V7EmployeePortalRole | V7UserRole => {
+  const getPortalRole = (): string => {
     if (portal === 'berater') {
-      // Im Berater-Portal: V7UserRole zurückgeben
-      return userProfile?.role || 'consultant';
+      return userProfile?.role === 'system_admin' ? 'Admin' : 'Berater';
     }
-    // Im Firmen-Portal: V7EmployeePortalRole zurückgeben
     if (userProfile?.role === 'client_admin') return 'client_admin';
     if (employee?.portal_role) return employee.portal_role;
     return 'employee';
-  };
-  
-  // Gibt die V7UserRole für den PortalHeader zurück
-  const getUserRole = (): V7UserRole => {
-    return userProfile?.role || 'client_user';
   };
 
   const isAdmin = (): boolean => {
@@ -779,7 +712,7 @@ export default function ProjectDetailPage({
     }
   };
 
-  // Handler fuer WorkPackageTable Inline-Edit
+  // Handler für WorkPackageTable Inline-Edit
   const handleTableAssignmentChange = async (
     workPackageId: string, 
     employeeId: string, 
@@ -788,14 +721,14 @@ export default function ProjectDetailPage({
     try {
       const hours = plannedPm ? Math.round(plannedPm * HOURS_PER_PM * 100) / 100 : null;
 
-      // Pruefen ob Assignment existiert
+      // Prüfen ob Assignment existiert
       const existing = wpAssignments.find(
         a => a.work_package_id === workPackageId && a.employee_id === employeeId
       );
 
       if (existing) {
         if (plannedPm === null || plannedPm === 0) {
-          // Loeschen wenn PM 0 oder null
+          // Löschen wenn PM 0 oder null
           await supabase
             .from('v7_work_package_assignments')
             .update({ is_active: false, updated_at: new Date().toISOString() })
@@ -1083,7 +1016,7 @@ export default function ProjectDetailPage({
     id: project.id,
     name: project.name,
     funding_reference: project.funding_reference,
-    funding_format: project.funding_format,  // NEU: Fuer is_technical Checkbox bei ZIM_DS
+    funding_format: project.funding_format,  // NEU: Für is_technical Checkbox bei ZIM_DS
   }] : [];
 
   return (
@@ -1092,10 +1025,8 @@ export default function ProjectDetailPage({
       <PortalHeader
         portal={portal}
         userName={userName}
-        userRole={getUserRole()}
-        portalRole={portal === 'firma' ? (getPortalRole() as V7EmployeePortalRole) : undefined}
+        userRole={portalRole}
         companyName={company?.name || 'Firma'}
-        hideNavigation={true}
       />
 
       {/* Projekt-Header mit Zurueck-Button */}
@@ -1243,36 +1174,18 @@ export default function ProjectDetailPage({
               <WorkPackageTable
                 projectId={projectId}
                 employees={allEmployees.filter(e => projectEmployeeIds.includes(e.id))}
-                workPackages={workPackages.map(wp => ({
-                  id: wp.id,
-                  ap_code: wp.ap_code || formatAPCode(wp.ap_number, wp.ap_sub_number),
-                  ap_number: wp.ap_number,
-                  ap_sub_number: wp.ap_sub_number,
-                  name: wp.name,
-                  description: wp.description,
-                  start_date: wp.start_date,
-                  end_date: wp.end_date,
-                  planned_pm: wp.total_person_months,
-                  is_technical: wp.is_technical,
-                }))}
+                workPackages={workPackages}
                 assignments={wpAssignments.map(a => ({
                   id: a.id,
                   work_package_id: a.work_package_id,
                   employee_id: a.employee_id,
-                  planned_pm: a.planned_person_months || 0,
+                  planned_pm: (a as any).planned_person_months || 0,
                 }))}
                 canEdit={adminUser}
                 onAssignmentChange={handleTableAssignmentChange}
                 onAddAP={adminUser ? openCreateWPModal : undefined}
-                onEditAP={adminUser ? (wp) => {
-                  // Map zurück zum lokalen WorkPackage Format
-                  const originalWP = workPackages.find(w => w.id === wp.id);
-                  if (originalWP) openEditWPModal(originalWP);
-                } : undefined}
-                onDeleteAP={adminUser ? (wp) => {
-                  const originalWP = workPackages.find(w => w.id === wp.id);
-                  if (originalWP) openDeleteConfirmation(originalWP);
-                } : undefined}
+                onEditAP={adminUser ? openEditWPModal : undefined}
+                onDeleteAP={adminUser ? openDeleteConfirmation : undefined}
                 portal={portal}
                 fundingFormat={project?.funding_format}
               />
@@ -1836,7 +1749,7 @@ export default function ProjectDetailPage({
       <footer className="bg-white border-t mt-auto">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <p className="text-center text-sm text-gray-500">
-            PZE v7.3.86 | {company?.name}
+            PZE v7.3.84 | {company?.name}
           </p>
         </div>
       </footer>
