@@ -2,17 +2,13 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 03. Februar 2026
-// Version: 7.3.86-4
+// Datum: 25. Januar 2026
+// Version: 7.3.86-3
 //
 // Wird von beiden Portalen genutzt:
 // - Firmen-Portal: /v7/firma/zeiterfassung
 // - Berater-Portal: /v7/berater/foerderung/firma/[id]/zeiterfassung
 //
-// v7.3.86-4: FIX Fehlzeiten-Speicherung - DB-Constraint beachten:
-//            work_package_id und absence_code schliessen sich aus!
-//            Bei Fehlzeiten: work_package_id = null, hours = 8
-//            Lade-Logik angepasst fuer Fehlzeiten ohne work_package_id
 // v7.3.86-3: Speichern-Button im Unsaved-Dialog wiederhergestellt
 //            Erweitertes Debug-Logging fuer AP-Lade-Problem
 // v7.3.86-2: Debug-Logging fuer Timesheet-Laden bei Monatswechsel
@@ -247,7 +243,7 @@ export default function TimesheetForm({
   // Unterschriftsdatum
   const [signatureDate, setSignatureDate] = useState<string>('');
 
-  // Dialog fÃ¼r ungespeicherte Ã„nderungen
+  // Dialog für ungespeicherte Änderungen
   const [showUnsavedDialog, setShowUnsavedDialog] = useState<(() => void) | null>(null);
 
   // Zeiterfassungs-Daten
@@ -414,40 +410,30 @@ export default function TimesheetForm({
 
       const wpEntryMap = new Map<string, Map<number, { id: string; value: string }>>();
 
-      // Map fuer Fehlzeiten (ohne work_package_id, aber mit absence_code)
-      const absenceEntries = new Map<number, { id: string; value: string }>();
-
       entries?.forEach(entry => {
         const day = parseInt(entry.work_date.split('-')[2]);
 
         if (entry.work_package_id && wpIds.includes(entry.work_package_id)) {
-          // Normale Arbeitseintraege mit Work Package
           if (!wpEntryMap.has(entry.work_package_id)) {
             wpEntryMap.set(entry.work_package_id, new Map());
           }
-          const value = entry.hours > 0 ? entry.hours.toString() : '';
+          const value = entry.absence_code || (entry.hours > 0 ? entry.hours.toString() : '');
           wpEntryMap.get(entry.work_package_id)!.set(day, { id: entry.id, value });
           console.log('[TimesheetForm] AP-Eintrag gefunden:', { wp_id: entry.work_package_id, day, value });
-        } else if (entry.absence_code && !entry.work_package_id) {
-          // Fehlzeiten (U/K/S) - werden ohne work_package_id gespeichert
-          absenceEntries.set(day, { id: entry.id, value: entry.absence_code });
-          console.log('[TimesheetForm] Fehlzeit-Eintrag gefunden:', { day, absence_code: entry.absence_code });
-        } else if (!entry.is_billable && !entry.work_package_id && !entry.absence_code) {
-          // Sonstige nicht zuschussfaehige Arbeiten (ohne absence_code)
+        } else if (!entry.is_billable && !entry.work_package_id) {
+          // Sonstige nicht zuschussfaehige Arbeiten
           newNonBillable[day] = { id: entry.id, value: entry.hours > 0 ? entry.hours.toString() : '' };
           console.log('[TimesheetForm] Sonstige-Eintrag gefunden:', { day, hours: entry.hours });
         } else {
           console.log('[TimesheetForm] Eintrag NICHT zugeordnet:', { 
             wp_id: entry.work_package_id, 
             in_wpIds: entry.work_package_id ? wpIds.includes(entry.work_package_id) : 'null',
-            is_billable: entry.is_billable,
-            absence_code: entry.absence_code
+            is_billable: entry.is_billable
           });
         }
       });
 
       console.log('[TimesheetForm] Verarbeitete WP-Eintraege:', wpEntryMap.size);
-      console.log('[TimesheetForm] Fehlzeit-Eintraege:', absenceEntries.size);
       console.log('[TimesheetForm] Sonstige Eintraege:', Object.keys(newNonBillable).length);
 
       let rowIndex = 0;
@@ -457,26 +443,10 @@ export default function TimesheetForm({
           dayMap.forEach((entry, day) => {
             entriesObj[day] = entry;
           });
-          // Fehlzeiten in die erste Zeile mit diesem WP einfuegen
-          if (rowIndex === 0) {
-            absenceEntries.forEach((entry, day) => {
-              entriesObj[day] = entry;
-            });
-          }
           newRows[rowIndex] = { workPackageId: wpId, entries: entriesObj };
           rowIndex++;
         }
       });
-
-      // Falls keine WP-Eintraege, aber Fehlzeiten vorhanden - in erste Zeile laden
-      if (wpEntryMap.size === 0 && absenceEntries.size > 0 && wpIds.length > 0) {
-        const entriesObj: Record<number, CalendarEntry> = {};
-        absenceEntries.forEach((entry, day) => {
-          entriesObj[day] = entry;
-        });
-        newRows[0] = { workPackageId: wpIds[0], entries: entriesObj };
-        console.log('[TimesheetForm] Fehlzeiten in erste Zeile geladen mit WP:', wpIds[0]);
-      }
 
       console.log('[TimesheetForm] Finale apRows:', newRows.map(r => ({ wpId: r.workPackageId, entries: Object.keys(r.entries).length })));
       setApRows(newRows);
@@ -777,14 +747,11 @@ export default function TimesheetForm({
           if (!entry.value) return;
 
           const isAbsence = isAbsenceCode(entry.value);
-          const hours = isAbsence ? DAILY_HOURS : parseFloat(entry.value);
+          const hours = isAbsence ? 0 : parseFloat(entry.value);
 
-          // DB-Constraint: work_package_id und absence_code schliessen sich gegenseitig aus!
-          // Bei Fehlzeiten: work_package_id = null, absence_code gesetzt
-          // Bei Arbeit: work_package_id gesetzt, absence_code = null
           const record = {
             employee_id: selectedEmployeeId,
-            work_package_id: isAbsence ? null : row.workPackageId,
+            work_package_id: row.workPackageId,
             project_id: selectedProjectId,
             work_date: formatWorkDate(day),
             hours: hours,

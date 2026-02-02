@@ -2,19 +2,13 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 03. Februar 2026
-// Version: 7.3.86-4
+// Datum: 25. Januar 2026
+// Version: 7.3.86-2
 //
 // Wird von beiden Portalen genutzt:
 // - Firmen-Portal: /v7/firma/zeiterfassung
 // - Berater-Portal: /v7/berater/foerderung/firma/[id]/zeiterfassung
 //
-// v7.3.86-4: FIX Fehlzeiten-Speicherung - DB-Constraint beachten:
-//            work_package_id und absence_code schliessen sich aus!
-//            Bei Fehlzeiten: work_package_id = null, hours = 8
-//            Lade-Logik angepasst fuer Fehlzeiten ohne work_package_id
-// v7.3.86-3: Speichern-Button im Unsaved-Dialog wiederhergestellt
-//            Erweitertes Debug-Logging fuer AP-Lade-Problem
 // v7.3.86-2: Debug-Logging fuer Timesheet-Laden bei Monatswechsel
 //            project_id Filter in Lade-Query hinzugefuegt
 // v7.3.86-1: Jahr-Auswahl 2020-2030 wiederhergestellt
@@ -247,9 +241,6 @@ export default function TimesheetForm({
   // Unterschriftsdatum
   const [signatureDate, setSignatureDate] = useState<string>('');
 
-  // Dialog fÃ¼r ungespeicherte Ã„nderungen
-  const [showUnsavedDialog, setShowUnsavedDialog] = useState<(() => void) | null>(null);
-
   // Zeiterfassungs-Daten
   const [apRows, setApRows] = useState<APRow[]>([
     { workPackageId: null, entries: {} },
@@ -272,15 +263,6 @@ export default function TimesheetForm({
   // ============================================================================
   // HILFSFUNKTIONEN
   // ============================================================================
-
-  // Prueft auf ungespeicherte Aenderungen und zeigt Dialog
-  const checkUnsavedChanges = (callback: () => void) => {
-    if (hasChanges) {
-      setShowUnsavedDialog(() => callback);
-    } else {
-      callback();
-    }
-  };
 
   const getDaysInMonth = (year: number, month: number): number => {
     return new Date(year, month, 0).getDate();
@@ -346,8 +328,7 @@ export default function TimesheetForm({
     }
 
     const loadTimeEntries = async () => {
-      console.log('[TimesheetForm] ====== LADE ZEITEINTRAEGE ======');
-      console.log('[TimesheetForm] Parameter:', { 
+      console.log('[TimesheetForm] Lade Zeiteintraege fuer:', { 
         selectedEmployeeId, 
         selectedProjectId, 
         selectedYear, 
@@ -359,16 +340,14 @@ export default function TimesheetForm({
       const endDate = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${daysInMonth}`;
 
       console.log('[TimesheetForm] Datumsbereich:', { startDate, endDate });
-      console.log('[TimesheetForm] Alle workPackages (Props):', workPackages.length, workPackages.map(wp => ({ id: wp.id, project_id: wp.project_id, name: wp.name })));
 
       const projectWPs = workPackages.filter(wp => wp.project_id === selectedProjectId);
       const wpIds = projectWPs.map(wp => wp.id);
       
-      console.log('[TimesheetForm] Gefilterte Projekt-APs:', projectWPs.length, projectWPs.map(wp => ({ id: wp.id, name: wp.name })));
-      console.log('[TimesheetForm] WP IDs:', wpIds);
+      console.log('[TimesheetForm] Projekt-APs gefunden:', wpIds.length, wpIds);
 
       if (wpIds.length === 0) {
-        console.log('[TimesheetForm] WARNUNG: Keine APs fuer Projekt gefunden - setze leere Zeilen');
+        console.log('[TimesheetForm] Keine APs fuer Projekt - setze leere Zeilen');
         setApRows([
           { workPackageId: null, entries: {} },
           { workPackageId: null, entries: {} },
@@ -390,19 +369,10 @@ export default function TimesheetForm({
         .eq('is_active', true);
 
       if (loadError) {
-        console.error('[TimesheetForm] DB-Fehler beim Laden:', loadError);
+        console.error('[TimesheetForm] Fehler beim Laden:', loadError);
       }
       
-      console.log('[TimesheetForm] Geladene DB-Eintraege:', entries?.length || 0);
-      if (entries && entries.length > 0) {
-        console.log('[TimesheetForm] Erste Eintraege:', entries.slice(0, 5).map(e => ({
-          id: e.id,
-          work_package_id: e.work_package_id,
-          work_date: e.work_date,
-          hours: e.hours,
-          is_billable: e.is_billable
-        })));
-      }
+      console.log('[TimesheetForm] Geladene Eintraege aus DB:', entries?.length || 0, entries);
 
       const newRows: APRow[] = [
         { workPackageId: null, entries: {} },
@@ -414,41 +384,21 @@ export default function TimesheetForm({
 
       const wpEntryMap = new Map<string, Map<number, { id: string; value: string }>>();
 
-      // Map fuer Fehlzeiten (ohne work_package_id, aber mit absence_code)
-      const absenceEntries = new Map<number, { id: string; value: string }>();
-
       entries?.forEach(entry => {
         const day = parseInt(entry.work_date.split('-')[2]);
 
         if (entry.work_package_id && wpIds.includes(entry.work_package_id)) {
-          // Normale Arbeitseintraege mit Work Package
           if (!wpEntryMap.has(entry.work_package_id)) {
             wpEntryMap.set(entry.work_package_id, new Map());
           }
-          const value = entry.hours > 0 ? entry.hours.toString() : '';
+          const value = entry.absence_code || (entry.hours > 0 ? entry.hours.toString() : '');
           wpEntryMap.get(entry.work_package_id)!.set(day, { id: entry.id, value });
-          console.log('[TimesheetForm] AP-Eintrag gefunden:', { wp_id: entry.work_package_id, day, value });
-        } else if (entry.absence_code && !entry.work_package_id) {
-          // Fehlzeiten (U/K/S) - werden ohne work_package_id gespeichert
-          absenceEntries.set(day, { id: entry.id, value: entry.absence_code });
-          console.log('[TimesheetForm] Fehlzeit-Eintrag gefunden:', { day, absence_code: entry.absence_code });
         } else if (!entry.is_billable && !entry.work_package_id && !entry.absence_code) {
-          // Sonstige nicht zuschussfaehige Arbeiten (ohne absence_code)
           newNonBillable[day] = { id: entry.id, value: entry.hours > 0 ? entry.hours.toString() : '' };
-          console.log('[TimesheetForm] Sonstige-Eintrag gefunden:', { day, hours: entry.hours });
-        } else {
-          console.log('[TimesheetForm] Eintrag NICHT zugeordnet:', { 
-            wp_id: entry.work_package_id, 
-            in_wpIds: entry.work_package_id ? wpIds.includes(entry.work_package_id) : 'null',
-            is_billable: entry.is_billable,
-            absence_code: entry.absence_code
-          });
         }
       });
 
       console.log('[TimesheetForm] Verarbeitete WP-Eintraege:', wpEntryMap.size);
-      console.log('[TimesheetForm] Fehlzeit-Eintraege:', absenceEntries.size);
-      console.log('[TimesheetForm] Sonstige Eintraege:', Object.keys(newNonBillable).length);
 
       let rowIndex = 0;
       wpEntryMap.forEach((dayMap, wpId) => {
@@ -457,28 +407,12 @@ export default function TimesheetForm({
           dayMap.forEach((entry, day) => {
             entriesObj[day] = entry;
           });
-          // Fehlzeiten in die erste Zeile mit diesem WP einfuegen
-          if (rowIndex === 0) {
-            absenceEntries.forEach((entry, day) => {
-              entriesObj[day] = entry;
-            });
-          }
           newRows[rowIndex] = { workPackageId: wpId, entries: entriesObj };
           rowIndex++;
         }
       });
 
-      // Falls keine WP-Eintraege, aber Fehlzeiten vorhanden - in erste Zeile laden
-      if (wpEntryMap.size === 0 && absenceEntries.size > 0 && wpIds.length > 0) {
-        const entriesObj: Record<number, CalendarEntry> = {};
-        absenceEntries.forEach((entry, day) => {
-          entriesObj[day] = entry;
-        });
-        newRows[0] = { workPackageId: wpIds[0], entries: entriesObj };
-        console.log('[TimesheetForm] Fehlzeiten in erste Zeile geladen mit WP:', wpIds[0]);
-      }
-
-      console.log('[TimesheetForm] Finale apRows:', newRows.map(r => ({ wpId: r.workPackageId, entries: Object.keys(r.entries).length })));
+      console.log('[TimesheetForm] Setze apRows:', newRows);
       setApRows(newRows);
       setNonBillableEntries(newNonBillable);
       setHasChanges(false);
@@ -777,14 +711,11 @@ export default function TimesheetForm({
           if (!entry.value) return;
 
           const isAbsence = isAbsenceCode(entry.value);
-          const hours = isAbsence ? DAILY_HOURS : parseFloat(entry.value);
+          const hours = isAbsence ? 0 : parseFloat(entry.value);
 
-          // DB-Constraint: work_package_id und absence_code schliessen sich gegenseitig aus!
-          // Bei Fehlzeiten: work_package_id = null, absence_code gesetzt
-          // Bei Arbeit: work_package_id gesetzt, absence_code = null
           const record = {
             employee_id: selectedEmployeeId,
-            work_package_id: isAbsence ? null : row.workPackageId,
+            work_package_id: row.workPackageId,
             project_id: selectedProjectId,
             work_date: formatWorkDate(day),
             hours: hours,
@@ -951,25 +882,23 @@ export default function TimesheetForm({
   // ============================================================================
 
   const goToPreviousMonth = () => {
-    checkUnsavedChanges(() => {
-      if (selectedMonth === 1) {
-        setSelectedMonth(12);
-        setSelectedYear(prev => prev - 1);
-      } else {
-        setSelectedMonth(prev => prev - 1);
-      }
-    });
+    if (hasChanges && !confirm('Ungespeicherte Aenderungen verwerfen?')) return;
+    if (selectedMonth === 1) {
+      setSelectedMonth(12);
+      setSelectedYear(prev => prev - 1);
+    } else {
+      setSelectedMonth(prev => prev - 1);
+    }
   };
 
   const goToNextMonth = () => {
-    checkUnsavedChanges(() => {
-      if (selectedMonth === 12) {
-        setSelectedMonth(1);
-        setSelectedYear(prev => prev + 1);
-      } else {
-        setSelectedMonth(prev => prev + 1);
-      }
-    });
+    if (hasChanges && !confirm('Ungespeicherte Aenderungen verwerfen?')) return;
+    if (selectedMonth === 12) {
+      setSelectedMonth(1);
+      setSelectedYear(prev => prev + 1);
+    } else {
+      setSelectedMonth(prev => prev + 1);
+    }
   };
 
   // ============================================================================
@@ -987,7 +916,10 @@ export default function TimesheetForm({
           <div className="flex justify-between items-center py-3">
             <div className="flex items-center gap-4">
               <button
-                onClick={() => checkUnsavedChanges(onBack)}
+                onClick={() => {
+                  if (hasChanges && !confirm('Ungespeicherte Aenderungen verwerfen?')) return;
+                  onBack();
+                }}
                 className="text-white/80 hover:text-white flex items-center gap-1"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1050,8 +982,8 @@ export default function TimesheetForm({
               <select
                 value={selectedEmployeeId}
                 onChange={(e) => {
-                  const newValue = e.target.value;
-                  checkUnsavedChanges(() => setSelectedEmployeeId(newValue));
+                  if (hasChanges && !confirm('Ungespeicherte Aenderungen verwerfen?')) return;
+                  setSelectedEmployeeId(e.target.value);
                 }}
                 disabled={!isAdmin && employees.length <= 1}
                 className="border rounded px-2 py-1 text-sm"
@@ -1068,8 +1000,8 @@ export default function TimesheetForm({
               <select
                 value={selectedProjectId}
                 onChange={(e) => {
-                  const newValue = e.target.value;
-                  checkUnsavedChanges(() => setSelectedProjectId(newValue));
+                  if (hasChanges && !confirm('Ungespeicherte Aenderungen verwerfen?')) return;
+                  setSelectedProjectId(e.target.value);
                 }}
                 className="border rounded px-2 py-1 text-sm min-w-[200px]"
               >
@@ -1091,8 +1023,8 @@ export default function TimesheetForm({
               <select
                 value={selectedMonth}
                 onChange={(e) => {
-                  const newValue = parseInt(e.target.value);
-                  checkUnsavedChanges(() => setSelectedMonth(newValue));
+                  if (hasChanges && !confirm('Ungespeicherte Aenderungen verwerfen?')) return;
+                  setSelectedMonth(parseInt(e.target.value));
                 }}
                 className="border rounded px-2 py-1 text-sm"
               >
@@ -1103,8 +1035,8 @@ export default function TimesheetForm({
               <select
                 value={selectedYear}
                 onChange={(e) => {
-                  const newValue = parseInt(e.target.value);
-                  checkUnsavedChanges(() => setSelectedYear(newValue));
+                  if (hasChanges && !confirm('Ungespeicherte Aenderungen verwerfen?')) return;
+                  setSelectedYear(parseInt(e.target.value));
                 }}
                 className="border rounded px-2 py-1 text-sm"
               >
@@ -1464,49 +1396,6 @@ export default function TimesheetForm({
           </p>
         </div>
       </footer>
-
-      {/* Unsaved Changes Dialog */}
-      {showUnsavedDialog && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 print:hidden">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md mx-4">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Ungespeicherte Aenderungen</h3>
-            <p className="text-gray-600 mb-6">
-              Sie haben ungespeicherte Aenderungen. Was moechten Sie tun?
-            </p>
-            <div className="flex gap-3 justify-end">
-              <button
-                onClick={() => setShowUnsavedDialog(null)}
-                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
-              >
-                Abbrechen
-              </button>
-              <button
-                onClick={() => {
-                  const callback = showUnsavedDialog;
-                  setShowUnsavedDialog(null);
-                  setHasChanges(false);
-                  callback();
-                }}
-                className="px-4 py-2 text-red-700 bg-red-100 rounded-lg hover:bg-red-200"
-              >
-                Verwerfen
-              </button>
-              <button
-                onClick={async () => {
-                  const callback = showUnsavedDialog;
-                  await handleSave();
-                  setShowUnsavedDialog(null);
-                  callback();
-                }}
-                style={{ backgroundColor: colors.primary }}
-                className="px-4 py-2 text-white rounded-lg hover:opacity-90"
-              >
-                Speichern
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Print Styles */}
       <style jsx global>{`
