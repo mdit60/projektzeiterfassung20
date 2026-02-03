@@ -30,8 +30,7 @@ import {
   AlertCircle,
   X,
   Check,
-  ExternalLink,
-  Trash2
+  ExternalLink
 } from 'lucide-react';
 import { PORTAL_COLORS } from '@/lib/v7-constants';
 
@@ -340,7 +339,7 @@ function AddMemberDialog({
             <button
               onClick={handleSave}
               disabled={saving}
-              className={`px-4 py-2 text-white rounded-lg transition-colors ${colors.buttonBg} disabled:opacity-50`}
+              className={`px-4 py-2 text-white rounded-lg transition-colors ${colors.button} disabled:opacity-50`}
             >
               {saving ? 'Speichern...' : 'Hinzufügen'}
             </button>
@@ -533,7 +532,7 @@ function EditMemberDialog({
           <button
             onClick={handleSave}
             disabled={saving}
-            className={`px-4 py-2 text-white rounded-lg transition-colors ${colors.buttonBg} disabled:opacity-50`}
+            className={`px-4 py-2 text-white rounded-lg transition-colors ${colors.button} disabled:opacity-50`}
           >
             {saving ? 'Speichern...' : 'Speichern'}
           </button>
@@ -563,10 +562,6 @@ export default function ProjectTeamManager({
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editingMember, setEditingMember] = useState<ProjectTeamMember | null>(null);
-  const [deletingMember, setDeletingMember] = useState<ProjectTeamMember | null>(null);
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [memberHasTimeEntries, setMemberHasTimeEntries] = useState(false);
-  const [deleting, setDeleting] = useState(false);
 
   // Daten laden
   useEffect(() => {
@@ -686,52 +681,6 @@ export default function ProjectTeamManager({
     onTeamChange?.();
   };
 
-  // MA löschen - Prüfung ob Zeiterfassung existiert
-  const handleDeleteClick = async (member: ProjectTeamMember) => {
-    setDeletingMember(member);
-    
-    // Prüfe ob MA Zeiterfassung in diesem Projekt hat
-    const { count, error } = await supabase
-      .from('v7_time_entries')
-      .select('id', { count: 'exact', head: true })
-      .eq('project_id', projectId)
-      .eq('employee_id', member.employee_id);
-    
-    if (error) {
-      console.error('Fehler beim Prüfen der Zeiterfassung:', error);
-      setMemberHasTimeEntries(false);
-    } else {
-      setMemberHasTimeEntries((count || 0) > 0);
-    }
-    
-    setShowDeleteDialog(true);
-  };
-
-  // MA tatsächlich löschen
-  const handleDeleteConfirm = async () => {
-    if (!deletingMember) return;
-    
-    setDeleting(true);
-    
-    try {
-      const { error } = await supabase
-        .from('v7_project_assignments')
-        .delete()
-        .eq('id', deletingMember.id);
-      
-      if (error) throw error;
-      
-      await loadData();
-      onTeamChange?.();
-      setShowDeleteDialog(false);
-      setDeletingMember(null);
-    } catch (err) {
-      console.error('Fehler beim Löschen:', err);
-    } finally {
-      setDeleting(false);
-    }
-  };
-
   // Loading
   if (loading) {
     return (
@@ -781,7 +730,7 @@ export default function ProjectTeamManager({
               ) : (
                 <button
                   onClick={() => setShowAddDialog(true)}
-                  className={`inline-flex items-center gap-2 px-4 py-2 text-white rounded-lg ${colors.buttonBg}`}
+                  className={`inline-flex items-center gap-2 px-4 py-2 text-white rounded-lg ${colors.button}`}
                 >
                   <Plus size={18} />
                   Mitarbeiter hinzufügen
@@ -818,7 +767,7 @@ export default function ProjectTeamManager({
         {canEdit && availableEmployees.length > 0 && (
           <button
             onClick={() => setShowAddDialog(true)}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-white rounded-lg ${colors.buttonBg}`}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-white rounded-lg ${colors.button}`}
           >
             <Plus size={16} />
             Mitarbeiter hinzufügen
@@ -895,25 +844,16 @@ export default function ProjectTeamManager({
                   </td>
                   {canEdit && (
                     <td className="px-4 py-3 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <button
-                          onClick={() => {
-                            setEditingMember(member);
-                            setShowEditDialog(true);
-                          }}
-                          className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                          title="Bearbeiten"
-                        >
-                          <Pencil size={16} />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteClick(member)}
-                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                          title="Entfernen"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
+                      <button
+                        onClick={() => {
+                          setEditingMember(member);
+                          setShowEditDialog(true);
+                        }}
+                        className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                        title="Bearbeiten"
+                      >
+                        <Pencil size={16} />
+                      </button>
                     </td>
                   )}
                 </tr>
@@ -950,85 +890,6 @@ export default function ProjectTeamManager({
         member={editingMember}
         portal={portal}
       />
-
-      {/* Löschen-Dialog */}
-      {showDeleteDialog && deletingMember && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b">
-              <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-full ${memberHasTimeEntries ? 'bg-amber-100' : 'bg-red-100'}`}>
-                  {memberHasTimeEntries ? (
-                    <AlertCircle className="text-amber-600" size={20} />
-                  ) : (
-                    <Trash2 className="text-red-600" size={20} />
-                  )}
-                </div>
-                <h3 className="text-lg font-semibold text-gray-900">
-                  {memberHasTimeEntries ? 'Mitarbeiter hat Zeiterfassung' : 'Mitarbeiter entfernen'}
-                </h3>
-              </div>
-              <button 
-                onClick={() => {
-                  setShowDeleteDialog(false);
-                  setDeletingMember(null);
-                }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            {/* Content */}
-            <div className="px-6 py-4">
-              <p className="text-gray-700 mb-2">
-                <strong>MA {deletingMember.employee_number}: {deletingMember.employee?.display_name}</strong>
-              </p>
-              
-              {memberHasTimeEntries ? (
-                <div className="space-y-3">
-                  <p className="text-gray-600">
-                    Dieser Mitarbeiter hat bereits Stunden in diesem Projekt erfasst und kann nicht gelöscht werden.
-                  </p>
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
-                    <strong>Alternative:</strong> Setzen Sie im Bearbeiten-Dialog ein "Im Projekt bis" Datum, 
-                    um den Mitarbeiter als ausgeschieden zu markieren.
-                  </div>
-                </div>
-              ) : (
-                <p className="text-gray-600">
-                  Möchten Sie diesen Mitarbeiter wirklich aus dem Projektteam entfernen?
-                  Diese Aktion kann nicht rückgängig gemacht werden.
-                </p>
-              )}
-            </div>
-
-            {/* Footer */}
-            <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-lg">
-              <button
-                onClick={() => {
-                  setShowDeleteDialog(false);
-                  setDeletingMember(null);
-                }}
-                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                {memberHasTimeEntries ? 'Schließen' : 'Abbrechen'}
-              </button>
-              
-              {!memberHasTimeEntries && (
-                <button
-                  onClick={handleDeleteConfirm}
-                  disabled={deleting}
-                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors disabled:opacity-50"
-                >
-                  {deleting ? 'Wird entfernt...' : 'Entfernen'}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

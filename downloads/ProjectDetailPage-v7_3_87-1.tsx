@@ -1243,7 +1243,7 @@ export default function ProjectDetailPage({
                     teamCount={teamMembers.length}
                     onImportComplete={() => {
                       // Nach Import: Daten neu laden
-                      loadData();
+                      loadProjectData();
                     }}
                     portal={portal}
                   />
@@ -1327,7 +1327,7 @@ export default function ProjectDetailPage({
             portal={portal}
             onTeamChange={() => {
               // Team hat sich geändert - Daten neu laden
-              loadData();
+              loadProjectData();
             }}
           />
         )}

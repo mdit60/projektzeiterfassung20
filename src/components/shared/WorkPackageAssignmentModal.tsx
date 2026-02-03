@@ -5,18 +5,22 @@
 // PZE V7 - Gemeinsame WorkPackageAssignmentModal-Komponente
 // ============================================================================
 // Datum: 21. Januar 2026
-// Version: 7.3.52
+// Version: 7.3.62
+//
+// FIX: Zeigt ALLE Firmen-Mitarbeiter zur Auswahl, nicht nur die bereits
+//      dem Projekt zugeordneten. Die Zuordnung zu einem AP IST gleichzeitig
+//      die Zuordnung zum Projekt (v7_work_package_assignments = einzige Quelle)
 //
 // Wiederverwendbares Modal fuer:
 // - Mitarbeiter zu Arbeitspaketen zuordnen
 // - PM-Werte eingeben und aendern
-// - Zeigt nur MA die dem Projekt zugeordnet sind
+// - ALLE Firmen-MA sind verfuegbar (nicht nur projekt-zugeordnete)
 //
 // Portal-unabhaengig: Farben werden via portal-Parameter gesteuert
 // ============================================================================
 
 import React, { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
+import { X, Search } from 'lucide-react';
 import { V7PortalType } from '@/types/v7-types';
 import { PORTAL_COLORS, HOURS_PER_PM } from '@/lib/v7-constants';
 
@@ -60,8 +64,8 @@ interface WorkPackageAssignmentModalProps {
   // Alle Mitarbeiter der Firma
   allEmployees: Employee[];
   
-  // IDs der MA die dem PROJEKT zugeordnet sind
-  projectEmployeeIds: string[];
+  // IDs der MA die dem PROJEKT zugeordnet sind (optional, nur fuer Anzeige)
+  projectEmployeeIds?: string[];
   
   // Bestehende Zuordnungen fuer dieses AP
   assignments: WorkPackageAssignment[];
@@ -102,7 +106,7 @@ export default function WorkPackageAssignmentModal({
   onClose,
   workPackage,
   allEmployees,
-  projectEmployeeIds,
+  projectEmployeeIds = [],
   assignments,
   onAddAssignment,
   onUpdateAssignment,
@@ -113,6 +117,8 @@ export default function WorkPackageAssignmentModal({
   
   // Lokaler State fuer PM-Eingaben
   const [pmValues, setPmValues] = useState<Record<string, string>>({});
+  // Suchfilter fuer verfuegbare MA
+  const [searchTerm, setSearchTerm] = useState('');
   
   // PM-Werte initialisieren wenn Modal oeffnet
   useEffect(() => {
@@ -124,6 +130,7 @@ export default function WorkPackageAssignmentModal({
         }
       });
       setPmValues(values);
+      setSearchTerm('');
     }
   }, [isOpen, workPackage, assignments]);
   
@@ -142,40 +149,26 @@ export default function WorkPackageAssignmentModal({
     assignedEmployeeIds.includes(e.id)
   );
   
-  // Verfuegbare MA (dem Projekt zugeordnet, aber nicht diesem AP)
+  // Verfuegbare MA: ALLE Firmen-MA die nicht diesem AP zugeordnet sind
+  // (NICHT mehr gefiltert nach projectEmployeeIds!)
   const availableEmployees = allEmployees.filter(e => 
-    projectEmployeeIds.includes(e.id) && !assignedEmployeeIds.includes(e.id)
+    !assignedEmployeeIds.includes(e.id)
   );
+  
+  // Suchfilter anwenden
+  const filteredAvailableEmployees = availableEmployees.filter(e => {
+    if (!searchTerm) return true;
+    const search = searchTerm.toLowerCase();
+    return (
+      e.display_name.toLowerCase().includes(search) ||
+      (e.position_title && e.position_title.toLowerCase().includes(search))
+    );
+  });
   
   // Summe der verteilten PM
   const distributedPM = assignments
     .filter(a => a.work_package_id === workPackage.id && a.is_active)
     .reduce((sum, a) => sum + (a.planned_person_months || 0), 0);
-  
-  // Geplante PM fuer dieses AP
-  const plannedPM = workPackage.total_person_months || 0;
-  
-  // Verfuegbare PM (noch nicht zugeordnet)
-  const availablePM = Math.max(0, plannedPM - distributedPM);
-  
-  // Pruefe ob PM vollstaendig verteilt
-  const isFullyAllocated = plannedPM > 0 && distributedPM >= plannedPM;
-  
-  // Validierung: Prueft ob eine neue Zuordnung moeglich ist
-  const canAddPM = (newPM: number, currentPM: number = 0): boolean => {
-    if (plannedPM === 0) return true; // Keine Planung = keine Einschraenkung
-    const netChange = newPM - currentPM;
-    return (distributedPM + netChange) <= plannedPM;
-  };
-  
-  // Berechne maximale PM die noch zugeordnet werden koennen
-  const getMaxPMForEmployee = (employeeId: string): number => {
-    const currentAssignment = assignments.find(
-      a => a.work_package_id === workPackage.id && a.employee_id === employeeId && a.is_active
-    );
-    const currentPM = currentAssignment?.planned_person_months || 0;
-    return availablePM + currentPM;
-  };
   
   // ============================================
   // HANDLER
@@ -186,15 +179,8 @@ export default function WorkPackageAssignmentModal({
   };
   
   const handleAddEmployee = async (employeeId: string) => {
-    const pm = parseFloat(pmValues[employeeId] || '0') || 0;
-    
-    // Validierung: Pruefe ob noch PM verfuegbar
-    if (plannedPM > 0 && pm > availablePM) {
-      alert(`Kann nicht zuordnen: Nur noch ${availablePM.toFixed(2)} PM verfuegbar.`);
-      return;
-    }
-    
-    await onAddAssignment(employeeId, pm || null);
+    const pm = parseFloat(pmValues[employeeId] || '0') || null;
+    await onAddAssignment(employeeId, pm);
     // PM-Wert aus lokalem State entfernen nach Hinzufuegen
     setPmValues(prev => {
       const next = { ...prev };
@@ -204,22 +190,8 @@ export default function WorkPackageAssignmentModal({
   };
   
   const handleUpdatePM = async (employeeId: string) => {
-    const newPM = parseFloat(pmValues[employeeId] || '0') || 0;
-    const currentAssignment = assignments.find(
-      a => a.work_package_id === workPackage.id && a.employee_id === employeeId && a.is_active
-    );
-    const currentPM = currentAssignment?.planned_person_months || 0;
-    
-    // Validierung: Pruefe ob neue PM-Zahl zulaessig
-    if (!canAddPM(newPM, currentPM)) {
-      const maxAllowed = getMaxPMForEmployee(employeeId);
-      alert(`Kann nicht aendern: Maximal ${maxAllowed.toFixed(2)} PM fuer diesen Mitarbeiter moeglich.`);
-      // Zuruecksetzen auf alten Wert
-      setPmValues(prev => ({ ...prev, [employeeId]: currentPM.toString() }));
-      return;
-    }
-    
-    await onUpdateAssignment(employeeId, newPM || null);
+    const pm = parseFloat(pmValues[employeeId] || '0') || null;
+    await onUpdateAssignment(employeeId, pm);
   };
   
   const handleRemoveEmployee = async (employeeId: string) => {
@@ -242,25 +214,10 @@ export default function WorkPackageAssignmentModal({
             <p className="text-sm text-gray-500">
               {formatAPCode(workPackage)}: {workPackage.name}
             </p>
-            {workPackage.total_person_months !== null && workPackage.total_person_months > 0 && (
-              <div className="mt-2 space-y-1">
-                <p className="text-xs text-gray-500">
-                  Geplant: <span className="font-medium">{plannedPM.toFixed(2)} PM</span> ({pmToHours(plannedPM)})
-                </p>
-                <p className={`text-xs ${isFullyAllocated ? 'text-amber-600' : availablePM > 0 ? 'text-green-600' : 'text-gray-500'}`}>
-                  Verteilt: <span className="font-medium">{distributedPM.toFixed(2)} PM</span>
-                  {availablePM > 0 && (
-                    <span className="ml-2 text-green-600">
-                      (noch {availablePM.toFixed(2)} PM verfuegbar)
-                    </span>
-                  )}
-                  {isFullyAllocated && (
-                    <span className="ml-2 text-amber-600 font-medium">
-                      ✓ Vollstaendig zugeordnet
-                    </span>
-                  )}
-                </p>
-              </div>
+            {workPackage.total_person_months && (
+              <p className="text-xs text-gray-400">
+                Gesamt: {workPackage.total_person_months.toFixed(2)} PM ({pmToHours(workPackage.total_person_months)})
+              </p>
             )}
           </div>
           <button 
@@ -276,7 +233,7 @@ export default function WorkPackageAssignmentModal({
           {/* Zugeordnete Mitarbeiter */}
           <div className="mb-6">
             <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
-              <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
+              <span className="w-2 h-2 bg-green-500 rounded-full"></span>
               Zugeordnet ({assignedEmployees.length})
             </h4>
             
@@ -290,16 +247,13 @@ export default function WorkPackageAssignmentModal({
                   const assignment = assignments.find(
                     a => a.work_package_id === workPackage.id && a.employee_id === emp.id
                   );
-                  const currentPM = assignment?.planned_person_months || 0;
+                  const currentPM = assignment?.planned_person_months;
                   const localPM = pmValues[emp.id] ?? currentPM?.toString() ?? '';
-                  const enteredPM = parseFloat(localPM) || 0;
-                  const maxPM = getMaxPMForEmployee(emp.id);
-                  const isOverMax = plannedPM > 0 && enteredPM > maxPM;
                   
                   return (
                     <div
                       key={emp.id}
-                      className="p-3 bg-purple-50 rounded-lg border border-purple-200"
+                      className="p-3 bg-green-50 rounded-lg border border-green-200"
                     >
                       <div className="flex justify-between items-start mb-2">
                         <div>
@@ -323,31 +277,19 @@ export default function WorkPackageAssignmentModal({
                           type="number"
                           step="0.01"
                           min="0"
-                          max={maxPM > 0 ? maxPM : undefined}
                           value={localPM}
                           onChange={(e) => handlePMChange(emp.id, e.target.value)}
                           onBlur={() => handleUpdatePM(emp.id)}
                           disabled={saving}
-                          className={`w-20 px-2 py-1 text-sm border rounded 
-                                     focus:ring-1 focus:ring-purple-500 disabled:opacity-50
-                                     ${isOverMax ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
+                          className="w-20 px-2 py-1 text-sm border border-gray-300 rounded 
+                                     focus:ring-1 focus:ring-green-500 disabled:opacity-50"
                         />
-                        {plannedPM > 0 && (
-                          <span className="text-xs text-gray-500">
-                            max {maxPM.toFixed(2)}
-                          </span>
-                        )}
-                        {currentPM > 0 && (
+                        {currentPM && currentPM > 0 && (
                           <span className="text-xs text-gray-500">
                             = {pmToHours(currentPM)}
                           </span>
                         )}
                       </div>
-                      {isOverMax && (
-                        <p className="text-xs text-red-600 mt-1">
-                          Maximal {maxPM.toFixed(2)} PM moeglich
-                        </p>
-                      )}
                     </div>
                   );
                 })}
@@ -356,138 +298,88 @@ export default function WorkPackageAssignmentModal({
             
             {/* Summe */}
             {assignedEmployees.length > 0 && (
-              <div className={`mt-3 p-2 rounded text-sm ${
-                distributedPM > plannedPM && plannedPM > 0 
-                  ? 'bg-red-100 border border-red-300' 
-                  : isFullyAllocated 
-                    ? 'bg-green-100 border border-green-300'
-                    : 'bg-gray-100'
-              }`}>
+              <div className="mt-3 p-2 bg-gray-100 rounded text-sm">
                 <div className="flex justify-between">
                   <span>Verteilt:</span>
-                  <span className={`font-medium ${
-                    distributedPM > plannedPM && plannedPM > 0 ? 'text-red-700' : ''
-                  }`}>
-                    {distributedPM.toFixed(2)} PM
-                  </span>
+                  <span className="font-medium">{distributedPM.toFixed(2)} PM</span>
                 </div>
-                {workPackage.total_person_months !== null && workPackage.total_person_months > 0 && (
-                  <>
-                    <div className="flex justify-between text-gray-500">
-                      <span>Geplant AP:</span>
-                      <span>{plannedPM.toFixed(2)} PM</span>
-                    </div>
-                    {distributedPM > plannedPM ? (
-                      <div className="flex justify-between text-red-600 font-medium mt-1">
-                        <span>⚠️ Ueberallokation:</span>
-                        <span>+{(distributedPM - plannedPM).toFixed(2)} PM</span>
-                      </div>
-                    ) : availablePM > 0 ? (
-                      <div className="flex justify-between text-green-600 mt-1">
-                        <span>Noch verfuegbar:</span>
-                        <span>{availablePM.toFixed(2)} PM</span>
-                      </div>
-                    ) : (
-                      <div className="flex justify-between text-green-600 font-medium mt-1">
-                        <span>✓ Vollstaendig verteilt</span>
-                      </div>
-                    )}
-                  </>
+                {workPackage.total_person_months && (
+                  <div className="flex justify-between text-gray-500">
+                    <span>Gesamt AP:</span>
+                    <span>{workPackage.total_person_months.toFixed(2)} PM</span>
+                  </div>
                 )}
               </div>
             )}
           </div>
 
-          {/* Verfuegbare Mitarbeiter */}
+          {/* Verfuegbare Mitarbeiter - ALLE Firmen-MA */}
           <div>
             <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full ${isFullyAllocated ? 'bg-amber-500' : 'bg-gray-400'}`}></span>
-              Verfuegbar aus Projekt ({availableEmployees.length})
+              <span className="w-2 h-2 bg-gray-400 rounded-full"></span>
+              Verfuegbare Mitarbeiter ({availableEmployees.length})
             </h4>
             
-            {/* Hinweis wenn PM vollstaendig verteilt */}
-            {isFullyAllocated && availableEmployees.length > 0 && (
-              <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                <p className="text-sm text-amber-700 font-medium">
-                  ⚠️ Geplante Personenmonate vollstaendig zugeordnet
-                </p>
-                <p className="text-xs text-amber-600 mt-1">
-                  Alle {plannedPM.toFixed(2)} PM sind verteilt. Um weitere MA hinzuzufuegen, 
-                  reduzieren Sie zuerst die PM bei anderen MA.
-                </p>
+            {/* Suchfeld wenn mehr als 5 MA */}
+            {availableEmployees.length > 5 && (
+              <div className="mb-3 relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Mitarbeiter suchen..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg
+                             focus:ring-1 focus:ring-green-500 focus:border-green-500"
+                />
               </div>
             )}
             
-            {availableEmployees.length === 0 ? (
+            {filteredAvailableEmployees.length === 0 ? (
               <p className="text-sm text-gray-400 italic pl-4">
-                {projectEmployeeIds.length === 0
-                  ? 'Keine MA dem Projekt zugeordnet'
-                  : 'Alle Projekt-MA sind diesem AP zugeordnet'}
+                {availableEmployees.length === 0
+                  ? 'Alle Mitarbeiter sind bereits zugeordnet'
+                  : 'Keine Mitarbeiter gefunden'}
               </p>
             ) : (
-              <div className="space-y-2">
-                {availableEmployees.map(emp => {
-                  const maxPM = getMaxPMForEmployee(emp.id);
-                  const enteredPM = parseFloat(pmValues[emp.id] || '0') || 0;
-                  const canAdd = plannedPM === 0 || enteredPM <= maxPM;
-                  
-                  return (
-                    <div
-                      key={emp.id}
-                      className={`p-3 rounded-lg border ${
-                        isFullyAllocated 
-                          ? 'bg-gray-100 border-gray-200 opacity-60' 
-                          : 'bg-gray-50 border-gray-200'
-                      }`}
-                    >
-                      <div className="flex justify-between items-start mb-2">
-                        <div>
-                          <div className="font-medium text-gray-900">{emp.display_name}</div>
-                          {emp.position_title && (
-                            <div className="text-sm text-gray-500">{emp.position_title}</div>
-                          )}
-                        </div>
-                        {!isFullyAllocated && availablePM > 0 && (
-                          <span className="text-xs text-green-600">
-                            max {maxPM.toFixed(2)} PM
-                          </span>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {filteredAvailableEmployees.map(emp => (
+                  <div
+                    key={emp.id}
+                    className="p-3 bg-gray-50 rounded-lg border border-gray-200 hover:border-green-300 transition-colors"
+                  >
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <div className="font-medium text-gray-900">{emp.display_name}</div>
+                        {emp.position_title && (
+                          <div className="text-sm text-gray-500">{emp.position_title}</div>
                         )}
                       </div>
-                      <div className="flex items-center gap-2">
-                        <label className="text-xs text-gray-600">PM:</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          max={maxPM > 0 ? maxPM : undefined}
-                          placeholder="0.00"
-                          value={pmValues[emp.id] || ''}
-                          onChange={(e) => handlePMChange(emp.id, e.target.value)}
-                          disabled={saving || isFullyAllocated}
-                          className={`w-20 px-2 py-1 text-sm border rounded 
-                                     focus:ring-1 focus:ring-purple-500 disabled:opacity-50
-                                     ${!canAdd && enteredPM > 0 ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
-                        />
-                        <button
-                          onClick={() => handleAddEmployee(emp.id)}
-                          disabled={saving || isFullyAllocated || !canAdd}
-                          className={`px-3 py-1 text-sm text-white rounded 
-                                     disabled:opacity-50 transition-colors
-                                     ${isFullyAllocated || !canAdd ? 'bg-gray-400 cursor-not-allowed' : ''}`}
-                          style={{ backgroundColor: isFullyAllocated || !canAdd ? undefined : '#9333ea' }}
-                          title={isFullyAllocated ? 'PM vollstaendig verteilt' : !canAdd ? 'PM ueberschritten' : 'Hinzufuegen'}
-                        >
-                          Hinzufuegen
-                        </button>
-                      </div>
-                      {!canAdd && enteredPM > 0 && (
-                        <p className="text-xs text-red-600 mt-1">
-                          Maximal {maxPM.toFixed(2)} PM moeglich
-                        </p>
-                      )}
                     </div>
-                  );
-                })}
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-gray-600">PM:</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="0.00"
+                        value={pmValues[emp.id] || ''}
+                        onChange={(e) => handlePMChange(emp.id, e.target.value)}
+                        disabled={saving}
+                        className="w-20 px-2 py-1 text-sm border border-gray-300 rounded 
+                                   focus:ring-1 focus:ring-green-500 disabled:opacity-50"
+                      />
+                      <button
+                        onClick={() => handleAddEmployee(emp.id)}
+                        disabled={saving}
+                        className="px-3 py-1 text-sm text-white bg-green-600 rounded 
+                                   hover:bg-green-700 disabled:opacity-50 transition-colors"
+                      >
+                        Hinzufuegen
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -497,8 +389,8 @@ export default function WorkPackageAssignmentModal({
         <div className="px-6 py-4 border-t bg-gray-50">
           <button
             onClick={onClose}
-            className="w-full px-4 py-2 text-white rounded-lg transition-colors"
-            style={{ backgroundColor: '#9333ea' }}
+            className="w-full px-4 py-2 text-white bg-green-600 rounded-lg 
+                       hover:bg-green-700 transition-colors"
           >
             Fertig
           </button>
