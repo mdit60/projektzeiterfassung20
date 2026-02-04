@@ -2,20 +2,19 @@
 
 // ============================================================================
 // BERATER-PORTAL: Firmen-Detail-Seite
-// Version: 7.3.88-3
+// Version: 7.3.88-2
 // Datum: 05. Februar 2026
 // 
 // Route: /v7/berater/foerderung/firma/[id]
 // 
 // TABS: Firmendaten | Projekte | Mitarbeiter | Zeiterfassung | Berichte
-//
-// FIX: CompanyDataView erhaelt jetzt company-Objekt statt nur companyId
 // ============================================================================
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import PortalHeader from '@/components/shared/PortalHeader';
+import CompanyDataView from '@/components/shared/CompanyDataView';
 import ProjectList from '@/components/shared/ProjectList';
 import EmployeeManagement from '@/components/shared/EmployeeManagement';
 import { 
@@ -24,8 +23,7 @@ import {
   FolderKanban, 
   Users,
   Clock,
-  BarChart3,
-  Pencil
+  BarChart3
 } from 'lucide-react';
 
 // Tab-Definition
@@ -37,42 +35,6 @@ interface TabConfig {
   icon: React.ReactNode;
   badge?: number;
 }
-
-// Firma-Interface
-interface ClientCompany {
-  id: string;
-  name: string;
-  short_name: string | null;
-  street: string | null;
-  zip_code: string | null;
-  city: string | null;
-  federal_state: string | null;
-  contact_person: string | null;
-  contact_email: string | null;
-  contact_phone: string | null;
-  is_active: boolean;
-  created_at: string;
-}
-
-// Bundesland-Namen
-const BUNDESLAND_NAMES: Record<string, string> = {
-  'DE-BW': 'Baden-Wuerttemberg',
-  'DE-BY': 'Bayern',
-  'DE-BE': 'Berlin',
-  'DE-BB': 'Brandenburg',
-  'DE-HB': 'Bremen',
-  'DE-HH': 'Hamburg',
-  'DE-HE': 'Hessen',
-  'DE-MV': 'Mecklenburg-Vorpommern',
-  'DE-NI': 'Niedersachsen',
-  'DE-NW': 'Nordrhein-Westfalen',
-  'DE-RP': 'Rheinland-Pfalz',
-  'DE-SL': 'Saarland',
-  'DE-SN': 'Sachsen',
-  'DE-ST': 'Sachsen-Anhalt',
-  'DE-SH': 'Schleswig-Holstein',
-  'DE-TH': 'Thueringen',
-};
 
 export default function BeraterFirmaDetailPage() {
   const params = useParams();
@@ -86,7 +48,7 @@ export default function BeraterFirmaDetailPage() {
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [firma, setFirma] = useState<ClientCompany | null>(null);
+  const [firma, setFirma] = useState<any>(null);
   const [projectCount, setProjectCount] = useState(0);
   const [employeeCount, setEmployeeCount] = useState(0);
   const [userProfile, setUserProfile] = useState<any>(null);
@@ -188,13 +150,6 @@ export default function BeraterFirmaDetailPage() {
     router.push('/v7/berater/foerderung');
   };
 
-  // Datum formatieren
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return '-';
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('de-DE');
-  };
-
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -285,85 +240,14 @@ export default function BeraterFirmaDetailPage() {
 
       {/* Tab-Inhalt */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        
-        {/* FIRMENDATEN - Inline statt CompanyDataView */}
-        {activeTab === 'firmendaten' && firma && (
-          <div className="bg-white rounded-lg shadow-sm border p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-semibold text-gray-900">Firmendaten</h2>
-              <button 
-                className="flex items-center gap-2 text-[#002451] hover:text-[#003366]"
-                onClick={() => {/* TODO: Bearbeiten-Modal */}}
-              >
-                <Pencil className="w-4 h-4" />
-                Bearbeiten
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Linke Spalte */}
-              <div className="space-y-4">
-                <div>
-                  <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
-                    <Building2 className="w-4 h-4" />
-                    Firmenname
-                  </div>
-                  <div className="text-gray-900 font-medium">{firma.name}</div>
-                </div>
-
-                <div>
-                  <div className="text-sm text-gray-500 mb-1">Adresse</div>
-                  <div className="text-gray-900">
-                    {firma.street && <div>{firma.street}</div>}
-                    {(firma.zip_code || firma.city) && (
-                      <div>{firma.zip_code} {firma.city}</div>
-                    )}
-                    {firma.federal_state && (
-                      <div className="text-gray-600">
-                        {BUNDESLAND_NAMES[firma.federal_state] || firma.federal_state}
-                      </div>
-                    )}
-                    {!firma.street && !firma.zip_code && !firma.city && '-'}
-                  </div>
-                </div>
-
-                <div>
-                  <div className="text-sm text-gray-500 mb-1">Angelegt am</div>
-                  <div className="text-gray-900">{formatDate(firma.created_at)}</div>
-                </div>
-              </div>
-
-              {/* Rechte Spalte */}
-              <div className="space-y-4">
-                <div>
-                  <div className="text-sm text-gray-500 mb-1">Ansprechpartner</div>
-                  <div className="text-gray-900">{firma.contact_person || '-'}</div>
-                </div>
-
-                <div>
-                  <div className="text-sm text-gray-500 mb-1">Telefon</div>
-                  <div className="text-gray-900">{firma.contact_phone || '-'}</div>
-                </div>
-
-                <div>
-                  <div className="text-sm text-gray-500 mb-1">E-Mail</div>
-                  {firma.contact_email ? (
-                    <a 
-                      href={`mailto:${firma.contact_email}`}
-                      className="text-[#002451] hover:underline"
-                    >
-                      {firma.contact_email}
-                    </a>
-                  ) : (
-                    <div className="text-gray-900">-</div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
+        {activeTab === 'firmendaten' && (
+          <CompanyDataView 
+            companyId={firmaId}
+            portal="berater"
+            onUpdate={loadData}
+          />
         )}
 
-        {/* PROJEKTE */}
         {activeTab === 'projekte' && (
           <ProjectList 
             companyId={firmaId}
@@ -371,7 +255,6 @@ export default function BeraterFirmaDetailPage() {
           />
         )}
 
-        {/* MITARBEITER */}
         {activeTab === 'mitarbeiter' && (
           <EmployeeManagement
             companyId={firmaId}
