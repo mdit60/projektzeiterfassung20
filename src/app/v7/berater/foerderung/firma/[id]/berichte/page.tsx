@@ -1,27 +1,22 @@
-// src/app/v7/firma/berichte/page.tsx
+// src/app/v7/berater/foerderung/firma/[id]/berichte/page.tsx
 // ============================================================================
-// PZE V7 - Berichte & Controlling (Firmen-Portal)
+// PZE V7 - Berichte & Controlling (Berater-Portal - Firmenansicht)
 // ============================================================================
-// Version: 7.3.88-4
+// Version: 7.3.88
 // Datum: 05. Februar 2026
 //
-// Fix v7.3.88-4: 
-//   - Monats-Dropdown zeigt NUR Projektzeitraum (Start bis Ende)
-//   - Neue Spalte "Aktion" mit Button zur Zeiterfassung
-//   - Klick auf "Erfassen" oeffnet Zeiterfassung mit MA+Monat
-//   - v7_projects.client_company_id (nicht company_id)
-//   - v7_employees.client_company_id (nicht company_id)
-//   - v7_timesheets.work_date (nicht date)
-//   - v7_timesheets hat kein absence_code - day_type verwenden
+// Gleiche Funktionalitaet wie Firmen-Portal Berichte, aber:
+// - Blauer Header (Berater-Portal)
+// - firmaId aus URL statt aus User-Profil
+// - Berater sieht Daten der ausgewaehlten Kundenfirma
 // ============================================================================
 
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import PortalHeader from '@/components/shared/PortalHeader';
-import PortalNav from '@/components/shared/PortalNav';
 import {
   BarChart3,
   FolderKanban,
@@ -36,6 +31,7 @@ import {
   FileText,
   Download,
   Calendar,
+  ArrowLeft,
   ExternalLink,
 } from 'lucide-react';
 
@@ -54,7 +50,6 @@ interface UserProfile {
   email: string;
   display_name: string | null;
   role: string;
-  client_company_id: string | null;
 }
 
 interface Company {
@@ -100,9 +95,9 @@ interface TimesheetEntry {
   id: string;
   project_id: string;
   employee_id: string;
-  work_date: string;  // Korrekter Feldname!
+  work_date: string;
   hours: number;
-  day_type: string | null;  // 'work', 'vacation', 'sick', etc.
+  day_type: string | null;
 }
 
 interface ProjectStats {
@@ -219,8 +214,10 @@ const getMonthName = (month: number): string => {
 // KOMPONENTE
 // ============================================================================
 
-export default function BerichtePage() {
+export default function BeraterBerichtePage() {
   const router = useRouter();
+  const params = useParams();
+  const companyId = params.id as string;
   const supabase = createClient();
   
   const [loading, setLoading] = useState(true);
@@ -256,33 +253,21 @@ export default function BerichtePage() {
           return;
         }
         
-        // User-Profil
+        // User-Profil (Berater)
         const { data: profile, error: profileError } = await supabase
           .from('v7_user_profiles')
-          .select('id, email, display_name, role, client_company_id')
+          .select('id, email, display_name, role')
           .eq('email', user.email)
           .maybeSingle();
         
-        if (profileError) {
-          console.error('Profil-Fehler:', profileError);
-          setError('Fehler beim Laden des Benutzerprofils');
-          return;
-        }
-        
-        if (!profile) {
+        if (profileError || !profile) {
           setError('Kein Benutzerprofil gefunden');
           return;
         }
         
-        if (!profile.client_company_id) {
-          setError('Keine Firma zugeordnet. Bitte melden Sie sich mit einem Firmen-Account an.');
-          return;
-        }
-        
         setUserProfile(profile);
-        const companyId = profile.client_company_id;
         
-        // Company
+        // Company aus URL-Parameter
         const { data: companyData, error: companyError } = await supabase
           .from('v7_client_companies')
           .select('id, name, federal_state')
@@ -290,85 +275,64 @@ export default function BerichtePage() {
           .single();
         
         if (companyError || !companyData) {
-          console.error('Firma-Fehler:', companyError);
           setError('Firma nicht gefunden');
           return;
         }
         setCompany(companyData);
         
-        // Projekte - KORREKTER FELDNAME: client_company_id
-        const { data: projectsData, error: projectsError } = await supabase
+        // Projekte
+        const { data: projectsData } = await supabase
           .from('v7_projects')
           .select('id, name, short_name, funding_format, funding_reference, start_date, end_date, is_active')
           .eq('client_company_id', companyId)
           .eq('is_active', true);
         
-        if (projectsError) {
-          console.error('Projekte-Fehler:', projectsError);
-        }
-        console.log('Projekte geladen:', projectsData?.length || 0);
         setProjects(projectsData || []);
         
-        // Mitarbeiter - KORREKTER FELDNAME: client_company_id
-        const { data: employeesData, error: employeesError } = await supabase
+        // Mitarbeiter
+        const { data: employeesData } = await supabase
           .from('v7_employees')
           .select('id, display_name, first_name, last_name')
           .eq('client_company_id', companyId)
           .eq('is_active', true);
         
-        if (employeesError) {
-          console.error('MA-Fehler:', employeesError);
-        }
-        console.log('Mitarbeiter geladen:', employeesData?.length || 0);
         setEmployees(employeesData || []);
         
         // Arbeitspakete
         const projectIds = (projectsData || []).map(p => p.id);
         if (projectIds.length > 0) {
-          const { data: wpData, error: wpError } = await supabase
+          const { data: wpData } = await supabase
             .from('v7_work_packages')
             .select('id, project_id, ap_number, ap_code, name, total_person_months')
             .in('project_id', projectIds)
             .eq('is_active', true);
           
-          if (wpError) {
-            console.error('WP-Fehler:', wpError);
-          }
-          console.log('Arbeitspakete geladen:', wpData?.length || 0);
           setWorkPackages(wpData || []);
         }
         
         // Projekt-Zuordnungen
         if (projectIds.length > 0) {
-          const { data: assignmentData, error: assignmentError } = await supabase
+          const { data: assignmentData } = await supabase
             .from('v7_project_assignments')
             .select('id, project_id, employee_id')
             .in('project_id', projectIds)
             .eq('is_active', true);
           
-          if (assignmentError) {
-            console.error('Assignment-Fehler:', assignmentError);
-          }
-          console.log('Zuordnungen geladen:', assignmentData?.length || 0);
           setAssignments(assignmentData || []);
         }
         
-        // Zeiterfassung - KORREKTER FELDNAME: work_date (nicht date)
+        // Zeiterfassung
         if (projectIds.length > 0) {
-          const { data: timesheetData, error: timesheetError } = await supabase
+          const { data: timesheetData } = await supabase
             .from('v7_timesheets')
             .select('id, project_id, employee_id, work_date, hours, day_type')
             .in('project_id', projectIds);
           
-          if (timesheetError) {
-            console.error('Timesheet-Fehler:', timesheetError);
-          }
-          console.log('Zeiteintraege geladen:', timesheetData?.length || 0);
           setTimesheets(timesheetData || []);
         }
         
       } catch (err: any) {
-        console.error('Allgemeiner Fehler:', err);
+        console.error('Fehler:', err);
         setError(err.message);
       } finally {
         setLoading(false);
@@ -376,7 +340,7 @@ export default function BerichtePage() {
     };
     
     loadData();
-  }, [router, supabase]);
+  }, [router, supabase, companyId]);
 
   // ============================================================================
   // BERECHNUNGEN
@@ -385,7 +349,6 @@ export default function BerichtePage() {
   const stats = useMemo(() => {
     const totalPlannedPM = workPackages.reduce((sum, wp) => sum + (wp.total_person_months || 0), 0);
     
-    // Nur Arbeitsstunden zaehlen (day_type = 'work' oder null)
     const totalHours = timesheets
       .filter(t => !t.day_type || t.day_type === 'work')
       .reduce((sum, t) => sum + (t.hours || 0), 0);
@@ -448,7 +411,6 @@ export default function BerichtePage() {
         .filter(p => employeeProjectIds.includes(p.id))
         .map(p => p.short_name || p.name);
       
-      // Erfasste Tage - KORREKTER FELDNAME: work_date
       const employeeTimesheets = timesheets.filter(t => 
         t.employee_id === employee.id &&
         t.work_date >= startDate &&
@@ -484,15 +446,14 @@ export default function BerichtePage() {
     return (
       <div className="min-h-screen bg-gray-50">
         <PortalHeader 
-          portal="firma" 
+          portal="berater" 
           companyName="" 
           userName=""
-          userRole="client_admin"
+          userRole="consultant"
         />
-        <PortalNav portal="firma" userRole="client_admin" portalRole="client_admin" />
         <main className="max-w-7xl mx-auto px-4 py-8">
           <div className="flex items-center justify-center h-64">
-            <div className="w-10 h-10 border-4 border-green-200 border-t-green-600 rounded-full animate-spin"></div>
+            <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
           </div>
         </main>
       </div>
@@ -503,19 +464,21 @@ export default function BerichtePage() {
     return (
       <div className="min-h-screen bg-gray-50">
         <PortalHeader 
-          portal="firma" 
+          portal="berater" 
           companyName="" 
           userName=""
-          userRole="client_admin"
+          userRole="consultant"
         />
-        <PortalNav portal="firma" userRole="client_admin" portalRole="client_admin" />
         <main className="max-w-7xl mx-auto px-4 py-8">
           <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
             <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
             <p className="text-red-700">{error}</p>
-            <p className="text-sm text-red-600 mt-2">
-              Tipp: Loggen Sie sich als Firmen-Benutzer ein (z.B. Thomas Duehrkop bei AS System).
-            </p>
+            <button
+              onClick={() => router.back()}
+              className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              Zurueck
+            </button>
           </div>
         </main>
       </div>
@@ -525,18 +488,24 @@ export default function BerichtePage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <PortalHeader 
-        portal="firma" 
+        portal="berater" 
         companyName={company?.name || ''} 
         userName={userProfile?.display_name || ''}
-        userRole="client_admin"
+        userRole="consultant"
       />
-      <PortalNav portal="firma" userRole="client_admin" portalRole="client_admin" />
       
       <main className="max-w-7xl mx-auto px-4 py-8">
-        {/* Header */}
+        {/* Zurueck-Button + Header */}
         <div className="mb-8">
+          <button
+            onClick={() => router.push(`/v7/berater/foerderung/firma/${companyId}?tab=berichte`)}
+            className="flex items-center gap-2 text-blue-600 hover:text-blue-800 mb-4"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Zurueck zur Firmenuebersicht
+          </button>
           <h1 className="text-2xl font-bold text-gray-900">Berichte & Controlling</h1>
-          <p className="text-gray-600 mt-1">Uebersicht ueber Projekte, Kosten und Zeiterfassung</p>
+          <p className="text-gray-600 mt-1">{company?.name} - Uebersicht ueber Projekte, Kosten und Zeiterfassung</p>
         </div>
 
         {/* Kennzahlen */}
@@ -545,11 +514,11 @@ export default function BerichtePage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">Foerderprojekte</p>
-                <p className="text-3xl font-bold text-green-600">{stats.projectCount}</p>
+                <p className="text-3xl font-bold text-blue-600">{stats.projectCount}</p>
                 <p className="text-xs text-gray-400 mt-1">aktiv</p>
               </div>
-              <div className="w-12 h-12 bg-green-50 rounded-lg flex items-center justify-center">
-                <FolderKanban className="w-6 h-6 text-green-600" />
+              <div className="w-12 h-12 bg-blue-50 rounded-lg flex items-center justify-center">
+                <FolderKanban className="w-6 h-6 text-blue-600" />
               </div>
             </div>
           </div>
@@ -689,10 +658,9 @@ export default function BerichtePage() {
                   setSelectedYear(parseInt(year));
                   setSelectedMonth(parseInt(month));
                 }}
-                className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
                 {(() => {
-                  // Berechne Zeitraum basierend auf Projekten (NUR Projektzeitraum!)
                   let earliestStart: Date | null = null;
                   let latestEnd: Date | null = null;
                   
@@ -707,11 +675,9 @@ export default function BerichtePage() {
                     }
                   });
                   
-                  // Fallback falls keine Projektdaten
                   if (!earliestStart) earliestStart = new Date();
                   if (!latestEnd) latestEnd = new Date();
                   
-                  // Generiere Monate vom Projektende rueckwaerts bis Projektstart
                   const months: { year: number; month: number }[] = [];
                   const current = new Date(latestEnd.getFullYear(), latestEnd.getMonth(), 1);
                   const earliest = new Date(earliestStart.getFullYear(), earliestStart.getMonth(), 1);
@@ -787,15 +753,14 @@ export default function BerichtePage() {
                       <td className="px-6 py-4 text-center">
                         <button
                           onClick={() => {
-                            // Navigiere zur Zeiterfassung mit MA-ID und Monat als Parameter
                             const params = new URLSearchParams({
                               employee: ets.employee.id,
                               year: selectedYear.toString(),
                               month: selectedMonth.toString(),
                             });
-                            router.push(`/v7/firma/zeiterfassung?${params.toString()}`);
+                            router.push(`/v7/berater/foerderung/firma/${companyId}/zeiterfassung?${params.toString()}`);
                           }}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-green-700 bg-green-50 hover:bg-green-100 rounded-lg transition-colors"
+                          className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
                           title={`Zeiterfassung fuer ${ets.employee.display_name} oeffnen`}
                         >
                           <ExternalLink className="w-4 h-4" />
@@ -850,7 +815,7 @@ export default function BerichtePage() {
       </main>
       
       <footer className="text-center py-4 text-sm text-gray-500 mt-8">
-        Projektzeiterfassung v7.3.88 · Firmen-Portal · © 2026
+        Projektzeiterfassung v7.3.88 · Berater-Portal · © 2026
       </footer>
     </div>
   );

@@ -2,13 +2,15 @@
 // ============================================================================
 // PZE V7 - Zeiterfassung Seite (Firmen-Portal)
 // ============================================================================
-// Version: 7.3.88-2
+// Version: 7.3.88-1
 // Datum: 05. Februar 2026
 //
-// v7.3.88-2: Navigation fuer normale MA komplett entfernt
-//            MA sieht nur Header + Zeiterfassung (kein Navi-Menu)
-// v7.3.88-1: Navigation basierend auf echter Benutzerrolle
-// v7.3.88:   Liest URL-Parameter aus Berichte-Seite
+// v7.3.88-1: FIX - Navigation basierend auf echter Benutzerrolle
+//            Mitarbeiter sehen nur Zeiterfassung, keine Admin-Navigation
+// v7.3.88:   Liest URL-Parameter aus Berichte-Seite:
+//            - employee: MA-ID
+//            - year: Jahr
+//            - month: Monat (1-12)
 // ============================================================================
 
 'use client';
@@ -239,7 +241,7 @@ function ZeiterfassungContent() {
           userName=""
           userRole="client_user"
         />
-        {/* Keine Navigation beim Laden */}
+        <PortalNav portal="firma" userRole="client_user" portalRole="employee" />
         <main className="max-w-7xl mx-auto px-4 py-8">
           <div className="flex items-center justify-center h-64">
             <div className="w-10 h-10 border-4 border-green-200 border-t-green-600 rounded-full animate-spin"></div>
@@ -258,7 +260,7 @@ function ZeiterfassungContent() {
           userName=""
           userRole="client_user"
         />
-        {/* Keine Navigation bei Fehler */}
+        <PortalNav portal="firma" userRole="client_user" portalRole="employee" />
         <main className="max-w-7xl mx-auto px-4 py-8">
           <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
             <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
@@ -289,9 +291,6 @@ function ZeiterfassungContent() {
 
   // Bestimme userRole fuer Header/Nav
   const userRole = portalRole === 'client_admin' ? 'client_admin' : 'client_user';
-  
-  // Navigation nur fuer Admins anzeigen, normale MA brauchen keine
-  const showNavigation = portalRole === 'client_admin' || portalRole === 'project_leader';
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -301,14 +300,11 @@ function ZeiterfassungContent() {
         userName={userProfile.display_name || ''}
         userRole={userRole}
       />
-      {/* Navigation nur fuer Admins/Projektleiter */}
-      {showNavigation && (
-        <PortalNav 
-          portal="firma" 
-          userRole={userRole} 
-          portalRole={portalRole} 
-        />
-      )}
+      <PortalNav 
+        portal="firma" 
+        userRole={userRole} 
+        portalRole={portalRole} 
+      />
       
       <main className="py-4">
         <TimesheetForm
@@ -321,7 +317,7 @@ function ZeiterfassungContent() {
           currentUserId={userProfile.id}
           currentUserDisplayName={userProfile.display_name || userProfile.email}
           isAdmin={portalRole === 'client_admin'}
-          onBack={() => router.push(portalRole === 'client_admin' ? '/v7/firma/berichte' : '/v7/firma')}
+          onBack={() => router.push(portalRole === 'client_admin' ? '/v7/firma/berichte' : '/v7/firma/mein-status')}
           initialEmployeeId={initialEmployeeId}
           initialYear={initialYear}
           initialMonth={initialMonth}

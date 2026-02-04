@@ -2,13 +2,15 @@
 // ============================================================================
 // PZE V7 - Zeiterfassung Seite (Firmen-Portal)
 // ============================================================================
-// Version: 7.3.88-2
+// Version: 7.3.88
 // Datum: 05. Februar 2026
 //
-// v7.3.88-2: Navigation fuer normale MA komplett entfernt
-//            MA sieht nur Header + Zeiterfassung (kein Navi-Menu)
-// v7.3.88-1: Navigation basierend auf echter Benutzerrolle
-// v7.3.88:   Liest URL-Parameter aus Berichte-Seite
+// NEU v7.3.88: Liest URL-Parameter aus Berichte-Seite:
+//   - employee: MA-ID
+//   - year: Jahr
+//   - month: Monat (1-12)
+//
+// Beispiel-URL: /v7/firma/zeiterfassung?employee=abc-123&year=2023&month=2
 // ============================================================================
 
 'use client';
@@ -25,20 +27,12 @@ import { AlertCircle } from 'lucide-react';
 // TYPEN
 // ============================================================================
 
-type PortalRole = 'client_admin' | 'project_leader' | 'employee';
-
 interface UserProfile {
   id: string;
   email: string;
   display_name: string | null;
   role: string;
   client_company_id: string | null;
-}
-
-interface EmployeeRecord {
-  id: string;
-  user_id: string | null;
-  portal_role: PortalRole | null;
 }
 
 interface ClientCompany {
@@ -95,8 +89,6 @@ function ZeiterfassungContent() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [workPackages, setWorkPackages] = useState<WorkPackage[]>([]);
-  const [portalRole, setPortalRole] = useState<PortalRole>('employee');
-  const [currentEmployeeId, setCurrentEmployeeId] = useState<string | null>(null);
 
   // ============================================================================
   // DATEN LADEN
@@ -147,52 +139,17 @@ function ZeiterfassungContent() {
         }
         setCompany(companyData);
         
-        // 3. Ermittle Portal-Rolle des aktuellen Benutzers
-        // Pruefe ob User ein Employee-Record hat und welche Rolle
-        const { data: employeeRecord } = await supabase
+        // 3. Mitarbeiter
+        const { data: employeesData } = await supabase
           .from('v7_employees')
-          .select('id, user_id, portal_role')
+          .select('id, display_name, first_name, last_name, weekly_hours')
           .eq('client_company_id', companyId)
-          .eq('user_id', user.id)
-          .maybeSingle();
+          .eq('is_active', true)
+          .order('display_name');
         
-        let userPortalRole: PortalRole = 'employee';
-        let userEmployeeId: string | null = null;
+        setEmployees(employeesData || []);
         
-        if (profile.role === 'client_admin') {
-          // Admin hat volle Rechte
-          userPortalRole = 'client_admin';
-        } else if (employeeRecord) {
-          // Nutze die portal_role aus dem Employee-Record
-          userPortalRole = (employeeRecord.portal_role as PortalRole) || 'employee';
-          userEmployeeId = employeeRecord.id;
-        }
-        
-        setPortalRole(userPortalRole);
-        setCurrentEmployeeId(userEmployeeId);
-        
-        // 4. Mitarbeiter laden
-        // Admin sieht alle, normale MA nur sich selbst
-        if (userPortalRole === 'client_admin' || userPortalRole === 'project_leader') {
-          const { data: employeesData } = await supabase
-            .from('v7_employees')
-            .select('id, display_name, first_name, last_name, weekly_hours')
-            .eq('client_company_id', companyId)
-            .eq('is_active', true)
-            .order('display_name');
-          
-          setEmployees(employeesData || []);
-        } else if (userEmployeeId) {
-          // Normaler MA sieht nur sich selbst
-          const { data: employeesData } = await supabase
-            .from('v7_employees')
-            .select('id, display_name, first_name, last_name, weekly_hours')
-            .eq('id', userEmployeeId);
-          
-          setEmployees(employeesData || []);
-        }
-        
-        // 5. Projekte (nur aktive)
+        // 4. Projekte (nur aktive)
         const { data: projectsData } = await supabase
           .from('v7_projects')
           .select('id, name, short_name, funding_reference, funding_format')
@@ -202,7 +159,7 @@ function ZeiterfassungContent() {
         
         setProjects(projectsData || []);
         
-        // 6. Arbeitspakete
+        // 5. Arbeitspakete
         const projectIds = (projectsData || []).map(p => p.id);
         if (projectIds.length > 0) {
           const { data: wpData } = await supabase
@@ -237,9 +194,9 @@ function ZeiterfassungContent() {
           portal="firma" 
           companyName="" 
           userName=""
-          userRole="client_user"
+          userRole="client_admin"
         />
-        {/* Keine Navigation beim Laden */}
+        <PortalNav portal="firma" userRole="client_admin" portalRole="client_admin" />
         <main className="max-w-7xl mx-auto px-4 py-8">
           <div className="flex items-center justify-center h-64">
             <div className="w-10 h-10 border-4 border-green-200 border-t-green-600 rounded-full animate-spin"></div>
@@ -256,9 +213,9 @@ function ZeiterfassungContent() {
           portal="firma" 
           companyName="" 
           userName=""
-          userRole="client_user"
+          userRole="client_admin"
         />
-        {/* Keine Navigation bei Fehler */}
+        <PortalNav portal="firma" userRole="client_admin" portalRole="client_admin" />
         <main className="max-w-7xl mx-auto px-4 py-8">
           <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
             <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
@@ -274,24 +231,12 @@ function ZeiterfassungContent() {
   }
 
   // Ermittle initiale Werte aus URL-Parametern
-  // Fuer normale MA: Immer nur eigene ID verwenden (Sicherheit!)
-  let initialEmployeeId: string | undefined;
-  if (portalRole === 'client_admin' || portalRole === 'project_leader') {
-    // Admin/PL kann jeden MA waehlen
-    initialEmployeeId = urlEmployeeId || undefined;
-  } else {
-    // Normaler MA: Immer nur eigene ID
-    initialEmployeeId = currentEmployeeId || undefined;
-  }
-  
+  const initialEmployeeId = urlEmployeeId || undefined;
   const initialYear = urlYear ? parseInt(urlYear, 10) : undefined;
   const initialMonth = urlMonth ? parseInt(urlMonth, 10) : undefined;
 
-  // Bestimme userRole fuer Header/Nav
-  const userRole = portalRole === 'client_admin' ? 'client_admin' : 'client_user';
-  
-  // Navigation nur fuer Admins anzeigen, normale MA brauchen keine
-  const showNavigation = portalRole === 'client_admin' || portalRole === 'project_leader';
+  // Finde erstes Projekt mit dem MA hat Zuordnung (falls vorhanden)
+  // Hier koennte man spaeter die project_assignments pruefen
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -299,16 +244,9 @@ function ZeiterfassungContent() {
         portal="firma" 
         companyName={company.name} 
         userName={userProfile.display_name || ''}
-        userRole={userRole}
+        userRole="client_admin"
       />
-      {/* Navigation nur fuer Admins/Projektleiter */}
-      {showNavigation && (
-        <PortalNav 
-          portal="firma" 
-          userRole={userRole} 
-          portalRole={portalRole} 
-        />
-      )}
+      <PortalNav portal="firma" userRole="client_admin" portalRole="client_admin" />
       
       <main className="py-4">
         <TimesheetForm
@@ -320,8 +258,8 @@ function ZeiterfassungContent() {
           workPackages={workPackages}
           currentUserId={userProfile.id}
           currentUserDisplayName={userProfile.display_name || userProfile.email}
-          isAdmin={portalRole === 'client_admin'}
-          onBack={() => router.push(portalRole === 'client_admin' ? '/v7/firma/berichte' : '/v7/firma')}
+          isAdmin={userProfile.role === 'client_admin'}
+          onBack={() => router.push('/v7/firma/berichte')}
           initialEmployeeId={initialEmployeeId}
           initialYear={initialYear}
           initialMonth={initialMonth}

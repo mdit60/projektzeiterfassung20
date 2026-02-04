@@ -2,13 +2,10 @@
 // ============================================================================
 // PZE V7 - Berichte & Controlling (Firmen-Portal)
 // ============================================================================
-// Version: 7.3.88-4
+// Version: 7.3.88-2
 // Datum: 05. Februar 2026
 //
-// Fix v7.3.88-4: 
-//   - Monats-Dropdown zeigt NUR Projektzeitraum (Start bis Ende)
-//   - Neue Spalte "Aktion" mit Button zur Zeiterfassung
-//   - Klick auf "Erfassen" oeffnet Zeiterfassung mit MA+Monat
+// Fix v7.3.88-2: Korrekte DB-Feldnamen:
 //   - v7_projects.client_company_id (nicht company_id)
 //   - v7_employees.client_company_id (nicht company_id)
 //   - v7_timesheets.work_date (nicht date)
@@ -36,7 +33,6 @@ import {
   FileText,
   Download,
   Calendar,
-  ExternalLink,
 } from 'lucide-react';
 
 // ============================================================================
@@ -691,42 +687,17 @@ export default function BerichtePage() {
                 }}
                 className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
               >
-                {(() => {
-                  // Berechne Zeitraum basierend auf Projekten (NUR Projektzeitraum!)
-                  let earliestStart: Date | null = null;
-                  let latestEnd: Date | null = null;
-                  
-                  projects.forEach(p => {
-                    if (p.start_date) {
-                      const start = new Date(p.start_date);
-                      if (!earliestStart || start < earliestStart) earliestStart = start;
-                    }
-                    if (p.end_date) {
-                      const end = new Date(p.end_date);
-                      if (!latestEnd || end > latestEnd) latestEnd = end;
-                    }
-                  });
-                  
-                  // Fallback falls keine Projektdaten
-                  if (!earliestStart) earliestStart = new Date();
-                  if (!latestEnd) latestEnd = new Date();
-                  
-                  // Generiere Monate vom Projektende rueckwaerts bis Projektstart
-                  const months: { year: number; month: number }[] = [];
-                  const current = new Date(latestEnd.getFullYear(), latestEnd.getMonth(), 1);
-                  const earliest = new Date(earliestStart.getFullYear(), earliestStart.getMonth(), 1);
-                  
-                  while (current >= earliest) {
-                    months.push({ year: current.getFullYear(), month: current.getMonth() + 1 });
-                    current.setMonth(current.getMonth() - 1);
-                  }
-                  
-                  return months.map(({ year, month }) => (
+                {Array.from({ length: 12 }, (_, i) => {
+                  const date = new Date();
+                  date.setMonth(date.getMonth() - i);
+                  const year = date.getFullYear();
+                  const month = date.getMonth() + 1;
+                  return (
                     <option key={`${year}-${month}`} value={`${year}-${String(month).padStart(2, '0')}`}>
                       {getMonthName(month)} {year}
                     </option>
-                  ));
-                })()}
+                  );
+                })}
               </select>
             </div>
           </div>
@@ -739,13 +710,12 @@ export default function BerichtePage() {
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Soll-Tage</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Erfasst</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Aktion</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {employeeTimesheetStatus.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                    <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
                       Keine Mitarbeiter mit Projektzuordnung
                     </td>
                   </tr>
@@ -783,24 +753,6 @@ export default function BerichtePage() {
                             Fehlt
                           </span>
                         )}
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <button
-                          onClick={() => {
-                            // Navigiere zur Zeiterfassung mit MA-ID und Monat als Parameter
-                            const params = new URLSearchParams({
-                              employee: ets.employee.id,
-                              year: selectedYear.toString(),
-                              month: selectedMonth.toString(),
-                            });
-                            router.push(`/v7/firma/zeiterfassung?${params.toString()}`);
-                          }}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-green-700 bg-green-50 hover:bg-green-100 rounded-lg transition-colors"
-                          title={`Zeiterfassung fuer ${ets.employee.display_name} oeffnen`}
-                        >
-                          <ExternalLink className="w-4 h-4" />
-                          Erfassen
-                        </button>
                       </td>
                     </tr>
                   ))
