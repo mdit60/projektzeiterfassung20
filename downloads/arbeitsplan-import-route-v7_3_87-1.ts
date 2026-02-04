@@ -268,15 +268,7 @@ async function parseExcel(
     // AP-Nummer parsen
     const parsed = parseAPNumber(apNrStr);
     if (!parsed) {
-      // Hinweis-Zeilen am Ende der Vorlage ignorieren (keine Warnung erzeugen)
-      const isHinweisZeile = apNrStr.startsWith('-') || 
-                            apNrStr.startsWith('Hinweise') ||
-                            apNrStr.startsWith('Projekt:') ||
-                            apNrStr.startsWith('FKZ:') ||
-                            apNrStr.startsWith('Team:');
-      if (!isHinweisZeile) {
-        warnings.push(`Zeile ${rowNum}: Ungültige AP-Nr. "${apNrStr}" - übersprungen`);
-      }
+      warnings.push(`Zeile ${rowNum}: Ungültige AP-Nr. "${apNrStr}" - übersprungen`);
       continue;
     }
     
@@ -335,23 +327,20 @@ async function generatePreview(
   // Bestehende APs laden
   const { data: existingAPs, error: loadError } = await supabase
     .from('v7_work_packages')
-    .select('id, ap_number, ap_sub_number, name, start_date, end_date, total_person_months')
+    .select('id, ap_number, ap_sub_number, name, start_date, end_date, planned_pm')
     .eq('project_id', projectId)
     .eq('is_active', true);
   
   if (loadError) {
-    errors.push(`Fehler beim Laden bestehender Arbeitspakete: ${loadError.message}`);
+    errors.push('Fehler beim Laden bestehender Arbeitspakete');
     return { success: false, parsed: packages, newAPs: [], updateAPs: [], unchangedAPs: [], errors, warnings };
   }
   
   // Map für schnellen Lookup: "ap_number-ap_sub_number" -> ExistingWP
   const existingMap = new Map<string, ExistingWorkPackage>();
-  (existingAPs || []).forEach((ap: any) => {
+  (existingAPs || []).forEach((ap: ExistingWorkPackage) => {
     const key = `${ap.ap_number}-${ap.ap_sub_number ?? 'null'}`;
-    existingMap.set(key, {
-      ...ap,
-      planned_pm: ap.total_person_months // Feld-Mapping
-    });
+    existingMap.set(key, ap);
   });
   
   const newAPs: ParsedWorkPackage[] = [];
@@ -452,7 +441,7 @@ async function executeImport(
           name: pkg.name,
           start_date: pkg.start_date,
           end_date: pkg.end_date,
-          total_person_months: pkg.total_pm,
+          planned_pm: pkg.total_pm,
           updated_at: new Date().toISOString(),
         })
         .eq('id', existingId);
@@ -476,7 +465,7 @@ async function executeImport(
           name: pkg.name,
           start_date: pkg.start_date,
           end_date: pkg.end_date,
-          total_person_months: pkg.total_pm,
+          planned_pm: pkg.total_pm,
           is_active: true,
         })
         .select('id')
@@ -509,7 +498,7 @@ async function executeImport(
         const { error } = await supabase
           .from('v7_work_package_assignments')
           .update({
-            planned_person_months: assignment.planned_pm,
+            planned_pm: assignment.planned_pm,
             updated_at: new Date().toISOString(),
           })
           .eq('id', existingAssignment.id);
@@ -522,7 +511,7 @@ async function executeImport(
           .insert({
             work_package_id: workPackageId,
             employee_id: teamMember.employee_id,
-            planned_person_months: assignment.planned_pm,
+            planned_pm: assignment.planned_pm,
             is_active: true,
           });
         

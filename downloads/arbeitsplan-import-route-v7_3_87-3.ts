@@ -249,6 +249,10 @@ async function parseExcel(
   }
   
   // Datenzeilen lesen (ab Zeile 4)
+  console.log('[Import] Start parsing, rowCount:', worksheet.rowCount);
+  console.log('[Import] maColumns:', maColumns);
+  console.log('[Import] teamByNumber keys:', Array.from(teamByNumber.keys()));
+  
   for (let rowNum = 4; rowNum <= worksheet.rowCount; rowNum++) {
     const row = worksheet.getRow(rowNum);
     
@@ -259,26 +263,27 @@ async function parseExcel(
     const apNrStr = apNrValue.toString().trim();
     if (!apNrStr) continue;
     
+    // Debug für erste 10 Zeilen
+    if (rowNum <= 13) {
+      console.log(`[Import] Zeile ${rowNum}: apNrValue=${apNrValue} (${typeof apNrValue}), apNrStr="${apNrStr}"`);
+    }
+    
     // Beispielzeile überspringen
     const beschreibung = row.getCell(2).value?.toString() || '';
     if (beschreibung.toLowerCase().includes('beispiel') && beschreibung.toLowerCase().includes('löschen')) {
+      console.log(`[Import] Zeile ${rowNum}: Beispielzeile übersprungen`);
       continue;
     }
     
     // AP-Nummer parsen
     const parsed = parseAPNumber(apNrStr);
     if (!parsed) {
-      // Hinweis-Zeilen am Ende der Vorlage ignorieren (keine Warnung erzeugen)
-      const isHinweisZeile = apNrStr.startsWith('-') || 
-                            apNrStr.startsWith('Hinweise') ||
-                            apNrStr.startsWith('Projekt:') ||
-                            apNrStr.startsWith('FKZ:') ||
-                            apNrStr.startsWith('Team:');
-      if (!isHinweisZeile) {
-        warnings.push(`Zeile ${rowNum}: Ungültige AP-Nr. "${apNrStr}" - übersprungen`);
-      }
+      console.log(`[Import] Zeile ${rowNum}: parseAPNumber returned null for "${apNrStr}"`);
+      warnings.push(`Zeile ${rowNum}: Ungültige AP-Nr. "${apNrStr}" - übersprungen`);
       continue;
     }
+    
+    console.log(`[Import] Zeile ${rowNum}: parsed OK -> AP${parsed.ap_number}.${parsed.ap_sub_number}`);
     
     // Daten extrahieren
     const name = beschreibung || `Arbeitspaket ${apNrStr}`;
@@ -332,6 +337,9 @@ async function generatePreview(
   const errors: string[] = [];
   const warnings: string[] = [];
   
+  console.log('[Preview] Generating preview for projectId:', projectId);
+  console.log('[Preview] Packages count:', packages.length);
+  
   // Bestehende APs laden
   const { data: existingAPs, error: loadError } = await supabase
     .from('v7_work_packages')
@@ -340,9 +348,12 @@ async function generatePreview(
     .eq('is_active', true);
   
   if (loadError) {
+    console.error('[Preview] Error loading existing APs:', loadError);
     errors.push(`Fehler beim Laden bestehender Arbeitspakete: ${loadError.message}`);
     return { success: false, parsed: packages, newAPs: [], updateAPs: [], unchangedAPs: [], errors, warnings };
   }
+  
+  console.log('[Preview] Existing APs found:', existingAPs?.length || 0);
   
   // Map für schnellen Lookup: "ap_number-ap_sub_number" -> ExistingWP
   const existingMap = new Map<string, ExistingWorkPackage>();
@@ -452,7 +463,7 @@ async function executeImport(
           name: pkg.name,
           start_date: pkg.start_date,
           end_date: pkg.end_date,
-          total_person_months: pkg.total_pm,
+          planned_pm: pkg.total_pm,
           updated_at: new Date().toISOString(),
         })
         .eq('id', existingId);
@@ -476,7 +487,7 @@ async function executeImport(
           name: pkg.name,
           start_date: pkg.start_date,
           end_date: pkg.end_date,
-          total_person_months: pkg.total_pm,
+          planned_pm: pkg.total_pm,
           is_active: true,
         })
         .select('id')
@@ -509,7 +520,7 @@ async function executeImport(
         const { error } = await supabase
           .from('v7_work_package_assignments')
           .update({
-            planned_person_months: assignment.planned_pm,
+            planned_pm: assignment.planned_pm,
             updated_at: new Date().toISOString(),
           })
           .eq('id', existingAssignment.id);
@@ -522,7 +533,7 @@ async function executeImport(
           .insert({
             work_package_id: workPackageId,
             employee_id: teamMember.employee_id,
-            planned_person_months: assignment.planned_pm,
+            planned_pm: assignment.planned_pm,
             is_active: true,
           });
         
