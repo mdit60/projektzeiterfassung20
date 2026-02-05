@@ -2,8 +2,8 @@
 // ============================================================================
 // PZE V7 - Shared Employee Management Component
 // ============================================================================
-// Datum: 24. Januar 2026
-// Version: 7.3.84
+// Datum: 21. Januar 2026
+// Version: 7.3.60
 //
 // Wird von beiden Portalen genutzt:
 // - Firmen-Portal: /v7/firma/mitarbeiter
@@ -17,14 +17,10 @@
 // - Portal-Rolle zuweisen (employee/project_leader/client_admin)
 // - Login erstellen (NEU: Erkennt bereits registrierte Benutzer)
 //
-// AENDERUNGEN v7.3.84:
-// - Alle Anlage 6.1 Felder hinzugefuegt:
-//   - Geburtsdatum, Bildungsabschluss, Jahr Ausbildungsabschluss
-//   - Jahresbruttolohn, betriebl. Wochenarbeitszeit (bWAZ)
-//   - Stundensatz (automatisch berechnet)
-//   - lfd. Nr. (fuer Excel-Import)
-// - Aufklappbarer Bereich fuer persoenliche Daten
-// - Automatische Stundensatz-Berechnung: Jahresbrutto / (pWAZ Ã— 52)
+// FIX v7.3.60:
+// - Bessere Login-Status-Erkennung via v7_user_profiles
+// - Verknuepfungsfunktion fuer bereits registrierte Benutzer
+// - "Hat Login" Badge korrekt anzeigen
 //
 // Props:
 // - portal: 'berater' | 'firma'
@@ -69,14 +65,6 @@ export interface Employee {
   is_active: boolean;
   portal_role: string | null;
   user_id: string | null;
-  // Anlage 6.1 Felder
-  birth_date: string | null;
-  education_degree: string | null;
-  education_year: number | null;
-  annual_salary: number | null;
-  company_weekly_hours: number | null;
-  hourly_rate: number | null;
-  employee_number: number | null;
   // NEU: Aus JOIN mit v7_user_profiles
   has_login?: boolean;
 }
@@ -92,14 +80,6 @@ interface EmployeeFormData {
   employment_start: string;
   employment_end: string;
   portal_role: string;
-  // Anlage 6.1 Felder
-  birth_date: string;
-  education_degree: string;
-  education_year: string;
-  annual_salary: string;
-  company_weekly_hours: string;
-  hourly_rate: string;
-  employee_number: string;
 }
 
 interface EmployeeManagementProps {
@@ -131,14 +111,6 @@ const EMPTY_FORM: EmployeeFormData = {
   employment_start: '',
   employment_end: '',
   portal_role: 'employee',
-  // Anlage 6.1 Felder
-  birth_date: '',
-  education_degree: '',
-  education_year: '',
-  annual_salary: '',
-  company_weekly_hours: '40',
-  hourly_rate: '',
-  employee_number: '',
 };
 
 const QUALIFICATION_OPTIONS = [
@@ -228,7 +200,7 @@ export default function EmployeeManagement({
       // Mitarbeiter laden
       let query = supabase
         .from('v7_employees')
-        .select('id, display_name, first_name, last_name, email, position_title, qualification, weekly_hours, employment_start, employment_end, is_active, portal_role, user_id, birth_date, education_degree, education_year, annual_salary, company_weekly_hours, hourly_rate, employee_number')
+        .select('id, display_name, first_name, last_name, email, position_title, qualification, weekly_hours, employment_start, employment_end, is_active, portal_role, user_id')
         .eq('client_company_id', companyId)
         .order('display_name');
 
@@ -312,14 +284,6 @@ export default function EmployeeManagement({
       employment_start: emp.employment_start || '',
       employment_end: emp.employment_end || '',
       portal_role: emp.portal_role || 'employee',
-      // Anlage 6.1 Felder
-      birth_date: emp.birth_date || '',
-      education_degree: emp.education_degree || '',
-      education_year: emp.education_year?.toString() || '',
-      annual_salary: emp.annual_salary?.toString() || '',
-      company_weekly_hours: emp.company_weekly_hours?.toString() || '40',
-      hourly_rate: emp.hourly_rate?.toString() || '',
-      employee_number: emp.employee_number?.toString() || '',
     });
     setFormError(null);
     setShowModal(true);
@@ -345,20 +309,6 @@ export default function EmployeeManagement({
           ...prev,
           [name]: value,
           display_name: `${lastName}${lastName && firstName ? ', ' : ''}${firstName}`.trim(),
-        }));
-      }
-    }
-
-    // Auto-calculate hourly_rate from annual_salary and weekly_hours
-    if (name === 'annual_salary' || name === 'weekly_hours') {
-      const salary = name === 'annual_salary' ? parseFloat(value) : parseFloat(formData.annual_salary);
-      const hours = name === 'weekly_hours' ? parseFloat(value) : parseFloat(formData.weekly_hours);
-      if (salary > 0 && hours > 0) {
-        const rate = salary / (hours * 52);
-        setFormData(prev => ({
-          ...prev,
-          [name]: value,
-          hourly_rate: rate.toFixed(2),
         }));
       }
     }
@@ -394,14 +344,6 @@ export default function EmployeeManagement({
         employment_start: formData.employment_start || null,
         employment_end: formData.employment_end || null,
         portal_role: formData.portal_role || 'employee',
-        // Anlage 6.1 Felder
-        birth_date: formData.birth_date || null,
-        education_degree: formData.education_degree.trim() || null,
-        education_year: formData.education_year ? parseInt(formData.education_year) : null,
-        annual_salary: formData.annual_salary ? parseFloat(formData.annual_salary) : null,
-        company_weekly_hours: formData.company_weekly_hours ? parseFloat(formData.company_weekly_hours) : null,
-        hourly_rate: formData.hourly_rate ? parseFloat(formData.hourly_rate) : null,
-        employee_number: formData.employee_number ? parseInt(formData.employee_number) : null,
         updated_at: new Date().toISOString(),
       };
 
@@ -590,10 +532,9 @@ export default function EmployeeManagement({
 
         if (signUpError) {
           if (signUpError.message.includes('already registered')) {
-            // E-Mail bereits registriert - auf Verknuepfungs-Modus wechseln
-            setLoginError('Diese E-Mail ist bereits registriert. Moechten Sie den bestehenden Login verknuepfen?');
+            // E-Mail bereits registriert - User-ID finden und verknuepfen
             
-            // Versuchen, die User-ID zu finden
+            // 1. Zuerst in v7_user_profiles suchen
             const { data: existingProfile } = await supabase
               .from('v7_user_profiles')
               .select('id')
@@ -601,9 +542,41 @@ export default function EmployeeManagement({
               .maybeSingle();
             
             if (existingProfile) {
-              setLoginMode('link');
-              setExistingUserId(existingProfile.id);
+              // User gefunden in v7_user_profiles -> direkt verknuepfen
+              await linkEmployeeToUser(loginEmployee.id, existingProfile.id);
+              closeLoginModal();
+              await loadEmployees();
+              alert(`Mitarbeiter ${loginEmployee.display_name} wurde mit dem bestehenden Login verknuepft.`);
+              return;
             }
+            
+            // 2. Nicht in v7_user_profiles -> via Admin API suchen
+            try {
+              const { data: authUser, error: getUserError } = await supabase.auth.admin.getUserByEmail(
+                loginEmployee.email
+              );
+              
+              if (authUser && authUser.user) {
+                // User in auth.users gefunden
+                const userId = authUser.user.id;
+                
+                // user_profile erstellen (falls noch nicht vorhanden)
+                await createUserProfile(userId, loginEmployee);
+                
+                // Mitarbeiter verknuepfen
+                await linkEmployeeToUser(loginEmployee.id, userId);
+                
+                closeLoginModal();
+                await loadEmployees();
+                alert(`Mitarbeiter ${loginEmployee.display_name} wurde mit dem bestehenden Login verknuepft.`);
+                return;
+              }
+            } catch (adminErr) {
+              console.log('Admin API nicht verfuegbar, zeige Verknuepfungs-Option');
+            }
+            
+            // 3. Fallback: Manuell auf Link-Modus wechseln (ohne User-ID)
+            setLoginError('Diese E-Mail ist bereits registriert. Bitte kontaktieren Sie den Administrator.');
             return;
           } else {
             setLoginError(signUpError.message);
@@ -1019,14 +992,14 @@ export default function EmployeeManagement({
               {/* Weitere Felder */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Position/Funktion</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Position/Titel</label>
                   <input
                     type="text"
                     name="position_title"
                     value={formData.position_title}
                     onChange={handleInputChange}
                     className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
-                    placeholder="z.B. Geschaeftsfuehrer, Entwickler"
+                    placeholder="z.B. Softwareentwickler"
                   />
                 </div>
                 <div>
@@ -1043,148 +1016,41 @@ export default function EmployeeManagement({
                     ))}
                   </select>
                 </div>
-              </div>
-
-              {/* Anlage 6.1 - Persoenliche Daten (aufklappbar) */}
-              <details className="border border-gray-200 rounded-lg">
-                <summary className="px-4 py-3 bg-gray-50 cursor-pointer font-medium text-gray-700 hover:bg-gray-100 rounded-t-lg">
-                  Persoenliche Daten (Anlage 6.1)
-                </summary>
-                <div className="p-4 grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Geburtsdatum</label>
-                    <input
-                      type="date"
-                      name="birth_date"
-                      value={formData.birth_date}
-                      onChange={handleInputChange}
-                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">lfd. Nr. (Excel-Import)</label>
-                    <input
-                      type="number"
-                      name="employee_number"
-                      value={formData.employee_number}
-                      onChange={handleInputChange}
-                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
-                      placeholder="z.B. 1, 2, 3..."
-                      min="1"
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Bildungsabschluss / Fachrichtung</label>
-                    <input
-                      type="text"
-                      name="education_degree"
-                      value={formData.education_degree}
-                      onChange={handleInputChange}
-                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
-                      placeholder="z.B. Dipl.-Ing. Maschinenbau"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Jahr Ausbildungsabschluss</label>
-                    <input
-                      type="number"
-                      name="education_year"
-                      value={formData.education_year}
-                      onChange={handleInputChange}
-                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
-                      placeholder="z.B. 1999"
-                      min="1950"
-                      max="2030"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Beschaeftigt seit</label>
-                    <input
-                      type="date"
-                      name="employment_start"
-                      value={formData.employment_start}
-                      onChange={handleInputChange}
-                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
-                    />
-                  </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Wochenstunden</label>
+                  <input
+                    type="number"
+                    name="weekly_hours"
+                    value={formData.weekly_hours}
+                    onChange={handleInputChange}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
+                    min="0"
+                    max="60"
+                    step="0.5"
+                  />
                 </div>
-              </details>
-
-              {/* Anlage 6.1 - Arbeitszeit & Gehalt */}
-              <div className="border border-blue-200 rounded-lg bg-blue-50 p-4">
-                <h4 className="font-medium text-blue-900 mb-3">Arbeitszeit & Stundensatz</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Wochenstunden (pWAZ) <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="number"
-                      name="weekly_hours"
-                      value={formData.weekly_hours}
-                      onChange={handleInputChange}
-                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus} bg-white`}
-                      min="0"
-                      max="60"
-                      step="0.5"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Persoenliche Wochenarbeitszeit lt. Vertrag</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Betriebl. Wochenstunden (bWAZ)</label>
-                    <input
-                      type="number"
-                      name="company_weekly_hours"
-                      value={formData.company_weekly_hours}
-                      onChange={handleInputChange}
-                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus} bg-white`}
-                      min="0"
-                      max="60"
-                      step="0.5"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Betriebsuebliche Arbeitszeit (Standard: 40)</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Jahresbruttolohn (EUR)</label>
-                    <input
-                      type="number"
-                      name="annual_salary"
-                      value={formData.annual_salary}
-                      onChange={handleInputChange}
-                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus} bg-white`}
-                      min="0"
-                      step="100"
-                      placeholder="z.B. 65000"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Stundensatz (EUR)</label>
-                    <input
-                      type="number"
-                      name="hourly_rate"
-                      value={formData.hourly_rate}
-                      onChange={handleInputChange}
-                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus} bg-white`}
-                      min="0"
-                      step="0.01"
-                      placeholder="Wird berechnet"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">= Jahresbrutto / (Wochenstd. Ã— 52)</p>
-                  </div>
+                <div></div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Beschaeftigt seit</label>
+                  <input
+                    type="date"
+                    name="employment_start"
+                    value={formData.employment_start}
+                    onChange={handleInputChange}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
+                  />
                 </div>
-              </div>
-
-              {/* Beschaeftigt bis (separates Feld) */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Beschaeftigt bis</label>
-                <input
-                  type="date"
-                  name="employment_end"
-                  value={formData.employment_end}
-                  onChange={handleInputChange}
-                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
-                />
-                <p className="text-xs text-gray-500 mt-1">Leer lassen wenn noch beschaeftigt</p>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Beschaeftigt bis</label>
+                  <input
+                    type="date"
+                    name="employment_end"
+                    value={formData.employment_end}
+                    onChange={handleInputChange}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Leer lassen wenn noch beschaeftigt</p>
+                </div>
               </div>
             </div>
 
@@ -1295,7 +1161,7 @@ export default function EmployeeManagement({
                   </div>
 
                   <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg text-sm flex items-start gap-2">
-                    <Check size={18} className="mt-0.5 flex-shrink-0" />
+                    <Check size={18} className="mt-0.5 shrink-0" />
                     <div>
                       Der Mitarbeiter kann sich mit seinen bestehenden Zugangsdaten einloggen.
                     </div>

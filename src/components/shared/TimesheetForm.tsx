@@ -1084,7 +1084,7 @@ export default function TimesheetForm({
                   const newValue = e.target.value;
                   checkUnsavedChanges(() => setSelectedProjectId(newValue));
                 }}
-                className="border rounded px-2 py-1 text-sm min-w-[200px]"
+                className="border rounded px-2 py-1 text-sm min-w-50"
               >
                 {projects.map(p => (
                   <option key={p.id} value={p.id}>
