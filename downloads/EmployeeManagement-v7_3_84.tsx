@@ -24,7 +24,7 @@
 //   - Stundensatz (automatisch berechnet)
 //   - lfd. Nr. (fuer Excel-Import)
 // - Aufklappbarer Bereich fuer persoenliche Daten
-// - Automatische Stundensatz-Berechnung: Jahresbrutto / (pWAZ × 52)
+// - Automatische Stundensatz-Berechnung: Jahresbrutto / (pWAZ Ã— 52)
 //
 // Props:
 // - portal: 'berater' | 'firma'
@@ -1169,7 +1169,7 @@ export default function EmployeeManagement({
                       step="0.01"
                       placeholder="Wird berechnet"
                     />
-                    <p className="text-xs text-gray-500 mt-1">= Jahresbrutto / (Wochenstd. × 52)</p>
+                    <p className="text-xs text-gray-500 mt-1">= Jahresbrutto / (Wochenstd. Ã— 52)</p>
                   </div>
                 </div>
               </div>
