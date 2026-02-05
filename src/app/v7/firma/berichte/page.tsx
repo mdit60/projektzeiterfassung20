@@ -252,7 +252,7 @@ export default function BerichtePage() {
         
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
-          router.push('/v7/login');
+          router.push('/login');
           return;
         }
         

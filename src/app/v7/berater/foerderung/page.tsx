@@ -203,7 +203,7 @@ export default function FoerderungPage() {
   // Logout-Funktion v7.3.37
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    router.push('/v7/login');
+    router.push('/login');
   };
 
   const loadCompanies = async (consultantCompanyId: string | null) => {
