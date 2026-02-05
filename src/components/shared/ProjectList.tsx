@@ -154,7 +154,7 @@ export default function ProjectList({
 
   // Sichere Filterung - projects ist immer ein Array
   const filteredProjects = (projects || []).filter(p =>
-    p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (p.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
     (p.funding_reference && p.funding_reference.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
