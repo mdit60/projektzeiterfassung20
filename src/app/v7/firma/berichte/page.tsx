@@ -405,10 +405,10 @@ export default function BerichtePage() {
 
   const projectStats: ProjectStats[] = useMemo(() => {
     return projects.map(project => {
-      const projectWPs = workPackages.filter(wp => wp.project_id === project.id);
+      const projectWPs = (workPackages || []).filter(wp => wp.project_id === project.id);
       const plannedPM = projectWPs.reduce((sum, wp) => sum + (wp.total_person_months || 0), 0);
       
-      const projectTimesheets = timesheets.filter(t => 
+      const projectTimesheets = (timesheets || []).filter(t => 
         t.project_id === project.id && 
         (!t.day_type || t.day_type === 'work')
       );
@@ -435,7 +435,7 @@ export default function BerichtePage() {
     
     const workingDays = getWorkingDaysInMonth(selectedYear, selectedMonth, holidays);
     
-    const employeesInProjects = employees.filter(emp => 
+    const employeesInProjects = (employees || []).filter(emp => 
       assignments.some(a => a.employee_id === emp.id)
     );
     
@@ -449,7 +449,7 @@ export default function BerichtePage() {
         .map(p => p.short_name || p.name);
       
       // Erfasste Tage - KORREKTER FELDNAME: work_date
-      const employeeTimesheets = timesheets.filter(t => 
+      const employeeTimesheets = (timesheets || []).filter(t => 
         t.employee_id === employee.id &&
         t.work_date >= startDate &&
         t.work_date <= endDate

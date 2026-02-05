@@ -597,11 +597,11 @@ export default function FoerderungPage() {
 
   // Statistiken nach Status
   const statusCounts = {
-    all: companies.filter(c => c.status !== 'inactive').length,
-    active: companies.filter(c => c.status === 'active').length,
-    invited: companies.filter(c => c.status === 'invited').length,
-    registered: companies.filter(c => c.status === 'registered').length,
-    inactive: companies.filter(c => c.status === 'inactive').length,
+    all: (companies || []).filter(c => c.status !== 'inactive').length,
+    active: (companies || []).filter(c => c.status === 'active').length,
+    invited: (companies || []).filter(c => c.status === 'invited').length,
+    registered: (companies || []).filter(c => c.status === 'registered').length,
+    inactive: (companies || []).filter(c => c.status === 'inactive').length,
   };
 
   // ============================================
