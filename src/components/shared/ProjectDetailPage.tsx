@@ -542,7 +542,7 @@ export default function ProjectDetailPage({
   };
 
   const getNextAPNumber = (pId: string): number => {
-    const projectWPs = workPackages.filter(wp => wp.project_id === pId);
+    const projectWPs = (workPackages || []).filter(wp => wp.project_id === pId);
     if (projectWPs.length === 0) return 1;
     return Math.max(...projectWPs.map(wp => wp.ap_number)) + 1;
   };
@@ -1282,7 +1282,7 @@ export default function ProjectDetailPage({
             ) : (
               <WorkPackageTable
                 projectId={projectId}
-                employees={allEmployees.filter(e => projectEmployeeIds.includes(e.id))}
+                employees={(allEmployees || []).filter(e => projectEmployeeIds.includes(e.id))}
                 workPackages={workPackages.map(wp => ({
                   id: wp.id,
                   ap_code: wp.ap_code || formatAPCode(wp.ap_number, wp.ap_sub_number),

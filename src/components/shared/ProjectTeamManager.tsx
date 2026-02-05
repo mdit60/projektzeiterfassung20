@@ -624,7 +624,7 @@ export default function ProjectTeamManager({
   // Verfügbare MA (noch nicht im Team)
   const availableEmployees = useMemo(() => {
     const teamEmployeeIds = new Set(teamMembers.map(m => m.employee_id));
-    return allEmployees.filter(emp => !teamEmployeeIds.has(emp.id));
+    return (allEmployees || []).filter(emp => !teamEmployeeIds.has(emp.id));
   }, [allEmployees, teamMembers]);
 
   // Bereits vergebene Nummern

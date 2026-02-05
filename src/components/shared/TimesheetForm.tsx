@@ -266,7 +266,7 @@ export default function TimesheetForm({
 
   // Abgeleitete Werte
   const selectedProject = projects.find(p => p.id === selectedProjectId);
-  const availableWorkPackages = workPackages.filter(wp => wp.project_id === selectedProjectId);
+  const availableWorkPackages = (workPackages || []).filter(wp => wp.project_id === selectedProjectId);
   const selectedEmployee = employees.find(e => e.id === selectedEmployeeId);
   const isDurchfuehrbarkeitsstudie = selectedProject?.funding_format?.includes('DS') || false;
   
@@ -374,7 +374,7 @@ export default function TimesheetForm({
       console.log('[TimesheetForm] Datumsbereich:', { startDate, endDate });
       console.log('[TimesheetForm] Alle workPackages (Props):', workPackages.length, workPackages.map(wp => ({ id: wp.id, project_id: wp.project_id, name: wp.name })));
 
-      const projectWPs = workPackages.filter(wp => wp.project_id === selectedProjectId);
+      const projectWPs = (workPackages || []).filter(wp => wp.project_id === selectedProjectId);
       const wpIds = projectWPs.map(wp => wp.id);
       
       console.log('[TimesheetForm] Gefilterte Projekt-APs:', projectWPs.length, projectWPs.map(wp => ({ id: wp.id, name: wp.name })));

@@ -145,13 +145,13 @@ export default function WorkPackageAssignmentModal({
     .filter(a => a.work_package_id === workPackage.id && a.is_active)
     .map(a => a.employee_id);
   
-  const assignedEmployees = allEmployees.filter(e => 
+  const assignedEmployees = (allEmployees || []).filter(e => 
     assignedEmployeeIds.includes(e.id)
   );
   
   // Verfuegbare MA: ALLE Firmen-MA die nicht diesem AP zugeordnet sind
   // (NICHT mehr gefiltert nach projectEmployeeIds!)
-  const availableEmployees = allEmployees.filter(e => 
+  const availableEmployees = (allEmployees || []).filter(e => 
     !assignedEmployeeIds.includes(e.id)
   );
   
