@@ -332,7 +332,7 @@ export default function ProjectList({
       {/* Anzahl */}
       <div className="text-sm text-gray-500">
         {filteredProjects.length} {filteredProjects.length === 1 ? 'Projekt' : 'Projekte'}
-        {projects.length !== filteredProjects.length && ` (von ${projects.length} gesamt)`}
+        {(projects || []).length !== filteredProjects.length && ` (von ${(projects || []).length} gesamt)`}
       </div>
     </div>
   );
