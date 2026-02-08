@@ -2,32 +2,34 @@
 // ============================================================================
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
-// Datum: 03. Februar 2026
-// Version: 7.3.87
+// Datum: 05. Februar 2026
+// Version: 7.3.88-7
 //
-// Gemeinsame Projekt-Detailseite für beide Portale:
+// Gemeinsame Projekt-Detailseite fuer beide Portale:
 // - Berater-Portal: /v7/berater/foerderung/firma/[firmaId]/projekt/[projektId]
 // - Firmen-Portal: /v7/firma/projekte/[id]
 //
+// v7.3.88-7: FIX: projectTeam an WorkPackageTable uebergeben
+//            MA-Sortierung im Arbeitsplan nach employee_number (lfd. Nr.)
 // v7.3.87: NEU: Team-Tab mit ProjectTeamManager (MA vor APs zuordnen)
-//          NEU: ArbeitsplanImport für Excel Download/Upload im AP-Tab
+//          NEU: ArbeitsplanImport fuer Excel Download/Upload im AP-Tab
 // v7.3.86: TypeScript Typ-Korrekturen:
 //          - PortalHeader userRole/portalRole korrigiert
-//          - Lokale Employee/WorkPackage Typen für Kompatibilität
-//          - hideNavigation für Detailseiten
+//          - Lokale Employee/WorkPackage Typen fuer Kompatibilitaet
+//          - hideNavigation fuer Detailseiten
 // v7.3.84: Zeiterfassungs-Tab mit Link zur Zeiterfassungsseite
 // v7.3.81: Team-Sortierung nach employee_number (Anlage 6.2)
 // v7.3.76-2: AP-Nummer mit Sub-Nummer (z.B. AP2.1)
 //            Datumsfelder statt Monatsnummern
-//            is_technical Flag für technische APs
+//            is_technical Flag fuer technische APs
 //
 // Props:
 // - portal: 'berater' | 'firma' (steuert Farben)
 // - projectId: string
-// - companyId?: string (nur Berater - für Zurück-Navigation)
-// - backUrl?: string (optional - wohin Zurück fuehrt)
+// - companyId?: string (nur Berater - fuer Zurueck-Navigation)
+// - backUrl?: string (optional - wohin Zurueck fuehrt)
 //
-// Tabs: Übersicht | Arbeitspakete | Team | Zeiterfassung
+// Tabs: Uebersicht | Arbeitspakete | Team | Zeiterfassung
 // ============================================================================
 
 'use client';
@@ -106,7 +108,7 @@ interface WorkPackageAssignment {
   is_active: boolean;
 }
 
-// Employee für WorkPackageTable
+// Employee fuer WorkPackageTable
 interface WPEmployee {
   id: string;
   display_name: string;
@@ -121,7 +123,7 @@ interface ProjectDetailPageProps {
   portal: PortalType;
   projectId: string;
   companyId?: string;  // Nur Berater-Portal
-  backUrl?: string;    // Wohin Zurück fuehrt
+  backUrl?: string;    // Wohin Zurueck fuehrt
 }
 
 interface UserProfile {
@@ -369,7 +371,7 @@ export default function ProjectDetailPage({
         .order('display_name');
 
       if (allEmpsData) {
-        // Typen explizit mappen für Kompatibilität
+        // Typen explizit mappen fuer Kompatibilitaet
         const mappedEmployees: WPEmployee[] = allEmpsData.map(emp => ({
           id: emp.id,
           display_name: emp.display_name,
@@ -405,7 +407,7 @@ export default function ProjectDetailPage({
         if (wpaData) setWpAssignments(wpaData);
       }
 
-      // Projekt-Zuordnungen laden (für Team und WP-Zuordnungen)
+      // Projekt-Zuordnungen laden (fuer Team und WP-Zuordnungen)
       const { data: assignmentData } = await supabase
         .from('v7_project_assignments')
         .select(`
@@ -424,7 +426,7 @@ export default function ProjectDetailPage({
         // Employee IDs die dem Projekt zugeordnet sind
         setProjectEmployeeIds(assignmentData.map((a: any) => a.employee_id));
 
-        // WP-Assignments für PM-Aggregation
+        // WP-Assignments fuer PM-Aggregation
         const { data: wpAssignmentsData } = await supabase
           .from('v7_work_package_assignments')
           .select(`
@@ -495,19 +497,19 @@ export default function ProjectDetailPage({
     return userProfile?.email?.split('@')[0] || 'Benutzer';
   };
 
-  // Gibt die effektive Portal-Rolle zurÃ¼ck (für Navigation und Berechtigungen)
+  // Gibt die effektive Portal-Rolle zurueck (fuer Navigation und Berechtigungen)
   const getPortalRole = (): V7EmployeePortalRole | V7UserRole => {
     if (portal === 'berater') {
-      // Im Berater-Portal: V7UserRole zurÃ¼ckgeben
+      // Im Berater-Portal: V7UserRole zurueckgeben
       return userProfile?.role || 'consultant';
     }
-    // Im Firmen-Portal: V7EmployeePortalRole zurÃ¼ckgeben
+    // Im Firmen-Portal: V7EmployeePortalRole zurueckgeben
     if (userProfile?.role === 'client_admin') return 'client_admin';
     if (employee?.portal_role) return employee.portal_role;
     return 'employee';
   };
   
-  // Gibt die V7UserRole für den PortalHeader zurÃ¼ck
+  // Gibt die V7UserRole fuer den PortalHeader zurueck
   const getUserRole = (): V7UserRole => {
     return userProfile?.role || 'client_user';
   };
@@ -540,7 +542,7 @@ export default function ProjectDetailPage({
   };
 
   const getNextAPNumber = (pId: string): number => {
-    const projectWPs = workPackages.filter(wp => wp.project_id === pId);
+    const projectWPs = (workPackages || []).filter(wp => wp.project_id === pId);
     if (projectWPs.length === 0) return 1;
     return Math.max(...projectWPs.map(wp => wp.ap_number)) + 1;
   };
@@ -590,7 +592,7 @@ export default function ProjectDetailPage({
       const wpData = {
         project_id: formData.project_id || projectId,
         ap_number: parseInt(formData.ap_number),
-        // NEU: ap_sub_number aus Formular (z.B. "1" für AP2.1)
+        // NEU: ap_sub_number aus Formular (z.B. "1" fuer AP2.1)
         ap_sub_number: formData.ap_sub_number ? parseInt(formData.ap_sub_number) : null,
         ap_code: formData.ap_code.trim() || `AP${formData.ap_number}`,
         name: formData.name.trim(),
@@ -670,7 +672,7 @@ export default function ProjectDetailPage({
       await loadData();
 
     } catch (err: any) {
-      alert('Fehler beim Löschen: ' + err.message);
+      alert('Fehler beim Loeschen: ' + err.message);
     } finally {
       setDeleting(false);
     }
@@ -784,7 +786,7 @@ export default function ProjectDetailPage({
     }
   };
 
-  // Handler für WorkPackageTable Inline-Edit
+  // Handler fuer WorkPackageTable Inline-Edit
   const handleTableAssignmentChange = async (
     workPackageId: string, 
     employeeId: string, 
@@ -800,7 +802,7 @@ export default function ProjectDetailPage({
 
       if (existing) {
         if (plannedPm === null || plannedPm === 0) {
-          // Löschen wenn PM 0 oder null
+          // Loeschen wenn PM 0 oder null
           await supabase
             .from('v7_work_package_assignments')
             .update({ is_active: false, updated_at: new Date().toISOString() })
@@ -975,20 +977,20 @@ export default function ProjectDetailPage({
     }
   };
 
-  // Projekt vollstaendig löschen (nur für Berater/Admin)
+  // Projekt vollstaendig loeschen (nur fuer Berater/Admin)
   const handleProjectDelete = async () => {
     if (!project) return;
     
     // Sicherheitsabfrage: Projektname muss eingegeben werden
     const expectedName = project.short_name || project.name;
     if (projectDeleteConfirmText !== expectedName) {
-      alert(`Bitte geben Sie "${expectedName}" ein, um das Löschen zu bestaetigen.`);
+      alert(`Bitte geben Sie "${expectedName}" ein, um das Loeschen zu bestaetigen.`);
       return;
     }
 
     setDeletingProject(true);
     try {
-      // 1. Work Package Assignments löschen
+      // 1. Work Package Assignments loeschen
       const { data: wpData } = await supabase
         .from('v7_work_packages')
         .select('id')
@@ -1002,25 +1004,25 @@ export default function ProjectDetailPage({
           .in('work_package_id', wpIds);
       }
 
-      // 2. Work Packages löschen
+      // 2. Work Packages loeschen
       await supabase
         .from('v7_work_packages')
         .delete()
         .eq('project_id', project.id);
 
-      // 3. Project Assignments löschen
+      // 3. Project Assignments loeschen
       await supabase
         .from('v7_project_assignments')
         .delete()
         .eq('project_id', project.id);
 
-      // 4. Timesheets löschen
+      // 4. Timesheets loeschen
       await supabase
         .from('v7_timesheets')
         .delete()
         .eq('project_id', project.id);
 
-      // 5. Projekt selbst löschen
+      // 5. Projekt selbst loeschen
       const { error: deleteError } = await supabase
         .from('v7_projects')
         .delete()
@@ -1028,10 +1030,10 @@ export default function ProjectDetailPage({
 
       if (deleteError) throw deleteError;
 
-      // Zurück zur Firmenseite navigieren
+      // Zurueck zur Firmenseite navigieren
       router.push(getBackUrl());
     } catch (err: any) {
-      alert('Fehler beim Löschen: ' + err.message);
+      alert('Fehler beim Loeschen: ' + err.message);
     } finally {
       setDeletingProject(false);
       setShowProjectDeleteConfirm(false);
@@ -1044,7 +1046,7 @@ export default function ProjectDetailPage({
   // ============================================================================
 
   const tabs: { key: TabKey; label: string; icon: React.ReactNode }[] = [
-    { key: 'uebersicht', label: 'Übersicht', icon: <FolderKanban size={18} /> },
+    { key: 'uebersicht', label: 'Uebersicht', icon: <FolderKanban size={18} /> },
     { key: 'arbeitspakete', label: 'Arbeitspakete', icon: <Package size={18} /> },
     { key: 'team', label: 'Team', icon: <Users size={18} /> },
     { key: 'zeiterfassung', label: 'Zeiterfassung', icon: <Clock size={18} /> },
@@ -1072,7 +1074,7 @@ export default function ProjectDetailPage({
             onClick={() => router.push(getBackUrl())}
             className={`px-4 py-2 ${buttonBg} text-white rounded-lg`}
           >
-            Zurück
+            Zurueck
           </button>
         </div>
       </div>
@@ -1083,12 +1085,12 @@ export default function ProjectDetailPage({
   const portalRole = getPortalRole();
   const adminUser = isAdmin();
 
-  // Projekt als WPProject für Modal
+  // Projekt als WPProject fuer Modal
   const wpProjects: WPProject[] = project ? [{
     id: project.id,
     name: project.name,
     funding_reference: project.funding_reference,
-    funding_format: project.funding_format,  // NEU: Für is_technical Checkbox bei ZIM_DS
+    funding_format: project.funding_format,  // NEU: Fuer is_technical Checkbox bei ZIM_DS
   }] : [];
 
   return (
@@ -1103,7 +1105,7 @@ export default function ProjectDetailPage({
         hideNavigation={true}
       />
 
-      {/* Projekt-Header mit Zurück-Button */}
+      {/* Projekt-Header mit Zurueck-Button */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
@@ -1183,7 +1185,7 @@ export default function ProjectDetailPage({
       {/* Content */}
       <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
 
-        {/* Tab: Übersicht */}
+        {/* Tab: Uebersicht */}
         {activeTab === 'uebersicht' && (
           <div className="space-y-6">
             <div className="bg-white rounded-lg border border-gray-200 p-6">
@@ -1265,7 +1267,7 @@ export default function ProjectDetailPage({
                 <p className="text-gray-500 mb-4">Keine Arbeitspakete vorhanden</p>
                 {adminUser && teamMembers.length === 0 && (
                   <p className="text-sm text-amber-600 mb-4">
-                    Bitte zuerst im Tab "Team" Mitarbeiter hinzufügen, um die Excel-Vorlage nutzen zu können.
+                    Bitte zuerst im Tab "Team" Mitarbeiter hinzufuegen, um die Excel-Vorlage nutzen zu koennen.
                   </p>
                 )}
                 {adminUser && !teamMembers.length && (
@@ -1280,7 +1282,7 @@ export default function ProjectDetailPage({
             ) : (
               <WorkPackageTable
                 projectId={projectId}
-                employees={allEmployees.filter(e => projectEmployeeIds.includes(e.id))}
+                employees={(allEmployees || []).filter(e => projectEmployeeIds.includes(e.id))}
                 workPackages={workPackages.map(wp => ({
                   id: wp.id,
                   ap_code: wp.ap_code || formatAPCode(wp.ap_number, wp.ap_sub_number),
@@ -1299,11 +1301,19 @@ export default function ProjectDetailPage({
                   employee_id: a.employee_id,
                   planned_pm: a.planned_person_months || 0,
                 }))}
+                projectTeam={teamMembers.map(tm => ({
+                  id: tm.id,
+                  project_id: projectId,
+                  employee_id: tm.employee_id,
+                  employee_number: tm.employee_number,
+                  role_in_project: tm.role_in_project,
+                  hourly_rate_override: tm.hourly_rate,
+                }))}
                 canEdit={adminUser}
                 onAssignmentChange={handleTableAssignmentChange}
                 onAddAP={adminUser ? openCreateWPModal : undefined}
                 onEditAP={adminUser ? (wp) => {
-                  // Map zurück zum lokalen WorkPackage Format
+                  // Map zurueck zum lokalen WorkPackage Format
                   const originalWP = workPackages.find(w => w.id === wp.id);
                   if (originalWP) openEditWPModal(originalWP);
                 } : undefined}
@@ -1326,7 +1336,7 @@ export default function ProjectDetailPage({
             canEdit={adminUser}
             portal={portal}
             onTeamChange={() => {
-              // Team hat sich geändert - Daten neu laden
+              // Team hat sich geaendert - Daten neu laden
               loadData();
             }}
           />
@@ -1386,7 +1396,7 @@ export default function ProjectDetailPage({
                     min="0"
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Stundensatz lt. Antrag (wird für Kostenberechnung verwendet)
+                    Stundensatz lt. Antrag (wird fuer Kostenberechnung verwendet)
                   </p>
                 </div>
 
@@ -1444,10 +1454,10 @@ export default function ProjectDetailPage({
             <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
               <Clock className={`w-16 h-16 mx-auto mb-4 ${portal === 'firma' ? 'text-green-500' : 'text-blue-500'}`} />
               <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                Stundennachweise für {project?.short_name || project?.name}
+                Stundennachweise fuer {project?.short_name || project?.name}
               </h3>
               <p className="text-gray-600 mb-6">
-                Erfassen und verwalten Sie die Projektstunden für alle Team-Mitglieder.
+                Erfassen und verwalten Sie die Projektstunden fuer alle Team-Mitglieder.
               </p>
               <button
                 onClick={() => {
@@ -1459,10 +1469,10 @@ export default function ProjectDetailPage({
                 className={`inline-flex items-center gap-2 px-6 py-3 ${buttonBg} text-white font-medium rounded-lg transition-colors`}
               >
                 <Clock size={20} />
-                Zeiterfassung öffnen
+                Zeiterfassung oeffnen
               </button>
               
-              {/* Team-Übersicht */}
+              {/* Team-Uebersicht */}
               {teamMembers.length > 0 && (
                 <div className="mt-8 pt-6 border-t border-gray-200">
                   <h4 className="text-sm font-medium text-gray-700 mb-3">Team-Mitglieder ({teamMembers.length})</h4>
@@ -1521,7 +1531,7 @@ export default function ProjectDetailPage({
         saving={savingAssignment}
       />
 
-      {/* Modal: Löschen bestaetigen */}
+      {/* Modal: Loeschen bestaetigen */}
       {showDeleteConfirm && wpToDelete && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
@@ -1530,10 +1540,10 @@ export default function ProjectDetailPage({
                 <AlertCircle className="w-6 h-6 text-red-600" />
               </div>
               <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                Arbeitspaket löschen?
+                Arbeitspaket loeschen?
               </h3>
               <p className="text-gray-600 mb-4">
-                Moechten Sie <strong>{wpToDelete.ap_code || formatAPCode(wpToDelete.ap_number, wpToDelete.ap_sub_number)}: {wpToDelete.name}</strong> wirklich löschen?
+                Moechten Sie <strong>{wpToDelete.ap_code || formatAPCode(wpToDelete.ap_number, wpToDelete.ap_sub_number)}: {wpToDelete.name}</strong> wirklich loeschen?
               </p>
               <p className="text-sm text-gray-500">
                 Das Arbeitspaket wird deaktiviert und kann spaeter wiederhergestellt werden.
@@ -1552,7 +1562,7 @@ export default function ProjectDetailPage({
                 disabled={deleting}
                 className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
               >
-                {deleting ? 'Löschen...' : 'Löschen'}
+                {deleting ? 'Loeschen...' : 'Loeschen'}
               </button>
             </div>
           </div>
@@ -1670,14 +1680,14 @@ export default function ProjectDetailPage({
             </div>
 
             <div className="flex justify-between gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-lg sticky bottom-0">
-              {/* Löschen-Button nur für Berater-Portal */}
+              {/* Loeschen-Button nur fuer Berater-Portal */}
               {portal === 'berater' && (
                 <button
                   onClick={() => setShowProjectDeleteConfirm(true)}
                   className="flex items-center gap-2 px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                 >
                   <Trash2 size={16} />
-                  Löschen
+                  Loeschen
                 </button>
               )}
               {portal !== 'berater' && <div></div>}
@@ -1713,7 +1723,7 @@ export default function ProjectDetailPage({
         </div>
       )}
 
-      {/* Löschen-Bestaetigungs-Modal */}
+      {/* Loeschen-Bestaetigungs-Modal */}
       {showProjectDeleteConfirm && project && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
@@ -1722,13 +1732,13 @@ export default function ProjectDetailPage({
                 <AlertCircle className="text-red-600" size={24} />
               </div>
               <h3 className="text-lg font-semibold text-red-900">
-                Projekt löschen
+                Projekt loeschen
               </h3>
             </div>
 
             <div className="p-6 space-y-4">
               <p className="text-gray-700">
-                Sind Sie sicher, dass Sie das Projekt <strong>{project.name}</strong> löschen moechten?
+                Sind Sie sicher, dass Sie das Projekt <strong>{project.name}</strong> loeschen moechten?
               </p>
               <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
                 <strong>Achtung:</strong> Folgende Daten werden unwiderruflich geloescht:
@@ -1771,12 +1781,12 @@ export default function ProjectDetailPage({
                 {deletingProject ? (
                   <>
                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                    Löschen...
+                    Loeschen...
                   </>
                 ) : (
                   <>
                     <Trash2 size={16} />
-                    Endgueltig löschen
+                    Endgueltig loeschen
                   </>
                 )}
               </button>

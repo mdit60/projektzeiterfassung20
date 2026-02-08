@@ -2,15 +2,16 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 05. Februar 2026
-// Version: 7.3.88
+// Datum: 06. Februar 2026
+// Version: 7.3.88-10
 //
 // Wird von beiden Portalen genutzt:
 // - Firmen-Portal: /v7/firma/zeiterfassung
 // - Berater-Portal: /v7/berater/foerderung/firma/[id]/zeiterfassung
 //
-// v7.3.88:   NEU: initialYear und initialMonth Props 
-//            Erlaubt Navigation aus Berichte-Seite mit vorgewaehltem Monat
+// v7.3.88-10: CRITICAL FIX - Null-Safety fuer Props (Vercel Production Crash)
+//             employees, projects, workPackages als safeXxx abgesichert
+//             Verhindert "filter is undefined" Fehler in Production Build
 // v7.3.86-4: FIX Fehlzeiten-Speicherung - DB-Constraint beachten:
 //            work_package_id und absence_code schliessen sich aus!
 //            Bei Fehlzeiten: work_package_id = null, hours = 8
@@ -126,8 +127,6 @@ interface TimesheetFormProps {
   onBack: () => void;
   initialEmployeeId?: string;
   initialProjectId?: string;
-  initialYear?: number;      // NEU: Jahr aus URL-Parameter
-  initialMonth?: number;     // NEU: Monat aus URL-Parameter
 }
 
 // ============================================================================
@@ -231,12 +230,15 @@ export default function TimesheetForm({
   onBack,
   initialEmployeeId,
   initialProjectId,
-  initialYear,
-  initialMonth,
 }: TimesheetFormProps) {
   const supabase = createClient();
   const printRef = useRef<HTMLDivElement>(null);
   const colors = PORTAL_COLORS[portal];
+
+  // SAFETY: Props mit Default-Werten absichern (verhindert Vercel Production Crash)
+  const safeEmployees = employees || [];
+  const safeProjects = projects || [];
+  const safeWorkPackages = workPackages || [];
 
   // State
   const [saving, setSaving] = useState(false);
@@ -244,11 +246,11 @@ export default function TimesheetForm({
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
 
-  // Ausgewaehlte Werte - Nutze initiale Werte aus Props falls vorhanden
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>(initialEmployeeId || employees[0]?.id || '');
-  const [selectedProjectId, setSelectedProjectId] = useState<string>(initialProjectId || projects[0]?.id || '');
-  const [selectedYear, setSelectedYear] = useState<number>(initialYear || new Date().getFullYear());
-  const [selectedMonth, setSelectedMonth] = useState<number>(initialMonth || new Date().getMonth() + 1);
+  // Ausgewaehlte Werte
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>(initialEmployeeId || safeEmployees[0]?.id || '');
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(initialProjectId || safeProjects[0]?.id || '');
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
 
   // Unterschriftsdatum
   const [signatureDate, setSignatureDate] = useState<string>('');
@@ -269,9 +271,9 @@ export default function TimesheetForm({
   const [holidays, setHolidays] = useState<Map<string, string>>(new Map());
 
   // Abgeleitete Werte
-  const selectedProject = projects.find(p => p.id === selectedProjectId);
-  const availableWorkPackages = workPackages.filter(wp => wp.project_id === selectedProjectId);
-  const selectedEmployee = employees.find(e => e.id === selectedEmployeeId);
+  const selectedProject = safeProjects.find(p => p.id === selectedProjectId);
+  const availableWorkPackages = safeWorkPackages.filter(wp => wp.project_id === selectedProjectId);
+  const selectedEmployee = safeEmployees.find(e => e.id === selectedEmployeeId);
   const isDurchfuehrbarkeitsstudie = selectedProject?.funding_format?.includes('DS') || false;
   const allRowsFilled = apRows.every(row => row.workPackageId !== null);
 
@@ -365,9 +367,9 @@ export default function TimesheetForm({
       const endDate = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${daysInMonth}`;
 
       console.log('[TimesheetForm] Datumsbereich:', { startDate, endDate });
-      console.log('[TimesheetForm] Alle workPackages (Props):', workPackages.length, workPackages.map(wp => ({ id: wp.id, project_id: wp.project_id, name: wp.name })));
+      console.log('[TimesheetForm] Alle workPackages (Props):', safeWorkPackages.length, safeWorkPackages.map(wp => ({ id: wp.id, project_id: wp.project_id, name: wp.name })));
 
-      const projectWPs = workPackages.filter(wp => wp.project_id === selectedProjectId);
+      const projectWPs = safeWorkPackages.filter(wp => wp.project_id === selectedProjectId);
       const wpIds = projectWPs.map(wp => wp.id);
       
       console.log('[TimesheetForm] Gefilterte Projekt-APs:', projectWPs.length, projectWPs.map(wp => ({ id: wp.id, name: wp.name })));
@@ -1059,10 +1061,10 @@ export default function TimesheetForm({
                   const newValue = e.target.value;
                   checkUnsavedChanges(() => setSelectedEmployeeId(newValue));
                 }}
-                disabled={!isAdmin && employees.length <= 1}
+                disabled={!isAdmin && safeEmployees.length <= 1}
                 className="border rounded px-2 py-1 text-sm"
               >
-                {employees.map(emp => (
+                {safeEmployees.map(emp => (
                   <option key={emp.id} value={emp.id}>{emp.display_name}</option>
                 ))}
               </select>
@@ -1079,7 +1081,7 @@ export default function TimesheetForm({
                 }}
                 className="border rounded px-2 py-1 text-sm min-w-[200px]"
               >
-                {projects.map(p => (
+                {safeProjects.map(p => (
                   <option key={p.id} value={p.id}>
                     {p.short_name || p.name} {p.funding_reference ? `(${p.funding_reference})` : ''}
                   </option>
@@ -1225,7 +1227,7 @@ export default function TimesheetForm({
 
               {/* AP-Zeilen */}
               {apRows.map((row, rowIndex) => {
-                const selectedWP = workPackages.find(wp => wp.id === row.workPackageId);
+                const selectedWP = safeWorkPackages.find(wp => wp.id === row.workPackageId);
                 return (
                   <tr key={rowIndex}>
                     <td className="border p-1 text-center">{rowIndex + 1}.</td>

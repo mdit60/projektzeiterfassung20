@@ -2,14 +2,17 @@
 
 // ============================================================================
 // BERATER-PORTAL: Firmen-Detail-Seite
-// Version: 7.3.88-3
+// Version: 7.3.88-9
 // Datum: 05. Februar 2026
 // 
 // Route: /v7/berater/foerderung/firma/[id]
 // 
 // TABS: Firmendaten | Projekte | Mitarbeiter | Zeiterfassung | Berichte
 //
-// FIX: CompanyDataView erhaelt jetzt company-Objekt statt nur companyId
+// FIX v7.3.88-9: onUpdate entfernt (nicht im EmployeeManagement Interface)
+// FIX v7.3.88-8: canEdit=true an EmployeeManagement uebergeben (Bearbeiten-Buttons)
+// FIX v7.3.88-5: Bei tab=berichte oder tab=zeiterfassung zur separaten Seite weiterleiten
+// FIX v7.3.88-3: CompanyDataView ersetzt durch inline Firmendaten
 // ============================================================================
 
 import { useState, useEffect } from 'react';
@@ -28,7 +31,7 @@ import {
   Pencil
 } from 'lucide-react';
 
-// Tab-Definition
+// Tab-Definition - nur fuer Tabs die HIER angezeigt werden
 type TabKey = 'firmendaten' | 'projekte' | 'mitarbeiter' | 'zeiterfassung' | 'berichte';
 
 interface TabConfig {
@@ -36,6 +39,7 @@ interface TabConfig {
   label: string;
   icon: React.ReactNode;
   badge?: number;
+  isExternal?: boolean; // Fuer Tabs die zu separaten Seiten fuehren
 }
 
 // Firma-Interface
@@ -80,9 +84,8 @@ export default function BeraterFirmaDetailPage() {
   const searchParams = useSearchParams();
   const firmaId = params.id as string;
   
-  // Tab aus URL oder default
+  // Tab aus URL - aber zeiterfassung/berichte werden weitergeleitet
   const tabFromUrl = searchParams.get('tab') as TabKey | null;
-  const [activeTab, setActiveTab] = useState<TabKey>(tabFromUrl || 'firmendaten');
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -90,15 +93,32 @@ export default function BeraterFirmaDetailPage() {
   const [projectCount, setProjectCount] = useState(0);
   const [employeeCount, setEmployeeCount] = useState(0);
   const [userProfile, setUserProfile] = useState<any>(null);
+  
+  // activeTab - default firmendaten, aber NICHT zeiterfassung/berichte
+  const [activeTab, setActiveTab] = useState<TabKey>(() => {
+    if (tabFromUrl === 'zeiterfassung' || tabFromUrl === 'berichte') {
+      return 'firmendaten'; // Wird sofort weitergeleitet
+    }
+    return tabFromUrl || 'firmendaten';
+  });
 
   // Tabs Konfiguration - ALLE 5 TABS
   const tabs: TabConfig[] = [
     { key: 'firmendaten', label: 'Firmendaten', icon: <Building2 className="w-4 h-4" /> },
     { key: 'projekte', label: 'Projekte', icon: <FolderKanban className="w-4 h-4" />, badge: projectCount },
     { key: 'mitarbeiter', label: 'Mitarbeiter', icon: <Users className="w-4 h-4" />, badge: employeeCount },
-    { key: 'zeiterfassung', label: 'Zeiterfassung', icon: <Clock className="w-4 h-4" /> },
-    { key: 'berichte', label: 'Berichte', icon: <BarChart3 className="w-4 h-4" /> },
+    { key: 'zeiterfassung', label: 'Zeiterfassung', icon: <Clock className="w-4 h-4" />, isExternal: true },
+    { key: 'berichte', label: 'Berichte', icon: <BarChart3 className="w-4 h-4" />, isExternal: true },
   ];
+
+  // Bei tab=zeiterfassung oder tab=berichte sofort weiterleiten
+  useEffect(() => {
+    if (tabFromUrl === 'zeiterfassung') {
+      router.replace(`/v7/berater/foerderung/firma/${firmaId}/zeiterfassung`);
+    } else if (tabFromUrl === 'berichte') {
+      router.replace(`/v7/berater/foerderung/firma/${firmaId}/berichte`);
+    }
+  }, [tabFromUrl, firmaId, router]);
 
   useEffect(() => {
     loadData();
@@ -106,8 +126,6 @@ export default function BeraterFirmaDetailPage() {
 
   // Tab-Wechsel mit URL-Update
   const handleTabChange = (tab: TabKey) => {
-    setActiveTab(tab);
-    
     // Fuer Zeiterfassung und Berichte: Navigation zu separaten Seiten
     if (tab === 'zeiterfassung') {
       router.push(`/v7/berater/foerderung/firma/${firmaId}/zeiterfassung`);
@@ -118,6 +136,7 @@ export default function BeraterFirmaDetailPage() {
       return;
     }
     
+    setActiveTab(tab);
     // URL aktualisieren fuer andere Tabs
     const newUrl = `/v7/berater/foerderung/firma/${firmaId}?tab=${tab}`;
     window.history.pushState({}, '', newUrl);
@@ -195,6 +214,15 @@ export default function BeraterFirmaDetailPage() {
     return date.toLocaleDateString('de-DE');
   };
 
+  // Wenn tab=zeiterfassung oder tab=berichte, zeige Loading waehrend Weiterleitung
+  if (tabFromUrl === 'zeiterfassung' || tabFromUrl === 'berichte') {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#002451]"></div>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -265,7 +293,7 @@ export default function BeraterFirmaDetailPage() {
                 key={tab.key}
                 onClick={() => handleTabChange(tab.key)}
                 className={`flex items-center gap-2 py-4 border-b-2 whitespace-nowrap transition-colors ${
-                  activeTab === tab.key
+                  activeTab === tab.key && !tab.isExternal
                     ? 'border-[#002451] text-[#002451]'
                     : 'border-transparent text-gray-600 hover:text-[#002451] hover:border-gray-300'
                 }`}
@@ -286,7 +314,7 @@ export default function BeraterFirmaDetailPage() {
       {/* Tab-Inhalt */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         
-        {/* FIRMENDATEN - Inline statt CompanyDataView */}
+        {/* FIRMENDATEN - Inline */}
         {activeTab === 'firmendaten' && firma && (
           <div className="bg-white rounded-lg shadow-sm border p-6">
             <div className="flex items-center justify-between mb-6">
@@ -376,7 +404,7 @@ export default function BeraterFirmaDetailPage() {
           <EmployeeManagement
             companyId={firmaId}
             portal="berater"
-            onUpdate={loadData}
+            canEdit={true}
           />
         )}
       </div>

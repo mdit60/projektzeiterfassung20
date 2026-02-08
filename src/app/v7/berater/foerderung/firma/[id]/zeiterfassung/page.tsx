@@ -2,12 +2,19 @@
 // ============================================================================
 // PZE V7 - Zeiterfassung (Berater-Portal)
 // ============================================================================
-// Datum: 21. Januar 2026
-// Version: 7.3.59
+// Version: 7.3.88-6
+// Datum: 05. Februar 2026
+//
+// v7.3.88-6: FIX is_technical in WorkPackage-Query hinzugefuegt
+//            T-Spalte zeigt jetzt korrekt X fuer technische APs
+// v7.3.59:   Basis-Version mit Shared Component
 //
 // Nutzt Shared Component: TimesheetForm
 // Firma-ID kommt aus URL-Parameter [id]
 // URL-Parameter: ?projekt=<projectId> (optional - waehlt Projekt vor)
+//                ?employee=<employeeId> (optional - waehlt MA vor)
+//                ?year=<year> (optional)
+//                ?month=<month> (optional)
 // ============================================================================
 
 'use client';
@@ -54,6 +61,7 @@ interface WorkPackage {
   ap_sub_number: number | null;
   ap_code: string | null;
   name: string;
+  is_technical: boolean | null;  // FIX: Hinzugefuegt fuer T-Spalte
 }
 
 interface ClientCompany {
@@ -71,7 +79,13 @@ function BeraterZeiterfassungInner() {
   const params = useParams();
   const searchParams = useSearchParams();
   const companyId = params.id as string;
+  
+  // URL-Parameter auslesen
   const projektParam = searchParams.get('projekt');
+  const employeeParam = searchParams.get('employee');
+  const yearParam = searchParams.get('year');
+  const monthParam = searchParams.get('month');
+  
   const supabase = createClient();
 
   // State
@@ -154,18 +168,22 @@ function BeraterZeiterfassungInner() {
         setInitialProjectId(projectsData[0].id);
       }
 
-      // Arbeitspakete laden
+      // Arbeitspakete laden - MIT is_technical!
       if (projectsData && projectsData.length > 0) {
         const projectIds = projectsData.map(p => p.id);
         const { data: wpData } = await supabase
           .from('v7_work_packages')
-          .select('id, project_id, ap_number, ap_sub_number, ap_code, name')
+          .select('id, project_id, ap_number, ap_sub_number, ap_code, name, is_technical')  // FIX: is_technical hinzugefuegt
           .in('project_id', projectIds)
           .eq('is_active', true)
           .order('ap_number')
           .order('ap_sub_number');
 
         setWorkPackages(wpData || []);
+        
+        // Debug-Log
+        console.log('[Berater-Zeiterfassung] Arbeitspakete geladen:', wpData?.length);
+        console.log('[Berater-Zeiterfassung] Technische APs:', wpData?.filter(wp => wp.is_technical === true).length);
       }
 
     } catch (err: any) {
@@ -248,6 +266,11 @@ function BeraterZeiterfassungInner() {
       ? `${userProfile.first_name} ${userProfile.last_name}`
       : userProfile.email?.split('@')[0] || 'Berater');
 
+  // Initiale Werte aus URL-Parametern
+  const initialEmployeeId = employeeParam || employees[0]?.id;
+  const initialYear = yearParam ? parseInt(yearParam, 10) : undefined;
+  const initialMonth = monthParam ? parseInt(monthParam, 10) : undefined;
+
   return (
     <TimesheetForm
       portal="berater"
@@ -260,8 +283,10 @@ function BeraterZeiterfassungInner() {
       currentUserDisplayName={displayName}
       isAdmin={true}
       onBack={() => router.push(`/v7/berater/foerderung/firma/${companyId}`)}
-      initialEmployeeId={employees[0]?.id}
+      initialEmployeeId={initialEmployeeId}
       initialProjectId={initialProjectId || projects[0]?.id}
+      initialYear={initialYear}
+      initialMonth={initialMonth}
     />
   );
 }
