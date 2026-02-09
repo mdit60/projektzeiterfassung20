@@ -1238,7 +1238,7 @@ export default function TimesheetForm({
                 <th className="border p-1 text-left" style={{ width: '30px' }}>AP</th>
                 <th className="border p-1 text-left" style={{ width: '180px' }}>Kurzbezeichnung des Arbeitspakets</th>
                 {isDurchfuehrbarkeitsstudie && (
-                  <th className="border p-1 text-center" style={{ width: '20px' }}>T</th>
+                  <th className="border p-1 text-center" style={{ width: '28px' }}>T/NT</th>
                 )}
                 {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
                   const weekend = isWeekend(selectedYear, selectedMonth, day);
