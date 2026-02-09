@@ -4,22 +4,22 @@
 // ============================================================================
 // PZE V7 - Gemeinsamer Portal-Header
 // ============================================================================
-// Datum: 03. Februar 2026
-// Version: 7.3.86-3
+// Datum: 09. Februar 2026
+// Version: 7.3.89
 //
 // Wird von beiden Portalen genutzt:
 // - Berater-Portal: Blauer Header (#002451)
 // - Firmen-Portal: Gruener Header (#65A655)
 //
-// WICHTIG: Header zeigt nur "Wer bin ich" (Logo, Portal, User, Abmelden)
-//          Navigation ist SEPARAT in PortalNav!
-//
-// v7.3.86-3: Navigation komplett aus Header entfernt
-//            Header zeigt nur: Logo, Firmenname, Portal-Typ, User, Abmelden
+// v7.3.89: Klick auf Firmenname/Portal-Titel fuehrt zum Dashboard
+//          Berater -> /v7/berater/dashboard, Firma -> /v7/firma/dashboard
+//          Logo/Initialen ebenfalls klickbar (cursor-pointer)
 // v7.3.86: userRole akzeptiert jetzt V7UserRole | V7EmployeePortalRole | string
+//          um Kompatibilitaet mit allen Seitentypen zu gewaehrleisten
 // ============================================================================
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import {
@@ -46,6 +46,8 @@ interface PortalHeaderProps {
   userEmail?: string;
   companyName?: string;
   companyLogo?: string | null;
+  currentPath?: string;
+  hideNavigation?: boolean;     // Beibehalten fuer Interface-Kompatibilitaet
 }
 
 // ============================================================================
@@ -60,6 +62,8 @@ export default function PortalHeader({
   userEmail,
   companyName,
   companyLogo,
+  currentPath,
+  hideNavigation = false,
 }: PortalHeaderProps) {
   const router = useRouter();
   const supabase = createClient();
@@ -75,42 +79,44 @@ export default function PortalHeader({
 
   // Portal-Titel
   const portalTitle = portal === 'berater' ? 'Berater-Portal' : 'Firmen-Portal';
+  const dashboardHref = portal === 'berater' ? '/v7/berater/dashboard' : '/v7/firma/dashboard';
 
   return (
     <header
-      className="text-white shadow-lg"
+      className={`${colors.headerBg} text-white shadow-lg`}
       style={{ backgroundColor: colors.primary }}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center h-14">
-          {/* Logo / Firmenname */}
-          <div className="flex items-center space-x-3">
+        <div className="flex justify-between items-center h-16">
+          {/* Logo / Firmenname - KLICKBAR zum Dashboard */}
+          <Link href={dashboardHref} className="flex items-center space-x-4 hover:opacity-90 transition-opacity cursor-pointer">
             {/* Firmenlogo oder Initialen */}
             {companyLogo ? (
               <img
                 src={companyLogo}
                 alt={companyName || 'Logo'}
-                className="h-9 w-auto bg-white rounded p-1"
+                className="h-10 w-auto bg-white rounded p-1"
               />
             ) : (
-              <div className="h-9 w-9 bg-white/20 rounded flex items-center justify-center text-sm font-bold">
+              <div className="h-10 w-10 bg-white/20 rounded flex items-center justify-center text-lg font-bold">
                 {companyName ? companyName.substring(0, 2).toUpperCase() : 'PZ'}
               </div>
             )}
             
             {/* Firmenname / Portal-Titel */}
-            <div>
-              <div className="text-base font-semibold leading-tight">
+            <div className="hidden sm:block">
+              <div className="text-lg font-semibold">
                 {companyName || 'PZE'}
               </div>
               <div className="text-xs text-white/70">
                 {portalTitle}
               </div>
             </div>
-          </div>
+          </Link>
 
           {/* Benutzer-Menu */}
-          <div className="flex items-center">
+          <div className="flex items-center space-x-4">
+            {/* User Dropdown */}
             <div className="relative">
               <button
                 onClick={() => setUserMenuOpen(!userMenuOpen)}
@@ -157,6 +163,7 @@ export default function PortalHeader({
                 </>
               )}
             </div>
+
           </div>
         </div>
       </div>
