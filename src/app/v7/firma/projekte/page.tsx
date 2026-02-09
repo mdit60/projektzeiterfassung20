@@ -1,202 +1,212 @@
 // src/app/v7/firma/projekte/page.tsx
 // ============================================================================
-// PZE V7 - Projektliste (Firmen-Portal)
+// PZE V7 - Projekte-Seite (Firmen-Portal)
 // ============================================================================
-// Datum: 21. Januar 2026
-// Version: 7.3.57
+// Version: 7.3.89
+// Datum: 09. Februar 2026
 //
-// Nutzt Shared Component: ProjectList
+// Nutzt shared ProjectList-Komponente (laedt Projekte selbst)
+//
+// v7.3.89:   KOMPLETT NEU - Ersetzt die alte v7.3.5 Seite (1200+ Zeilen)
+//            durch schlanke Version mit shared ProjectList-Komponente.
+//            Alte Version hatte Fehler: v7_project_budget Tabelle existiert nicht.
 // ============================================================================
 
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { AlertCircle } from 'lucide-react';
-
-// Komponenten
 import PortalHeader from '@/components/shared/PortalHeader';
-import PortalNav from '@/components/shared/PortalNav';
-import ProjectList, { Project } from '@/components/shared/ProjectList';
-
-// Types
-import { V7UserRole, V7EmployeePortalRole, V7Employee, V7ClientCompany } from '@/types/v7-types';
+import ProjectList from '@/components/shared/ProjectList';
+import { Loader2 } from 'lucide-react';
 
 // ============================================================================
 // TYPEN
 // ============================================================================
 
+type PortalRole = 'client_admin' | 'project_leader' | 'employee';
+
 interface UserProfile {
   id: string;
   email: string;
-  role: V7UserRole;
-  first_name: string | null;
-  last_name: string | null;
   display_name: string | null;
+  role: string;
   client_company_id: string | null;
+}
+
+interface EmployeeRecord {
+  id: string;
+  user_id: string | null;
+  portal_role: PortalRole | null;
+}
+
+interface ClientCompany {
+  id: string;
+  name: string;
+  short_name: string | null;
 }
 
 // ============================================================================
 // KOMPONENTE
 // ============================================================================
 
-export default function ProjektListe() {
+export default function FirmaProjektePage() {
   const router = useRouter();
-  const pathname = usePathname();
   const supabase = createClient();
 
   // State
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [employee, setEmployee] = useState<V7Employee | null>(null);
-  const [company, setCompany] = useState<V7ClientCompany | null>(null);
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [company, setCompany] = useState<ClientCompany | null>(null);
+  const [portalRole, setPortalRole] = useState<PortalRole>('employee');
 
   // ============================================================================
   // DATEN LADEN
   // ============================================================================
 
   useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+
+        // 1. User & Profile
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          router.push('/v7/login');
+          return;
+        }
+
+        // User-Profil
+        const { data: profile, error: profileError } = await supabase
+          .from('v7_user_profiles')
+          .select('id, email, display_name, role, client_company_id')
+          .eq('email', user.email)
+          .maybeSingle();
+
+        if (profileError || !profile) {
+          setError('Benutzerprofil nicht gefunden');
+          return;
+        }
+
+        if (!profile.client_company_id) {
+          setError('Keine Firma zugeordnet');
+          return;
+        }
+
+        setUserProfile(profile);
+
+        // 2. Portal-Rolle ermitteln
+        if (profile.role === 'client_admin') {
+          setPortalRole('client_admin');
+        } else {
+          // Mitarbeiter-Eintrag suchen fuer portal_role
+          const { data: empRecord } = await supabase
+            .from('v7_employees')
+            .select('id, user_id, portal_role')
+            .eq('client_company_id', profile.client_company_id)
+            .eq('user_id', profile.id)
+            .maybeSingle();
+
+          if (empRecord?.portal_role) {
+            setPortalRole(empRecord.portal_role as PortalRole);
+          }
+        }
+
+        // 3. Firma laden
+        const { data: companyData, error: companyError } = await supabase
+          .from('v7_client_companies')
+          .select('id, name, short_name')
+          .eq('id', profile.client_company_id)
+          .single();
+
+        if (companyError || !companyData) {
+          setError('Firma nicht gefunden');
+          return;
+        }
+
+        setCompany(companyData);
+
+      } catch (err) {
+        console.error('Fehler beim Laden:', err);
+        setError('Unerwarteter Fehler beim Laden der Daten');
+      } finally {
+        setLoading(false);
+      }
+    };
+
     loadData();
   }, []);
 
-  const loadData = async () => {
-    try {
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user) {
-        router.push('/login');
-        return;
-      }
-
-      const { data: profile } = await supabase
-        .from('v7_user_profiles')
-        .select('*')
-        .eq('email', user.email)
-        .maybeSingle();
-
-      if (!profile || !profile.client_company_id) {
-        setError('Kein Zugriff auf das Firmen-Portal');
-        setLoading(false);
-        return;
-      }
-
-      setUserProfile(profile);
-
-      const { data: companyData } = await supabase
-        .from('v7_client_companies')
-        .select('*')
-        .eq('id', profile.client_company_id)
-        .single();
-
-      if (companyData) setCompany(companyData);
-
-      const { data: employeeData } = await supabase
-        .from('v7_employees')
-        .select('*')
-        .eq('client_company_id', profile.client_company_id)
-        .eq('email', user.email)
-        .maybeSingle();
-
-      if (employeeData) setEmployee(employeeData);
-
-      // Projekte laden
-      const { data: projectData } = await supabase
-        .from('v7_projects')
-        .select('id, name, short_name, funding_format, funding_reference, start_date, end_date')
-        .eq('client_company_id', profile.client_company_id)
-        .eq('is_active', true)
-        .order('name');
-
-      if (projectData) setProjects(projectData);
-
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // ============================================================================
-  // HILFSFUNKTIONEN
-  // ============================================================================
-
-  const getUserName = (): string => {
-    if (userProfile?.display_name) return userProfile.display_name;
-    if (userProfile?.first_name && userProfile?.last_name) {
-      return `${userProfile.first_name} ${userProfile.last_name}`;
-    }
-    return userProfile?.email?.split('@')[0] || 'Benutzer';
-  };
-
-  const getPortalRole = (): V7EmployeePortalRole => {
-    if (userProfile?.role === 'client_admin') return 'client_admin';
-    if (employee?.portal_role) return employee.portal_role;
-    return 'employee';
-  };
-
-  // ============================================================================
-  // RENDER
+  // RENDER - LOADING
   // ============================================================================
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="w-10 h-10 border-4 border-green-200 border-t-green-600 rounded-full animate-spin"></div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="bg-white p-8 rounded-lg shadow-md text-center">
-          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-          <p className="text-gray-600">{error}</p>
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 text-gray-400 mx-auto mb-4 animate-spin" />
+          <p className="text-gray-500">Laden...</p>
         </div>
       </div>
     );
   }
 
-  const userName = getUserName();
-  const portalRole = getPortalRole();
+  // ============================================================================
+  // RENDER - ERROR
+  // ============================================================================
+
+  if (error || !userProfile || !company) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-6 max-w-md text-center">
+          <p className="text-red-700">{error || 'Daten konnten nicht geladen werden'}</p>
+          <button
+            onClick={() => router.push('/v7/firma/dashboard')}
+            className="mt-4 px-4 py-2 text-sm text-red-600 hover:text-red-800 underline"
+          >
+            Zurueck zum Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================================
+  // RENDER - HAUPTINHALT
+  // ============================================================================
+
+  const isAdmin = userProfile.role === 'client_admin' || portalRole === 'client_admin';
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <PortalHeader
         portal="firma"
-        userName={userName}
-        userRole={portalRole}
-        companyName={company?.name || 'Firma'}
-      />
-
-      {/* Navigation */}
-      <PortalNav
-        portal="firma"
-        userRole={userProfile?.role || 'client_user'}
+        userRole={userProfile.role}
         portalRole={portalRole}
-        currentPath={pathname}
+        userName={userProfile.display_name || userProfile.email}
+        userEmail={userProfile.email}
+        companyName={company.name}
+        currentPath="/v7/firma/projekte"
       />
 
-      {/* Content */}
-      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+      {/* Hauptinhalt */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <ProjectList
           portal="firma"
-          projects={projects}
-          onProjectClick={(projectId) => router.push(`/v7/firma/projekte/${projectId}`)}
-          onNewProject={() => router.push('/v7/firma/projekte/neu')}
-          showNewButton={portalRole === 'client_admin'}
-          title="Projekte"
+          companyId={company.id}
+          showNewButton={isAdmin}
         />
       </main>
 
       {/* Footer */}
-      <footer className="bg-white border-t mt-auto">
-        <div className="max-w-7xl mx-auto px-4 py-4">
+      <footer className="bg-white border-t mt-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <p className="text-center text-sm text-gray-500">
-            PZE v7.3.57 - Firmen-Portal
+            PZE v7.3.89 | Firmen-Portal | {company.name}
           </p>
         </div>
       </footer>
