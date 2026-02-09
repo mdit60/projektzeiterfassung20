@@ -2,17 +2,13 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 09. Februar 2026
-// Version: 7.3.89
+// Datum: 06. Februar 2026
+// Version: 7.3.88-10
 //
 // Wird von beiden Portalen genutzt:
 // - Firmen-Portal: /v7/firma/zeiterfassung
 // - Berater-Portal: /v7/berater/foerderung/firma/[id]/zeiterfassung
 //
-// v7.3.89:   FIX T-Spalte: T/NT statt X/- Anzeige
-//            Getrennte Summenzeilen (technisch/nicht-technisch) bei ZIM_DS
-//            Neue Hilfsfunktion isTechnicalAP() behandelt boolean, string,
-//            number korrekt (DB liefert manchmal andere Typen als erwartet)
 // v7.3.88-10: CRITICAL FIX - Null-Safety fuer Props (Vercel Production Crash)
 //             employees, projects, workPackages als safeXxx abgesichert
 //             Verhindert "filter is undefined" Fehler in Production Build
@@ -259,7 +255,7 @@ export default function TimesheetForm({
   // Unterschriftsdatum
   const [signatureDate, setSignatureDate] = useState<string>('');
 
-  // Dialog fuer ungespeicherte Aenderungen
+  // Dialog fÃƒÂ¼r ungespeicherte Ãƒâ€žnderungen
   const [showUnsavedDialog, setShowUnsavedDialog] = useState<(() => void) | null>(null);
 
   // Zeiterfassungs-Daten
@@ -279,17 +275,6 @@ export default function TimesheetForm({
   const availableWorkPackages = safeWorkPackages.filter(wp => wp.project_id === selectedProjectId);
   const selectedEmployee = safeEmployees.find(e => e.id === selectedEmployeeId);
   const isDurchfuehrbarkeitsstudie = selectedProject?.funding_format?.includes('DS') || false;
-
-  // Hilfsfunktion: Prueft ob AP technisch ist (robust gegen verschiedene DB-Datentypen)
-  const isTechnicalAP = (wp: WorkPackage | undefined | null): boolean => {
-    if (!wp) return false;
-    const val = wp.is_technical;
-    if (val === true) return true;
-    if (val === 'true' || val === 'TRUE' || val === '1') return true;
-    if (val === 1) return true;
-    return false;
-  };
-
   const allRowsFilled = apRows.every(row => row.workPackageId !== null);
 
   // ============================================================================
@@ -733,31 +718,6 @@ export default function TimesheetForm({
 
   const calculateTotalBillable = (): number => {
     return apRows.reduce((sum, row) => sum + calculateRowSum(row), 0);
-  };
-
-  // NEU v7.3.89: Getrennte Summen fuer technische/nicht-technische APs (nur ZIM_DS)
-  const calculateTechnicalDaySum = (day: number, technical: boolean): number => {
-    return apRows.reduce((sum, row) => {
-      if (!row.workPackageId) return sum;
-      const wp = safeWorkPackages.find(w => w.id === row.workPackageId);
-      const isTech = isTechnicalAP(wp);
-      if (isTech !== technical) return sum;
-      const entry = row.entries[day];
-      if (entry?.value && !isAbsenceCode(entry.value)) {
-        return sum + parseFloat(entry.value);
-      }
-      return sum;
-    }, 0);
-  };
-
-  const calculateTechnicalTotal = (technical: boolean): number => {
-    return apRows.reduce((sum, row) => {
-      if (!row.workPackageId) return sum;
-      const wp = safeWorkPackages.find(w => w.id === row.workPackageId);
-      const isTech = isTechnicalAP(wp);
-      if (isTech !== technical) return sum;
-      return sum + calculateRowSum(row);
-    }, 0);
   };
 
   const calculateNonBillableSum = (): number => {
@@ -1238,7 +1198,7 @@ export default function TimesheetForm({
                 <th className="border p-1 text-left" style={{ width: '30px' }}>AP</th>
                 <th className="border p-1 text-left" style={{ width: '180px' }}>Kurzbezeichnung des Arbeitspakets</th>
                 {isDurchfuehrbarkeitsstudie && (
-                  <th className="border p-1 text-center" style={{ width: '28px' }}>T/NT</th>
+                  <th className="border p-1 text-center" style={{ width: '20px' }}>T</th>
                 )}
                 {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
                   const weekend = isWeekend(selectedYear, selectedMonth, day);
@@ -1298,14 +1258,10 @@ export default function TimesheetForm({
                     </td>
                     {isDurchfuehrbarkeitsstudie && (
                       <td className="border p-1 text-center">
-                        {selectedWP ? (
-                          isTechnicalAP(selectedWP) ? (
-                            <span className="text-green-700 font-bold text-xs">T</span>
-                          ) : (
-                            <span className="text-blue-700 font-bold text-xs">NT</span>
-                          )
+                        {selectedWP && selectedWP.is_technical === true ? (
+                          <span className="text-green-600 font-bold">X</span>
                         ) : (
-                          <span className="text-gray-300">-</span>
+                          <span className="text-gray-400">-</span>
                         )}
                       </td>
                     )}
@@ -1364,70 +1320,20 @@ export default function TimesheetForm({
               )}
 
               {/* Summe foerderbare Stunden */}
-              {isDurchfuehrbarkeitsstudie ? (
-                <>
-                  {/* Summe technische APs */}
-                  <tr className="font-semibold" style={{ backgroundColor: '#E8F5E9' }}>
-                    <td className="border p-1 text-[10px]" colSpan={4}>Summe foerderbare Stunden - technisch (T)</td>
-                    {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
-                      const daySum = calculateTechnicalDaySum(day, true);
-                      return (
-                        <td key={day} className="border p-1 text-center text-[10px]">
-                          {daySum > 0 ? daySum.toFixed(2) : ''}
-                        </td>
-                      );
-                    })}
-                    <td className="border p-1 text-center bg-green-200">
-                      {calculateTechnicalTotal(true).toFixed(2)}
+              <tr className="font-semibold" style={{ backgroundColor: '#E8F5E9' }}>
+                <td className="border p-1" colSpan={isDurchfuehrbarkeitsstudie ? 4 : 3}>Summe der foerderbaren Stunden (2)</td>
+                {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
+                  const daySum = calculateDaySum(day);
+                  return (
+                    <td key={day} className="border p-1 text-center text-[10px]">
+                      {daySum > 0 ? daySum.toFixed(2) : '0,00'}
                     </td>
-                  </tr>
-                  {/* Summe nicht-technische APs */}
-                  <tr className="font-semibold" style={{ backgroundColor: '#E3F2FD' }}>
-                    <td className="border p-1 text-[10px]" colSpan={4}>Summe foerderbare Stunden - nicht-technisch (NT)</td>
-                    {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
-                      const daySum = calculateTechnicalDaySum(day, false);
-                      return (
-                        <td key={day} className="border p-1 text-center text-[10px]">
-                          {daySum > 0 ? daySum.toFixed(2) : ''}
-                        </td>
-                      );
-                    })}
-                    <td className="border p-1 text-center bg-blue-200">
-                      {calculateTechnicalTotal(false).toFixed(2)}
-                    </td>
-                  </tr>
-                  {/* Gesamtsumme */}
-                  <tr className="font-bold" style={{ backgroundColor: '#C8E6C9' }}>
-                    <td className="border p-1" colSpan={4}>Summe foerderbare Stunden gesamt (2)</td>
-                    {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
-                      const daySum = calculateDaySum(day);
-                      return (
-                        <td key={day} className="border p-1 text-center text-[10px]">
-                          {daySum > 0 ? daySum.toFixed(2) : ''}
-                        </td>
-                      );
-                    })}
-                    <td className="border p-1 text-center bg-green-300">
-                      {calculateTotalBillable().toFixed(2)}
-                    </td>
-                  </tr>
-                </>
-              ) : (
-                <tr className="font-semibold" style={{ backgroundColor: '#E8F5E9' }}>
-                  <td className="border p-1" colSpan={3}>Summe der foerderbaren Stunden (2)</td>
-                  {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
-                    const daySum = calculateDaySum(day);
-                    return (
-                      <td key={day} className="border p-1 text-center text-[10px]">
-                        {daySum > 0 ? daySum.toFixed(2) : '0,00'}
-                      </td>
-                    );
-                  })}
-                  <td className="border p-1 text-center bg-green-200">
-                    {calculateTotalBillable().toFixed(2)}
-                  </td>
-                </tr>
-              )}
+                  );
+                })}
+                <td className="border p-1 text-center bg-green-200">
+                  {calculateTotalBillable().toFixed(2)}
+                </td>
+              </tr>
 
               {/* Abschnitt 2: Nicht zuschussfaehig */}
               <tr>
