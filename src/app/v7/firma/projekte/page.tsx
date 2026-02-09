@@ -18,6 +18,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import PortalHeader from '@/components/shared/PortalHeader';
+import PortalNav from '@/components/shared/PortalNav';
 import ProjectList from '@/components/shared/ProjectList';
 import { Loader2 } from 'lucide-react';
 
@@ -190,6 +191,14 @@ export default function FirmaProjektePage() {
         userName={userProfile.display_name || userProfile.email}
         userEmail={userProfile.email}
         companyName={company.name}
+        currentPath="/v7/firma/projekte"
+      />
+
+      {/* Navigation */}
+      <PortalNav
+        portal="firma"
+        userRole={userProfile.role as 'client_admin' | 'client_user' | 'consultant' | 'system_admin'}
+        portalRole={portalRole}
         currentPath="/v7/firma/projekte"
       />
 
