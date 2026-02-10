@@ -86,7 +86,6 @@ export default function FirmaDashboardPage() {
   const [userRole, setUserRole] = useState<V7UserRole>('client_admin');
   const [portalRole, setPortalRole] = useState<V7EmployeePortalRole>('client_admin');
   const [companyName, setCompanyName] = useState('');
-  const [companyLogo, setCompanyLogo] = useState<string | null>(null);
   const [employeeCount, setEmployeeCount] = useState(0);
   const [projectCount, setProjectCount] = useState(0);
 
@@ -109,7 +108,7 @@ export default function FirmaDashboardPage() {
         // Profil laden
         const { data: profile } = await supabase
           .from('v7_user_profiles')
-          .select('full_name, role, company_id')
+          .select('display_name, first_name, last_name, role, client_company_id')
           .eq('id', user.id)
           .single();
 
@@ -118,47 +117,51 @@ export default function FirmaDashboardPage() {
           return;
         }
 
-        setUserName(profile.full_name || user.email || '');
+        const name = profile.display_name
+          || [profile.first_name, profile.last_name].filter(Boolean).join(' ')
+          || user.email
+          || '';
+        setUserName(name);
         setUserEmail(user.email || '');
         setUserRole((profile.role as V7UserRole) || 'client_admin');
 
         // Firma laden
-        if (profile.company_id) {
+        const companyId = profile.client_company_id;
+        if (companyId) {
           const { data: company } = await supabase
             .from('v7_client_companies')
-            .select('name, logo_url')
-            .eq('id', profile.company_id)
+            .select('name')
+            .eq('id', companyId)
             .single();
 
           if (company) {
             setCompanyName(company.name || '');
-            setCompanyLogo(company.logo_url || null);
           }
 
           // Mitarbeiter-Anzahl
           const { count: eCount } = await supabase
             .from('v7_employees')
             .select('*', { count: 'exact', head: true })
-            .eq('company_id', profile.company_id);
+            .eq('company_id', companyId);
           setEmployeeCount(eCount || 0);
 
           // Projekte-Anzahl
           const { count: pCount } = await supabase
             .from('v7_projects')
             .select('*', { count: 'exact', head: true })
-            .eq('company_id', profile.company_id);
+            .eq('company_id', companyId);
           setProjectCount(pCount || 0);
         }
 
         // Portal-Rolle ermitteln (aus v7_employees)
         if (profile.role === 'client_admin') {
           setPortalRole('client_admin');
-        } else if (profile.role === 'client_user' && profile.company_id) {
+        } else if (profile.role === 'client_user' && companyId) {
           const { data: emp } = await supabase
             .from('v7_employees')
             .select('portal_role')
             .eq('user_id', user.id)
-            .eq('company_id', profile.company_id)
+            .eq('company_id', companyId)
             .single();
 
           if (emp?.portal_role) {
@@ -218,7 +221,6 @@ export default function FirmaDashboardPage() {
         userName={userName}
         userEmail={userEmail}
         companyName={companyName}
-        companyLogo={companyLogo}
       />
 
       {/* Content */}

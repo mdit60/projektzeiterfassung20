@@ -78,6 +78,7 @@ export default function BeraterDashboardPage() {
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
   const [userRole, setUserRole] = useState<V7UserRole>('consultant');
+  const [consultantCompanyName, setConsultantCompanyName] = useState('');
   const [companyCount, setCompanyCount] = useState(0);
   const [projectCount, setProjectCount] = useState(0);
 
@@ -100,13 +101,29 @@ export default function BeraterDashboardPage() {
         // Profil laden
         const { data: profile } = await supabase
           .from('v7_user_profiles')
-          .select('full_name, role')
+          .select('display_name, first_name, last_name, role, consultant_company_id')
           .eq('id', user.id)
           .single();
 
         if (profile) {
-          setUserName(profile.full_name || user.email || '');
+          const name = profile.display_name
+            || [profile.first_name, profile.last_name].filter(Boolean).join(' ')
+            || user.email
+            || '';
+          setUserName(name);
           setUserRole((profile.role as V7UserRole) || 'consultant');
+
+          // Berater-Firma laden (ueber consultant_company_id des Users)
+          if (profile.consultant_company_id) {
+            const { data: consultantCompany } = await supabase
+              .from('v7_consultant_companies')
+              .select('name')
+              .eq('id', profile.consultant_company_id)
+              .single();
+            if (consultantCompany) {
+              setConsultantCompanyName(consultantCompany.name);
+            }
+          }
         }
         setUserEmail(user.email || '');
 
@@ -172,7 +189,7 @@ export default function BeraterDashboardPage() {
         userRole={userRole}
         userName={userName}
         userEmail={userEmail}
-        companyName="MD Business Services"
+        companyName={consultantCompanyName || 'PZE'}
       />
 
       {/* Content */}
@@ -242,7 +259,7 @@ export default function BeraterDashboardPage() {
       <footer className="bg-white border-t mt-8">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <p className="text-center text-xs text-gray-400">
-            PZE v7.3.90 &middot; Berater-Portal &middot; MD Business Services
+            PZE v7.3.90 &middot; Berater-Portal &middot; {consultantCompanyName || 'PZE'}
           </p>
         </div>
       </footer>
