@@ -1,674 +1,384 @@
-// src/app/v7/firma/dashboard/page.tsx
-// ============================================================================
-// PZE V7 - Firmen-Portal Dashboard
-// ============================================================================
-// Datum: 21. Januar 2026
-// Version: 7.3.61
-//
-// Dashboard mit rollenbasierter Ansicht:
-//
-// ADMIN (client_admin):
-//   - Volle Statistiken (Projekte, MA, Stunden)
-//   - Alle Projekte-Tabelle
-//   - Navigation: Firmendaten | Projekte | Mitarbeiter
-//
-// PROJEKTLEITER (project_leader):
-//   - "Meine Projekte" mit Zeiterfassungs-Button pro Projekt
-//   - KEINE separate "Meine Zeiterfassung" Box (redundant!)
-//   - Navigation: Projekte | Zeiterfassung
-//
-// MITARBEITER (employee):
-//   - Grosse "Zeiterfassung" Box als Hauptaktion
-//   - "Meine Projekte" Liste (nur zur Info)
-//   - Navigation: Zeiterfassung
-//
-// FIX v7.3.61: Projektleiter sieht keine redundante Zeiterfassungs-Box mehr
-// ============================================================================
-
 'use client';
 
-import React, { useState, useEffect } from 'react';
+// src/app/v7/firma/dashboard/page.tsx
+// ============================================================================
+// PZE V7 - Firmen-Dashboard (Modul-Kacheln)
+// ============================================================================
+// Datum: 10. Februar 2026
+// Version: 7.3.90-1
+//
+// Dashboard fuer das Firmen-Portal mit Modul-Kacheln.
+// Zeigt nur die Module, die fuer die jeweilige Firmen-Rolle sichtbar sind.
+//
+// Rollen-Verhalten:
+// - client_admin: Sieht alle Firmen-Module
+// - project_leader: Sieht Projektmodul, Arbeitszeit, Berichte
+// - employee: Sieht Projektmodul (nur eigene), Arbeitszeit
+//
+// Header-Farbe: Immer gruen (#65A655) = "Ich bin Firmenmitarbeiter"
+// ============================================================================
+
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import PortalHeader from '@/components/shared/PortalHeader';
 import {
-  Building2,
   FolderKanban,
-  Users,
   Clock,
-  ChevronRight,
-  AlertCircle,
+  Receipt,
+  FileCheck,
+  Scale,
+  Layers,
+  Calculator,
+  Network,
+  FlaskConical,
+  BarChart3,
+  CheckCircle,
+  CalendarClock,
+  Loader2,
+  Users,
+  Building2,
 } from 'lucide-react';
 
-// Gemeinsame Komponenten
-import PortalHeader from '@/components/shared/PortalHeader';
-
-// Types
-import { 
-  V7UserRole, 
+import {
+  V7UserRole,
   V7EmployeePortalRole,
-  V7Employee,
-  V7Project,
-  V7ClientCompany,
 } from '@/types/v7-types';
+import { PORTAL_COLORS } from '@/lib/v7-constants';
+import {
+  getVisibleModules,
+  getModuleStats,
+  V7ModuleDefinition,
+} from '@/lib/v7-module-config';
 
 // ============================================================================
-// TYPEN
+// ICON-MAPPING
 // ============================================================================
 
-interface UserProfile {
-  id: string;
-  email: string;
-  role: V7UserRole;
-  first_name: string | null;
-  last_name: string | null;
-  display_name: string | null;
-  client_company_id: string | null;
-}
+const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
+  FolderKanban,
+  Clock,
+  Receipt,
+  FileCheck,
+  Scale,
+  Layers,
+  Calculator,
+  Network,
+  FlaskConical,
+  BarChart3,
+};
 
-interface ProjectWithAssignment extends V7Project {
-  isAssigned?: boolean;
-  assignmentRole?: string; // 'team' | 'leader'
+function getModuleIcon(iconName: string) {
+  return ICON_MAP[iconName] || FolderKanban;
 }
 
 // ============================================================================
 // KOMPONENTE
 // ============================================================================
 
-export default function FirmaDashboard() {
+export default function FirmaDashboardPage() {
   const router = useRouter();
   const supabase = createClient();
 
-  // State
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [employee, setEmployee] = useState<V7Employee | null>(null);
-  const [company, setCompany] = useState<V7ClientCompany | null>(null);
-  const [allProjects, setAllProjects] = useState<V7Project[]>([]);
-  const [myProjects, setMyProjects] = useState<ProjectWithAssignment[]>([]);
+  const [userName, setUserName] = useState('');
+  const [userEmail, setUserEmail] = useState('');
+  const [userRole, setUserRole] = useState<V7UserRole>('client_admin');
+  const [portalRole, setPortalRole] = useState<V7EmployeePortalRole>('client_admin');
+  const [companyName, setCompanyName] = useState('');
+  const [companyLogo, setCompanyLogo] = useState<string | null>(null);
   const [employeeCount, setEmployeeCount] = useState(0);
+  const [projectCount, setProjectCount] = useState(0);
 
-  // ============================================================================
+  const colors = PORTAL_COLORS.firma;
+
+  // ==========================================================================
   // DATEN LADEN
-  // ============================================================================
+  // ==========================================================================
 
   useEffect(() => {
+    async function loadData() {
+      try {
+        // User laden
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          router.push('/login');
+          return;
+        }
+
+        // Profil laden
+        const { data: profile } = await supabase
+          .from('v7_user_profiles')
+          .select('full_name, role, company_id')
+          .eq('id', user.id)
+          .single();
+
+        if (!profile) {
+          router.push('/login');
+          return;
+        }
+
+        setUserName(profile.full_name || user.email || '');
+        setUserEmail(user.email || '');
+        setUserRole((profile.role as V7UserRole) || 'client_admin');
+
+        // Firma laden
+        if (profile.company_id) {
+          const { data: company } = await supabase
+            .from('v7_client_companies')
+            .select('name, logo_url')
+            .eq('id', profile.company_id)
+            .single();
+
+          if (company) {
+            setCompanyName(company.name || '');
+            setCompanyLogo(company.logo_url || null);
+          }
+
+          // Mitarbeiter-Anzahl
+          const { count: eCount } = await supabase
+            .from('v7_employees')
+            .select('*', { count: 'exact', head: true })
+            .eq('company_id', profile.company_id);
+          setEmployeeCount(eCount || 0);
+
+          // Projekte-Anzahl
+          const { count: pCount } = await supabase
+            .from('v7_projects')
+            .select('*', { count: 'exact', head: true })
+            .eq('company_id', profile.company_id);
+          setProjectCount(pCount || 0);
+        }
+
+        // Portal-Rolle ermitteln (aus v7_employees)
+        if (profile.role === 'client_admin') {
+          setPortalRole('client_admin');
+        } else if (profile.role === 'client_user' && profile.company_id) {
+          const { data: emp } = await supabase
+            .from('v7_employees')
+            .select('portal_role')
+            .eq('user_id', user.id)
+            .eq('company_id', profile.company_id)
+            .single();
+
+          if (emp?.portal_role) {
+            setPortalRole(emp.portal_role as V7EmployeePortalRole);
+          }
+        }
+
+      } catch (err) {
+        console.error('Dashboard-Fehler:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
     loadData();
   }, []);
 
-  const loadData = async () => {
-    try {
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user) {
-        router.push('/login');
-        return;
-      }
+  // ==========================================================================
+  // MODULE FILTERN
+  // ==========================================================================
 
-      // User Profile laden
-      const { data: profile, error: profileError } = await supabase
-        .from('v7_user_profiles')
-        .select('*')
-        .eq('email', user.email)
-        .maybeSingle();
+  const visibleModules = getVisibleModules('firma', userRole, portalRole);
+  const moduleStats = getModuleStats('firma', userRole, portalRole);
 
-      if (profileError || !profile) {
-        setError('Profil nicht gefunden');
-        setLoading(false);
-        return;
-      }
+  const phase1Modules = visibleModules.filter((m) => m.phase === 1);
+  const phase2Modules = visibleModules.filter((m) => m.phase === 2);
 
-      // Berater -> Weiterleitung zur Förderberatung
-      if (profile.role === 'consultant' || profile.role === 'system_admin') {
-        router.push('/v7/berater/foerderung');
-        return;
-      }
+  // ==========================================================================
+  // KACHEL-KLICK
+  // ==========================================================================
 
-      if (!profile.client_company_id) {
-        setError('Keine Firma zugeordnet');
-        setLoading(false);
-        return;
-      }
-
-      setUserProfile(profile);
-
-      // Firma laden
-      const { data: companyData } = await supabase
-        .from('v7_client_companies')
-        .select('*')
-        .eq('id', profile.client_company_id)
-        .single();
-
-      if (companyData) setCompany(companyData);
-
-      // Employee-Daten des aktuellen Users
-      const { data: employeeData } = await supabase
-        .from('v7_employees')
-        .select('*')
-        .eq('client_company_id', profile.client_company_id)
-        .eq('email', user.email)
-        .maybeSingle();
-
-      if (employeeData) setEmployee(employeeData);
-
-      // Alle Projekte laden (fuer Admin)
-      const { data: projectsData } = await supabase
-        .from('v7_projects')
-        .select('*')
-        .eq('client_company_id', profile.client_company_id)
-        .eq('is_active', true)
-        .order('name');
-
-      if (projectsData) setAllProjects(projectsData);
-
-      // Meine Projekte laden (fuer PL und Employee)
-      if (employeeData) {
-        await loadMyProjects(employeeData.id, projectsData || []);
-      }
-
-      // Mitarbeiter zaehlen
-      const { count } = await supabase
-        .from('v7_employees')
-        .select('*', { count: 'exact', head: true })
-        .eq('client_company_id', profile.client_company_id)
-        .eq('is_active', true);
-
-      setEmployeeCount(count || 0);
-
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
+  function handleModuleClick(mod: V7ModuleDefinition) {
+    const config = mod.firma;
+    if (config.status === 'active' && config.href) {
+      router.push(config.href);
     }
-  };
+  }
 
-  const loadMyProjects = async (employeeId: string, allProjectsList: V7Project[]) => {
-    // Team-Zuordnungen laden
-    const { data: teamAssignments } = await supabase
-      .from('v7_project_team')
-      .select('project_id')
-      .eq('employee_id', employeeId)
-      .eq('is_active', true);
-
-    const teamProjectIds = new Set((teamAssignments || []).map(a => a.project_id));
-
-    // Projekte filtern und annotieren
-    const myProjectsList: ProjectWithAssignment[] = allProjectsList
-      .filter(p => teamProjectIds.has(p.id))
-      .map(p => ({
-        ...p,
-        isAssigned: true,
-        assignmentRole: 'team',
-      }));
-
-    setMyProjects(myProjectsList);
-  };
-
-  // ============================================================================
-  // HILFSFUNKTIONEN
-  // ============================================================================
-
-  const getUserName = (): string => {
-    if (employee?.display_name) return employee.display_name;
-    if (userProfile?.display_name) return userProfile.display_name;
-    if (userProfile?.first_name && userProfile?.last_name) {
-      return `${userProfile.first_name} ${userProfile.last_name}`;
-    }
-    return userProfile?.email?.split('@')[0] || 'Benutzer';
-  };
-
-  const getPortalRole = (): V7EmployeePortalRole => {
-    // Zuerst v7_user_profiles.role pruefen
-    if (userProfile?.role === 'client_admin') return 'client_admin';
-    // Dann v7_employees.portal_role
-    if (employee?.portal_role) return employee.portal_role as V7EmployeePortalRole;
-    return 'employee';
-  };
-
-  const getRoleLabel = (role: V7EmployeePortalRole): string => {
-    const labels: Record<V7EmployeePortalRole, string> = {
-      client_admin: 'Administrator',
-      project_leader: 'Projektleiter',
-      employee: 'Mitarbeiter',
-    };
-    return labels[role] || 'Mitarbeiter';
-  };
-
-  const formatDate = (dateStr: string | null): string => {
-    if (!dateStr) return '-';
-    return new Date(dateStr).toLocaleDateString('de-DE');
-  };
-
-  const getFundingFormatLabel = (format: string | null): string => {
-    const formats: Record<string, string> = {
-      'ZIM': 'ZIM',
-      'ZIM_KOOP': 'ZIM Koop',
-      'ZIM_NETZWERK': 'Netzwerk',
-      'ZIM_DS': 'ZIM DS',
-      'BMBF': 'BMBF',
-      'BMBF_DS': 'BMBF DS',
-    };
-    return formats[format || ''] || format || '-';
-  };
-
-  // ============================================================================
-  // RENDER - LOADING / ERROR
-  // ============================================================================
+  // ==========================================================================
+  // RENDER
+  // ==========================================================================
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="w-10 h-10 border-4 border-green-200 border-t-green-600 rounded-full animate-spin"></div>
+        <Loader2 className="animate-spin text-green-600" size={40} />
       </div>
     );
   }
-
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="bg-white p-8 rounded-lg shadow-md text-center">
-          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-          <p className="text-gray-600 mb-4">{error}</p>
-          <button
-            onClick={() => router.push('/login')}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-          >
-            Zum Login
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const userName = getUserName();
-  const portalRole = getPortalRole();
-  const isAdmin = portalRole === 'client_admin';
-  const isProjectLeader = portalRole === 'project_leader';
-  const isEmployee = portalRole === 'employee';
-
-  // ============================================================================
-  // RENDER - ADMIN DASHBOARD
-  // ============================================================================
-
-  if (isAdmin) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex flex-col">
-        <PortalHeader
-          portal="firma"
-          userName={userName}
-          userRole={portalRole}
-          companyName={company?.name || 'Firma'}
-        />
-
-        {/* Sub-Navigation fuer Admin */}
-        <div className="bg-white border-b border-gray-200">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <nav className="flex gap-8">
-              <Link
-                href="/v7/firma/firmendaten"
-                className="flex items-center gap-2 py-4 px-1 border-b-2 border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300 font-medium text-sm transition-colors"
-              >
-                <Building2 size={18} />
-                Firmendaten
-              </Link>
-              <Link
-                href="/v7/firma/projekte"
-                className="flex items-center gap-2 py-4 px-1 border-b-2 border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300 font-medium text-sm transition-colors"
-              >
-                <FolderKanban size={18} />
-                Projekte
-                <span className="ml-1 px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-full">
-                  {allProjects.length}
-                </span>
-              </Link>
-              <Link
-                href="/v7/firma/mitarbeiter"
-                className="flex items-center gap-2 py-4 px-1 border-b-2 border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300 font-medium text-sm transition-colors"
-              >
-                <Users size={18} />
-                Mitarbeiter
-              </Link>
-            </nav>
-          </div>
-        </div>
-
-        <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
-          {/* Willkommen */}
-          <div className="mb-8">
-            <h1 className="text-2xl font-bold text-gray-900">
-              Willkommen, {userName}!
-            </h1>
-            <p className="text-gray-600 mt-1">
-              Angemeldet als {getRoleLabel(portalRole)} bei {company?.name}
-            </p>
-            
-            <div className="flex gap-3 mt-4">
-              <span className="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-sm text-gray-700">
-                <FolderKanban size={16} className="text-blue-500" />
-                {allProjects.length} {allProjects.length === 1 ? 'Projekt' : 'Projekte'}
-              </span>
-              <span className="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-sm text-gray-700">
-                <Users size={16} className="text-purple-500" />
-                {employeeCount} Mitarbeiter
-              </span>
-            </div>
-          </div>
-
-          {/* Projekte-Tabelle */}
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-              <h2 className="font-semibold text-gray-900">Aktive Projekte</h2>
-              <Link
-                href="/v7/firma/projekte"
-                className="text-sm text-green-600 hover:text-green-700 font-medium"
-              >
-                Alle anzeigen
-              </Link>
-            </div>
-            
-            {allProjects.length === 0 ? (
-              <div className="p-8 text-center text-gray-500">
-                <FolderKanban size={48} className="mx-auto mb-4 text-gray-300" />
-                <p>Noch keine Projekte vorhanden</p>
-                <Link
-                  href="/v7/firma/projekte/neu"
-                  className="inline-block mt-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium"
-                >
-                  Erstes Projekt anlegen
-                </Link>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-gray-100 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <th className="px-6 py-3">Projekt</th>
-                      <th className="px-6 py-3">Format</th>
-                      <th className="px-6 py-3">FKZ</th>
-                      <th className="px-6 py-3">Laufzeit bis</th>
-                      <th className="px-6 py-3 w-10"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {allProjects.slice(0, 10).map((project) => (
-                      <tr
-                        key={project.id}
-                        onClick={() => router.push(`/v7/firma/projekte/${project.id}`)}
-                        className="hover:bg-gray-50 cursor-pointer transition-colors"
-                      >
-                        <td className="px-6 py-4">
-                          <div className="font-medium text-gray-900">{project.name}</div>
-                          {project.short_name && (
-                            <div className="text-sm text-gray-500">{project.short_name}</div>
-                          )}
-                        </td>
-                        <td className="px-6 py-4">
-                          {project.funding_format && (
-                            <span className="inline-flex px-2 py-1 text-xs font-medium rounded bg-blue-100 text-blue-700">
-                              {getFundingFormatLabel(project.funding_format)}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 text-gray-600">
-                          {project.funding_reference || '-'}
-                        </td>
-                        <td className="px-6 py-4 text-gray-600">
-                          {formatDate(project.end_date)}
-                        </td>
-                        <td className="px-6 py-4">
-                          <ChevronRight size={18} className="text-gray-400" />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </main>
-
-        <footer className="bg-white border-t mt-auto">
-          <div className="max-w-7xl mx-auto px-4 py-4">
-            <p className="text-center text-sm text-gray-500">
-              PZE v7.3.61 | {company?.name}
-            </p>
-          </div>
-        </footer>
-      </div>
-    );
-  }
-
-  // ============================================================================
-  // RENDER - PROJEKTLEITER DASHBOARD
-  // ============================================================================
-
-  if (isProjectLeader) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex flex-col">
-        <PortalHeader
-          portal="firma"
-          userName={userName}
-          userRole={portalRole}
-          companyName={company?.name || 'Firma'}
-        />
-
-        {/* Sub-Navigation fuer Projektleiter */}
-        <div className="bg-white border-b border-gray-200">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <nav className="flex gap-8">
-              <Link
-                href="/v7/firma/projekte"
-                className="flex items-center gap-2 py-4 px-1 border-b-2 border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300 font-medium text-sm transition-colors"
-              >
-                <FolderKanban size={18} />
-                Projekte
-              </Link>
-              <Link
-                href="/v7/firma/zeiterfassung"
-                className="flex items-center gap-2 py-4 px-1 border-b-2 border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300 font-medium text-sm transition-colors"
-              >
-                <Clock size={18} />
-                Zeiterfassung
-              </Link>
-            </nav>
-          </div>
-        </div>
-
-        <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
-          {/* Willkommen */}
-          <div className="mb-8">
-            <h1 className="text-2xl font-bold text-gray-900">
-              Willkommen, {userName}!
-            </h1>
-            <p className="text-gray-600 mt-1">
-              Angemeldet als {getRoleLabel(portalRole)} bei {company?.name}
-            </p>
-            
-            <div className="flex gap-3 mt-4">
-              <span className="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-sm text-gray-700">
-                <FolderKanban size={16} className="text-blue-500" />
-                {myProjects.length} zugeordnete {myProjects.length === 1 ? 'Projekt' : 'Projekte'}
-              </span>
-            </div>
-          </div>
-
-          {/* Meine Projekte - mit Zeiterfassungs-Button */}
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="font-semibold text-gray-900">Meine Projekte</h2>
-            </div>
-            
-            {myProjects.length === 0 ? (
-              <div className="p-8 text-center text-gray-500">
-                <FolderKanban size={48} className="mx-auto mb-4 text-gray-300" />
-                <p>Sie sind noch keinem Projekt zugeordnet.</p>
-                <p className="text-sm mt-2">Bitte wenden Sie sich an Ihren Administrator.</p>
-              </div>
-            ) : (
-              <div className="divide-y divide-gray-100">
-                {myProjects.map((project) => (
-                  <div
-                    key={project.id}
-                    className="px-6 py-4 flex items-center justify-between hover:bg-gray-50"
-                  >
-                    <div>
-                      <div className="font-medium text-gray-900">{project.name}</div>
-                      <div className="text-sm text-gray-500">
-                        {getFundingFormatLabel(project.funding_format)}
-                        {project.funding_reference && ` - ${project.funding_reference}`}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <Link
-                        href={`/v7/firma/zeiterfassung?projekt=${project.id}`}
-                        className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
-                      >
-                        Zeiterfassung
-                      </Link>
-                      <Link
-                        href={`/v7/firma/projekte/${project.id}`}
-                        className="px-4 py-2 bg-white text-gray-700 text-sm font-medium rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
-                      >
-                        Details
-                      </Link>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Schnellzugriff - kompakt, OHNE separate Zeiterfassungs-Box */}
-          <div className="mt-8 bg-green-50 border border-green-200 rounded-lg p-6">
-            <h3 className="font-medium text-green-900 mb-2">Hinweis zur Zeiterfassung</h3>
-            <p className="text-sm text-green-700">
-              Als Projektleiter koennen Sie die Zeiterfassung fuer alle Mitarbeiter Ihrer Projekte 
-              einsehen und pruefen. Klicken Sie auf "Zeiterfassung" bei einem Projekt, um die 
-              Stundennachweise zu verwalten.
-            </p>
-          </div>
-        </main>
-
-        <footer className="bg-white border-t mt-auto">
-          <div className="max-w-7xl mx-auto px-4 py-4">
-            <p className="text-center text-sm text-gray-500">
-              PZE v7.3.61 | {company?.name}
-            </p>
-          </div>
-        </footer>
-      </div>
-    );
-  }
-
-  // ============================================================================
-  // RENDER - MITARBEITER DASHBOARD
-  // ============================================================================
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
       <PortalHeader
         portal="firma"
+        userRole={userRole}
+        portalRole={portalRole}
         userName={userName}
-        userRole={portalRole}
-        companyName={company?.name || 'Firma'}
+        userEmail={userEmail}
+        companyName={companyName}
+        companyLogo={companyLogo}
       />
 
-      {/* Sub-Navigation fuer Mitarbeiter - nur Zeiterfassung */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <nav className="flex gap-8">
-            <Link
-              href="/v7/firma/zeiterfassung"
-              className="flex items-center gap-2 py-4 px-1 border-b-2 border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300 font-medium text-sm transition-colors"
-            >
-              <Clock size={18} />
-              Zeiterfassung
-            </Link>
-          </nav>
-        </div>
-      </div>
+      {/* Content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
-      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
-        {/* Willkommen */}
+        {/* Willkommen + Statistiken */}
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-gray-900">
-            Willkommen, {userName}!
+            Willkommen, {userName.split(' ')[0] || 'Benutzer'}!
           </h1>
-          <p className="text-gray-600 mt-1">
-            Angemeldet als {getRoleLabel(portalRole)} bei {company?.name}
-          </p>
-          
-          <div className="flex gap-3 mt-4">
-            <span className="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-sm text-gray-700">
-              <FolderKanban size={16} className="text-blue-500" />
-              {myProjects.length} zugeordnete {myProjects.length === 1 ? 'Projekt' : 'Projekte'}
+          <div className="flex items-center gap-4 mt-2">
+            <span className="inline-flex items-center gap-1.5 text-sm text-gray-500">
+              <Building2 size={14} />
+              {companyName}
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-sm text-gray-500">
+              <Users size={14} />
+              {employeeCount} {employeeCount === 1 ? 'Mitarbeiter' : 'Mitarbeiter'}
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-sm text-gray-500">
+              <FolderKanban size={14} />
+              {projectCount} {projectCount === 1 ? 'Projekt' : 'Projekte'}
             </span>
           </div>
         </div>
 
-        {/* Grosse Zeiterfassungs-Box - Hauptaktion fuer Mitarbeiter */}
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-8 text-center mb-8">
-          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Clock className="w-8 h-8 text-green-600" />
+        {/* Phase 1 - Pflichtmodule */}
+        <section className="mb-10">
+          <div className="flex items-center gap-3 mb-4">
+            <span className="inline-block w-3 h-3 rounded-full bg-green-500" />
+            <h2 className="text-lg font-semibold text-gray-800">
+              Foerderabrechnung
+            </h2>
           </div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">Zeiterfassung</h2>
-          <p className="text-gray-600 mb-6">Erfassen Sie hier Ihre Projektstunden</p>
-          <Link
-            href="/v7/firma/zeiterfassung"
-            className="inline-flex items-center gap-2 px-6 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 transition-colors"
-          >
-            <Clock size={20} />
-            Zeiterfassung oeffnen
-          </Link>
-        </div>
 
-        {/* Meine Projekte - Info-Liste */}
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="font-semibold text-gray-900">Meine Projekte</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {phase1Modules.map((mod) => (
+              <ModuleCard
+                key={mod.id}
+                module={mod}
+                portal="firma"
+                portalColors={colors}
+                onClick={() => handleModuleClick(mod)}
+              />
+            ))}
           </div>
-          
-          {myProjects.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">
-              <FolderKanban size={48} className="mx-auto mb-4 text-gray-300" />
-              <p>Sie sind noch keinem Projekt zugeordnet.</p>
-              <p className="text-sm mt-2">Bitte wenden Sie sich an Ihren Administrator.</p>
+        </section>
+
+        {/* Phase 2 - Zusatzmodule (nur wenn sichtbar) */}
+        {phase2Modules.length > 0 && (
+          <section className="mb-10">
+            <div className="flex items-center gap-3 mb-4">
+              <span className="inline-block w-3 h-3 rounded-full bg-yellow-400" />
+              <h2 className="text-lg font-semibold text-gray-800">
+                Zusatzmodule
+              </h2>
             </div>
-          ) : (
-            <div className="divide-y divide-gray-100">
-              {myProjects.map((project) => (
-                <div
-                  key={project.id}
-                  className="px-6 py-4 flex items-center justify-between hover:bg-gray-50"
-                >
-                  <div>
-                    <div className="font-medium text-gray-900">{project.name}</div>
-                    <div className="text-sm text-gray-500">
-                      {getFundingFormatLabel(project.funding_format)}
-                      {project.funding_reference && ` - ${project.funding_reference}`}
-                    </div>
-                  </div>
-                  <Link
-                    href={`/v7/firma/zeiterfassung?projekt=${project.id}`}
-                    className="px-4 py-2 bg-green-100 text-green-700 text-sm font-medium rounded-lg hover:bg-green-200 transition-colors"
-                  >
-                    Stunden erfassen
-                  </Link>
-                </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {phase2Modules.map((mod) => (
+                <ModuleCard
+                  key={mod.id}
+                  module={mod}
+                  portal="firma"
+                  portalColors={colors}
+                  onClick={() => handleModuleClick(mod)}
+                />
               ))}
             </div>
-          )}
-        </div>
+          </section>
+        )}
+
       </main>
 
-      <footer className="bg-white border-t mt-auto">
+      {/* Footer */}
+      <footer className="bg-white border-t mt-8">
         <div className="max-w-7xl mx-auto px-4 py-4">
-          <p className="text-center text-sm text-gray-500">
-            PZE v7.3.61 | {company?.name}
+          <p className="text-center text-xs text-gray-400">
+            PZE v7.3.90 &middot; Firmen-Portal &middot; {companyName}
           </p>
         </div>
       </footer>
     </div>
+  );
+}
+
+// ============================================================================
+// MODUL-KACHEL KOMPONENTE
+// ============================================================================
+
+interface ModuleCardProps {
+  module: V7ModuleDefinition;
+  portal: 'berater' | 'firma';
+  portalColors: typeof PORTAL_COLORS.firma;
+  onClick: () => void;
+}
+
+function ModuleCard({ module, portal, portalColors, onClick }: ModuleCardProps) {
+  const config = module[portal];
+  const isActive = config.status === 'active';
+  const IconComponent = getModuleIcon(module.icon);
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={!isActive}
+      className={`
+        relative group text-left w-full rounded-xl border-2 p-5
+        transition-all duration-200
+        ${isActive
+          ? 'bg-white border-gray-200 hover:border-green-400 hover:shadow-lg cursor-pointer'
+          : 'bg-gray-50 border-gray-200 border-dashed cursor-default opacity-75'
+        }
+      `}
+    >
+      {/* Status-Badge */}
+      <div className="absolute top-3 right-3">
+        {isActive ? (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
+            <CheckCircle size={12} />
+            Aktiv
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+            <CalendarClock size={12} />
+            {config.plannedRelease || 'Geplant'}
+          </span>
+        )}
+      </div>
+
+      {/* Icon */}
+      <div
+        className={`
+          w-12 h-12 rounded-lg flex items-center justify-center mb-3
+          ${isActive
+            ? 'bg-green-50 text-green-600 group-hover:bg-green-100'
+            : 'bg-gray-100 text-gray-400'
+          }
+        `}
+      >
+        <IconComponent size={24} />
+      </div>
+
+      {/* Name */}
+      <h3 className={`font-semibold text-sm mb-1 ${isActive ? 'text-gray-900' : 'text-gray-500'}`}>
+        {module.name}
+      </h3>
+
+      {/* Beschreibung */}
+      <p className={`text-xs leading-relaxed ${isActive ? 'text-gray-500' : 'text-gray-400'}`}>
+        {config.description}
+      </p>
+
+      {/* Phase-Indikator */}
+      <div className="mt-3 pt-2 border-t border-gray-100">
+        <span className="text-[10px] text-gray-400 uppercase tracking-wider">
+          Phase {module.phase}
+        </span>
+      </div>
+    </button>
   );
 }
 

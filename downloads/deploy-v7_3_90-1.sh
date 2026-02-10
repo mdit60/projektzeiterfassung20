@@ -47,11 +47,12 @@ DOWNLOAD_DIR="$HOME/Documents/Dev/PZE/downloads"
 FILE_CONFIG="$DOWNLOAD_DIR/v7-module-config-v7_3_90-1.ts"
 FILE_BERATER="$DOWNLOAD_DIR/berater-dashboard-v7_3_90-1.tsx"
 FILE_FIRMA="$DOWNLOAD_DIR/firma-dashboard-v7_3_90-1.tsx"
+FILE_BERATER_REDIRECT="$DOWNLOAD_DIR/berater-page-redirect-v7_3_90-1.tsx"
 
 echo "1. Pruefe Download-Dateien..."
 
 MISSING=0
-for F in "$FILE_CONFIG" "$FILE_BERATER" "$FILE_FIRMA"; do
+for F in "$FILE_CONFIG" "$FILE_BERATER" "$FILE_FIRMA" "$FILE_BERATER_REDIRECT"; do
     if [ -f "$F" ]; then
         echo "   OK: $(basename $F)"
     else
@@ -87,6 +88,12 @@ if [ -f "src/app/v7/firma/dashboard/page.tsx" ]; then
     echo "   Gesichert: firma/dashboard/page.tsx"
 fi
 
+# Berater page.tsx (alte Willkommensseite)
+if [ -f "src/app/v7/berater/page.tsx" ]; then
+    cp "src/app/v7/berater/page.tsx" "$BACKUP_DIR/berater-page-OLD.tsx"
+    echo "   Gesichert: berater/page.tsx"
+fi
+
 echo "   Backup in: $BACKUP_DIR/"
 echo ""
 
@@ -111,10 +118,13 @@ cp "$FILE_CONFIG" "src/lib/v7-module-config.ts"
 echo "   -> src/lib/v7-module-config.ts (NEU)"
 
 cp "$FILE_BERATER" "src/app/v7/berater/dashboard/page.tsx"
-echo "   -> src/app/v7/berater/dashboard/page.tsx (ERSETZT Redirect)"
+echo "   -> src/app/v7/berater/dashboard/page.tsx (Modul-Dashboard)"
 
 cp "$FILE_FIRMA" "src/app/v7/firma/dashboard/page.tsx"
-echo "   -> src/app/v7/firma/dashboard/page.tsx"
+echo "   -> src/app/v7/firma/dashboard/page.tsx (Modul-Dashboard)"
+
+cp "$FILE_BERATER_REDIRECT" "src/app/v7/berater/page.tsx"
+echo "   -> src/app/v7/berater/page.tsx (Redirect auf Dashboard)"
 
 echo ""
 
@@ -124,7 +134,7 @@ echo ""
 
 echo "5. Pruefe auf Merge-Marker..."
 MERGE_ERR=0
-for TARGET in "src/lib/v7-module-config.ts" "src/app/v7/berater/dashboard/page.tsx" "src/app/v7/firma/dashboard/page.tsx"; do
+for TARGET in "src/lib/v7-module-config.ts" "src/app/v7/berater/dashboard/page.tsx" "src/app/v7/firma/dashboard/page.tsx" "src/app/v7/berater/page.tsx"; do
     if grep -q "<<<<<<" "$TARGET" 2>/dev/null; then
         echo "   FEHLER: Merge-Marker in $TARGET!"
         MERGE_ERR=1
@@ -172,16 +182,16 @@ NEU: Modul-basierte Dashboard-Architektur
   - Status pro Portal: active / coming_soon / hidden
   - Rollen-basierte Sichtbarkeit
 
-- Berater-Dashboard: Kachel-Uebersicht (ERSETZT Redirect)
+- /v7/berater/page.tsx: Redirect auf Dashboard (ERSETZT alte Willkommensseite)
+- Berater-Dashboard: Kachel-Uebersicht
   - 10 Module in blauem Portal
-  - Phase 1 (Foerderabrechnung) + Phase 2 (Zusatzmodule) getrennt
+  - Firmenname dynamisch aus v7_consultant_companies
+  - Phase 1 + Phase 2 getrennt
   - Aktive Module klickbar, geplante mit Release-Zeitpunkt
-  - Statistiken: Firmen, Projekte, aktive Module
 
 - Firmen-Dashboard: Kachel-Uebersicht (NEU)
   - 7 Module in gruenem Portal (inkl. De-minimis)
-  - Rollen-Filter: client_admin sieht alles, employee nur eigene
-  - Firmen-Statistiken: MA-Anzahl, Projekte"
+  - Rollen-Filter: client_admin sieht alles, employee nur eigene"
 
         echo ""
         echo "Commit erstellt!"
@@ -202,6 +212,7 @@ else
     echo "=============================================="
     echo ""
     echo "Backup wiederherstellen:"
+    echo "  cp $BACKUP_DIR/berater-page-OLD.tsx src/app/v7/berater/page.tsx"
     echo "  cp $BACKUP_DIR/berater-dashboard-OLD.tsx src/app/v7/berater/dashboard/page.tsx"
     echo "  rm src/lib/v7-module-config.ts"
     if [ -f "$BACKUP_DIR/firma-dashboard-OLD.tsx" ]; then
