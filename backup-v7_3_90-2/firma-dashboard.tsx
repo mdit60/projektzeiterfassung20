@@ -2,20 +2,20 @@
 
 // src/app/v7/firma/dashboard/page.tsx
 // ============================================================================
-// PZE V7 - Firmen-Dashboard
+// PZE V7 - Firmen-Dashboard (Modul-Kacheln)
 // ============================================================================
-// Datum: 11. Februar 2026
-// Version: 7.3.90-2
+// Datum: 10. Februar 2026
+// Version: 7.3.90-1
 //
-// Modul-Kacheln fuer das Firmen-Portal.
+// Dashboard fuer das Firmen-Portal mit Modul-Kacheln.
+// Zeigt nur die Module, die fuer die jeweilige Firmen-Rolle sichtbar sind.
 //
 // Rollen-Verhalten:
-//   - client_admin: Sieht alle Kundenmodule
-//     (Projekte, Zeiterfassung, ZA, VN, AGVO/BWA, De-Minimis)
-//   - project_leader: Sieht NUR Zeiterfassung
-//   - employee: Sieht NUR Zeiterfassung
+// - client_admin: Sieht alle Firmen-Module
+// - project_leader: Sieht Projektmodul, Arbeitszeit, Berichte
+// - employee: Sieht Projektmodul (nur eigene), Arbeitszeit
 //
-// Header-Farbe: Immer gruen = "Ich bin Firmenmitarbeiter"
+// Header-Farbe: Immer gruen (#65A655) = "Ich bin Firmenmitarbeiter"
 // ============================================================================
 
 import { useEffect, useState } from 'react';
@@ -46,7 +46,8 @@ import {
 } from '@/types/v7-types';
 import { PORTAL_COLORS } from '@/lib/v7-constants';
 import {
-  getKundenmodule,
+  getVisibleModules,
+  getModuleStats,
   V7ModuleDefinition,
 } from '@/lib/v7-module-config';
 
@@ -55,8 +56,16 @@ import {
 // ============================================================================
 
 const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
-  FolderKanban, Clock, Receipt, FileCheck, Scale,
-  Layers, Calculator, Network, FlaskConical, BarChart3,
+  FolderKanban,
+  Clock,
+  Receipt,
+  FileCheck,
+  Scale,
+  Layers,
+  Calculator,
+  Network,
+  FlaskConical,
+  BarChart3,
 };
 
 function getModuleIcon(iconName: string) {
@@ -144,7 +153,7 @@ export default function FirmaDashboardPage() {
           setProjectCount(pCount || 0);
         }
 
-        // Portal-Rolle ermitteln
+        // Portal-Rolle ermitteln (aus v7_employees)
         if (profile.role === 'client_admin') {
           setPortalRole('client_admin');
         } else if (profile.role === 'client_user' && companyId) {
@@ -173,7 +182,22 @@ export default function FirmaDashboardPage() {
   // MODULE FILTERN
   // ==========================================================================
 
-  const visibleModules = getKundenmodule('firma', userRole, portalRole);
+  const visibleModules = getVisibleModules('firma', userRole, portalRole);
+  const moduleStats = getModuleStats('firma', userRole, portalRole);
+
+  const phase1Modules = visibleModules.filter((m) => m.phase === 1);
+  const phase2Modules = visibleModules.filter((m) => m.phase === 2);
+
+  // ==========================================================================
+  // KACHEL-KLICK
+  // ==========================================================================
+
+  function handleModuleClick(mod: V7ModuleDefinition) {
+    const config = mod.firma;
+    if (config.status === 'active' && config.href) {
+      router.push(config.href);
+    }
+  }
 
   // ==========================================================================
   // RENDER
@@ -212,39 +236,62 @@ export default function FirmaDashboardPage() {
               <Building2 size={14} />
               {companyName}
             </span>
-            {portalRole === 'client_admin' && (
-              <>
-                <span className="inline-flex items-center gap-1.5 text-sm text-gray-500">
-                  <Users size={14} />
-                  {employeeCount} Mitarbeiter
-                </span>
-                <span className="inline-flex items-center gap-1.5 text-sm text-gray-500">
-                  <FolderKanban size={14} />
-                  {projectCount} {projectCount === 1 ? 'Projekt' : 'Projekte'}
-                </span>
-              </>
-            )}
+            <span className="inline-flex items-center gap-1.5 text-sm text-gray-500">
+              <Users size={14} />
+              {employeeCount} {employeeCount === 1 ? 'Mitarbeiter' : 'Mitarbeiter'}
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-sm text-gray-500">
+              <FolderKanban size={14} />
+              {projectCount} {projectCount === 1 ? 'Projekt' : 'Projekte'}
+            </span>
           </div>
         </div>
 
-        {/* Module */}
+        {/* Phase 1 - Pflichtmodule */}
         <section className="mb-10">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {visibleModules.map((mod) => (
+          <div className="flex items-center gap-3 mb-4">
+            <span className="inline-block w-3 h-3 rounded-full bg-green-500" />
+            <h2 className="text-lg font-semibold text-gray-800">
+              Foerderabrechnung
+            </h2>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {phase1Modules.map((mod) => (
               <ModuleCard
                 key={mod.id}
                 module={mod}
                 portal="firma"
-                onClick={() => {
-                  const config = mod.firma;
-                  if (config.status === 'active' && config.href) {
-                    router.push(config.href);
-                  }
-                }}
+                portalColors={colors}
+                onClick={() => handleModuleClick(mod)}
               />
             ))}
           </div>
         </section>
+
+        {/* Phase 2 - Zusatzmodule (nur wenn sichtbar) */}
+        {phase2Modules.length > 0 && (
+          <section className="mb-10">
+            <div className="flex items-center gap-3 mb-4">
+              <span className="inline-block w-3 h-3 rounded-full bg-yellow-400" />
+              <h2 className="text-lg font-semibold text-gray-800">
+                Zusatzmodule
+              </h2>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {phase2Modules.map((mod) => (
+                <ModuleCard
+                  key={mod.id}
+                  module={mod}
+                  portal="firma"
+                  portalColors={colors}
+                  onClick={() => handleModuleClick(mod)}
+                />
+              ))}
+            </div>
+          </section>
+        )}
 
       </main>
 
@@ -252,7 +299,7 @@ export default function FirmaDashboardPage() {
       <footer className="bg-white border-t mt-8">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <p className="text-center text-xs text-gray-400">
-            PZE v7.3.90 &middot; {companyName}
+            PZE v7.3.90 &middot; Firmen-Portal &middot; {companyName}
           </p>
         </div>
       </footer>
@@ -266,11 +313,12 @@ export default function FirmaDashboardPage() {
 
 interface ModuleCardProps {
   module: V7ModuleDefinition;
-  portal: 'firma';
+  portal: 'berater' | 'firma';
+  portalColors: typeof PORTAL_COLORS.firma;
   onClick: () => void;
 }
 
-function ModuleCard({ module, portal, onClick }: ModuleCardProps) {
+function ModuleCard({ module, portal, portalColors, onClick }: ModuleCardProps) {
   const config = module[portal];
   const isActive = config.status === 'active';
   const IconComponent = getModuleIcon(module.icon);
@@ -284,7 +332,7 @@ function ModuleCard({ module, portal, onClick }: ModuleCardProps) {
         transition-all duration-200
         ${isActive
           ? 'bg-white border-gray-200 hover:border-green-400 hover:shadow-lg cursor-pointer'
-          : 'bg-gray-50 border-gray-200 border-dashed cursor-default opacity-70'
+          : 'bg-gray-50 border-gray-200 border-dashed cursor-default opacity-75'
         }
       `}
     >
@@ -298,19 +346,21 @@ function ModuleCard({ module, portal, onClick }: ModuleCardProps) {
         ) : (
           <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
             <CalendarClock size={12} />
-            {config.plannedRelease || 'In Planung'}
+            {config.plannedRelease || 'Geplant'}
           </span>
         )}
       </div>
 
       {/* Icon */}
-      <div className={`
-        w-12 h-12 rounded-lg flex items-center justify-center mb-3
-        ${isActive
-          ? 'bg-green-50 text-green-600 group-hover:bg-green-100'
-          : 'bg-gray-100 text-gray-400'
-        }
-      `}>
+      <div
+        className={`
+          w-12 h-12 rounded-lg flex items-center justify-center mb-3
+          ${isActive
+            ? 'bg-green-50 text-green-600 group-hover:bg-green-100'
+            : 'bg-gray-100 text-gray-400'
+          }
+        `}
+      >
         <IconComponent size={24} />
       </div>
 
@@ -323,6 +373,13 @@ function ModuleCard({ module, portal, onClick }: ModuleCardProps) {
       <p className={`text-xs leading-relaxed ${isActive ? 'text-gray-500' : 'text-gray-400'}`}>
         {config.description}
       </p>
+
+      {/* Phase-Indikator */}
+      <div className="mt-3 pt-2 border-t border-gray-100">
+        <span className="text-[10px] text-gray-400 uppercase tracking-wider">
+          Phase {module.phase}
+        </span>
+      </div>
     </button>
   );
 }

@@ -2,32 +2,18 @@
 // ============================================================================
 // PZE V7 - Modul-Konfiguration
 // ============================================================================
-// Datum: 11. Februar 2026
-// Version: 7.3.90-2
+// Datum: 10. Februar 2026
+// Version: 7.3.90-1
 //
-// Zentrale Definition aller PZE-Module.
+// Zentrale Definition aller PZE-Module fuer das Kachel-Dashboard.
+// Bestimmt welche Module in welchem Portal sichtbar sind,
+// welchen Status sie haben (aktiv/coming-soon) und wohin sie verlinken.
 //
-// ARCHITEKTUR (gemaess Konzept-Skizze):
-//
-//   Berater-Dashboard
-//   |-- Kundenverwaltung (Firmenkacheln -> Firmen-Detail-Seite)
-//   |   Module im Firmenkontext:
-//   |   - Projekte, Zeiterfassung, Zahlungsanforderung
-//   |   - Verwendungsnachweis, AGVO/BWA, De-Minimis
-//   |
-//   +-- Berater-Werkzeuge (firmenuebergreifend)
-//       - Netzwerkmanagement
-//       - Multiprojekt-Tool (173h-Pruefung)
-//       - FZul (basiert auf Multiprojekt-Ergebnissen)
-//
-//   Firmen-Dashboard
-//   |-- Kunden-Admin: Sieht alle Module (Projekte bis De-Minimis)
-//   +-- Kunden-User: Sieht NUR Zeiterfassung
-//
-//   Berichte: Kein eigenes Modul!
-//   -> Auf Projektebene: Tab in Projekt-Detail
-//   -> Auf Firmenebene: Tab in Firmen-Detail
-//
+// Architektur-Prinzip:
+//   - Module sind die zentrale UI-Einheit
+//   - Beide Portale (Berater/Firma) nutzen dieselbe Modul-Liste
+//   - Sichtbarkeit wird per Portal und Rolle gesteuert
+//   - Status steuert ob Kachel klickbar oder "Demnaechst" ist
 // ============================================================================
 
 import { V7PortalType, V7UserRole, V7EmployeePortalRole } from '@/types/v7-types';
@@ -38,22 +24,20 @@ import { V7PortalType, V7UserRole, V7EmployeePortalRole } from '@/types/v7-types
 
 /**
  * Status eines Moduls
- * - active: Modul ist implementiert und nutzbar
+ * - active: Modul ist implementiert und nutzbar (Kachel klickbar)
  * - coming_soon: Modul geplant, Kachel sichtbar aber nicht klickbar
- * - hidden: Modul nicht sichtbar
+ * - hidden: Modul nicht sichtbar (fuer spaetere Erweiterungen)
  */
 export type V7ModuleStatus = 'active' | 'coming_soon' | 'hidden';
 
 // ============================================================================
-// MODUL-KATEGORIE
+// MODUL-PHASE
 // ============================================================================
 
 /**
- * Kategorie bestimmt die Platzierung im Berater-Dashboard
- * - kundenmodul: Erscheint im Firmenkontext (Firmen-Detail-Seite)
- * - beraterwerkzeug: Erscheint unter "Berater-Werkzeuge" im Dashboard
+ * Phasen-Zuordnung (Phase 1 = Pflicht, Phase 2 = Zusatz)
  */
-export type V7ModuleCategory = 'kundenmodul' | 'beraterwerkzeug';
+export type V7ModulePhase = 1 | 2;
 
 // ============================================================================
 // MODUL-ID
@@ -63,17 +47,19 @@ export type V7ModuleCategory = 'kundenmodul' | 'beraterwerkzeug';
  * Eindeutige Modul-IDs
  */
 export type V7ModuleId =
-  // Kundenmodule (beide Portale, im Firmenkontext)
-  | 'projekte'
-  | 'zeiterfassung'
+  // Phase 1 - Pflichtmodule
+  | 'projekt'
+  | 'arbeitszeit'
   | 'zahlungsanforderung'
   | 'verwendungsnachweis'
   | 'agvo_bwa'
-  | 'deminimis'
-  // Berater-Werkzeuge (nur Berater-Portal, firmenuebergreifend)
-  | 'netzwerk'
+  // Phase 2 - Zusatzmodule
   | 'multiprojekt'
-  | 'fzul';
+  | 'deminimis'
+  | 'netzwerk'
+  | 'fzul'
+  // Uebergreifend
+  | 'berichte';
 
 // ============================================================================
 // MODUL-DEFINITION
@@ -87,7 +73,7 @@ export interface V7ModulePortalConfig {
   visible: boolean;
   /** Status in diesem Portal */
   status: V7ModuleStatus;
-  /** Ziel-Route wenn aktiv */
+  /** Ziel-Route wenn aktiv (Portal-Prefix wird automatisch ergaenzt) */
   href: string;
   /** Welche Login-Rollen sehen dieses Modul? */
   roles: V7UserRole[];
@@ -105,13 +91,15 @@ export interface V7ModulePortalConfig {
 export interface V7ModuleDefinition {
   /** Eindeutige Modul-ID */
   id: V7ModuleId;
-  /** Anzeigename fuer Benutzer */
+  /** Anzeigename */
   name: string;
+  /** Untertitel / Kurzbeschreibung */
+  subtitle: string;
   /** Lucide-Icon-Name */
   icon: string;
-  /** Kategorie: Kundenmodul oder Berater-Werkzeug */
-  category: V7ModuleCategory;
-  /** Sortierung innerhalb der Kategorie */
+  /** Phase (1 = Pflicht, 2 = Zusatz) */
+  phase: V7ModulePhase;
+  /** Sortierung innerhalb der Phase */
   sortOrder: number;
   /** Portal-spezifische Konfiguration */
   berater: V7ModulePortalConfig;
@@ -124,113 +112,117 @@ export interface V7ModuleDefinition {
 
 export const V7_MODULES: V7ModuleDefinition[] = [
   // ========================================================================
-  // KUNDENMODULE (im Firmenkontext, beide Portale)
+  // PHASE 1 - PFLICHTMODULE
   // ========================================================================
   {
-    id: 'projekte',
-    name: 'Projekte',
+    id: 'projekt',
+    name: 'Projektmodul',
+    subtitle: 'Projekte, Arbeitspakete, Teams',
     icon: 'FolderKanban',
-    category: 'kundenmodul',
+    phase: 1,
     sortOrder: 1,
     berater: {
       visible: true,
       status: 'active',
-      href: '',  // Berater geht ueber Firmenkachel -> Firmen-Detail
+      href: '/v7/berater/foerderung',
       roles: ['system_admin', 'consultant'],
-      description: 'Foerderprojekte und Arbeitspakete verwalten',
+      description: 'Alle Firmen und Projekte verwalten',
     },
     firma: {
       visible: true,
       status: 'active',
       href: '/v7/firma/projekte',
       roles: ['client_admin', 'client_user'],
-      portalRoles: ['client_admin'],
-      description: 'Foerderprojekte und Arbeitspakete',
+      portalRoles: ['client_admin', 'project_leader', 'employee'],
+      description: 'Eigene Projekte und Mitarbeiter',
     },
   },
   {
-    id: 'zeiterfassung',
-    name: 'Zeiterfassung',
+    id: 'arbeitszeit',
+    name: 'Arbeitszeitmodul',
+    subtitle: 'Zeiterfassung, Stundennachweise',
     icon: 'Clock',
-    category: 'kundenmodul',
+    phase: 1,
     sortOrder: 2,
     berater: {
       visible: true,
       status: 'active',
-      href: '',
+      href: '/v7/berater/foerderung',
       roles: ['system_admin', 'consultant'],
-      description: 'Stundennachweise pruefen und freigeben',
+      description: 'Zeiterfassung aller Firmen pruefen',
     },
     firma: {
       visible: true,
       status: 'active',
       href: '/v7/firma/zeiterfassung',
       roles: ['client_admin', 'client_user'],
-      // ALLE Firmen-Rollen sehen Zeiterfassung!
       portalRoles: ['client_admin', 'project_leader', 'employee'],
-      description: 'Stunden erfassen und Nachweise erstellen',
+      description: 'Stunden erfassen und Nachweise drucken',
     },
   },
   {
     id: 'zahlungsanforderung',
     name: 'Zahlungsanforderung',
+    subtitle: 'ZA erstellen und einreichen',
     icon: 'Receipt',
-    category: 'kundenmodul',
+    phase: 1,
     sortOrder: 3,
     berater: {
       visible: true,
       status: 'coming_soon',
       href: '',
       roles: ['system_admin', 'consultant'],
-      description: 'Zahlungsanforderungen fuer Projekttraeger erstellen',
+      description: 'Zahlungsanforderungen fuer Projekttraeger',
       plannedRelease: 'Q2/2026',
     },
     firma: {
       visible: true,
       status: 'coming_soon',
       href: '',
-      roles: ['client_admin'],
+      roles: ['client_admin', 'client_user'],
       portalRoles: ['client_admin'],
-      description: 'Zahlungsanforderungen einsehen und freigeben',
+      description: 'Zahlungsanforderungen einsehen',
       plannedRelease: 'Q2/2026',
     },
   },
   {
     id: 'verwendungsnachweis',
     name: 'Verwendungsnachweis',
+    subtitle: 'Zahlungsmaessiger & sachlicher Nachweis',
     icon: 'FileCheck',
-    category: 'kundenmodul',
+    phase: 1,
     sortOrder: 4,
     berater: {
       visible: true,
       status: 'coming_soon',
       href: '',
       roles: ['system_admin', 'consultant'],
-      description: 'Zahlungsmaessige und sachliche Nachweise',
+      description: 'Verwendungsnachweise erstellen',
       plannedRelease: 'Q3/2026',
     },
     firma: {
       visible: true,
       status: 'coming_soon',
       href: '',
-      roles: ['client_admin'],
+      roles: ['client_admin', 'client_user'],
       portalRoles: ['client_admin'],
-      description: 'Belege und Dokumente bereitstellen',
+      description: 'Dokumente bereitstellen',
       plannedRelease: 'Q3/2026',
     },
   },
   {
     id: 'agvo_bwa',
     name: 'AGVO / BWA',
+    subtitle: 'Beihilfeberechnung, BWA-Analyse',
     icon: 'Scale',
-    category: 'kundenmodul',
+    phase: 1,
     sortOrder: 5,
     berater: {
       visible: true,
       status: 'coming_soon',
       href: '',
       roles: ['system_admin', 'consultant'],
-      description: 'Beihilfeberechnung und BWA-Analyse',
+      description: 'AGVO-Beihilfeberechnung und BWA-Analyse',
       plannedRelease: 'Q3/2026',
     },
     firma: {
@@ -239,50 +231,75 @@ export const V7_MODULES: V7ModuleDefinition[] = [
       href: '',
       roles: ['client_admin'],
       portalRoles: ['client_admin'],
-      description: 'BWA-Daten fuer die Beihilfeberechnung liefern',
+      description: 'BWA-Daten bereitstellen',
       plannedRelease: 'Q3/2026',
     },
   },
+
+  // ========================================================================
+  // PHASE 2 - ZUSATZMODULE
+  // ========================================================================
   {
-    id: 'deminimis',
-    name: 'De-Minimis Beihilfen',
-    icon: 'Calculator',
-    category: 'kundenmodul',
+    id: 'multiprojekt',
+    name: 'Multiprojekt-Tool',
+    subtitle: '173h-Pruefung, Ampellogik',
+    icon: 'Layers',
+    phase: 2,
     sortOrder: 6,
     berater: {
       visible: true,
       status: 'coming_soon',
       href: '',
       roles: ['system_admin', 'consultant'],
-      description: 'Beihilfe-Pruefung und Restfoerderfaehigkeit',
-      plannedRelease: 'Q3/2026',
+      description: 'MA-Abgrenzung ueber alle Firmen, keine Doppelvergabe',
+      plannedRelease: 'Q2/2026',
     },
     firma: {
-      visible: true,
-      status: 'coming_soon',
+      visible: false,
+      status: 'hidden',
       href: '',
-      roles: ['client_admin'],
-      portalRoles: ['client_admin'],
-      description: 'Bescheide erfassen, Restfoerderfaehigkeit pruefen',
-      plannedRelease: 'Q3/2026',
+      roles: [],
+      description: '',
     },
   },
-
-  // ========================================================================
-  // BERATER-WERKZEUGE (nur Berater-Portal, firmenuebergreifend)
-  // ========================================================================
   {
-    id: 'netzwerk',
-    name: 'Netzwerkmanagement',
-    icon: 'Network',
-    category: 'beraterwerkzeug',
+    id: 'deminimis',
+    name: 'De-minimis',
+    subtitle: 'Restfoerderfaehigkeit berechnen',
+    icon: 'Calculator',
+    phase: 2,
     sortOrder: 7,
     berater: {
       visible: true,
       status: 'coming_soon',
       href: '',
       roles: ['system_admin', 'consultant'],
-      description: 'ZIM-Netzwerke, Mitglieder und Projekte verwalten',
+      description: 'Aggregierte Sicht, Pruefung pro Firma',
+      plannedRelease: 'Q3/2026',
+    },
+    firma: {
+      visible: true,
+      status: 'coming_soon',
+      href: '',
+      roles: ['client_admin', 'client_user'],
+      portalRoles: ['client_admin'],
+      description: 'Bescheide erfassen, Restfoerderfaehigkeit sehen',
+      plannedRelease: 'Q3/2026',
+    },
+  },
+  {
+    id: 'netzwerk',
+    name: 'Netzwerkmanagement',
+    subtitle: 'Netzwerkprojekte, Mitglieder',
+    icon: 'Network',
+    phase: 2,
+    sortOrder: 8,
+    berater: {
+      visible: true,
+      status: 'coming_soon',
+      href: '',
+      roles: ['system_admin', 'consultant'],
+      description: 'Netzwerkprojekte und Mitglieder verwalten',
       plannedRelease: 'Q4/2026',
     },
     firma: {
@@ -294,17 +311,18 @@ export const V7_MODULES: V7ModuleDefinition[] = [
     },
   },
   {
-    id: 'multiprojekt',
-    name: 'Multiprojekt-Tool',
-    icon: 'Layers',
-    category: 'beraterwerkzeug',
-    sortOrder: 8,
+    id: 'fzul',
+    name: 'FZul-Modul',
+    subtitle: 'Forschungszulage, Kapazitaetsanalyse',
+    icon: 'FlaskConical',
+    phase: 2,
+    sortOrder: 9,
     berater: {
       visible: true,
       status: 'coming_soon',
       href: '',
       roles: ['system_admin', 'consultant'],
-      description: '173h-Pruefung: MA-Abgrenzung ueber alle Projekte',
+      description: 'FZul-Analyse, Stundennachweis, PDF-Archiv',
       plannedRelease: 'Q2/2026',
     },
     firma: {
@@ -315,26 +333,31 @@ export const V7_MODULES: V7ModuleDefinition[] = [
       description: '',
     },
   },
+
+  // ========================================================================
+  // UEBERGREIFEND
+  // ========================================================================
   {
-    id: 'fzul',
-    name: 'Forschungszulage',
-    icon: 'FlaskConical',
-    category: 'beraterwerkzeug',
-    sortOrder: 9,
+    id: 'berichte',
+    name: 'Berichte',
+    subtitle: 'Statistiken und Auswertungen',
+    icon: 'BarChart3',
+    phase: 1,
+    sortOrder: 10,
     berater: {
       visible: true,
-      status: 'coming_soon',
-      href: '',
+      status: 'active',
+      href: '/v7/berater/berichte',
       roles: ['system_admin', 'consultant'],
-      description: 'Verfuegbare FuE-Kapazitaeten fuer FZul-Antraege ermitteln',
-      plannedRelease: 'Q2/2026',
+      description: 'Firmenuebergreifende Auswertungen',
     },
     firma: {
-      visible: false,
-      status: 'hidden',
-      href: '',
-      roles: [],
-      description: '',
+      visible: true,
+      status: 'active',
+      href: '/v7/firma/berichte',
+      roles: ['client_admin', 'client_user'],
+      portalRoles: ['client_admin', 'project_leader'],
+      description: 'Projekt-Statistiken und MA-Auslastung',
     },
   },
 ];
@@ -344,7 +367,8 @@ export const V7_MODULES: V7ModuleDefinition[] = [
 // ============================================================================
 
 /**
- * Gibt die sichtbaren Module eines Portals zurueck, gefiltert nach Rolle.
+ * Gibt die Module zurueck, die in einem bestimmten Portal sichtbar sind.
+ * Filtert nach Portal, Rolle und Portal-Rolle.
  */
 export function getVisibleModules(
   portal: V7PortalType,
@@ -356,6 +380,8 @@ export function getVisibleModules(
       const config = mod[portal];
       if (!config.visible) return false;
       if (config.status === 'hidden') return false;
+
+      // Rollen-Check
       if (!config.roles.includes(userRole)) return false;
 
       // Portal-Rollen-Check (nur Firmen-Portal)
@@ -369,32 +395,36 @@ export function getVisibleModules(
 }
 
 /**
- * Gibt nur Kundenmodule zurueck (fuer Firmen-Dashboard)
- */
-export function getKundenmodule(
-  portal: V7PortalType,
-  userRole: V7UserRole,
-  portalRole?: V7EmployeePortalRole
-): V7ModuleDefinition[] {
-  return getVisibleModules(portal, userRole, portalRole)
-    .filter((m) => m.category === 'kundenmodul');
-}
-
-/**
- * Gibt nur Berater-Werkzeuge zurueck (fuer Berater-Dashboard unten)
- */
-export function getBeraterWerkzeuge(
-  userRole: V7UserRole
-): V7ModuleDefinition[] {
-  return getVisibleModules('berater', userRole)
-    .filter((m) => m.category === 'beraterwerkzeug');
-}
-
-/**
  * Gibt ein einzelnes Modul per ID zurueck
  */
 export function getModuleById(id: V7ModuleId): V7ModuleDefinition | undefined {
   return V7_MODULES.find((mod) => mod.id === id);
+}
+
+/**
+ * Gibt die Portal-spezifische Konfiguration eines Moduls zurueck
+ */
+export function getModulePortalConfig(
+  id: V7ModuleId,
+  portal: V7PortalType
+): V7ModulePortalConfig | undefined {
+  const mod = getModuleById(id);
+  if (!mod) return undefined;
+  return mod[portal];
+}
+
+/**
+ * Zaehlt aktive vs. geplante Module fuer ein Portal
+ */
+export function getModuleStats(
+  portal: V7PortalType,
+  userRole: V7UserRole,
+  portalRole?: V7EmployeePortalRole
+): { total: number; active: number; comingSoon: number } {
+  const modules = getVisibleModules(portal, userRole, portalRole);
+  const active = modules.filter((m) => m[portal].status === 'active').length;
+  const comingSoon = modules.filter((m) => m[portal].status === 'coming_soon').length;
+  return { total: modules.length, active, comingSoon };
 }
 
 // ============================================================================
