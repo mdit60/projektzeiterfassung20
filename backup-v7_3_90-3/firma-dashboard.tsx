@@ -5,10 +5,17 @@
 // PZE V7 - Firmen-Dashboard
 // ============================================================================
 // Datum: 11. Februar 2026
-// Version: 7.3.90-3
+// Version: 7.3.90-2
 //
-// v7.3.90-3: Footer vereinheitlicht (nur Version + Firmenname)
-// v7.3.90-2: Verstaendliche Modulnamen, Rollen-Filter
+// Modul-Kacheln fuer das Firmen-Portal.
+//
+// Rollen-Verhalten:
+//   - client_admin: Sieht alle Kundenmodule
+//     (Projekte, Zeiterfassung, ZA, VN, AGVO/BWA, De-Minimis)
+//   - project_leader: Sieht NUR Zeiterfassung
+//   - employee: Sieht NUR Zeiterfassung
+//
+// Header-Farbe: Immer gruen = "Ich bin Firmenmitarbeiter"
 // ============================================================================
 
 import { useEffect, useState } from 'react';
@@ -82,12 +89,14 @@ export default function FirmaDashboardPage() {
   useEffect(() => {
     async function loadData() {
       try {
+        // User laden
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
           router.push('/login');
           return;
         }
 
+        // Profil laden
         const { data: profile } = await supabase
           .from('v7_user_profiles')
           .select('display_name, first_name, last_name, role, client_company_id')
@@ -107,6 +116,7 @@ export default function FirmaDashboardPage() {
         setUserEmail(user.email || '');
         setUserRole((profile.role as V7UserRole) || 'client_admin');
 
+        // Firma laden
         const companyId = profile.client_company_id;
         if (companyId) {
           const { data: company } = await supabase
@@ -115,14 +125,18 @@ export default function FirmaDashboardPage() {
             .eq('id', companyId)
             .single();
 
-          if (company) setCompanyName(company.name || '');
+          if (company) {
+            setCompanyName(company.name || '');
+          }
 
+          // Mitarbeiter-Anzahl
           const { count: eCount } = await supabase
             .from('v7_employees')
             .select('*', { count: 'exact', head: true })
             .eq('company_id', companyId);
           setEmployeeCount(eCount || 0);
 
+          // Projekte-Anzahl
           const { count: pCount } = await supabase
             .from('v7_projects')
             .select('*', { count: 'exact', head: true })
@@ -130,7 +144,7 @@ export default function FirmaDashboardPage() {
           setProjectCount(pCount || 0);
         }
 
-        // Portal-Rolle
+        // Portal-Rolle ermitteln
         if (profile.role === 'client_admin') {
           setPortalRole('client_admin');
         } else if (profile.role === 'client_user' && companyId) {
@@ -140,10 +154,12 @@ export default function FirmaDashboardPage() {
             .eq('user_id', user.id)
             .eq('company_id', companyId)
             .single();
+
           if (emp?.portal_role) {
             setPortalRole(emp.portal_role as V7EmployeePortalRole);
           }
         }
+
       } catch (err) {
         console.error('Dashboard-Fehler:', err);
       } finally {
@@ -154,7 +170,7 @@ export default function FirmaDashboardPage() {
   }, []);
 
   // ==========================================================================
-  // MODULE
+  // MODULE FILTERN
   // ==========================================================================
 
   const visibleModules = getKundenmodule('firma', userRole, portalRole);
@@ -173,6 +189,7 @@ export default function FirmaDashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Header */}
       <PortalHeader
         portal="firma"
         userRole={userRole}
@@ -182,9 +199,10 @@ export default function FirmaDashboardPage() {
         companyName={companyName}
       />
 
+      {/* Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
-        {/* Willkommen */}
+        {/* Willkommen + Statistiken */}
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-gray-900">
             Willkommen, {userName.split(' ')[0] || 'Benutzer'}!
@@ -212,76 +230,103 @@ export default function FirmaDashboardPage() {
         {/* Module */}
         <section className="mb-10">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {visibleModules.map((mod) => {
-              const config = mod.firma;
-              const isActive = config.status === 'active';
-              const IconComponent = getModuleIcon(mod.icon);
-
-              return (
-                <button
-                  key={mod.id}
-                  onClick={() => isActive && config.href ? router.push(config.href) : undefined}
-                  disabled={!isActive}
-                  className={`
-                    relative group text-left w-full rounded-xl border-2 p-5
-                    transition-all duration-200
-                    ${isActive
-                      ? 'bg-white border-gray-200 hover:border-green-400 hover:shadow-lg cursor-pointer'
-                      : 'bg-gray-50 border-gray-200 border-dashed cursor-default opacity-70'
-                    }
-                  `}
-                >
-                  {/* Status-Badge */}
-                  <div className="absolute top-3 right-3">
-                    {isActive ? (
-                      <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
-                        <CheckCircle size={12} />
-                        Aktiv
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
-                        <CalendarClock size={12} />
-                        {config.plannedRelease || 'In Planung'}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Icon */}
-                  <div className={`
-                    w-12 h-12 rounded-lg flex items-center justify-center mb-3
-                    ${isActive
-                      ? 'bg-green-50 text-green-600 group-hover:bg-green-100'
-                      : 'bg-gray-100 text-gray-400'
-                    }
-                  `}>
-                    <IconComponent size={24} />
-                  </div>
-
-                  {/* Name */}
-                  <h3 className={`font-semibold text-sm mb-1 ${isActive ? 'text-gray-900' : 'text-gray-500'}`}>
-                    {mod.name}
-                  </h3>
-
-                  {/* Beschreibung */}
-                  <p className={`text-xs leading-relaxed ${isActive ? 'text-gray-500' : 'text-gray-400'}`}>
-                    {config.description}
-                  </p>
-                </button>
-              );
-            })}
+            {visibleModules.map((mod) => (
+              <ModuleCard
+                key={mod.id}
+                module={mod}
+                portal="firma"
+                onClick={() => {
+                  const config = mod.firma;
+                  if (config.status === 'active' && config.href) {
+                    router.push(config.href);
+                  }
+                }}
+              />
+            ))}
           </div>
         </section>
 
       </main>
 
-      {/* Footer - einheitlich wie Berater-Portal */}
+      {/* Footer */}
       <footer className="bg-white border-t mt-8">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <p className="text-center text-xs text-gray-400">
-            PZE v7.3.90 &middot; {companyName || 'PZE'}
+            PZE v7.3.90 &middot; {companyName}
           </p>
         </div>
       </footer>
     </div>
   );
 }
+
+// ============================================================================
+// MODUL-KACHEL KOMPONENTE
+// ============================================================================
+
+interface ModuleCardProps {
+  module: V7ModuleDefinition;
+  portal: 'firma';
+  onClick: () => void;
+}
+
+function ModuleCard({ module, portal, onClick }: ModuleCardProps) {
+  const config = module[portal];
+  const isActive = config.status === 'active';
+  const IconComponent = getModuleIcon(module.icon);
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={!isActive}
+      className={`
+        relative group text-left w-full rounded-xl border-2 p-5
+        transition-all duration-200
+        ${isActive
+          ? 'bg-white border-gray-200 hover:border-green-400 hover:shadow-lg cursor-pointer'
+          : 'bg-gray-50 border-gray-200 border-dashed cursor-default opacity-70'
+        }
+      `}
+    >
+      {/* Status-Badge */}
+      <div className="absolute top-3 right-3">
+        {isActive ? (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
+            <CheckCircle size={12} />
+            Aktiv
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+            <CalendarClock size={12} />
+            {config.plannedRelease || 'In Planung'}
+          </span>
+        )}
+      </div>
+
+      {/* Icon */}
+      <div className={`
+        w-12 h-12 rounded-lg flex items-center justify-center mb-3
+        ${isActive
+          ? 'bg-green-50 text-green-600 group-hover:bg-green-100'
+          : 'bg-gray-100 text-gray-400'
+        }
+      `}>
+        <IconComponent size={24} />
+      </div>
+
+      {/* Name */}
+      <h3 className={`font-semibold text-sm mb-1 ${isActive ? 'text-gray-900' : 'text-gray-500'}`}>
+        {module.name}
+      </h3>
+
+      {/* Beschreibung */}
+      <p className={`text-xs leading-relaxed ${isActive ? 'text-gray-500' : 'text-gray-400'}`}>
+        {config.description}
+      </p>
+    </button>
+  );
+}
+
+// ============================================================================
+// ENDE
+// ============================================================================

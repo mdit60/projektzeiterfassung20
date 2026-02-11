@@ -5,21 +5,18 @@
 // PZE V7 - Berater-Dashboard
 // ============================================================================
 // Datum: 11. Februar 2026
-// Version: 7.3.90-3
+// Version: 7.3.90-2
 //
 // Layout:
-//   1. Kundenliste (Tabelle mit Suchfunktion)
-//      Klick auf Firma -> Firmen-Detail-Seite
-//   2. Berater-Werkzeuge (firmenuebergreifend)
+//   1. Kundenfirmen-Kacheln (oben) - Klick oeffnet Firmen-Detail-Seite
+//      Jede Kachel zeigt: Firmenname, Anzahl Projekte, Anzahl MA, Status
+//   2. Berater-Werkzeuge (unten) - Firmenuebergreifende Tools
 //      Netzwerk, Multiprojekt, FZul
 //
-// v7.3.90-3: Kundenliste statt Kacheln (skaliert besser)
-//            Suchfunktion fuer Firmennamen
-//            ZIM-Import-Button entfernt (gehoert nicht aufs Dashboard)
-//            Footer vereinheitlicht
+// Header-Farbe: Immer blau = "Ich bin Berater"
 // ============================================================================
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import PortalHeader from '@/components/shared/PortalHeader';
@@ -40,7 +37,8 @@ import {
   Building2,
   Users,
   ChevronRight,
-  Search,
+  Upload,
+  AlertCircle,
 } from 'lucide-react';
 
 import { V7UserRole } from '@/types/v7-types';
@@ -67,7 +65,7 @@ function getModuleIcon(iconName: string) {
 // TYPEN
 // ============================================================================
 
-interface ClientCompanyRow {
+interface ClientCompanyCard {
   id: string;
   name: string;
   short_name: string | null;
@@ -91,8 +89,7 @@ export default function BeraterDashboardPage() {
   const [userEmail, setUserEmail] = useState('');
   const [userRole, setUserRole] = useState<V7UserRole>('consultant');
   const [consultantCompanyName, setConsultantCompanyName] = useState('');
-  const [companies, setCompanies] = useState<ClientCompanyRow[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [companies, setCompanies] = useState<ClientCompanyCard[]>([]);
 
   const colors = PORTAL_COLORS.berater;
 
@@ -103,6 +100,7 @@ export default function BeraterDashboardPage() {
   useEffect(() => {
     async function loadData() {
       try {
+        // User laden
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
           router.push('/login');
@@ -124,18 +122,21 @@ export default function BeraterDashboardPage() {
           setUserName(name);
           setUserRole((profile.role as V7UserRole) || 'consultant');
 
+          // Berater-Firma laden
           if (profile.consultant_company_id) {
-            const { data: cc } = await supabase
+            const { data: consultantCompany } = await supabase
               .from('v7_consultant_companies')
               .select('name')
               .eq('id', profile.consultant_company_id)
               .single();
-            if (cc) setConsultantCompanyName(cc.name);
+            if (consultantCompany) {
+              setConsultantCompanyName(consultantCompany.name);
+            }
           }
         }
         setUserEmail(user.email || '');
 
-        // Kundenfirmen laden
+        // Kundenfirmen laden mit Statistiken
         const { data: clientCompanies } = await supabase
           .from('v7_client_companies')
           .select('id, name, short_name, city, federal_state, is_active')
@@ -143,7 +144,8 @@ export default function BeraterDashboardPage() {
           .order('name');
 
         if (clientCompanies && clientCompanies.length > 0) {
-          const companiesWithStats: ClientCompanyRow[] = await Promise.all(
+          // Fuer jede Firma: Projekte und MA zaehlen
+          const companiesWithStats: ClientCompanyCard[] = await Promise.all(
             clientCompanies.map(async (company) => {
               const { count: pCount } = await supabase
                 .from('v7_projects')
@@ -165,6 +167,7 @@ export default function BeraterDashboardPage() {
           );
           setCompanies(companiesWithStats);
         }
+
       } catch (err) {
         console.error('Dashboard-Fehler:', err);
       } finally {
@@ -175,21 +178,10 @@ export default function BeraterDashboardPage() {
   }, []);
 
   // ==========================================================================
-  // FILTER + WERKZEUGE
+  // BERATER-WERKZEUGE
   // ==========================================================================
 
-  const filteredCompanies = useMemo(() => {
-    if (!searchTerm.trim()) return companies;
-    const term = searchTerm.toLowerCase();
-    return companies.filter((c) =>
-      c.name.toLowerCase().includes(term)
-      || (c.short_name && c.short_name.toLowerCase().includes(term))
-      || (c.city && c.city.toLowerCase().includes(term))
-    );
-  }, [companies, searchTerm]);
-
   const beraterWerkzeuge = getBeraterWerkzeuge(userRole);
-  const totalProjects = companies.reduce((sum, c) => sum + c.project_count, 0);
 
   // ==========================================================================
   // RENDER
@@ -203,8 +195,11 @@ export default function BeraterDashboardPage() {
     );
   }
 
+  const totalProjects = companies.reduce((sum, c) => sum + c.project_count, 0);
+
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Header */}
       <PortalHeader
         portal="berater"
         userRole={userRole}
@@ -213,6 +208,7 @@ export default function BeraterDashboardPage() {
         companyName={consultantCompanyName || 'PZE'}
       />
 
+      {/* Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
         {/* Willkommen */}
@@ -226,102 +222,79 @@ export default function BeraterDashboardPage() {
         </div>
 
         {/* ================================================================ */}
-        {/* KUNDENLISTE                                                      */}
+        {/* KUNDENFIRMEN                                                     */}
         {/* ================================================================ */}
         <section className="mb-12">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-3">
               <Building2 size={20} className="text-sky-600" />
               <h2 className="text-lg font-semibold text-gray-800">
                 Meine Kunden
               </h2>
             </div>
+            <button
+              onClick={() => router.push('/v7/berater/foerderung/import')}
+              className="inline-flex items-center gap-2 px-3 py-1.5 text-sm
+                         bg-sky-50 text-sky-700 rounded-lg hover:bg-sky-100 transition-colors"
+            >
+              <Upload size={14} />
+              ZIM-Import
+            </button>
           </div>
-
-          {/* Suchfeld */}
-          {companies.length > 3 && (
-            <div className="relative mb-4">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Firma suchen..."
-                className="w-full sm:w-80 pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg
-                           focus:outline-none focus:ring-2 focus:ring-sky-400 focus:border-transparent
-                           bg-white"
-              />
-            </div>
-          )}
 
           {companies.length === 0 ? (
             <div className="bg-white rounded-xl border-2 border-dashed border-gray-200 p-12 text-center">
               <Building2 size={40} className="text-gray-300 mx-auto mb-3" />
-              <p className="text-gray-500">Noch keine Kundenfirmen angelegt</p>
+              <p className="text-gray-500 mb-2">Noch keine Kundenfirmen angelegt</p>
+              <button
+                onClick={() => router.push('/v7/berater/foerderung/import')}
+                className="text-sm text-sky-600 hover:text-sky-700 font-medium"
+              >
+                Erste Firma per ZIM-Import anlegen
+              </button>
             </div>
           ) : (
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-gray-100 bg-gray-50">
-                    <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
-                      Firma
-                    </th>
-                    <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3 hidden sm:table-cell">
-                      Ort
-                    </th>
-                    <th className="text-center text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
-                      Projekte
-                    </th>
-                    <th className="text-center text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
-                      Mitarbeiter
-                    </th>
-                    <th className="w-10"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {filteredCompanies.map((company) => (
-                    <tr
-                      key={company.id}
-                      onClick={() => router.push(`/v7/berater/foerderung/firma/${company.id}`)}
-                      className="hover:bg-sky-50 cursor-pointer transition-colors"
-                    >
-                      <td className="px-4 py-3">
-                        <div className="font-medium text-gray-900 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {companies.map((company) => (
+                <button
+                  key={company.id}
+                  onClick={() => router.push(`/v7/berater/foerderung/firma/${company.id}`)}
+                  className="group text-left bg-white rounded-xl border border-gray-200
+                             hover:border-sky-400 hover:shadow-lg p-5
+                             transition-all duration-200 cursor-pointer"
+                >
+                  {/* Firmenname */}
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-sky-50 rounded-lg flex items-center justify-center
+                                      text-sky-600 font-bold text-sm group-hover:bg-sky-100 transition-colors">
+                        {(company.short_name || company.name).substring(0, 2).toUpperCase()}
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-gray-900 text-sm leading-tight">
                           {company.name}
-                        </div>
-                        {company.short_name && (
-                          <div className="text-xs text-gray-400">{company.short_name}</div>
+                        </h3>
+                        {company.city && (
+                          <p className="text-xs text-gray-400 mt-0.5">{company.city}</p>
                         )}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-500 hidden sm:table-cell">
-                        {company.city || '-'}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className="inline-flex items-center gap-1 text-sm text-gray-600">
-                          <FolderKanban size={14} className="text-gray-400" />
-                          {company.project_count}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className="inline-flex items-center gap-1 text-sm text-gray-600">
-                          <Users size={14} className="text-gray-400" />
-                          {company.employee_count}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <ChevronRight size={16} className="text-gray-300" />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      </div>
+                    </div>
+                    <ChevronRight size={16} className="text-gray-300 group-hover:text-sky-400 transition-colors mt-1" />
+                  </div>
 
-              {filteredCompanies.length === 0 && searchTerm && (
-                <div className="px-4 py-8 text-center text-sm text-gray-400">
-                  Keine Firma gefunden fuer &quot;{searchTerm}&quot;
-                </div>
-              )}
+                  {/* Statistiken */}
+                  <div className="flex items-center gap-4 text-xs text-gray-500">
+                    <span className="inline-flex items-center gap-1">
+                      <FolderKanban size={12} />
+                      {company.project_count} {company.project_count === 1 ? 'Projekt' : 'Projekte'}
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <Users size={12} />
+                      {company.employee_count} MA
+                    </span>
+                  </div>
+                </button>
+              ))}
             </div>
           )}
         </section>
@@ -405,10 +378,14 @@ export default function BeraterDashboardPage() {
       <footer className="bg-white border-t mt-8">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <p className="text-center text-xs text-gray-400">
-            PZE v7.3.90 &middot; {consultantCompanyName || 'PZE'}
+            PZE v7.3.90 &middot; Berater-Portal &middot; {consultantCompanyName || 'PZE'}
           </p>
         </div>
       </footer>
     </div>
   );
 }
+
+// ============================================================================
+// ENDE
+// ============================================================================
