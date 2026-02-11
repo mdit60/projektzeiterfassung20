@@ -5,7 +5,7 @@
 // PZE V7 - Berater-Dashboard
 // ============================================================================
 // Datum: 11. Februar 2026
-// Version: 7.3.90-4
+// Version: 7.3.90-3
 //
 // Layout:
 //   1. Kundenliste (Tabelle mit Suchfunktion)
@@ -13,7 +13,7 @@
 //   2. Berater-Werkzeuge (firmenuebergreifend)
 //      Netzwerk, Multiprojekt, FZul
 //
-// v7.3.90-4: Kundenliste statt Kacheln (skaliert besser)
+// v7.3.90-3: Kundenliste statt Kacheln (skaliert besser)
 //            Suchfunktion fuer Firmennamen
 //            ZIM-Import-Button entfernt (gehoert nicht aufs Dashboard)
 //            Footer vereinheitlicht
@@ -88,7 +88,6 @@ export default function BeraterDashboardPage() {
 
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState('');
-  const [userFirstName, setUserFirstName] = useState('');
   const [userEmail, setUserEmail] = useState('');
   const [userRole, setUserRole] = useState<V7UserRole>('consultant');
   const [consultantCompanyName, setConsultantCompanyName] = useState('');
@@ -123,15 +122,6 @@ export default function BeraterDashboardPage() {
             || user.email
             || '';
           setUserName(name);
-
-          // Vorname fuer Begruessung
-          if (profile.first_name) {
-            setUserFirstName(profile.first_name);
-          } else if (profile.display_name && profile.display_name.includes(',')) {
-            setUserFirstName(profile.display_name.split(',')[1]?.trim() || '');
-          } else {
-            setUserFirstName(name.split(' ')[0] || '');
-          }
           setUserRole((profile.role as V7UserRole) || 'consultant');
 
           if (profile.consultant_company_id) {
@@ -228,7 +218,7 @@ export default function BeraterDashboardPage() {
         {/* Willkommen */}
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-gray-900">
-            Willkommen, {userFirstName || 'Berater'}!
+            Willkommen, {userName.split(' ')[0] || 'Berater'}!
           </h1>
           <p className="text-gray-500 mt-1">
             {companies.length} {companies.length === 1 ? 'Kundenfirma' : 'Kundenfirmen'} &middot; {totalProjects} {totalProjects === 1 ? 'Projekt' : 'Projekte'}

@@ -5,9 +5,9 @@
 // PZE V7 - Firmen-Dashboard
 // ============================================================================
 // Datum: 11. Februar 2026
-// Version: 7.3.90-4
+// Version: 7.3.90-3
 //
-// v7.3.90-4: Footer vereinheitlicht (nur Version + Firmenname)
+// v7.3.90-3: Footer vereinheitlicht (nur Version + Firmenname)
 // v7.3.90-2: Verstaendliche Modulnamen, Rollen-Filter
 // ============================================================================
 
@@ -66,10 +66,9 @@ export default function FirmaDashboardPage() {
 
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState('');
-  const [userFirstName, setUserFirstName] = useState('');
   const [userEmail, setUserEmail] = useState('');
   const [userRole, setUserRole] = useState<V7UserRole>('client_admin');
-  const [portalRole, setPortalRole] = useState<V7EmployeePortalRole>('employee');
+  const [portalRole, setPortalRole] = useState<V7EmployeePortalRole>('client_admin');
   const [companyName, setCompanyName] = useState('');
   const [employeeCount, setEmployeeCount] = useState(0);
   const [projectCount, setProjectCount] = useState(0);
@@ -105,16 +104,6 @@ export default function FirmaDashboardPage() {
           || user.email
           || '';
         setUserName(name);
-
-        // Vorname fuer Begruessung ermitteln
-        if (profile.first_name) {
-          setUserFirstName(profile.first_name);
-        } else if (profile.display_name && profile.display_name.includes(',')) {
-          // "Nachname, Vorname" -> Vorname extrahieren
-          setUserFirstName(profile.display_name.split(',')[1]?.trim() || '');
-        } else {
-          setUserFirstName(name.split(' ')[0] || '');
-        }
         setUserEmail(user.email || '');
         setUserRole((profile.role as V7UserRole) || 'client_admin');
 
@@ -131,13 +120,13 @@ export default function FirmaDashboardPage() {
           const { count: eCount } = await supabase
             .from('v7_employees')
             .select('*', { count: 'exact', head: true })
-            .eq('client_company_id', companyId);
+            .eq('company_id', companyId);
           setEmployeeCount(eCount || 0);
 
           const { count: pCount } = await supabase
             .from('v7_projects')
             .select('*', { count: 'exact', head: true })
-            .eq('client_company_id', companyId);
+            .eq('company_id', companyId);
           setProjectCount(pCount || 0);
         }
 
@@ -149,7 +138,7 @@ export default function FirmaDashboardPage() {
             .from('v7_employees')
             .select('portal_role')
             .eq('user_id', user.id)
-            .eq('client_company_id', companyId)
+            .eq('company_id', companyId)
             .single();
           if (emp?.portal_role) {
             setPortalRole(emp.portal_role as V7EmployeePortalRole);
@@ -198,7 +187,7 @@ export default function FirmaDashboardPage() {
         {/* Willkommen */}
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-gray-900">
-            Willkommen, {userFirstName || 'Benutzer'}!
+            Willkommen, {userName.split(' ')[0] || 'Benutzer'}!
           </h1>
           <div className="flex items-center gap-4 mt-2">
             <span className="inline-flex items-center gap-1.5 text-sm text-gray-500">
