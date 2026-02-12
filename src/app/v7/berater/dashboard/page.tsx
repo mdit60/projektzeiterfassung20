@@ -10,7 +10,7 @@
 // Layout:
 //   1. Kundenliste (Tabelle mit Suchfunktion)
 //      Klick auf Firma -> Firmen-Detail-Seite
-//   2. Berater-Werkzeuge (firmenuebergreifend)
+//   2. Sonstiges (firmenuebergreifend)
 //      Netzwerk, Multiprojekt, FZul
 //
 // v7.3.90-4: Kundenliste statt Kacheln (skaliert besser)
@@ -158,12 +158,12 @@ export default function BeraterDashboardPage() {
               const { count: pCount } = await supabase
                 .from('v7_projects')
                 .select('*', { count: 'exact', head: true })
-                .eq('company_id', company.id);
+                .eq('client_company_id', company.id);
 
               const { count: eCount } = await supabase
                 .from('v7_employees')
                 .select('*', { count: 'exact', head: true })
-                .eq('company_id', company.id)
+                .eq('client_company_id', company.id)
                 .eq('is_active', true);
 
               return {
@@ -243,7 +243,7 @@ export default function BeraterDashboardPage() {
             <div className="flex items-center gap-3">
               <Building2 size={20} className="text-sky-600" />
               <h2 className="text-lg font-semibold text-gray-800">
-                Meine Kunden
+                Kundenuebersicht
               </h2>
             </div>
           </div>
@@ -344,9 +344,9 @@ export default function BeraterDashboardPage() {
             <div className="flex items-center gap-3 mb-5">
               <Layers size={20} className="text-sky-600" />
               <h2 className="text-lg font-semibold text-gray-800">
-                Berater-Werkzeuge
+                Sonstiges
               </h2>
-              <span className="text-sm text-gray-400">Firmenuebergreifende Analysen</span>
+              <span className="text-sm text-gray-400"></span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -379,7 +379,7 @@ export default function BeraterDashboardPage() {
                       ) : (
                         <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
                           <CalendarClock size={12} />
-                          {config.plannedRelease || 'Geplant'}
+                          In Vorbereitung
                         </span>
                       )}
                     </div>
