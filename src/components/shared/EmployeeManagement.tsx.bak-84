@@ -2,8 +2,8 @@
 // ============================================================================
 // PZE V7 - Shared Employee Management Component
 // ============================================================================
-// Datum: 12. Februar 2026
-// Version: 7.3.89-1
+// Datum: 24. Januar 2026
+// Version: 7.3.90-3
 //
 // Wird von beiden Portalen genutzt:
 // - Firmen-Portal: /v7/firma/mitarbeiter
@@ -17,10 +17,6 @@
 // - Portal-Rolle zuweisen (employee/project_leader/client_admin)
 // - Login erstellen (NEU: Erkennt bereits registrierte Benutzer)
 //
-// AENDERUNGEN v7.3.89-1:
-// - FIX: Login-Verknuepfung dreht sich nicht mehr im Kreis
-//   Bei "already registered" wird IMMER auf link-Modus gewechselt
-//   Auch ohne v7_user_profiles Eintrag (V6-Altdaten)
 // AENDERUNGEN v7.3.84:
 // - Alle Anlage 6.1 Felder hinzugefuegt:
 //   - Geburtsdatum, Bildungsabschluss, Jahr Ausbildungsabschluss
@@ -28,7 +24,7 @@
 //   - Stundensatz (automatisch berechnet)
 //   - lfd. Nr. (fuer Excel-Import)
 // - Aufklappbarer Bereich fuer persoenliche Daten
-// - Automatische Stundensatz-Berechnung: Jahresbrutto / (pWAZ x 52)
+// - Automatische Stundensatz-Berechnung: Jahresbrutto / (pWAZ Ã— 52)
 //
 // Props:
 // - portal: 'berater' | 'firma'
@@ -532,61 +528,17 @@ export default function EmployeeManagement({
 
   // NEU: Bestehenden User mit Mitarbeiter verknuepfen
   const handleLinkExistingUser = async () => {
-    if (!loginEmployee) return;
+    if (!loginEmployee || !existingUserId) return;
     
     setCreatingLogin(true);
     setLoginError(null);
     
     try {
-      let userId = existingUserId;
-      
-      // Falls wir keine User-ID haben, versuchen wir es nochmal ueber signIn
-      if (!userId && loginPassword) {
-        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-          email: loginEmployee.email!,
-          password: loginPassword,
-        });
-        
-        if (signInError) {
-          setLoginError('Passwort ist falsch. Bitte korrektes Passwort eingeben um den Login zu verknuepfen.');
-          return;
-        }
-        
-        if (signInData?.user) {
-          userId = signInData.user.id;
-        }
-      }
-      
-      if (!userId) {
-        setLoginError('User-ID konnte nicht ermittelt werden. Bitte pruefen Sie das Passwort.');
-        return;
-      }
-      
-      // Pruefen ob v7_user_profiles existiert, wenn nicht erstellen
-      const { data: existingProfile } = await supabase
-        .from('v7_user_profiles')
-        .select('id')
-        .eq('id', userId)
-        .maybeSingle();
-      
-      if (!existingProfile) {
-        // Profil erstellen fuer V6-Altdaten
-        const portalRole = loginEmployee.portal_role || 'employee';
-        await supabase.from('v7_user_profiles').insert({
-          id: userId,
-          email: loginEmployee.email!.toLowerCase(),
-          display_name: loginEmployee.display_name,
-          role: portalRole,
-          company_id: companyId,
-          is_active: true,
-        });
-      }
-      
       // Mitarbeiter mit bestehendem User verknuepfen
       const { error } = await supabase
         .from('v7_employees')
         .update({ 
-          user_id: userId,
+          user_id: existingUserId,
           updated_at: new Date().toISOString(),
         })
         .eq('id', loginEmployee.id);
@@ -638,11 +590,10 @@ export default function EmployeeManagement({
 
         if (signUpError) {
           if (signUpError.message.includes('already registered')) {
-            // E-Mail bereits registriert - SOFORT auf Verknuepfungs-Modus wechseln
-            setLoginMode('link');
-            setLoginError('Diese E-Mail ist bereits registriert. Klicken Sie auf "Verknuepfen" um den bestehenden Login mit diesem Mitarbeiter zu verbinden.');
+            // E-Mail bereits registriert - auf Verknuepfungs-Modus wechseln
+            setLoginError('Diese E-Mail ist bereits registriert. Moechten Sie den bestehenden Login verknuepfen?');
             
-            // Versuchen, die User-ID aus v7_user_profiles zu finden
+            // Versuchen, die User-ID zu finden
             const { data: existingProfile } = await supabase
               .from('v7_user_profiles')
               .select('id')
@@ -650,29 +601,8 @@ export default function EmployeeManagement({
               .maybeSingle();
             
             if (existingProfile) {
+              setLoginMode('link');
               setExistingUserId(existingProfile.id);
-            } else {
-              // V6-Altdaten: User existiert in auth.users aber nicht in v7_user_profiles
-              // Wir versuchen die User-ID ueber signIn zu bekommen
-              const { data: signInData } = await supabase.auth.signInWithPassword({
-                email: loginEmployee.email,
-                password: loginPassword,
-              });
-              
-              if (signInData?.user) {
-                setExistingUserId(signInData.user.id);
-                // Wieder ausloggen, damit der aktuelle Admin eingeloggt bleibt
-                // (signIn hat den Session-Context gewechselt)
-                // Hinweis: In Production sollte hier ein Admin-API Call verwendet werden
-              } else {
-                // Passwort stimmt nicht - User existiert aber wir kennen die ID nicht
-                // Setzen wir trotzdem auf link, damit der Dialog nicht im Kreis dreht
-                // Der User muss dann manuell in Supabase nachgeschaut werden
-                setLoginError(
-                  'Diese E-Mail ist bereits registriert, aber das eingegebene Passwort stimmt nicht mit dem bestehenden Login ueberein. ' +
-                  'Bitte geben Sie das korrekte Passwort ein und klicken Sie erneut auf "Verknuepfen", oder suchen Sie die User-ID in Supabase Auth.'
-                );
-              }
             }
             return;
           } else {
@@ -724,7 +654,7 @@ export default function EmployeeManagement({
       .insert({
         id: userId,
         email: emp.email,
-        role: emp.portal_role === 'client_admin' ? 'client_admin' : 'employee',
+        role: emp.portal_role === 'client_admin' ? 'client_admin' : 'client_user',
         display_name: emp.display_name,
         first_name: emp.first_name,
         last_name: emp.last_name,
@@ -1239,7 +1169,7 @@ export default function EmployeeManagement({
                       step="0.01"
                       placeholder="Wird berechnet"
                     />
-                    <p className="text-xs text-gray-500 mt-1">= Jahresbrutto / (Wochenstd. x 52)</p>
+                    <p className="text-xs text-gray-500 mt-1">= Jahresbrutto / (Wochenstd. Ã— 52)</p>
                   </div>
                 </div>
               </div>
@@ -1347,7 +1277,7 @@ export default function EmployeeManagement({
                 <>
                   <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded-lg text-sm">
                     <strong>Bereits registriert:</strong> Diese E-Mail-Adresse hat bereits einen Login. 
-                    Klicken Sie auf &quot;Verknuepfen&quot; um den bestehenden Login mit diesem Mitarbeiter zu verbinden.
+                    Moechten Sie diesen mit dem Mitarbeiter verknuepfen?
                   </div>
 
                   <div>
@@ -1364,33 +1294,12 @@ export default function EmployeeManagement({
                     </div>
                   </div>
 
-                  {!existingUserId && (
+                  <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg text-sm flex items-start gap-2">
+                    <Check size={18} className="mt-0.5 flex-shrink-0" />
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Passwort des bestehenden Logins <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={loginPassword}
-                        onChange={(e) => setLoginPassword(e.target.value)}
-                        className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
-                        placeholder="Bestehendes Passwort eingeben"
-                        autoComplete="new-password"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">
-                        Das Passwort wird benoetigt um die Verknuepfung herzustellen.
-                      </p>
+                      Der Mitarbeiter kann sich mit seinen bestehenden Zugangsdaten einloggen.
                     </div>
-                  )}
-
-                  {existingUserId && (
-                    <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg text-sm flex items-start gap-2">
-                      <Check size={18} className="mt-0.5 flex-shrink-0" />
-                      <div>
-                        Der Mitarbeiter kann sich mit seinen bestehenden Zugangsdaten einloggen.
-                      </div>
-                    </div>
-                  )}
+                  </div>
                 </>
               ) : (
                 <>
