@@ -2,16 +2,14 @@
 // ============================================================================
 // PZE V7 - Projekte-Seite (Firmen-Portal)
 // ============================================================================
-// Version: 7.3.90
-// Datum: 12. Februar 2026
+// Version: 7.3.89
+// Datum: 09. Februar 2026
 //
 // Nutzt shared ProjectList-Komponente (laedt Projekte selbst)
 //
-// v7.3.90:   Rollenbasierte Zugriffskontrolle:
-//            - client_admin: Sieht alle Projekte, kann neue anlegen
-//            - project_leader: Sieht nur zugeordnete Projekte, kein Anlegen
-//            - employee: Redirect zur Zeiterfassung (kein Projektzugang)
-// v7.3.89:   KOMPLETT NEU - Ersetzt die alte v7.3.5 Seite
+// v7.3.89:   KOMPLETT NEU - Ersetzt die alte v7.3.5 Seite (1200+ Zeilen)
+//            durch schlanke Version mit shared ProjectList-Komponente.
+//            Alte Version hatte Fehler: v7_project_budget Tabelle existiert nicht.
 // ============================================================================
 
 'use client';
@@ -182,23 +180,13 @@ export default function FirmaProjektePage() {
   // ============================================================================
 
   const isAdmin = userProfile.role === 'client_admin' || portalRole === 'client_admin';
-  const isProjectLeader = portalRole === 'project_leader';
-
-  // employee hat keinen Zugang zu Projekte-Seite -> Redirect
-  if (!isAdmin && !isProjectLeader) {
-    router.push('/v7/firma/zeiterfassung');
-    return null;
-  }
-
-  // userRole fuer Header/Nav
-  const userRole = isAdmin ? 'client_admin' : 'client_user';
 
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <PortalHeader
         portal="firma"
-        userRole={userRole}
+        userRole={userProfile.role}
         portalRole={portalRole}
         userName={userProfile.display_name || userProfile.email}
         userEmail={userProfile.email}
@@ -209,7 +197,7 @@ export default function FirmaProjektePage() {
       {/* Navigation */}
       <PortalNav
         portal="firma"
-        userRole={userRole as 'client_admin' | 'client_user' | 'consultant' | 'system_admin'}
+        userRole={userProfile.role as 'client_admin' | 'client_user' | 'consultant' | 'system_admin'}
         portalRole={portalRole}
         currentPath="/v7/firma/projekte"
       />
@@ -227,7 +215,7 @@ export default function FirmaProjektePage() {
       <footer className="bg-white border-t mt-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <p className="text-center text-sm text-gray-500">
-            PZE v7.3.90 | Firmen-Portal | {company.name}
+            PZE v7.3.89 | Firmen-Portal | {company.name}
           </p>
         </div>
       </footer>

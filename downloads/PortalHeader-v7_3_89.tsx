@@ -4,18 +4,18 @@
 // ============================================================================
 // PZE V7 - Gemeinsamer Portal-Header
 // ============================================================================
-// Datum: 11. Februar 2026
-// Version: 7.3.90-3
+// Datum: 09. Februar 2026
+// Version: 7.3.89
 //
 // Wird von beiden Portalen genutzt:
 // - Berater-Portal: Blauer Header (#002451)
 // - Firmen-Portal: Gruener Header (#65A655)
 //
-// v7.3.90-3: PZE-Logo-Platzhalter wiederhergestellt (keine Firmen-Initialen)
-//            Unterzeile "Berater-Portal"/"Firmen-Portal" entfernt
-//            Nur noch: [PZE-Logo] Firmenname ... Username v Abmelden
-// v7.3.89: Klick auf Logo/Firmenname -> Dashboard
-// v7.3.86: userRole akzeptiert V7UserRole | V7EmployeePortalRole | string
+// v7.3.89: Klick auf Firmenname/Portal-Titel fuehrt zum Dashboard
+//          Berater -> /v7/berater/dashboard, Firma -> /v7/firma/dashboard
+//          Logo/Initialen ebenfalls klickbar (cursor-pointer)
+// v7.3.86: userRole akzeptiert jetzt V7UserRole | V7EmployeePortalRole | string
+//          um Kompatibilitaet mit allen Seitentypen zu gewaehrleisten
 // ============================================================================
 
 import { useState } from 'react';
@@ -35,6 +35,7 @@ import { PORTAL_COLORS } from '@/lib/v7-constants';
 // TYPEN
 // ============================================================================
 
+// userRole kann V7UserRole, V7EmployeePortalRole oder beliebiger String sein
 type UserRoleType = V7UserRole | V7EmployeePortalRole | string;
 
 interface PortalHeaderProps {
@@ -46,7 +47,7 @@ interface PortalHeaderProps {
   companyName?: string;
   companyLogo?: string | null;
   currentPath?: string;
-  hideNavigation?: boolean;
+  hideNavigation?: boolean;     // Beibehalten fuer Interface-Kompatibilitaet
 }
 
 // ============================================================================
@@ -76,6 +77,8 @@ export default function PortalHeader({
     router.push('/login');
   };
 
+  // Portal-Titel
+  const portalTitle = portal === 'berater' ? 'Berater-Portal' : 'Firmen-Portal';
   const dashboardHref = portal === 'berater' ? '/v7/berater/dashboard' : '/v7/firma/dashboard';
 
   return (
@@ -84,25 +87,36 @@ export default function PortalHeader({
       style={{ backgroundColor: colors.primary }}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center h-14">
-
-          {/* Logo + Firmenname - KLICKBAR zum Dashboard */}
-          <Link href={dashboardHref} className="flex items-center space-x-3 hover:opacity-90 transition-opacity cursor-pointer">
-            {/* PZE-Logo Platzhalter */}
-            <div className="h-9 w-9 bg-white/20 rounded-lg flex items-center justify-center text-sm font-bold">
-              PZE
-            </div>
-
-            {/* Firmenname (ohne Unterzeile) */}
+        <div className="flex justify-between items-center h-16">
+          {/* Logo / Firmenname - KLICKBAR zum Dashboard */}
+          <Link href={dashboardHref} className="flex items-center space-x-4 hover:opacity-90 transition-opacity cursor-pointer">
+            {/* Firmenlogo oder Initialen */}
+            {companyLogo ? (
+              <img
+                src={companyLogo}
+                alt={companyName || 'Logo'}
+                className="h-10 w-auto bg-white rounded p-1"
+              />
+            ) : (
+              <div className="h-10 w-10 bg-white/20 rounded flex items-center justify-center text-lg font-bold">
+                {companyName ? companyName.substring(0, 2).toUpperCase() : 'PZ'}
+              </div>
+            )}
+            
+            {/* Firmenname / Portal-Titel */}
             <div className="hidden sm:block">
-              <div className="text-lg font-semibold leading-tight">
+              <div className="text-lg font-semibold">
                 {companyName || 'PZE'}
+              </div>
+              <div className="text-xs text-white/70">
+                {portalTitle}
               </div>
             </div>
           </Link>
 
           {/* Benutzer-Menu */}
           <div className="flex items-center space-x-4">
+            {/* User Dropdown */}
             <div className="relative">
               <button
                 onClick={() => setUserMenuOpen(!userMenuOpen)}
@@ -122,7 +136,7 @@ export default function PortalHeader({
                     className="fixed inset-0 z-10"
                     onClick={() => setUserMenuOpen(false)}
                   />
-
+                  
                   {/* Menu */}
                   <div className="absolute right-0 mt-2 w-56 bg-white rounded-md shadow-lg z-20 py-1">
                     {/* User Info */}
@@ -135,7 +149,7 @@ export default function PortalHeader({
                         <p className="text-xs text-gray-500 mt-1">{companyName}</p>
                       )}
                     </div>
-
+                    
                     {/* Logout */}
                     <button
                       onClick={handleLogout}

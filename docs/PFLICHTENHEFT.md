@@ -1,10 +1,10 @@
 # PFLICHTENHEFT - Projektzeiterfassung (PZE)
 
-**Version:** 4.26
-**SW-Release:** V7.3.88-11
-**Datum:** 08. Februar 2026
+**Version:** 4.27
+**SW-Release:** V7.3.89
+**Datum:** 09. Februar 2026
 **Projekt:** Projektzeiterfassung fuer FuE-Foerdervorhaben
-**Status:** V7 Entwicklung - Vercel Deployment repariert, Produktion stabil
+**Status:** V7 Entwicklung - Header-Navigation bereinigt, Firmen-Projekte repariert
 
 ---
 
@@ -186,9 +186,25 @@ v7.3.88 (05. - 08. Februar 2026):
 - KRITISCHER FIX: Branch-Synchronisation v7-dev/main
 - Package Manager vereinheitlicht auf pnpm
 
+v7.3.89 (09. Februar 2026):
+- TimesheetForm: T/NT-Spalte fuer technische/nicht-technische APs bei ZIM_DS
+  - Getrennte Summenzeilen (Technisch/Nicht-Technisch/Gesamt) bei Durchfuehrbarkeitsstudien
+  - Robuste Typ-Erkennung (boolean, string, number) fuer is_technical
+- Firmen-Projekte-Seite KOMPLETT NEU: 1209 Zeilen (v7.3.5) ersetzt durch 225 Zeilen
+  - FIX: v7_project_budget Tabelle existiert nicht -> Ladefehler behoben
+  - Nutzt jetzt shared ProjectList-Komponente
+  - PortalNav korrekt eingebunden
+- PortalHeader BEREINIGT: Navigation komplett entfernt (177 statt 331 Zeilen)
+  - Header zeigt nur noch Logo/Firmenname + User-Menu
+  - Klick auf Logo/Firmenname fuehrt zum jeweiligen Dashboard
+  - Navigation liegt ausschliesslich in PortalNav (zweite Zeile)
+  - Supabase-Import auf @/lib/supabase/client umgestellt (auth-helpers-nextjs entfernt)
+- Berater-Dashboard: Temporaerer Redirect auf /v7/berater/foerderung
+  - Wird beim Modul-Dashboard-Umbau durch richtige Seite ersetzt
+
 ---
 
-## 4. Aktueller Stand: v7.3.88-11
+## 4. Aktueller Stand: v7.3.89
 
 ### 4.1 Shared Components (src/components/shared/)
 
@@ -200,13 +216,13 @@ v7.3.88 (05. - 08. Februar 2026):
 | DataTable.tsx | 7.3.42 | Generische Tabellen-Komponente |
 | EmployeeManagement.tsx | 7.3.60 | Volle MA-Verwaltung mit CRUD |
 | Modal.tsx | 7.3.42 | Generische Modal-Komponente |
-| PortalHeader.tsx | 7.3.86-3 | Header mit Portal-Farben und Navigation |
-| PortalNav.tsx | 7.3.86-3 | Portal-Navigation unterhalb Header |
+| PortalHeader.tsx | 7.3.89 | Header mit Portal-Farben, Logo klickbar zum Dashboard |
+| PortalNav.tsx | 7.3.42 | Portal-Navigation unterhalb Header (einzige Nav-Quelle) |
 | ProjectCreateForm.tsx | 7.3.57 | Projekt anlegen (beide Portale) |
 | ProjectDetailPage.tsx | 7.3.88-7 | Projekt-Detailseite mit Tabs |
 | ProjectList.tsx | 7.3.88-6 | Projektliste (laedt Projekte selbst) |
 | ProjectTeamManager.tsx | 7.3.87 | Team-Verwaltung mit Lfd. Nr. und Rollen |
-| TimesheetForm.tsx | 7.3.88-10 | Zeiterfassung mit Excel-Navigation |
+| TimesheetForm.tsx | 7.3.89 | Zeiterfassung mit Excel-Navigation, T/NT-Spalte |
 | WorkPackageAssignmentModal.tsx | 7.3.62 | MA einem AP zuordnen |
 | WorkPackageEditModal.tsx | 7.3.52 | AP bearbeiten (Name, Zeitraum, PM) |
 | WorkPackageList.tsx | 7.3.54 | AP-Liste mit Sortierung |
@@ -216,7 +232,8 @@ v7.3.88 (05. - 08. Februar 2026):
 
 | Route | Version | Funktion |
 |-------|---------|----------|
-| /v7/berater | 7.3.86-2 | Dashboard |
+| /v7/berater | 7.3.86-2 | Redirect auf Dashboard |
+| /v7/berater/dashboard | 7.3.89 | Dashboard (temporaer Redirect auf Foerderung) |
 | /v7/berater/foerderung | 7.3.84-3 | Firmenliste (Tabelle) |
 | /v7/berater/foerderung/import | 7.3.39 | ZIM PDF Import |
 | /v7/berater/foerderung/firma/[id] | 7.3.88-9 | Firmen-Detail (5 Tabs) |
@@ -233,7 +250,7 @@ v7.3.88 (05. - 08. Februar 2026):
 |-------|---------|----------|
 | /v7/firma | - | Redirect auf Dashboard |
 | /v7/firma/dashboard | - | Firmen-Dashboard |
-| /v7/firma/projekte | - | Projektliste |
+| /v7/firma/projekte | 7.3.89 | Projektliste (shared ProjectList) |
 | /v7/firma/projekte/[id] | - | Projekt-Detail (Wrapper) |
 | /v7/firma/projekte/neu | - | Neues Projekt |
 | /v7/firma/mitarbeiter | - | Mitarbeiterliste |
@@ -370,7 +387,7 @@ IMMER vor Git-Befehlen pruefen:
 2. git branch --show-current (muss v7-dev zeigen!)
 3. Falls falscher Branch: git checkout v7-dev
 
-Sicherungsskript: git-sicherung-v7_3_88-11.sh
+Sicherungsskript: git-sicherung-v7_3_89.sh
 - Prueft automatisch den Branch
 - Erstellt Backup in backups/[timestamp]/
 - Committed und pusht zu v7-dev
@@ -420,6 +437,17 @@ JEDE Array-Operation MUSS abgesichert sein:
 
 Grund: Vercel Production-Build ist strikter als Dev-Mode.
 
+### 7.7 Header und Navigation (v7.3.89)
+
+PortalHeader: NUR Logo/Firmenname (klickbar -> Dashboard) und User-Menu (Abmelden).
+KEINE Navigation im Header! Navigation liegt ausschliesslich in PortalNav (zweite Zeile).
+PortalNav wird von jeder Seite separat eingebunden.
+
+### 7.8 Supabase Client Import
+
+Immer @/lib/supabase/client verwenden (createClient).
+NICHT @supabase/auth-helpers-nextjs - Paket ist nicht installiert!
+
 ---
 
 ## 8. Testdaten
@@ -435,17 +463,19 @@ Grund: Vercel Production-Build ist strikter als Dev-Mode.
 
 ### 9.1 Kurzfristig (naechste Session)
 
-- Vercel-Deployment verifizieren (alle Tabs testen)
-- Fehlende Seiten auf v7-dev pruefen (EmployeeManagement canEdit)
-- Git-Stabilitaet klaeren (bus error)
-- Main-Branch mit v7-dev synchronisieren
+- Modul-Dashboard-Umbau: Kachel-basierte Navigation statt aktueller Seitenstruktur
+  - Berater-Dashboard mit Modulkacheln (Foerderung, FZul, Import, Berichte)
+  - Firmen-Dashboard mit Modulkacheln (Projekte, Zeiterfassung, Berichte)
+  - Aktive Module klickbar, geplante Module als "Demnaechst"
+- Header-Klick zum Dashboard bereits implementiert (v7.3.89)
 
-### 9.2 Mittelfristig (v7.3.89+)
+### 9.2 Mittelfristig (v7.3.90+)
 
 - Export-Funktionen (Excel, PDF) fuer Berichte
 - Excel-Import fuer ZIM und BMBF Zeiterfassungsdaten
 - Firmenlogo-Upload und -Anzeige
 - Firmendaten-Bearbeitung im Berater-Portal
+- Stundennachweis-Wording: "foerderbare Projektarbeiten" (Standard) vs "Management-Arbeiten" (Netzwerk)
 
 ### 9.3 Langfristig (v7.4)
 
@@ -461,6 +491,7 @@ Grund: Vercel Production-Build ist strikter als Dev-Mode.
 
 | Version | Datum | Aenderungen |
 |---------|-------|-------------|
+| v4.27 | 09.02.2026 | v7.3.89: T/NT-Spalte TimesheetForm, Firmen-Projekte neu, Header bereinigt, Berater-Dashboard |
 | v4.26 | 08.02.2026 | Vollstaendige Projekthistorie, Vercel-Fix dokumentiert, Branch-Strategie, Deployment-Doku |
 | v4.25 | 05.02.2026 | Berichte-Modul, Rollenbasierte Navigation, v7.3.88 |
 | v4.24 | 05.02.2026 | Team-Management, Excel-Arbeitsplan Import, v7.3.87 |
@@ -474,5 +505,5 @@ Grund: Vercel Production-Build ist strikter als Dev-Mode.
 
 ---
 
-**Ende des Pflichtenhefts v4.26**
-**Letzte Aktualisierung: 08. Februar 2026, 19:30 Uhr**
+**Ende des Pflichtenhefts v4.27**
+**Letzte Aktualisierung: 09. Februar 2026, 20:15 Uhr**
