@@ -5,14 +5,22 @@
 // Datum: 16. Februar 2026
 // Version: 7.3.91-2
 //
-// v7.3.91-2: Robuste Version mit Fallback-Lookup ueber Email
+// Ermoeglicht Beratern (system_admin, consultant) das Zuruecksetzen
+// von Passwoertern fuer Firmen-Mitarbeiter.
+//
+// POST Request:
+// - Body: { userId: string, newPassword: string }
+// - Header: Authorization: Bearer <token>
+// - Erfordert authentifizierten Benutzer mit system_admin/consultant Rolle
+//
+// Nutzt Admin-Client (Service Role Key) fuer Token-Validierung und PW-Reset.
+// Fallback-Lookup ueber Email falls Profil-ID nicht matcht.
 // ============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 export async function POST(request: NextRequest) {
@@ -38,7 +46,7 @@ export async function POST(request: NextRequest) {
     const authHeader = request.headers.get('authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return NextResponse.json(
-        { error: 'Nicht authentifiziert (kein Token).' },
+        { error: 'Nicht authentifiziert.' },
         { status: 401 }
       );
     }
@@ -50,13 +58,12 @@ export async function POST(request: NextRequest) {
       auth: { autoRefreshToken: false, persistSession: false }
     });
 
-    // 3. Token validieren - Admin getUser kann alle Tokens validieren
+    // 3. Token validieren
     const { data: { user: callerUser }, error: authError } = await supabaseAdmin.auth.getUser(token);
 
     if (authError || !callerUser) {
-      console.error('Auth-Fehler:', authError?.message, 'User:', callerUser?.id);
       return NextResponse.json(
-        { error: `Nicht authentifiziert: ${authError?.message || 'kein User'}` },
+        { error: 'Nicht authentifiziert.' },
         { status: 401 }
       );
     }
@@ -64,7 +71,6 @@ export async function POST(request: NextRequest) {
     // 4. Berechtigung pruefen - zuerst ueber ID, dann Fallback ueber Email
     let callerRole: string | null = null;
 
-    // Versuch 1: Lookup ueber ID
     const { data: profileById } = await supabaseAdmin
       .from('v7_user_profiles')
       .select('role')
@@ -73,9 +79,7 @@ export async function POST(request: NextRequest) {
 
     if (profileById) {
       callerRole = profileById.role;
-    } else {
-      // Versuch 2: Fallback ueber Email
-      console.log('Profil nicht ueber ID gefunden, versuche Email:', callerUser.email);
+    } else if (callerUser.email) {
       const { data: profileByEmail } = await supabaseAdmin
         .from('v7_user_profiles')
         .select('role')
@@ -88,9 +92,8 @@ export async function POST(request: NextRequest) {
     }
 
     if (!callerRole) {
-      console.error('Kein Profil gefunden fuer User:', callerUser.id, callerUser.email);
       return NextResponse.json(
-        { error: `Benutzerprofil nicht gefunden (ID: ${callerUser.id}, Email: ${callerUser.email}).` },
+        { error: 'Benutzerprofil nicht gefunden.' },
         { status: 403 }
       );
     }
@@ -109,7 +112,6 @@ export async function POST(request: NextRequest) {
     );
 
     if (updateError) {
-      console.error('Fehler beim Passwort-Reset:', updateError);
       return NextResponse.json(
         { error: `Fehler: ${updateError.message}` },
         { status: 500 }
@@ -122,7 +124,6 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (err: unknown) {
-    console.error('Unerwarteter Fehler:', err);
     return NextResponse.json(
       { error: 'Unerwarteter Serverfehler.' },
       { status: 500 }
