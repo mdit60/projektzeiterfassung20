@@ -1,46 +1,60 @@
 #!/bin/bash
 # ============================================================
-# PZE v7.3.91-1 Deployment: Firmendaten-Bearbeiten Fix
+# PZE Deploy v7.3.91-1 - Passwort aendern / zuruecksetzen
+# ============================================================
 # Datum: 16. Februar 2026
+#
+# Neue Features:
+# 1. Passwort aendern im User-Dropdown (alle Portale)
+# 2. Passwort zuruecksetzen als Berater (EmployeeManagement)
+# 3. API-Route /api/v7/reset-password (Admin-Zugriff)
 # ============================================================
 
 set -e
 
-DOWNLOADS="$HOME/Documents/Dev/PZE/downloads"
-PROJECT="$HOME/Documents/Dev/PZE"
+PROJECT_DIR="$HOME/Documents/Dev/PZE"
+DOWNLOADS_DIR="$HOME/Documents/Dev/PZE/downloads"
 
-echo "=== PZE v7.3.91-1: Firmendaten-Bearbeiten ==="
+echo "=== PZE Deploy v7.3.91-1 ==="
 echo ""
 
-# Datei kopieren
-echo "1. Datei kopieren..."
-cp "$DOWNLOADS/v7-firma-detail-page-v7_3_91-1.tsx" \
-   "$PROJECT/src/app/v7/berater/foerderung/firma/[id]/page.tsx"
+# 1. PortalHeader
+echo "1. PortalHeader-v7_3_91-1.tsx -> src/components/shared/PortalHeader.tsx"
+cp "$DOWNLOADS_DIR/PortalHeader-v7_3_91-1.tsx" "$PROJECT_DIR/src/components/shared/PortalHeader.tsx"
 
-echo "   -> page.tsx aktualisiert"
+# 2. EmployeeManagement
+echo "2. EmployeeManagement-v7_3_91-1.tsx -> src/components/shared/EmployeeManagement.tsx"
+cp "$DOWNLOADS_DIR/EmployeeManagement-v7_3_91-1.tsx" "$PROJECT_DIR/src/components/shared/EmployeeManagement.tsx"
+
+# 3. API-Route - Verzeichnis erstellen falls noetig
+echo "3. reset-password-route-v7_3_91-1.ts -> src/app/api/v7/reset-password/route.ts"
+mkdir -p "$PROJECT_DIR/src/app/api/v7/reset-password"
+cp "$DOWNLOADS_DIR/reset-password-route-v7_3_91-1.ts" "$PROJECT_DIR/src/app/api/v7/reset-password/route.ts"
+
+echo ""
+echo "=== Dateien kopiert ==="
+echo ""
 
 # Build testen
-echo ""
-echo "2. Build testen..."
-cd "$PROJECT"
+echo "4. Build testen..."
+cd "$PROJECT_DIR"
 pnpm build
 
-if [ $? -eq 0 ]; then
-  echo ""
-  echo "=== Build erfolgreich! ==="
-  echo ""
-  echo "3. Git commit..."
-  git add -A
-  git commit -m "v7.3.91-1: Firmendaten-Bearbeiten implementiert (war nur TODO)"
-  git push origin v7-dev
-  
-  echo ""
-  echo "=== Deployment abgeschlossen ==="
-  echo "   Teste auf v7-dev Preview URL"
-  echo ""
-  echo "   Fuer Production (main):"
-  echo "   git checkout main && git merge v7-dev && git push origin main && git checkout v7-dev"
-else
-  echo ""
-  echo "!!! BUILD FEHLER - nicht committen !!!"
-fi
+echo ""
+echo "=== Build erfolgreich ==="
+echo ""
+
+# Git
+echo "5. Git commit & push..."
+git add -A
+git status
+git commit -m "v7.3.91-1: Passwort aendern (User-Menue) + Passwort zuruecksetzen (Berater)"
+git push origin v7-dev
+
+echo ""
+echo "=== Deploy v7.3.91-1 abgeschlossen ==="
+echo ""
+echo "Features:"
+echo "  - Passwort aendern: User-Dropdown -> Schluessel-Icon"
+echo "  - Passwort zuruecksetzen: Mitarbeiter-Liste -> Schluessel-Icon (Berater)"
+echo "  - API-Route: /api/v7/reset-password (Admin-gesichert)"
