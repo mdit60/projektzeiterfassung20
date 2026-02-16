@@ -5,22 +5,12 @@
 // Datum: 16. Februar 2026
 // Version: 7.3.91-2
 //
-// Ermoeglicht Beratern (system_admin, consultant) das Zuruecksetzen
-// von Passwoertern fuer Firmen-Mitarbeiter.
-//
-// POST Request:
-// - Body: { userId: string, newPassword: string }
-// - Header: Authorization: Bearer <token>
-// - Erfordert authentifizierten Benutzer mit system_admin/consultant Rolle
-//
-// v7.3.91-2: Fix - Anon-Client fuer Token-Validierung,
-//            Admin-Client nur fuer DB-Zugriff und PW-Reset
+// v7.3.91-2: Robuste Version mit Fallback-Lookup ueber Email
 // ============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// Environment
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -44,61 +34,75 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 2. Authentifizierung pruefen - Token aus Header
+    // 2. Auth-Token pruefen
     const authHeader = request.headers.get('authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return NextResponse.json(
-        { error: 'Nicht authentifiziert.' },
+        { error: 'Nicht authentifiziert (kein Token).' },
         { status: 401 }
       );
     }
 
     const token = authHeader.replace('Bearer ', '');
 
-    // Anon-Client fuer Token-Validierung (NICHT Admin-Client!)
-    const supabaseAnon = createClient(supabaseUrl, supabaseAnonKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-      global: { headers: { Authorization: `Bearer ${token}` } }
-    });
-
-    const { data: { user: callerUser }, error: authError } = await supabaseAnon.auth.getUser(token);
-
-    if (authError || !callerUser) {
-      console.error('Auth-Fehler:', authError?.message);
-      return NextResponse.json(
-        { error: 'Nicht authentifiziert.' },
-        { status: 401 }
-      );
-    }
-
-    // Admin Client fuer DB-Zugriffe und PW-Reset
+    // Admin Client
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
       auth: { autoRefreshToken: false, persistSession: false }
     });
 
-    // 3. Berechtigung pruefen - nur system_admin und consultant duerfen PW aendern
-    const { data: callerProfile, error: profileError } = await supabaseAdmin
+    // 3. Token validieren - Admin getUser kann alle Tokens validieren
+    const { data: { user: callerUser }, error: authError } = await supabaseAdmin.auth.getUser(token);
+
+    if (authError || !callerUser) {
+      console.error('Auth-Fehler:', authError?.message, 'User:', callerUser?.id);
+      return NextResponse.json(
+        { error: `Nicht authentifiziert: ${authError?.message || 'kein User'}` },
+        { status: 401 }
+      );
+    }
+
+    // 4. Berechtigung pruefen - zuerst ueber ID, dann Fallback ueber Email
+    let callerRole: string | null = null;
+
+    // Versuch 1: Lookup ueber ID
+    const { data: profileById } = await supabaseAdmin
       .from('v7_user_profiles')
       .select('role')
       .eq('id', callerUser.id)
-      .single();
+      .maybeSingle();
 
-    if (profileError || !callerProfile) {
-      console.error('Profil-Fehler:', profileError?.message);
+    if (profileById) {
+      callerRole = profileById.role;
+    } else {
+      // Versuch 2: Fallback ueber Email
+      console.log('Profil nicht ueber ID gefunden, versuche Email:', callerUser.email);
+      const { data: profileByEmail } = await supabaseAdmin
+        .from('v7_user_profiles')
+        .select('role')
+        .eq('email', callerUser.email)
+        .maybeSingle();
+
+      if (profileByEmail) {
+        callerRole = profileByEmail.role;
+      }
+    }
+
+    if (!callerRole) {
+      console.error('Kein Profil gefunden fuer User:', callerUser.id, callerUser.email);
       return NextResponse.json(
-        { error: 'Benutzerprofil nicht gefunden.' },
+        { error: `Benutzerprofil nicht gefunden (ID: ${callerUser.id}, Email: ${callerUser.email}).` },
         { status: 403 }
       );
     }
 
-    if (!['system_admin', 'consultant'].includes(callerProfile.role)) {
+    if (!['system_admin', 'consultant'].includes(callerRole)) {
       return NextResponse.json(
         { error: 'Keine Berechtigung. Nur Berater koennen Passwoerter zuruecksetzen.' },
         { status: 403 }
       );
     }
 
-    // 4. Passwort aendern via Admin API
+    // 5. Passwort aendern via Admin API
     const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
       userId,
       { password: newPassword }
@@ -118,7 +122,7 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (err: unknown) {
-    console.error('Unerwarteter Fehler beim Passwort-Reset:', err);
+    console.error('Unerwarteter Fehler:', err);
     return NextResponse.json(
       { error: 'Unerwarteter Serverfehler.' },
       { status: 500 }
