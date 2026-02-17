@@ -40,16 +40,21 @@ cp "$DL_DIR/PortalNav-v7_3_94.tsx" "$PROJ_DIR/src/components/shared/PortalNav.ts
 echo "   -> src/components/shared/PortalNav.tsx"
 
 echo ""
-echo "5. Build testen..."
+echo "5. Kopiere Foerderung-Seite v7.3.94 (PortalHeader + PortalNav)..."
+cp "$DL_DIR/foerderung-page-v7_3_94.tsx" "$PROJ_DIR/src/app/v7/berater/foerderung/page.tsx"
+echo "   -> src/app/v7/berater/foerderung/page.tsx"
+
+echo ""
+echo "6. Build testen..."
 pnpm build
 
 if [ $? -eq 0 ]; then
     echo ""
     echo "BUILD ERFOLGREICH!"
     echo ""
-    echo "6. Git commit..."
+    echo "7. Git commit..."
     git add -A
-    git commit -m "v7.3.94: Berater-Verwaltung (system_admin), Import aus Nav entfernt"
+    git commit -m "v7.3.94: Berater-Verwaltung, PortalNav in Foerderung-Seite, Import entfernt"
     git push origin v7-dev
     echo ""
     echo "DEPLOY ABGESCHLOSSEN - Vercel deployed automatisch"
