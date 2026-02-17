@@ -129,7 +129,7 @@ export default function BeraterAdminPage() {
       <PortalHeader
         portal="berater"
         companyName={company?.name || 'Berater'}
-        userDisplayName={userProfile.display_name || userProfile.email}
+        userName={userProfile.display_name || userProfile.email}
       />
 
       {/* Navigation */}

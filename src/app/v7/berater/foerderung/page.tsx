@@ -669,7 +669,7 @@ export default function FoerderungPage() {
       <PortalHeader
         portal="berater"
         companyName={consultantCompanyName || 'Berater'}
-        userDisplayName={userProfile?.display_name || userProfile?.email || ''}
+        userName={userProfile?.display_name || userProfile?.email || ''}
       />
 
       {/* Navigation */}
