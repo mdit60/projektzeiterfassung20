@@ -23,6 +23,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import PortalHeader from '@/components/shared/PortalHeader';
+import PortalNav from '@/components/shared/PortalNav';
 import {
   FolderKanban,
   Clock,
@@ -221,6 +222,12 @@ export default function BeraterDashboardPage() {
         userName={userName}
         userEmail={userEmail}
         companyName={consultantCompanyName || 'PZE'}
+      />
+
+      <PortalNav
+        portal="berater"
+        userRole={userRole}
+        currentPath="/v7/berater/dashboard"
       />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
