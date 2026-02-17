@@ -1022,7 +1022,7 @@ export default function TimesheetForm({
   const absenceSums = calculateAbsenceSums();
 
   return (
-    <div className="min-h-screen bg-gray-100 print:bg-white">
+    <div className="min-h-screen bg-gray-100 print:bg-white print:min-h-0">
       {/* Header */}
       <header style={{ backgroundColor: colors.primary }} className="shadow-sm print:hidden">
         <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8">
@@ -1177,7 +1177,7 @@ export default function TimesheetForm({
       )}
 
       {/* STUNDENNACHWEIS-FORMULAR */}
-      <div ref={printRef} className="max-w-full mx-auto p-4 print:p-0 print:m-0">
+      <div ref={printRef} className="max-w-full mx-auto p-4 print:p-0 print:m-0 print:max-h-[100vh] print:overflow-hidden">
         <div className="bg-white shadow-lg print:shadow-none overflow-x-auto">
           {/* Header-Bereich */}
           <table className="w-full border-collapse text-xs" style={{ minWidth: '1000px', tableLayout: 'fixed' }}>
@@ -1530,8 +1530,8 @@ export default function TimesheetForm({
 
           {/* Unterschriften */}
           <div className="border-x border-b flex">
-            <div className="flex-1 p-3 print:p-2 border-r border-gray-400">
-              <div className="text-[9px] print:text-[7px] text-gray-500 mb-8 print:mb-6">Datum / Unterschrift des Mitarbeiters</div>
+            <div className="flex-1 p-3 print:p-1 border-r border-gray-400">
+              <div className="text-[9px] print:text-[7px] text-gray-500 mb-8 print:mb-2">Datum / Unterschrift des Mitarbeiters</div>
               <input
                 type="text"
                 value={signatureDate}
@@ -1539,8 +1539,8 @@ export default function TimesheetForm({
                 className={`text-sm print:text-xs border-b border-gray-300 print:border-gray-400 bg-transparent w-28 focus:outline-none ${colors.ring.replace('focus:ring', 'focus:border').replace('-500', '-600')}`}
               />
             </div>
-            <div className="flex-1 p-3 print:p-2">
-              <div className="text-[9px] print:text-[7px] text-gray-500 mb-8 print:mb-6">Datum / Unterschrift Geschaeftsfuehrer bzw. FuE-Verantwortlicher</div>
+            <div className="flex-1 p-3 print:p-1">
+              <div className="text-[9px] print:text-[7px] text-gray-500 mb-8 print:mb-2">Datum / Unterschrift Geschaeftsfuehrer bzw. FuE-Verantwortlicher</div>
               <input
                 type="text"
                 value={signatureDate}
@@ -1616,21 +1616,26 @@ export default function TimesheetForm({
           }
           @page {
             size: A4 landscape;
-            margin: 5mm;
+            margin: 4mm;
           }
           .print\\:hidden {
             display: none !important;
           }
           table {
-            font-size: 8px !important;
+            font-size: 7px !important;
           }
           input {
-            font-size: 8px !important;
+            font-size: 7px !important;
             border: none !important;
+            height: 22px !important;
+            padding: 0 !important;
             background: transparent !important;
           }
           select {
             display: none !important;
+          }
+          th, td {
+            padding: 2px 3px !important;
           }
         }
       `}</style>
