@@ -945,113 +945,32 @@ export default function TimesheetForm({
   };
 
   // ============================================================================
-  // PDF EXPORT - v7.3.93: Fix fuer "oeffnet im selben Tab"
+  // PDF EXPORT - v7.3.93: Druckt direkt im aktuellen Fenster
+  // Setzt Dokumenttitel fuer PDF-Dateiname, druckt, stellt Titel wieder her.
+  // Kein neuer Tab - nach Drucken/Abbrechen bleibt man auf der Zeiterfassung.
   // ============================================================================
 
   const handlePrint = () => {
     window.print();
   };
 
-  const handleExportPDF = async () => {
+  const handleExportPDF = () => {
     const empName = selectedEmployee?.display_name?.replace(/\s+/g, '_') || 'Mitarbeiter';
     const projectRef = selectedProject?.funding_reference?.replace(/\s+/g, '_') || selectedProject?.short_name || 'Projekt';
     const monthYear = `${String(selectedMonth).padStart(2, '0')}_${selectedYear}`;
-    const defaultFileName = `Stundennachweis_${empName}_${projectRef}_${monthYear}.pdf`;
+    const defaultFileName = `Stundennachweis_${empName}_${projectRef}_${monthYear}`;
 
-    const printContent = printRef.current;
-    if (!printContent) return;
+    // Originalen Titel merken
+    const originalTitle = document.title;
 
-    // v7.3.93: Styles sammeln
-    const styles = Array.from(document.styleSheets)
-      .map(sheet => {
-        try {
-          return Array.from(sheet.cssRules).map(rule => rule.cssText).join('\n');
-        } catch {
-          return '';
-        }
-      })
-      .join('\n');
+    // Titel setzen (wird als PDF-Dateiname vorgeschlagen)
+    document.title = defaultFileName;
 
-    // v7.3.93: HTML fuer neuen Tab vorbereiten - alle selects durch Text ersetzen,
-    // alle inputs durch read-only spans ersetzen
-    const cloneDiv = printContent.cloneNode(true) as HTMLElement;
+    // Druckdialog oeffnen - nach Druck/Abbrechen geht es direkt zurueck
+    window.print();
 
-    // Alle <select> Elemente durch reinen Text ersetzen
-    const selects = cloneDiv.querySelectorAll('select');
-    selects.forEach(sel => {
-      const span = document.createElement('span');
-      span.style.cssText = sel.style.cssText;
-      span.className = sel.className;
-      // Ausgewaehlten Text uebernehmen
-      const selectedOption = sel.options[sel.selectedIndex];
-      span.textContent = selectedOption ? selectedOption.textContent || '' : '';
-      span.style.display = 'block';
-      span.style.textAlign = 'center';
-      span.style.fontSize = '10px';
-      sel.parentNode?.replaceChild(span, sel);
-    });
-
-    // Alle <input> Elemente durch read-only spans ersetzen
-    const inputs = cloneDiv.querySelectorAll('input');
-    inputs.forEach(inp => {
-      const span = document.createElement('span');
-      span.className = inp.className;
-      span.textContent = inp.value || '';
-      span.style.display = 'block';
-      span.style.textAlign = inp.style.textAlign || 'center';
-      span.style.fontSize = '10px';
-      span.style.minHeight = '20px';
-      span.style.lineHeight = '20px';
-      inp.parentNode?.replaceChild(span, inp);
-    });
-
-    // v7.3.93: Zuverlaessig neuen Tab oeffnen (nicht im selben Tab)
-    // Erst einen echten about:blank Tab oeffnen, dann schreiben
-    const printWindow = window.open('about:blank', '_blank');
-    if (!printWindow) {
-      // Fallback: Wenn Popups blockiert, Hinweis zeigen
-      alert('Popup blockiert. Bitte erlauben Sie Popups fuer diese Seite und versuchen Sie es erneut.');
-      return;
-    }
-
-    // Warten bis der Tab bereit ist
-    printWindow.document.open();
-    printWindow.document.write(`<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <title>${defaultFileName}</title>
-    <style>
-      ${styles}
-      @page { size: A4 landscape; margin: 5mm; }
-      body { 
-        -webkit-print-color-adjust: exact !important;
-        print-color-adjust: exact !important;
-        background: white !important;
-        margin: 0;
-        padding: 10px;
-      }
-      /* v7.3.93: Alle interaktiven Elemente entfernen */
-      select, button { display: none !important; }
-      input { border: none !important; background: transparent !important; }
-    </style>
-  </head>
-  <body>
-    ${cloneDiv.innerHTML}
-    <script>
-      window.onload = function() {
-        document.title = '${defaultFileName}';
-        setTimeout(function() {
-          window.print();
-          // Nach dem Drucken/Abbrechen: Tab schliessen
-          window.onafterprint = function() { window.close(); };
-          // Fallback fuer Browser ohne onafterprint: Tab bleibt offen
-        }, 500);
-      };
-    </script>
-  </body>
-</html>`);
-    printWindow.document.close();
+    // Titel wiederherstellen
+    document.title = originalTitle;
   };
 
   // ============================================================================
