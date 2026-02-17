@@ -966,11 +966,23 @@ export default function TimesheetForm({
     // Titel setzen (wird als PDF-Dateiname vorgeschlagen)
     document.title = defaultFileName;
 
-    // Druckdialog oeffnen - nach Druck/Abbrechen geht es direkt zurueck
+    // Titel erst NACH dem Druckdialog wiederherstellen (nicht sofort!)
+    const restoreTitle = () => {
+      document.title = originalTitle;
+      window.removeEventListener('afterprint', restoreTitle);
+    };
+    window.addEventListener('afterprint', restoreTitle);
+
+    // Druckdialog oeffnen
     window.print();
 
-    // Titel wiederherstellen
-    document.title = originalTitle;
+    // Fallback: Falls afterprint nicht feuert (aeltere Browser),
+    // nach 5 Sekunden wiederherstellen
+    setTimeout(() => {
+      if (document.title === defaultFileName) {
+        document.title = originalTitle;
+      }
+    }, 5000);
   };
 
   // ============================================================================
