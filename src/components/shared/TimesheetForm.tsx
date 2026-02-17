@@ -966,23 +966,26 @@ export default function TimesheetForm({
     // Titel setzen (wird als PDF-Dateiname vorgeschlagen)
     document.title = defaultFileName;
 
-    // Titel erst NACH dem Druckdialog wiederherstellen (nicht sofort!)
+    // Titel erst NACH dem Druckdialog wiederherstellen
     const restoreTitle = () => {
       document.title = originalTitle;
       window.removeEventListener('afterprint', restoreTitle);
     };
     window.addEventListener('afterprint', restoreTitle);
 
-    // Druckdialog oeffnen
-    window.print();
+    // WICHTIG: Kurze Verzoegerung damit der Browser den neuen Titel
+    // registriert BEVOR der Druckdialog sich oeffnet.
+    // Ohne Delay liest macOS noch den alten Titel.
+    setTimeout(() => {
+      window.print();
+    }, 100);
 
-    // Fallback: Falls afterprint nicht feuert (aeltere Browser),
-    // nach 5 Sekunden wiederherstellen
+    // Fallback: Falls afterprint nicht feuert
     setTimeout(() => {
       if (document.title === defaultFileName) {
         document.title = originalTitle;
       }
-    }, 5000);
+    }, 10000);
   };
 
   // ============================================================================
