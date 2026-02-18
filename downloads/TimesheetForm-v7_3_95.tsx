@@ -3,17 +3,16 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 18. Februar 2026
-// Version: 7.3.95-1
+// Version: 7.3.95
 //
 // Wird von beiden Portalen genutzt:
 // - Firmen-Portal: /v7/firma/zeiterfassung
 // - Berater-Portal: /v7/berater/foerderung/firma/[id]/zeiterfassung
 //
-// v7.3.95-1: FIX: Leeres Timesheet ging beim Drucken ueber 1 Seite hinaus.
-//            Ursache: PortalHeader + PortalNav hatten kein print:hidden
-//            -> Fix in PortalHeader-v7_3_95 und PortalNav-v7_3_95
-//            Zusaetzlich: Unterschrift-Abstand print:mb-6 -> print:mb-4
-//            als Reserve fuer Monate mit 31 Tagen
+// v7.3.95:   FIX: Leeres Timesheet ging beim Drucken ueber 1 Seite hinaus.
+//            Print-CSS kompakter: Unterschrift-Abstand, Header-Padding,
+//            Hinweistext-Abstand reduziert. page-break-inside: avoid
+//            als zusaetzliche Absicherung.
 // v7.3.91:   initialYear + initialMonth Props: Monat vorauswaehlen bei
 //            Navigation aus Mein-Status oder Berichte-Seite
 // v7.3.89:   FIX T-Spalte: T/NT statt X/- Anzeige
@@ -984,8 +983,11 @@ export default function TimesheetForm({
               print-color-adjust: exact !important;
               background: white !important;
               margin: 0;
-              padding: 10px;
+              padding: 5px;
             }
+            table { page-break-inside: avoid; }
+            td, th { padding: 1px 2px !important; }
+            input, select { font-size: 8px !important; height: auto !important; padding: 1px !important; }
           </style>
         </head>
         <body>
@@ -1200,35 +1202,35 @@ export default function TimesheetForm({
           <table className="w-full border-collapse text-xs" style={{ minWidth: '1000px', tableLayout: 'fixed' }}>
             <tbody>
               <tr>
-                <td className="border p-2 print:p-1.5" style={{ width: '50%' }}>
+                <td className="border p-2 print:p-1" style={{ width: '50%' }}>
                   <div className="text-[10px] print:text-[8px] text-gray-500">Zuwendungsempfaenger (Firmenstempel)</div>
-                  <div className="font-bold text-lg print:text-base text-center py-2">{company?.name}</div>
+                  <div className="font-bold text-lg print:text-sm text-center py-2 print:py-1">{company?.name}</div>
                 </td>
-                <td className="border p-2 print:p-1.5 text-center" style={{ width: '50%', backgroundColor: HEADER_ORANGE }}>
-                  <div className="font-bold text-xl print:text-lg">Stundennachweis</div>
-                  <div className="text-[10px] print:text-[8px] text-gray-600 mt-1">
+                <td className="border p-2 print:p-1 text-center" style={{ width: '50%', backgroundColor: HEADER_ORANGE }}>
+                  <div className="font-bold text-xl print:text-base">Stundennachweis</div>
+                  <div className="text-[10px] print:text-[7px] text-gray-600 mt-1 print:mt-0">
                     Der Stundennachweis verbleibt beim Zuwendungsempfaenger und ist nur nach Aufforderung vorzulegen.
                   </div>
                 </td>
               </tr>
               <tr>
-                <td className="border p-2 print:p-1">
+                <td className="border p-2 print:p-0.5">
                   <div className="text-[10px] print:text-[8px] text-gray-500">Vorhabenthema</div>
-                  <div className="font-semibold text-base print:text-sm text-center py-1">{selectedProject?.name || '-'}</div>
+                  <div className="font-semibold text-base print:text-sm text-center py-1 print:py-0">{selectedProject?.name || '-'}</div>
                 </td>
-                <td className="border p-2 print:p-1" style={{ backgroundColor: HEADER_ORANGE }}>
+                <td className="border p-2 print:p-0.5" style={{ backgroundColor: HEADER_ORANGE }}>
                   <div className="text-[10px] print:text-[8px] text-gray-500">Foerderkennzeichen</div>
-                  <div className="font-bold text-lg print:text-base text-center py-1">{selectedProject?.funding_reference || '-'}</div>
+                  <div className="font-bold text-lg print:text-sm text-center py-1 print:py-0">{selectedProject?.funding_reference || '-'}</div>
                 </td>
               </tr>
               <tr>
-                <td className="border p-2 print:p-1">
+                <td className="border p-2 print:p-0.5">
                   <div className="text-[10px] print:text-[8px] text-gray-500">Monat</div>
-                  <div className="font-semibold text-base print:text-sm text-center py-1">{formatDisplayDate()}</div>
+                  <div className="font-semibold text-base print:text-sm text-center py-1 print:py-0">{formatDisplayDate()}</div>
                 </td>
-                <td className="border p-2 print:p-1">
+                <td className="border p-2 print:p-0.5">
                   <div className="text-[10px] print:text-[8px] text-gray-500">Mitarbeiter(in): [Name, Vorname]</div>
-                  <div className="font-semibold text-base print:text-sm text-center py-1">
+                  <div className="font-semibold text-base print:text-sm text-center py-1 print:py-0">
                     {selectedEmployee ? `${selectedEmployee.last_name || ''}, ${selectedEmployee.first_name || ''}`.trim() || selectedEmployee.display_name : '-'}
                   </div>
                 </td>
@@ -1536,7 +1538,7 @@ export default function TimesheetForm({
           </table>
 
           {/* Hinweistexte */}
-          <div className="px-2 py-1 print:px-1 print:py-0.5 text-[7px] print:text-[5px] text-gray-600 border-x border-b">
+          <div className="px-2 py-1 print:px-1 print:py-0 text-[7px] print:text-[5px] text-gray-600 border-x border-b leading-tight print:leading-none">
             <p>
               <strong>(1)</strong> Die geleisteten Projektbearbeitungsstunden sind fuer den gesamten Bewilligungszeitraum <strong>eigenhaendig und zeitnah</strong>, d. h. mindestens innerhalb einer Woche zu erfassen. Die Angaben sind subventionserheblich im Sinne des Paragraph 264 Strafgesetzbuch.
             </p>
@@ -1547,8 +1549,8 @@ export default function TimesheetForm({
 
           {/* Unterschriften */}
           <div className="border-x border-b flex">
-            <div className="flex-1 p-3 print:p-2 border-r border-gray-400">
-              <div className="text-[9px] print:text-[7px] text-gray-500 mb-8 print:mb-4">Datum / Unterschrift des Mitarbeiters</div>
+            <div className="flex-1 p-3 print:p-1.5 border-r border-gray-400">
+              <div className="text-[9px] print:text-[7px] text-gray-500 mb-8 print:mb-3">Datum / Unterschrift des Mitarbeiters</div>
               <input
                 type="text"
                 value={signatureDate}
@@ -1556,8 +1558,8 @@ export default function TimesheetForm({
                 className={`text-sm print:text-xs border-b border-gray-300 print:border-gray-400 bg-transparent w-28 focus:outline-none ${colors.ring.replace('focus:ring', 'focus:border').replace('-500', '-600')}`}
               />
             </div>
-            <div className="flex-1 p-3 print:p-2">
-              <div className="text-[9px] print:text-[7px] text-gray-500 mb-8 print:mb-4">Datum / Unterschrift Geschaeftsfuehrer bzw. FuE-Verantwortlicher</div>
+            <div className="flex-1 p-3 print:p-1.5">
+              <div className="text-[9px] print:text-[7px] text-gray-500 mb-8 print:mb-3">Datum / Unterschrift Geschaeftsfuehrer bzw. FuE-Verantwortlicher</div>
               <input
                 type="text"
                 value={signatureDate}
@@ -1640,13 +1642,25 @@ export default function TimesheetForm({
           }
           table {
             font-size: 8px !important;
+            page-break-inside: avoid;
           }
           input {
             font-size: 8px !important;
+            height: auto !important;
+            padding: 1px !important;
           }
           select {
             -webkit-appearance: none !important;
             appearance: none !important;
+            font-size: 8px !important;
+            height: auto !important;
+            padding: 1px !important;
+          }
+          td {
+            padding: 1px 2px !important;
+          }
+          th {
+            padding: 1px 2px !important;
           }
         }
       `}</style>
