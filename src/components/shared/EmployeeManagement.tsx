@@ -679,12 +679,14 @@ export default function EmployeeManagement({
   };
 
   const createUserProfile = async (userId: string, emp: Employee) => {
+    // Alle Firmen-Mitarbeiter bekommen role = 'client_user' in v7_user_profiles
+    // Die Portal-Rolle (employee/project_leader/client_admin) steht in v7_employees.portal_role
     const { error } = await supabase
       .from('v7_user_profiles')
       .insert({
         id: userId,
         email: emp.email,
-        role: emp.portal_role === 'client_admin' ? 'client_admin' : 'employee',
+        role: 'client_user',
         display_name: emp.display_name,
         first_name: emp.first_name,
         last_name: emp.last_name,

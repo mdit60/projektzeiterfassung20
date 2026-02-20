@@ -75,8 +75,8 @@ export default function PortalHeader({
 
   // Rollen-Anzeige: technische Rolle -> lesbarer Text
   const getRoleLabel = (): string => {
-    // Berater-Portal Rollen
-    if (userRole === 'system_admin') return 'Systemadministrator';
+    // Berater-Portal: system_admin ist Zusatzfunktion zu Berater
+    if (userRole === 'system_admin') return 'Berater (Systemadmin)';
     if (userRole === 'consultant') return 'Berater';
     // Firmen-Portal: portalRole hat Vorrang
     const effectiveRole = portalRole || userRole;
