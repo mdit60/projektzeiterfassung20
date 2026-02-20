@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-# DEPLOY v7.3.95-7 - Arbeitsplan-Sperre: Buttons ausblenden
+# DEPLOY v7.3.95-7 - Arbeitsplan-Sperre komplett
 # 19. Februar 2026
 # ============================================================
 
@@ -10,7 +10,7 @@ PROJECT_DIR="$HOME/Documents/Dev/PZE"
 DOWNLOADS="$PROJECT_DIR/downloads"
 cd "$PROJECT_DIR"
 
-echo "=== DEPLOY v7.3.95-7: AP-Buttons bei Lock ausblenden ==="
+echo "=== DEPLOY v7.3.95-7: Arbeitsplan-Sperre komplett ==="
 echo ""
 
 # Branch pruefen
@@ -19,8 +19,9 @@ if [ "$CURRENT_BRANCH" != "v7-dev" ]; then
   git checkout v7-dev
 fi
 
-# Datei kopieren
-echo "=== Datei kopieren ==="
+# Dateien kopieren
+echo "=== Dateien kopieren ==="
+
 if [ -f "$DOWNLOADS/ProjectDetailPage-v7_3_95-1.tsx" ]; then
   cp "$DOWNLOADS/ProjectDetailPage-v7_3_95-1.tsx" src/components/shared/ProjectDetailPage.tsx
   echo "  ProjectDetailPage.tsx aktualisiert"
@@ -28,6 +29,15 @@ else
   echo "FEHLER: ProjectDetailPage-v7_3_95-1.tsx nicht gefunden!"
   exit 1
 fi
+
+if [ -f "$DOWNLOADS/WorkPackageTable-v7_3_95-1.tsx" ]; then
+  cp "$DOWNLOADS/WorkPackageTable-v7_3_95-1.tsx" src/components/shared/WorkPackageTable.tsx
+  echo "  WorkPackageTable.tsx aktualisiert"
+else
+  echo "FEHLER: WorkPackageTable-v7_3_95-1.tsx nicht gefunden!"
+  exit 1
+fi
+
 echo ""
 
 # Build
@@ -39,11 +49,10 @@ echo ""
 # Git
 echo "=== Git ==="
 git add -A
-git commit -m "v7.3.95-7: Arbeitsplan-Sperre Buttons ausblenden
-- Vorlage, Import, Neues AP bei gesperrtem Arbeitsplan ausgeblendet
-- Leerzustand-Buttons ebenfalls gesperrt
-- onAddAP/onEditAP/onDeleteAP Callbacks null bei Lock
-- Project Interface um workplan_locked erweitert"
+git commit -m "v7.3.95-7: Arbeitsplan-Sperre komplett
+- ProjectDetailPage: Vorlage/Import/Neues AP bei Lock ausgeblendet
+- WorkPackageTable: Text Systemadministrator statt Berater
+- onAddAP/onEditAP/onDeleteAP null bei gesperrtem Arbeitsplan"
 
 git push origin v7-dev
 echo ""

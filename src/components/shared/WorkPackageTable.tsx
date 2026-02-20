@@ -354,7 +354,7 @@ export default function WorkPackageTable({
     }
   };
 
-  // Entsperren (nur Berater)
+  // Entsperren (nur Berater/Systemadministrator)
   const handleUnlock = async () => {
     setLockSaving(true);
     try {
@@ -783,7 +783,7 @@ export default function WorkPackageTable({
         <span>1 PM = 173,33 Stunden</span>
         {effectiveCanEdit && <span className="text-blue-600">Klicken Sie in eine Zelle zum Bearbeiten</span>}
         {workplanLocked && canEdit && portal === 'firma' && (
-          <span className="text-amber-600">Arbeitsplan gesperrt - Entsperren nur durch Berater</span>
+          <span className="text-amber-600">Arbeitsplan gesperrt - Entsperren nur durch Systemadministrator</span>
         )}
       </div>
 
@@ -825,7 +825,7 @@ export default function WorkPackageTable({
                 </li>
               </ul>
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
-                <strong>Hinweis:</strong> Entsperren ist nur durch den Berater moeglich (z.B. bei genehmigtem Aenderungsantrag).
+                <strong>Hinweis:</strong> Entsperren ist nur durch den Systemadministrator moeglich (z.B. bei genehmigtem Aenderungsantrag).
               </div>
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-lg">
@@ -849,7 +849,7 @@ export default function WorkPackageTable({
       )}
 
       {/* ============================================================ */}
-      {/* DIALOG: Arbeitsplan entsperren (nur Berater)                 */}
+      {/* DIALOG: Arbeitsplan entsperren (nur Systemadministrator)      */}
       {/* ============================================================ */}
       {showUnlockDialog && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
