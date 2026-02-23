@@ -2,21 +2,13 @@
 // ============================================================================
 // PZE V7 - Portal-Navigation
 // ============================================================================
-// Datum: 18. Februar 2026
-// Version: 7.3.95-2
+// Datum: 23. Februar 2026
+// Version: 7.4.0
 //
-// v7.3.95-2: "Import" aus Berater-Navigation entfernt (war seit v7.3.94 raus,
-//            aber bei v7.3.95 Print-Fix versehentlich wieder rein)
-// v7.3.95: print:hidden hinzugefuegt - Navigation beim Drucken ausblenden
-// v7.3.92: KOMPLETT UEBERARBEITET
-//   - Kumulative Rollen: Hoehere Rolle erbt ALLE Items der niedrigeren
-//   - Employee: Mein Status + Meine Zeiterfassung
-//   - Project Leader: + Meine Projekte + Zeiterfassung (alle MA) + Berichte
-//   - Client Admin: + Mitarbeiter + Firmendaten
-//   - Alle hrefs korrigiert (kein /meine-zeiterfassung mehr, kein /meine-projekte)
-//   - Alle Rollen sehen PortalNav (vorher: employee ohne Nav)
-//
-// v7.3.42: Initiale Version mit getrennten Nav-Arrays
+// v7.4.0: NAV_BERATER um 'Zeiterfassungen' (/v7/berater/timesheets) erweitert
+// v7.3.95-2: "Import" aus Berater-Navigation entfernt
+// v7.3.95: print:hidden hinzugefuegt
+// v7.3.92: Kumulative Rollen, Employee/PL/Admin-Navigation
 // ============================================================================
 
 'use client';
@@ -68,8 +60,9 @@ const PORTAL_COLORS = {
 // ============================================================================
 
 const NAV_BERATER: NavItem[] = [
-  { key: 'kunden', label: 'Kunden', href: '/v7/berater/foerderung', icon: <Building2 size={18} /> },
-  { key: 'berichte', label: 'Berichte', href: '/v7/berater/berichte', icon: <BarChart3 size={18} /> },
+  { key: 'kunden',      label: 'Kunden',          href: '/v7/berater/foerderung',  icon: <Building2 size={18} /> },
+  { key: 'berichte',    label: 'Berichte',         href: '/v7/berater/berichte',    icon: <BarChart3 size={18} /> },
+  { key: 'timesheets',  label: 'Zeiterfassungen',  href: '/v7/berater/timesheets',  icon: <Clock size={18} /> },
 ];
 
 const NAV_BERATER_ADMIN: NavItem[] = [
@@ -81,26 +74,23 @@ const NAV_BERATER_ADMIN: NavItem[] = [
 // ============================================================================
 //
 // Employee:        Mein Status | Meine Zeiterfassung
-// Project Leader:  Mein Status | Meine Zeiterfassung | Meine Projekte | Zeiterfassung | Berichte
-// Client Admin:    Mein Status | Meine Zeiterfassung | Meine Projekte | Zeiterfassung | Berichte | Mitarbeiter | Firmendaten
+// Project Leader:  + Meine Projekte | Zeiterfassung | Berichte
+// Client Admin:    + Mitarbeiter | Firmendaten
 //
 
-// Basis: Jeder Firmen-User sieht diese Items
 const NAV_FIRMA_BASE: NavItem[] = [
-  { key: 'mein-status', label: 'Mein Status', href: '/v7/firma/mein-status', icon: <BarChart3 size={18} /> },
-  { key: 'meine-zeiterfassung', label: 'Meine Zeiterfassung', href: '/v7/firma/zeiterfassung', icon: <Clock size={18} /> },
+  { key: 'mein-status',         label: 'Mein Status',         href: '/v7/firma/mein-status',    icon: <BarChart3 size={18} /> },
+  { key: 'meine-zeiterfassung', label: 'Meine Zeiterfassung', href: '/v7/firma/zeiterfassung',  icon: <Clock size={18} /> },
 ];
 
-// Zusaetzlich fuer Project Leader
 const NAV_FIRMA_PL_EXTRAS: NavItem[] = [
-  { key: 'meine-projekte', label: 'Meine Projekte', href: '/v7/firma/projekte', icon: <FolderKanban size={18} /> },
-  { key: 'berichte', label: 'Berichte', href: '/v7/firma/berichte', icon: <BarChart3 size={18} /> },
+  { key: 'meine-projekte', label: 'Meine Projekte', href: '/v7/firma/projekte',  icon: <FolderKanban size={18} /> },
+  { key: 'berichte',       label: 'Berichte',        href: '/v7/firma/berichte', icon: <BarChart3 size={18} /> },
 ];
 
-// Zusaetzlich fuer Client Admin
 const NAV_FIRMA_ADMIN_EXTRAS: NavItem[] = [
-  { key: 'mitarbeiter', label: 'Mitarbeiter', href: '/v7/firma/mitarbeiter', icon: <Users size={18} /> },
-  { key: 'firmendaten', label: 'Firmendaten', href: '/v7/firma/firmendaten', icon: <Building2 size={18} /> },
+  { key: 'mitarbeiter', label: 'Mitarbeiter', href: '/v7/firma/mitarbeiter',  icon: <Users size={18} /> },
+  { key: 'firmendaten', label: 'Firmendaten', href: '/v7/firma/firmendaten',  icon: <Building2 size={18} /> },
 ];
 
 // ============================================================================
@@ -125,15 +115,12 @@ function getNavItems(
     ? 'client_admin'
     : (portalRole || 'employee');
 
-  // Basis: Alle sehen Mein Status + Meine Zeiterfassung
   const items = [...NAV_FIRMA_BASE];
 
-  // Project Leader + Client Admin: Projekte, Berichte
   if (effectiveRole === 'project_leader' || effectiveRole === 'client_admin') {
     items.push(...NAV_FIRMA_PL_EXTRAS);
   }
 
-  // Client Admin: Mitarbeiter, Firmendaten
   if (effectiveRole === 'client_admin') {
     items.push(...NAV_FIRMA_ADMIN_EXTRAS);
   }

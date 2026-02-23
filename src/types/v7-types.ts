@@ -2,12 +2,13 @@
 // ============================================================================
 // PZE V7 - TypeScript Interfaces
 // ============================================================================
-// Datum: 25. Januar 2026
-// Version: 7.3.86
+// Datum: 23. Februar 2026
+// Version: 7.4.0
 // 
 // Diese Datei enthaelt alle TypeScript-Typen fuer die V7-Datenbankstruktur.
 // Erweitert um Portal-Rollen und Kapazitaetsmanagement.
 //
+// v7.4.0: V7_NAV_BERATER um 'Zeiterfassungen' (/v7/berater/timesheets) erweitert
 // v7.3.86: employee_number zu V7Employee hinzugefuegt (optional)
 // ============================================================================
 
@@ -126,7 +127,7 @@ export type V7FundingFormat =
   | 'BMBF_KMU'             // BMBF KMU-innovativ
   | 'BMBF_VERBUND'         // BMBF Verbundprojekt
   // Forschungszulage
-  | 'FZUL'                 // Forschungszulage (Â§35a EStG)
+  | 'FZUL'                 // Forschungszulage (Ã‚Â§35a EStG)
   // Sonstige
   | 'LANDES_FOERDERUNG'    // Landesfoerderprogramme
   | 'EU_FOERDERUNG'        // EU-Foerderprogramme
@@ -963,6 +964,7 @@ export const V7_NAV_BERATER: V7NavItem[] = [
   { key: 'foerderung', label: 'Foerderung', href: '/v7/berater/foerderung', roles: ['system_admin', 'consultant'] },
   { key: 'import', label: 'Import', href: '/v7/berater/import', roles: ['system_admin', 'consultant'] },
   { key: 'berichte', label: 'Berichte', href: '/v7/berater/berichte', roles: ['system_admin', 'consultant'] },
+  { key: 'timesheets', label: 'Zeiterfassungen', href: '/v7/berater/timesheets', roles: ['system_admin', 'consultant'] },
   { key: 'admin', label: 'Administration', href: '/v7/berater/admin', roles: ['system_admin'] },
 ];
 
