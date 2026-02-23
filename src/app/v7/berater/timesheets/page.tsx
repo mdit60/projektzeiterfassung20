@@ -2,10 +2,16 @@
 // ============================================================================
 // PZE V7.4 - Timesheet-Viewer Berater-Portal
 // ============================================================================
-// Version: 7.4.0-3
+// Version: 7.4.0-5
 // Datum: 23. Februar 2026
 //
-// v7.4.0-3: Jahres-Slider mit Pfeil-Navigation (Sliding Window, 5 Jahre sichtbar)
+// v7.4.0-5: FIX Leere Projekte - MA aus v7_project_assignments laden
+//   - Bisher: nur MA mit vorhandenen Eintraegen sichtbar (aggregated-Filter)
+//   - Neu: MA aus Projektzuordnungen (v7_project_assignments) laden
+//   - Alle zugeordneten MA erscheinen in der Matrix, auch ohne ZE-Eintraege
+//   - Klick auf leere Zelle -> ZE neu erfassen moeglich
+//   - Fallback: wenn keine Zuordnungen, zeige MA mit Eintraegen (wie bisher)
+// v7.4.0-4: FIX URL-Parameter: employeeId -> employee, returnUrl hinzugefuegt
 //   - Chronologisch links nach rechts
 //   - Mitte = aktuelles Jahr, 2 Jahre davor, 2 Jahre danach
 //   - Pfeil links/rechts verschiebt das Fenster um 1 Jahr
@@ -98,6 +104,12 @@ interface TimesheetRow {
   hours: number;
   day_type: string | null;
   is_active: boolean;
+}
+
+// Projektzuordnung: welcher MA ist welchem Projekt zugeordnet
+interface ProjectAssignment {
+  project_id: string;
+  employee_id: string;
 }
 
 // Aggregiert: Stunden + Tage pro MA/Projekt/Monat
@@ -212,13 +224,18 @@ function getCellLabel(summary: MonthSummary | undefined, status: CellStatus): st
 function calcCompletion(
   project: Project,
   employees: Employee[],
+  assignments: ProjectAssignment[],
   aggregated: Record<string, Record<string, Record<number, MonthSummary>>>,
   year: number
 ): CompletionBadge {
-  // MA die dieses Projekt haben (mindestens 1 Eintrag irgendwann)
-  const projectEmployees = employees.filter(
-    (e) => aggregated[e.id]?.[project.id]
-  );
+  // MA aus Projektzuordnungen; Fallback: MA mit Eintraegen
+  const assignedIds = assignments
+    .filter((a) => a.project_id === project.id)
+    .map((a) => a.employee_id);
+  const projectEmployees = assignedIds.length > 0
+    ? employees.filter((e) => assignedIds.includes(e.id))
+    : employees.filter((e) => aggregated[e.id]?.[project.id]);
+
   let complete = 0, zero = 0, missing = 0, total = 0;
 
   for (const emp of projectEmployees) {
@@ -309,6 +326,7 @@ function CompletionBadgeDisplay({ badge }: { badge: CompletionBadge }) {
 function ProjectMatrix({
   project,
   employees,
+  assignments,
   aggregated,
   year,
   companyId,
@@ -316,6 +334,7 @@ function ProjectMatrix({
 }: {
   project: Project;
   employees: Employee[];
+  assignments: ProjectAssignment[];
   aggregated: Record<string, Record<string, Record<number, MonthSummary>>>;
   year: number;
   companyId: string;
@@ -325,14 +344,20 @@ function ProjectMatrix({
     employeeId: string; month: number; rect: DOMRect;
   } | null>(null);
 
-  const relevantEmployees = employees.filter(
-    (e) => aggregated[e.id]?.[project.id]
-  );
+  // MA die diesem Projekt zugeordnet sind (aus v7_project_assignments)
+  const assignedEmployeeIds = assignments
+    .filter((a) => a.project_id === project.id)
+    .map((a) => a.employee_id);
+
+  // Primär: zugeordnete MA; Fallback: MA mit vorhandenen Einträgen
+  const relevantEmployees = assignedEmployeeIds.length > 0
+    ? employees.filter((e) => assignedEmployeeIds.includes(e.id))
+    : employees.filter((e) => aggregated[e.id]?.[project.id]);
 
   if (relevantEmployees.length === 0) {
     return (
       <div className="text-xs text-gray-400 italic px-2 py-2">
-        Keine Eintraege fuer {year} vorhanden.
+        Keine Mitarbeiter zugeordnet. Bitte zuerst MA im Projekteam hinterlegen.
       </div>
     );
   }
@@ -432,6 +457,7 @@ function ProjectCard({
   project,
   company,
   employees,
+  assignments,
   timesheets,
   initialYear,
   onNavigate,
@@ -440,6 +466,7 @@ function ProjectCard({
   project: Project;
   company: ClientCompany;
   employees: Employee[];
+  assignments: ProjectAssignment[];
   timesheets: TimesheetRow[];
   initialYear: number;
   onNavigate: (companyId: string, employeeId: string, year: number, month: number) => void;
@@ -456,7 +483,7 @@ function ProjectCard({
   );
 
   const companyEmployees = employees.filter((e) => e.client_company_id === company.id);
-  const badge = calcCompletion(project, companyEmployees, aggregated, selectedYear);
+  const badge = calcCompletion(project, companyEmployees, assignments, aggregated, selectedYear);
 
   const yearEntries = timesheets.filter((t) => {
     const d = new Date(t.work_date);
@@ -536,6 +563,7 @@ function ProjectCard({
         <ProjectMatrix
           project={project}
           employees={companyEmployees}
+          assignments={assignments}
           aggregated={aggregated}
           year={selectedYear}
           companyId={company.id}
@@ -568,11 +596,12 @@ function ProjectCard({
 // ============================================================================
 
 function CompanyAccordion({
-  company, projects, employees, timesheets, onNavigate,
+  company, projects, employees, assignments, timesheets, onNavigate,
 }: {
   company: ClientCompany;
   projects: Project[];
   employees: Employee[];
+  assignments: ProjectAssignment[];
   timesheets: TimesheetRow[];
   onNavigate: (companyId: string, employeeId: string, year: number, month: number) => void;
 }) {
@@ -629,6 +658,7 @@ function CompanyAccordion({
                 project={project}
                 company={company}
                 employees={employees}
+                assignments={assignments}
                 timesheets={timesheets}
                 initialYear={CURRENT_YEAR}
                 onNavigate={onNavigate}
@@ -651,10 +681,11 @@ export default function TimesheetViewerPage() {
   const supabase = createClient();
 
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [companies,   setCompanies]   = useState<ClientCompany[]>([]);
-  const [projects,    setProjects]    = useState<Project[]>([]);
-  const [employees,   setEmployees]   = useState<Employee[]>([]);
-  const [timesheets,  setTimesheets]  = useState<TimesheetRow[]>([]);
+  const [companies,    setCompanies]   = useState<ClientCompany[]>([]);
+  const [projects,     setProjects]    = useState<Project[]>([]);
+  const [employees,    setEmployees]   = useState<Employee[]>([]);
+  const [assignments,  setAssignments] = useState<ProjectAssignment[]>([]);
+  const [timesheets,   setTimesheets]  = useState<TimesheetRow[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState<string | null>(null);
   const [refreshing,  setRefreshing]  = useState(false);
@@ -731,6 +762,22 @@ export default function TimesheetViewerPage() {
       if (eErr) throw eErr;
       setEmployees(empl || []);
 
+      // Projektzuordnungen - welcher MA ist welchem Projekt zugeordnet
+      if (proj && proj.length > 0) {
+        const projectIds = proj.map((p: Project) => p.id);
+        const { data: assign, error: aErr } = await supabase
+          .from('v7_project_assignments')
+          .select('project_id, employee_id')
+          .in('project_id', projectIds)
+          .eq('is_active', true);
+        if (aErr) {
+          console.warn('Projektzuordnungen konnten nicht geladen werden:', aErr);
+          setAssignments([]);
+        } else {
+          setAssignments(assign || []);
+        }
+      }
+
       // Timesheets
       if (proj && proj.length > 0) {
         const projectIds = proj.map((p: Project) => p.id);
@@ -777,9 +824,17 @@ export default function TimesheetViewerPage() {
   const handleNavigate = (
     companyId: string, employeeId: string, year: number, month: number
   ) => {
+    // Parameter-Namen muessen mit Berater-ZE-Seite uebereinstimmen:
+    // ?employee= (nicht ?employeeId=), ?year=, ?month=
+    // returnUrl damit Zurueck-Button wieder hier hin fuehrt
+    const params = new URLSearchParams({
+      employee:  employeeId,
+      year:      year.toString(),
+      month:     month.toString(),
+      returnUrl: '/v7/berater/timesheets',
+    });
     router.push(
-      `/v7/berater/foerderung/firma/${companyId}/zeiterfassung` +
-      `?employeeId=${employeeId}&year=${year}&month=${month}`
+      `/v7/berater/foerderung/firma/${companyId}/zeiterfassung?${params.toString()}`
     );
   };
 
@@ -973,6 +1028,7 @@ export default function TimesheetViewerPage() {
                     company={company}
                     projects={projects}
                     employees={employees}
+                    assignments={assignments}
                     timesheets={timesheets}
                     onNavigate={handleNavigate}
                   />
@@ -1006,6 +1062,7 @@ export default function TimesheetViewerPage() {
                         project={project}
                         company={company}
                         employees={employees}
+                        assignments={assignments}
                         timesheets={timesheets}
                         initialYear={globalYear}
                         onNavigate={handleNavigate}
