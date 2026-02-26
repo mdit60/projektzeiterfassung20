@@ -1,10 +1,10 @@
 # PFLICHTENHEFT - Projektzeiterfassung (PZE)
 
-**Version:** 4.33
-**SW-Release:** V7.3.95-8
-**Datum:** 20. Februar 2026
+**Version:** 4.34
+**SW-Release:** V7.4.0
+**Datum:** 23. Februar 2026
 **Projekt:** Projektzeiterfassung fuer FuE-Foerdervorhaben
-**Status:** V7 Entwicklung - Arbeitsplan-Lock, Rollen-Anzeige Header, PW-Reset, Live-Test
+**Status:** V7.4 Start - Timesheet-Viewer Berater-Portal, FZul-Analyse Vorbereitung
 
 ---
 
@@ -36,6 +36,8 @@ Fuer Firmen und Berater:
 Zusaetzlich fuer Berater:
 - Analyse der Zeiterfassungen gefoerderter Projekte
 - Ermittlung verfuegbarer Projektstunden fuer Forschungszulage (FZul)
+- Timesheet-Viewer: Firmen-/Projekt-/MA-uebergreifende Stundenuebersicht (v7.4)
+- FZul-Analyse: Auswertung foerderrelevanter Stunden aus Timesheet-Daten (v7.4)
 
 ### 1.4 Technische Architektur
 
@@ -773,6 +775,44 @@ Beim Erstellen eines Login fuer Firmen-Mitarbeiter (EmployeeManagement):
 - Die Portal-Rolle (employee/project_leader/client_admin) steht in v7_employees.portal_role
 - client_company_id MUSS gesetzt werden (Pflichtfeld fuer Firmen-Portal Routing)
 
+### 7.21 Timesheet-Viewer Berater-Portal (v7.4.0)
+
+Neue Seite `/v7/berater/timesheets` fuer firmenuebergreifende Stundenuebersicht.
+
+**Zweck:** Schneller Ueberblick welche Stundenerfassungen in der Datenbank vorliegen,
+ohne durch einzelne Firmenseiten navigieren zu muessen.
+
+**Struktur (2-Ebenen-Hierarchie):**
+
+Ebene 1 - Firmentabelle (immer sichtbar):
+- Spalten: Firma | Projekte | Jahre mit Daten | Eintraege gesamt
+- Klick auf Zeile klappt Ebene 2 auf (Accordion)
+
+Ebene 2 - Projekt/Jahres-Matrix (aufklappbar pro Firma):
+- Filter: Jahr-Auswahl (Dropdown, Standard: aktuelles Jahr)
+- Gruppen: je Projekt eine Matrix-Tabelle
+- Matrix: Mitarbeiter (Zeilen) x Monate Jan-Dez (Spalten)
+- Zellinhalt: Stunden (z.B. "42h") + Ampelfarbe
+- Tooltip bei Hover: Gesamtstunden, T-Stunden, Anzahl Tage
+- Jede ausgefuellte Zelle = direkter Link zur Zeiterfassung:
+  `/v7/berater/foerderung/firma/[firmaId]/zeiterfassung?employeeId=[id]&year=[y]&month=[m]`
+- Leere Zellen (kein Eintrag in DB): klickbar zum Anlegen
+
+**Ampel-Logik (identisch Mein-Status):**
+- Gruen: total_hours > 0 (vollstaendig)
+- Orange: Eintrag vorhanden, total_hours = 0 oder unvollstaendig
+- Rot: kein Eintrag in DB
+- Grau: Monat liegt in der Zukunft
+
+**FZul-Erweiterung (vorbereitet, Tab noch nicht aktiv):**
+- Toggle: "Zeiterfassung" | "FZul-Analyse"
+- FZul-Ansicht: T-Stunden / NT-Stunden / Fehlzeiten je Zelle
+- Basis fuer paragraf 35a EStG Jahresauswertung
+
+**Navigation Berater-Portal:**
+- Neuer Nav-Punkt "Zeiterfassungen" in PortalNav
+- Position: nach "Berichte", vor "Administration"
+
 ---
 
 ## 8. Testdaten
@@ -797,13 +837,15 @@ Test-User:
 
 ## 9. Geplante naechste Schritte
 
-### 9.1 Kurzfristig
+### 9.1 Kurzfristig (v7.4)
 
-- ZIM PDF Import im Firmen-Portal aktivieren (nach Parser-Stabilisierung)
+- Timesheet-Viewer Berater-Portal: `/v7/berater/timesheets` ← IN ARBEIT
+- FZul-Analyse-Erweiterung des Viewers (Tab-Umschaltung ZE / FZul)
 - User Manual Berater-Portal erstellen
 
 ### 9.2 Mittelfristig (v7.4+)
 
+- ZIM PDF Import im Firmen-Portal aktivieren (nach Parser-Stabilisierung)
 - Export-Funktionen (Excel, PDF) fuer Berichte
 - Excel-Import fuer ZIM und BMBF Zeiterfassungsdaten
 - Firmenlogo-Upload und -Anzeige
@@ -824,6 +866,7 @@ Test-User:
 
 | Version | Datum | Aenderungen |
 |---------|-------|-------------|
+| v4.34 | 23.02.2026 | v7.4.0 Start: Timesheet-Viewer Berater-Portal, FZul-Analyse Vorbereitung |
 | v4.33 | 20.02.2026 | v7.3.95-8: Arbeitsplan-Lock, Rollen-Header, PW-Reset, display_name Fallback, Live-Test |
 | v4.32 | 18.02.2026 | v7.3.95: Ampel-Fix (100% statt 80%), In Bearbeitung, Manual-Download, PW-Fix, User Manuals |
 | v4.31 | 17.02.2026 | v7.3.92-94: Berater-Verwaltung, PortalNav Berater-Portal, PDF-Export Fix, kumulative Rollen, Prod-DB |
@@ -843,5 +886,5 @@ Test-User:
 
 ---
 
-**Ende des Pflichtenhefts v4.33**
-**Letzte Aktualisierung: 20. Februar 2026**
+**Ende des Pflichtenhefts v4.34**
+**Letzte Aktualisierung: 23. Februar 2026**
