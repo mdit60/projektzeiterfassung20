@@ -3,12 +3,14 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 02. Maerz 2026
-// Version: 7.4.3
+// Version: 7.4.3-2
 //
 // Wird von beiden Portalen genutzt:
 // - Firmen-Portal: /v7/firma/zeiterfassung
 // - Berater-Portal: /v7/berater/foerderung/firma/[id]/zeiterfassung
 //
+// v7.4.3-2: FIX: offen-Spalte aktualisiert sich sofort nach Speichern
+//            (reloadBookedHours nach handleSave aufrufen)
 // v7.4.3:    NEU: "offen"-Spalte pro AP-Zeile zeigt verbleibende Stunden
 //            (geplant laut Arbeitsplan minus bisher erfasst ueber alle Monate)
 //            NEU: AP-Vorbelegung aus Arbeitsplan-Zuordnungen des MA
@@ -380,6 +382,41 @@ export default function TimesheetForm({
   }, [selectedYear, selectedMonth, holidays]);
 
   // NEU v7.4.3: Arbeitsplan-Zuordnungen und kumulierte Stunden laden
+  // Wiederverwendbare Funktion (wird auch nach Speichern aufgerufen)
+  const reloadBookedHours = useCallback(async () => {
+    if (!selectedEmployeeId || !selectedProjectId) return;
+    try {
+      const supabaseClient = createClient();
+      const { data: tsEntries, error: tsErr } = await supabaseClient
+        .from('v7_timesheets')
+        .select('work_package_id, hours')
+        .eq('employee_id', selectedEmployeeId)
+        .eq('project_id', selectedProjectId)
+        .eq('is_active', true)
+        .eq('is_billable', true);
+
+      if (tsErr) {
+        console.error('[TimesheetForm] Fehler beim Laden der kumulierten Stunden:', tsErr);
+        return;
+      }
+
+      const booked: Record<string, number> = {};
+      (tsEntries || []).forEach((e: any) => {
+        if (e.work_package_id) {
+          const h = parseFloat(e.hours) || 0;
+          if (h > 0) {
+            booked[e.work_package_id] = (booked[e.work_package_id] || 0) + h;
+          }
+        }
+      });
+
+      setTotalBookedPerWP(booked);
+      console.log('[TimesheetForm] Kumulierte Stunden aktualisiert:', booked);
+    } catch (err) {
+      console.error('[TimesheetForm] Fehler beim Reload der Stunden:', err);
+    }
+  }, [selectedEmployeeId, selectedProjectId]);
+
   useEffect(() => {
     if (!selectedEmployeeId || !selectedProjectId) return;
 
@@ -420,39 +457,17 @@ export default function TimesheetForm({
         setPlannedHoursPerWP(planned);
         setAssignedWPIds(assignedIds);
 
-        // 2. Kumulierte Ist-Stunden pro WP ueber ALLE Monate
-        const { data: tsEntries, error: tsErr } = await supabaseClient
-          .from('v7_timesheets')
-          .select('work_package_id, hours')
-          .eq('employee_id', selectedEmployeeId)
-          .eq('project_id', selectedProjectId)
-          .eq('is_active', true)
-          .eq('is_billable', true);
+        // 2. Kumulierte Ist-Stunden laden
+        await reloadBookedHours();
 
-        if (tsErr) {
-          console.error('[TimesheetForm] Fehler beim Laden der kumulierten Stunden:', tsErr);
-          return;
-        }
-
-        const booked: Record<string, number> = {};
-        (tsEntries || []).forEach((e: any) => {
-          if (e.work_package_id) {
-            const h = parseFloat(e.hours) || 0;
-            if (h > 0) {
-              booked[e.work_package_id] = (booked[e.work_package_id] || 0) + h;
-            }
-          }
-        });
-
-        setTotalBookedPerWP(booked);
-        console.log('[TimesheetForm] Arbeitsplan geladen:', { planned, assignedIds, booked });
+        console.log('[TimesheetForm] Arbeitsplan geladen:', { planned, assignedIds });
       } catch (err) {
         console.error('[TimesheetForm] Fehler beim Laden der Arbeitsplan-Daten:', err);
       }
     };
 
     loadAssignmentData();
-  }, [selectedEmployeeId, selectedProjectId, workPackages]);
+  }, [selectedEmployeeId, selectedProjectId, workPackages, reloadBookedHours]);
 
   // Daten laden fuer MA/Projekt/Monat
   useEffect(() => {
@@ -1051,6 +1066,9 @@ export default function TimesheetForm({
       setSuccessMessage(`Stundennachweis fuer ${MONTH_NAMES[selectedMonth - 1]} ${selectedYear} gespeichert!`);
       setHasChanges(false);
       setTimeout(() => setSuccessMessage(null), 4000);
+
+      // NEU v7.4.3-2: offen-Spalte sofort aktualisieren nach Speichern
+      await reloadBookedHours();
 
     } catch (err: any) {
       console.error('Speichern fehlgeschlagen:', err);
