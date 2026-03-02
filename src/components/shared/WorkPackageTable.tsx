@@ -3,12 +3,16 @@
 // PZE V7 - Arbeitsplan-Tabelle (Excel-Style mit Inline-Edit)
 // ============================================================================
 // Datum: 02. Maerz 2026
-// Version: 7.4.2-5
+// Version: 7.4.3-5
 //
 // SHARED COMPONENT - wird von beiden Portalen genutzt:
 // - Berater-Portal: /v7/berater/foerderung/firma/[id]/projekt/[projektId]
 // - Firmen-Portal: /v7/firma/projekte/[projektId]
 //
+// v7.4.3-5: Ampel-Farblogik (Gruen/Orange/Rot) fuer Erfasst + Frei Spalten
+//           pro AP-Zeile und pro MA-Summenzeile. Orange = Erfassung hinkt
+//           dem Zeitfortschritt > 25 Prozentpunkte hinterher.
+//           Rot = Budget ueberschritten ODER AP-Laufzeit abgelaufen.
 // v7.4.2-5: REDESIGN Stunden-Anzeige:
 //           - 3 eigene Spalten rechts: Soll (h) | Erfasst (h) | Frei (h)
 //           - Normale Schriftgroesse statt Minitext unter PM
@@ -104,6 +108,65 @@ const PORTAL_COLORS = {
 };
 
 const PM_TO_HOURS = 173.33;
+
+// NEU v7.4.3: Ampel-Farblogik fuer Stundenstatus
+// Gruen = im Plan, Orange = Erfassung hinkt Zeitfortschritt > 25 Pp hinterher, Rot = ueberschritten/abgelaufen
+const ORANGE_THRESHOLD = 25; // Prozentpunkte Differenz
+
+type BudgetColor = 'green' | 'orange' | 'red' | 'neutral';
+
+function getBudgetColor(
+  sollHours: number,
+  erfasstHours: number,
+  startDate: string | null,
+  endDate: string | null
+): BudgetColor {
+  if (sollHours <= 0) return 'neutral';
+
+  const frei = sollHours - erfasstHours;
+
+  // Rot: Budget ueberschritten
+  if (frei < 0) return 'red';
+
+  // Zeitfortschritt berechnen
+  if (startDate && endDate) {
+    const now = new Date();
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    // Rot: AP abgelaufen und noch Stunden offen
+    if (now > end && frei > 0) return 'red';
+
+    // Zeitfortschritt in Prozent (0-100)
+    const totalDuration = end.getTime() - start.getTime();
+    if (totalDuration > 0) {
+      const elapsed = Math.max(0, now.getTime() - start.getTime());
+      const timeProgress = Math.min(100, (elapsed / totalDuration) * 100);
+
+      // Erfassungsgrad in Prozent
+      const completionRate = (erfasstHours / sollHours) * 100;
+
+      // Orange: Differenz > Schwellenwert
+      const diff = timeProgress - completionRate;
+      if (diff > ORANGE_THRESHOLD) return 'orange';
+    }
+  }
+
+  // Gruen: alles im Plan
+  if (frei > 0) return 'green';
+
+  // Exakt 0
+  return 'neutral';
+}
+
+function getBudgetCellStyle(color: BudgetColor): string {
+  switch (color) {
+    case 'green': return 'text-green-700 bg-green-50/50';
+    case 'orange': return 'text-orange-700 bg-orange-50/50';
+    case 'red': return 'text-red-600 bg-red-50/50';
+    default: return 'text-gray-500 bg-gray-50';
+  }
+}
 
 // ============================================================================
 // HILFSFUNKTIONEN
@@ -355,6 +418,17 @@ export default function WorkPackageTable({
   }, [employees, projectTeamMap]);
 
   const sortedWPs = useMemo(() => sortWorkPackages(workPackages), [workPackages]);
+
+  // NEU v7.4.3: Gesamtzeitraum des Projekts (fruehester AP-Start bis spaetester AP-End)
+  const projectTimeRange = useMemo(() => {
+    let earliest: string | null = null;
+    let latest: string | null = null;
+    workPackages.forEach(wp => {
+      if (wp.start_date && (!earliest || wp.start_date < earliest)) earliest = wp.start_date;
+      if (wp.end_date && (!latest || wp.end_date > latest)) latest = wp.end_date;
+    });
+    return { start: earliest, end: latest };
+  }, [workPackages]);
 
   const assignmentMap = useMemo(() => {
     const map = new Map<string, Assignment>();
@@ -690,19 +764,30 @@ export default function WorkPackageTable({
                   </td>
 
                   {/* Erfasst (h) */}
-                  <td className="px-2 py-2 text-center text-sm text-blue-700 bg-blue-50/50 border-r font-medium">
-                    {wpBooked > 0 ? fmtHours(wpBooked) : '-'}
-                  </td>
+                  {(() => {
+                    const budgetColor = getBudgetColor(wpHours, wpBooked, wp.start_date, wp.end_date);
+                    const cellStyle = wpHours > 0 && wpBooked > 0
+                      ? getBudgetCellStyle(budgetColor)
+                      : 'text-blue-700 bg-blue-50/50';
+                    return (
+                      <td className={`px-2 py-2 text-center text-sm border-r font-medium ${cellStyle}`}>
+                        {wpBooked > 0 ? fmtHours(wpBooked) : '-'}
+                      </td>
+                    );
+                  })()}
 
                   {/* Frei (h) */}
-                  <td className={`px-2 py-2 text-center text-sm font-medium border-r ${
-                    wpHours <= 0 ? 'text-gray-400 bg-green-50/30' :
-                    wpAvailable > 0 ? 'text-green-700 bg-green-50/50' :
-                    wpAvailable < 0 ? 'text-red-600 bg-red-50/50' :
-                    'text-gray-500 bg-gray-50'
-                  }`}>
-                    {wpHours > 0 ? fmtHours(wpAvailable) : '-'}
-                  </td>
+                  {(() => {
+                    const budgetColor = getBudgetColor(wpHours, wpBooked, wp.start_date, wp.end_date);
+                    const cellStyle = wpHours <= 0
+                      ? 'text-gray-400 bg-green-50/30'
+                      : getBudgetCellStyle(budgetColor);
+                    return (
+                      <td className={`px-2 py-2 text-center text-sm font-medium border-r ${cellStyle}`}>
+                        {wpHours > 0 ? fmtHours(wpAvailable) : '-'}
+                      </td>
+                    );
+                  })()}
 
                   {/* Aktionen */}
                   {canEdit && (
@@ -827,8 +912,12 @@ export default function WorkPackageTable({
                 {isZimDS && <td className="px-2 py-1.5 border-r bg-blue-50"></td>}
                 {sortedEmployees.map((emp) => {
                   const booked = hoursPerEmployee[emp.id] || 0;
+                  const empSum = sums.perEmployee.get(emp.id) || 0;
+                  const planned = empSum * PM_TO_HOURS;
+                  const budgetColor = getBudgetColor(planned, booked, projectTimeRange.start, projectTimeRange.end);
+                  const cellStyle = planned > 0 && booked > 0 ? getBudgetCellStyle(budgetColor) : 'bg-blue-50';
                   return (
-                    <td key={emp.id} className="px-2 py-1.5 text-center text-xs border-r bg-blue-50 font-medium">
+                    <td key={emp.id} className={`px-2 py-1.5 text-center text-xs border-r font-medium ${cellStyle}`}>
                       {booked > 0 ? fmtHours(booked) : '-'}
                     </td>
                   );
@@ -859,9 +948,10 @@ export default function WorkPackageTable({
                   const planned = empSum * PM_TO_HOURS;
                   const booked = hoursPerEmployee[emp.id] || 0;
                   const available = planned - booked;
-                  const isOver = available < 0;
+                  const budgetColor = getBudgetColor(planned, booked, projectTimeRange.start, projectTimeRange.end);
+                  const cellStyle = planned > 0 ? getBudgetCellStyle(budgetColor) : '';
                   return (
-                    <td key={emp.id} className={`px-2 py-1.5 text-center text-xs border-r bg-green-50 font-semibold ${isOver ? 'text-red-600' : ''}`}>
+                    <td key={emp.id} className={`px-2 py-1.5 text-center text-xs border-r font-semibold ${cellStyle}`}>
                       {planned > 0 ? fmtHours(available) : '-'}
                     </td>
                   );
