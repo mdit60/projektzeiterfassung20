@@ -3,16 +3,18 @@
 // PZE V7 - Arbeitsplan-Tabelle (Excel-Style mit Inline-Edit)
 // ============================================================================
 // Datum: 02. Maerz 2026
-// Version: 7.4.3-5
+// Version: 7.4.3-6
 //
 // SHARED COMPONENT - wird von beiden Portalen genutzt:
 // - Berater-Portal: /v7/berater/foerderung/firma/[id]/projekt/[projektId]
 // - Firmen-Portal: /v7/firma/projekte/[projektId]
 //
-// v7.4.3-5: Ampel-Farblogik (Gruen/Orange/Rot) fuer Erfasst + Frei Spalten
-//           pro AP-Zeile und pro MA-Summenzeile. Orange = Erfassung hinkt
-//           dem Zeitfortschritt > 25 Prozentpunkte hinterher.
-//           Rot = Budget ueberschritten ODER AP-Laufzeit abgelaufen.
+// v7.4.3-6: Ampel-Farblogik UEBERARBEITET:
+//           Erfasst(h): schwarze Schrift, Hintergrund weiss/orange (Warnung)
+//           Frei(h): blassgruener Hintergrund, Schrift gruen/rot
+//           Orange bei > 25 Pp Differenz Zeitfortschritt vs Erfassungsgrad
+//           Kein Rot bei abgelaufenem AP (APs duerfen weiterlaufen)
+// v7.4.3-5: Ampel-Farblogik erste Version
 // v7.4.2-5: REDESIGN Stunden-Anzeige:
 //           - 3 eigene Spalten rechts: Soll (h) | Erfasst (h) | Frei (h)
 //           - Normale Schriftgroesse statt Minitext unter PM
@@ -128,16 +130,12 @@ function getBudgetColor(
   // Rot: Budget ueberschritten
   if (frei < 0) return 'red';
 
-  // Zeitfortschritt berechnen
+  // Zeitfortschritt berechnen fuer Orange-Warnung
   if (startDate && endDate) {
     const now = new Date();
     const start = new Date(startDate);
     const end = new Date(endDate);
 
-    // Rot: AP abgelaufen und noch Stunden offen
-    if (now > end && frei > 0) return 'red';
-
-    // Zeitfortschritt in Prozent (0-100)
     const totalDuration = end.getTime() - start.getTime();
     if (totalDuration > 0) {
       const elapsed = Math.max(0, now.getTime() - start.getTime());
@@ -159,12 +157,23 @@ function getBudgetColor(
   return 'neutral';
 }
 
-function getBudgetCellStyle(color: BudgetColor): string {
+function getErfasstCellStyle(color: BudgetColor): string {
+  // Erfasst: schwarze Schrift, Hintergrund wechselt
   switch (color) {
-    case 'green': return 'text-green-700 bg-green-50/50';
-    case 'orange': return 'text-orange-700 bg-orange-50/50';
-    case 'red': return 'text-red-600 bg-red-50/50';
-    default: return 'text-gray-500 bg-gray-50';
+    case 'green': return 'text-gray-900 bg-white';
+    case 'orange': return 'text-gray-900 bg-orange-100';
+    case 'red': return 'text-gray-900 bg-red-100';
+    default: return 'text-gray-900 bg-white';
+  }
+}
+
+function getFreiCellStyle(color: BudgetColor): string {
+  // Frei: blassgruener Hintergrund, Schriftfarbe wechselt
+  switch (color) {
+    case 'green': return 'text-green-700 bg-green-50';
+    case 'orange': return 'text-green-700 bg-green-50';  // Frei bleibt gruen, Warnung nur in Erfasst
+    case 'red': return 'text-red-600 bg-green-50';
+    default: return 'text-gray-500 bg-green-50';
   }
 }
 
@@ -767,8 +776,8 @@ export default function WorkPackageTable({
                   {(() => {
                     const budgetColor = getBudgetColor(wpHours, wpBooked, wp.start_date, wp.end_date);
                     const cellStyle = wpHours > 0 && wpBooked > 0
-                      ? getBudgetCellStyle(budgetColor)
-                      : 'text-blue-700 bg-blue-50/50';
+                      ? getErfasstCellStyle(budgetColor)
+                      : 'text-gray-900 bg-white';
                     return (
                       <td className={`px-2 py-2 text-center text-sm border-r font-medium ${cellStyle}`}>
                         {wpBooked > 0 ? fmtHours(wpBooked) : '-'}
@@ -780,8 +789,8 @@ export default function WorkPackageTable({
                   {(() => {
                     const budgetColor = getBudgetColor(wpHours, wpBooked, wp.start_date, wp.end_date);
                     const cellStyle = wpHours <= 0
-                      ? 'text-gray-400 bg-green-50/30'
-                      : getBudgetCellStyle(budgetColor);
+                      ? 'text-gray-400 bg-green-50'
+                      : getFreiCellStyle(budgetColor);
                     return (
                       <td className={`px-2 py-2 text-center text-sm font-medium border-r ${cellStyle}`}>
                         {wpHours > 0 ? fmtHours(wpAvailable) : '-'}
@@ -915,7 +924,7 @@ export default function WorkPackageTable({
                   const empSum = sums.perEmployee.get(emp.id) || 0;
                   const planned = empSum * PM_TO_HOURS;
                   const budgetColor = getBudgetColor(planned, booked, projectTimeRange.start, projectTimeRange.end);
-                  const cellStyle = planned > 0 && booked > 0 ? getBudgetCellStyle(budgetColor) : 'bg-blue-50';
+                  const cellStyle = planned > 0 && booked > 0 ? getErfasstCellStyle(budgetColor) : 'bg-blue-50';
                   return (
                     <td key={emp.id} className={`px-2 py-1.5 text-center text-xs border-r font-medium ${cellStyle}`}>
                       {booked > 0 ? fmtHours(booked) : '-'}
@@ -949,7 +958,7 @@ export default function WorkPackageTable({
                   const booked = hoursPerEmployee[emp.id] || 0;
                   const available = planned - booked;
                   const budgetColor = getBudgetColor(planned, booked, projectTimeRange.start, projectTimeRange.end);
-                  const cellStyle = planned > 0 ? getBudgetCellStyle(budgetColor) : '';
+                  const cellStyle = planned > 0 ? getFreiCellStyle(budgetColor) : 'bg-green-50';
                   return (
                     <td key={emp.id} className={`px-2 py-1.5 text-center text-xs border-r font-semibold ${cellStyle}`}>
                       {planned > 0 ? fmtHours(available) : '-'}
