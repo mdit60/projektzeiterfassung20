@@ -2,18 +2,17 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 18. Februar 2026
-// Version: 7.3.95-1
+// Datum: 02. Maerz 2026
+// Version: 7.4.3
 //
 // Wird von beiden Portalen genutzt:
 // - Firmen-Portal: /v7/firma/zeiterfassung
 // - Berater-Portal: /v7/berater/foerderung/firma/[id]/zeiterfassung
 //
-// v7.3.95-1: FIX: Leeres Timesheet ging beim Drucken ueber 1 Seite hinaus.
-//            Ursache: PortalHeader + PortalNav hatten kein print:hidden
-//            -> Fix in PortalHeader-v7_3_95 und PortalNav-v7_3_95
-//            Zusaetzlich: Unterschrift-Abstand print:mb-6 -> print:mb-4
-//            als Reserve fuer Monate mit 31 Tagen
+// v7.4.3:    NEU: "offen"-Spalte pro AP-Zeile zeigt verbleibende Stunden
+//            (geplant laut Arbeitsplan minus bisher erfasst ueber alle Monate)
+//            NEU: AP-Vorbelegung aus Arbeitsplan-Zuordnungen des MA
+//            (zugeordnete APs werden automatisch vorbelegt, Dropdown zweigeteilt)
 // v7.3.91:   initialYear + initialMonth Props: Monat vorauswaehlen bei
 //            Navigation aus Mein-Status oder Berichte-Seite
 // v7.3.89:   FIX T-Spalte: T/NT statt X/- Anzeige
@@ -282,6 +281,14 @@ export default function TimesheetForm({
   ]);
   const [nonBillableEntries, setNonBillableEntries] = useState<Record<number, CalendarEntry>>({});
 
+  // NEU v7.4.3: Arbeitsplan-Daten fuer "offen"-Spalte und AP-Vorbelegung
+  // Geplante Stunden pro WP fuer den aktuellen MA (aus v7_work_package_assignments)
+  const [plannedHoursPerWP, setPlannedHoursPerWP] = useState<Record<string, number>>({});
+  // Bereits erfasste Stunden pro WP ueber ALLE Monate (kumuliert aus v7_timesheets)
+  const [totalBookedPerWP, setTotalBookedPerWP] = useState<Record<string, number>>({});
+  // IDs der APs, die dem MA laut Arbeitsplan zugeordnet sind
+  const [assignedWPIds, setAssignedWPIds] = useState<string[]>([]);
+
   // Feiertage
   const [holidays, setHolidays] = useState<Map<string, string>>(new Map());
 
@@ -371,6 +378,78 @@ export default function TimesheetForm({
   useEffect(() => {
     setSignatureDate(getLastWorkdayOfMonth(selectedYear, selectedMonth));
   }, [selectedYear, selectedMonth, holidays]);
+
+  // NEU v7.4.3: Arbeitsplan-Zuordnungen und kumulierte Stunden laden
+  useEffect(() => {
+    if (!selectedEmployeeId || !selectedProjectId) return;
+
+    const loadAssignmentData = async () => {
+      try {
+        const supabaseClient = createClient();
+
+        // 1. Geplante PM pro WP fuer diesen MA aus v7_work_package_assignments
+        const { data: assignments, error: assErr } = await supabaseClient
+          .from('v7_work_package_assignments')
+          .select('work_package_id, planned_pm')
+          .eq('employee_id', selectedEmployeeId)
+          .gt('planned_pm', 0);
+
+        if (assErr) {
+          console.error('[TimesheetForm] Fehler beim Laden der Assignments:', assErr);
+          return;
+        }
+
+        // Filter: Nur APs die zu diesem Projekt gehoeren
+        const projectWPIds = safeWorkPackages
+          .filter(wp => wp.project_id === selectedProjectId)
+          .map(wp => wp.id);
+
+        const planned: Record<string, number> = {};
+        const assignedIds: string[] = [];
+
+        (assignments || []).forEach((a: any) => {
+          if (projectWPIds.includes(a.work_package_id)) {
+            planned[a.work_package_id] = (a.planned_pm || 0) * 173.33;
+            assignedIds.push(a.work_package_id);
+          }
+        });
+
+        setPlannedHoursPerWP(planned);
+        setAssignedWPIds(assignedIds);
+
+        // 2. Kumulierte Ist-Stunden pro WP ueber ALLE Monate
+        const { data: tsEntries, error: tsErr } = await supabaseClient
+          .from('v7_timesheets')
+          .select('work_package_id, hours')
+          .eq('employee_id', selectedEmployeeId)
+          .eq('project_id', selectedProjectId)
+          .eq('is_active', true)
+          .eq('is_billable', true);
+
+        if (tsErr) {
+          console.error('[TimesheetForm] Fehler beim Laden der kumulierten Stunden:', tsErr);
+          return;
+        }
+
+        const booked: Record<string, number> = {};
+        (tsEntries || []).forEach((e: any) => {
+          if (e.work_package_id) {
+            const h = parseFloat(e.hours) || 0;
+            if (h > 0) {
+              booked[e.work_package_id] = (booked[e.work_package_id] || 0) + h;
+            }
+          }
+        });
+
+        setTotalBookedPerWP(booked);
+        console.log('[TimesheetForm] Arbeitsplan geladen:', { planned, assignedIds, booked });
+      } catch (err) {
+        console.error('[TimesheetForm] Fehler beim Laden der Arbeitsplan-Daten:', err);
+      }
+    };
+
+    loadAssignmentData();
+  }, [selectedEmployeeId, selectedProjectId, workPackages]);
 
   // Daten laden fuer MA/Projekt/Monat
   useEffect(() => {
@@ -512,6 +591,36 @@ export default function TimesheetForm({
         console.log('[TimesheetForm] Fehlzeiten in erste Zeile geladen mit WP:', wpIds[0]);
       }
 
+      // NEU v7.4.3: AP-Vorbelegung aus Arbeitsplan wenn keine DB-Eintraege
+      // Zugeordnete APs vorbelegen, damit MA sofort seine APs sieht
+      if (wpEntryMap.size === 0 && absenceEntries.size === 0 && assignedWPIds.length > 0) {
+        const relevantAssigned = assignedWPIds.filter(id => wpIds.includes(id));
+        console.log('[TimesheetForm] Vorbelege zugeordnete APs:', relevantAssigned.length);
+        
+        // Erstelle Zeilen fuer zugeordnete APs + eine leere Zeile
+        const prefilledRows: APRow[] = relevantAssigned.map(wpId => ({
+          workPackageId: wpId,
+          entries: {},
+        }));
+        // Mindestens eine leere Zeile anhaengen fuer weitere APs
+        prefilledRows.push({ workPackageId: null, entries: {} });
+        
+        // Maximal 4 Zeilen initial, oder so viele wie zugeordnet + 1
+        while (prefilledRows.length < 4) {
+          prefilledRows.push({ workPackageId: null, entries: {} });
+        }
+        
+        for (let i = 0; i < prefilledRows.length && i < newRows.length; i++) {
+          newRows[i] = prefilledRows[i];
+        }
+        // Falls mehr zugeordnete APs als 4, Zeilen erweitern
+        if (prefilledRows.length > newRows.length) {
+          for (let i = newRows.length; i < prefilledRows.length; i++) {
+            newRows.push(prefilledRows[i]);
+          }
+        }
+      }
+
       console.log('[TimesheetForm] Finale apRows:', newRows.map(r => ({ wpId: r.workPackageId, entries: Object.keys(r.entries).length })));
       setApRows(newRows);
       setNonBillableEntries(newNonBillable);
@@ -519,7 +628,7 @@ export default function TimesheetForm({
     };
 
     loadTimeEntries();
-  }, [selectedEmployeeId, selectedProjectId, selectedYear, selectedMonth, workPackages, supabase]);
+  }, [selectedEmployeeId, selectedProjectId, selectedYear, selectedMonth, workPackages, supabase, assignedWPIds]);
 
   // ============================================================================
   // EVENT HANDLERS
@@ -730,6 +839,16 @@ export default function TimesheetForm({
       }
       return sum;
     }, 0);
+  };
+
+  // NEU v7.4.3: Verbleibende Stunden fuer ein AP berechnen
+  // = geplante Stunden (Arbeitsplan) minus kumulierte Ist-Stunden (alle Monate)
+  const calculateRemainingHours = (wpId: string | null): number | null => {
+    if (!wpId) return null;
+    const planned = plannedHoursPerWP[wpId];
+    if (planned === undefined) return null; // AP nicht im Arbeitsplan zugeordnet
+    const booked = totalBookedPerWP[wpId] || 0;
+    return Math.round(planned - booked);
   };
 
   const calculateDaySum = (day: number): number => {
@@ -1266,12 +1385,13 @@ export default function TimesheetForm({
                   );
                 })}
                 <th className="border p-1 text-center" style={{ width: '50px' }}>Summe<br/>Monat</th>
+                <th className="border p-1 text-center" style={{ width: '50px', backgroundColor: '#E8F5E9' }}>offen</th>
               </tr>
             </thead>
             <tbody>
               {/* Abschnitt 1: Foerderbare Arbeiten */}
               <tr>
-                <td className="border p-1 font-semibold" colSpan={(isDurchfuehrbarkeitsstudie ? 4 : 3) + daysInMonth + 1} style={{ backgroundColor: '#FFF9E6' }}>
+                <td className="border p-1 font-semibold" colSpan={(isDurchfuehrbarkeitsstudie ? 4 : 3) + daysInMonth + 2} style={{ backgroundColor: '#FFF9E6' }}>
                   1. foerderbare Projektarbeiten (1)
                 </td>
               </tr>
@@ -1289,10 +1409,44 @@ export default function TimesheetForm({
                         className="w-full h-full p-1 text-xs border-0 bg-transparent print:appearance-none text-center"
                       >
                         <option value="">-</option>
-                        {availableWorkPackages.map(wp => {
-                          // Nur Nummer anzeigen, ohne "AP" Prefix
-                          const apDisplay = wp.ap_code 
-                            ? wp.ap_code.replace(/^AP/i, '') 
+                        {/* NEU v7.4.3: Zugeordnete APs zuerst (fett) */}
+                        {assignedWPIds.length > 0 && availableWorkPackages.some(wp => assignedWPIds.includes(wp.id)) && (
+                          <optgroup label="Zugeordnete AP">
+                            {availableWorkPackages
+                              .filter(wp => assignedWPIds.includes(wp.id))
+                              .map(wp => {
+                                const apDisplay = wp.ap_code
+                                  ? wp.ap_code.replace(/^AP/i, '')
+                                  : `${wp.ap_number}${wp.ap_sub_number ? `.${wp.ap_sub_number}` : ''}`;
+                                return (
+                                  <option key={wp.id} value={wp.id}>
+                                    {apDisplay}
+                                  </option>
+                                );
+                              })}
+                          </optgroup>
+                        )}
+                        {/* Weitere APs (nicht zugeordnet) */}
+                        {availableWorkPackages.some(wp => !assignedWPIds.includes(wp.id)) && (
+                          <optgroup label={assignedWPIds.length > 0 ? 'Weitere AP' : 'Alle AP'}>
+                            {availableWorkPackages
+                              .filter(wp => !assignedWPIds.includes(wp.id))
+                              .map(wp => {
+                                const apDisplay = wp.ap_code
+                                  ? wp.ap_code.replace(/^AP/i, '')
+                                  : `${wp.ap_number}${wp.ap_sub_number ? `.${wp.ap_sub_number}` : ''}`;
+                                return (
+                                  <option key={wp.id} value={wp.id}>
+                                    {apDisplay}
+                                  </option>
+                                );
+                              })}
+                          </optgroup>
+                        )}
+                        {/* Fallback wenn keine Gruppen */}
+                        {assignedWPIds.length === 0 && availableWorkPackages.map(wp => {
+                          const apDisplay = wp.ap_code
+                            ? wp.ap_code.replace(/^AP/i, '')
                             : `${wp.ap_number}${wp.ap_sub_number ? `.${wp.ap_sub_number}` : ''}`;
                           return (
                             <option key={wp.id} value={wp.id}>
@@ -1356,6 +1510,16 @@ export default function TimesheetForm({
                     <td className="border p-1 text-center font-semibold bg-gray-50">
                       {calculateRowSum(row) > 0 ? calculateRowSum(row).toFixed(2) : '0,00'}
                     </td>
+                    {/* NEU v7.4.3: offen-Spalte */}
+                    <td className="border p-1 text-center text-xs" style={{ backgroundColor: '#F1F8E9' }}>
+                      {(() => {
+                        const remaining = calculateRemainingHours(row.workPackageId);
+                        if (remaining === null) return <span className="text-gray-300">-</span>;
+                        if (remaining > 0) return <span className="text-green-700 font-semibold">{remaining}</span>;
+                        if (remaining < 0) return <span className="text-red-600 font-bold">{remaining}</span>;
+                        return <span className="text-gray-500">0</span>;
+                      })()}
+                    </td>
                   </tr>
                 );
               })}
@@ -1363,7 +1527,7 @@ export default function TimesheetForm({
               {/* Button zum Hinzufuegen */}
               {allRowsFilled && availableWorkPackages.length > apRows.length && (
                 <tr className="print:hidden">
-                  <td colSpan={(isDurchfuehrbarkeitsstudie ? 4 : 3) + daysInMonth + 1} className="border p-1 text-center">
+                  <td colSpan={(isDurchfuehrbarkeitsstudie ? 4 : 3) + daysInMonth + 2} className="border p-1 text-center">
                     <button
                       onClick={addApRow}
                       className={`text-xs ${colors.text} hover:underline`}
@@ -1391,6 +1555,7 @@ export default function TimesheetForm({
                     <td className="border p-1 text-center bg-green-200">
                       {calculateTechnicalTotal(true).toFixed(2)}
                     </td>
+                    <td className="border p-1 bg-green-50"></td>
                   </tr>
                   {/* Summe nicht-technische APs */}
                   <tr className="font-semibold" style={{ backgroundColor: '#E3F2FD' }}>
@@ -1406,6 +1571,7 @@ export default function TimesheetForm({
                     <td className="border p-1 text-center bg-blue-200">
                       {calculateTechnicalTotal(false).toFixed(2)}
                     </td>
+                    <td className="border p-1 bg-blue-50"></td>
                   </tr>
                   {/* Gesamtsumme */}
                   <tr className="font-bold" style={{ backgroundColor: '#C8E6C9' }}>
@@ -1421,6 +1587,7 @@ export default function TimesheetForm({
                     <td className="border p-1 text-center bg-green-300">
                       {calculateTotalBillable().toFixed(2)}
                     </td>
+                    <td className="border p-1 bg-green-100"></td>
                   </tr>
                 </>
               ) : (
@@ -1437,12 +1604,13 @@ export default function TimesheetForm({
                   <td className="border p-1 text-center bg-green-200">
                     {calculateTotalBillable().toFixed(2)}
                   </td>
+                  <td className="border p-1 bg-green-50"></td>
                 </tr>
               )}
 
               {/* Abschnitt 2: Nicht zuschussfaehig */}
               <tr>
-                <td className="border p-1 font-semibold" colSpan={(isDurchfuehrbarkeitsstudie ? 4 : 3) + daysInMonth + 1} style={{ backgroundColor: '#FFF3E0' }}>
+                <td className="border p-1 font-semibold" colSpan={(isDurchfuehrbarkeitsstudie ? 4 : 3) + daysInMonth + 2} style={{ backgroundColor: '#FFF3E0' }}>
                   2. Nicht zuschussfaehige Arbeiten
                 </td>
               </tr>
@@ -1475,11 +1643,12 @@ export default function TimesheetForm({
                 <td className="border p-1 text-center font-semibold bg-yellow-50">
                   {calculateNonBillableSum().toFixed(2)}
                 </td>
+                <td className="border p-1 bg-yellow-50"></td>
               </tr>
 
               {/* Abschnitt 3: Fehlzeiten */}
               <tr>
-                <td className="border p-1 font-semibold" colSpan={(isDurchfuehrbarkeitsstudie ? 4 : 3) + daysInMonth + 1} style={{ backgroundColor: '#E3F2FD' }}>
+                <td className="border p-1 font-semibold" colSpan={(isDurchfuehrbarkeitsstudie ? 4 : 3) + daysInMonth + 2} style={{ backgroundColor: '#E3F2FD' }}>
                   3. Fehlzeiten
                 </td>
               </tr>
@@ -1498,6 +1667,7 @@ export default function TimesheetForm({
                 <td className="border p-1 text-center font-semibold bg-blue-100">
                   {absenceSums.U > 0 ? absenceSums.U.toFixed(2) : '0,00'}
                 </td>
+                <td className="border p-1 bg-blue-50"></td>
               </tr>
               {/* Krankheit */}
               <tr>
@@ -1514,6 +1684,7 @@ export default function TimesheetForm({
                 <td className="border p-1 text-center font-semibold bg-red-100">
                   {absenceSums.K > 0 ? absenceSums.K.toFixed(2) : '0,00'}
                 </td>
+                <td className="border p-1 bg-red-50"></td>
               </tr>
               {/* Sonstige */}
               <tr>
@@ -1531,6 +1702,7 @@ export default function TimesheetForm({
                 <td className="border p-1 text-center font-semibold bg-purple-100">
                   {absenceSums.S > 0 ? absenceSums.S.toFixed(2) : '0,00'}
                 </td>
+                <td className="border p-1 bg-purple-50"></td>
               </tr>
             </tbody>
           </table>
@@ -1548,7 +1720,7 @@ export default function TimesheetForm({
           {/* Unterschriften */}
           <div className="border-x border-b flex">
             <div className="flex-1 p-3 print:p-2 border-r border-gray-400">
-              <div className="text-[9px] print:text-[7px] text-gray-500 mb-8 print:mb-4">Datum / Unterschrift des Mitarbeiters</div>
+              <div className="text-[9px] print:text-[7px] text-gray-500 mb-8 print:mb-6">Datum / Unterschrift des Mitarbeiters</div>
               <input
                 type="text"
                 value={signatureDate}
@@ -1557,7 +1729,7 @@ export default function TimesheetForm({
               />
             </div>
             <div className="flex-1 p-3 print:p-2">
-              <div className="text-[9px] print:text-[7px] text-gray-500 mb-8 print:mb-4">Datum / Unterschrift Geschaeftsfuehrer bzw. FuE-Verantwortlicher</div>
+              <div className="text-[9px] print:text-[7px] text-gray-500 mb-8 print:mb-6">Datum / Unterschrift Geschaeftsfuehrer bzw. FuE-Verantwortlicher</div>
               <input
                 type="text"
                 value={signatureDate}
@@ -1573,7 +1745,7 @@ export default function TimesheetForm({
       <footer className="bg-white border-t mt-4 print:hidden">
         <div className="max-w-full mx-auto px-4 py-3">
           <p className="text-center text-xs text-gray-500">
-            PZE v7.3.57 | {portal === 'berater' ? 'Berater-Portal' : 'Firmen-Portal'} | {company.name}
+            PZE v7.4.3 | {portal === 'berater' ? 'Berater-Portal' : 'Firmen-Portal'} | {company.name}
           </p>
         </div>
       </footer>
