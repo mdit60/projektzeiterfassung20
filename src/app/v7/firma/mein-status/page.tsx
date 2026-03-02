@@ -3,10 +3,12 @@
 // PZE V7 - Mein Status (Firmen-Portal)
 // ============================================================================
 // Version: 7.3.95-4
-// Datum: 20. Februar 2026
 //
-// v7.3.95-4: userName Fallback auf v7_employees.display_name wenn
-//            v7_user_profiles.display_name NULL ist
+// v7.3.95-4: FIX: Timesheet-Query mit is_active=true Filter
+//            Ohne Filter wurden auch geloeschte Eintraege gezaehlt,
+//            sodass Monate faelschlich als "vollstaendig" angezeigt wurden
+// Datum: 18. Februar 2026
+//
 // v7.3.95-3: Ampel-Logik korrigiert:
 //   - Gruen:  Alle Arbeitstage haben Eintraege (statt 80%-Regel)
 //   - Orange: In Bearbeitung (statt "Teilweise erfasst")
@@ -312,18 +314,13 @@ export default function MeinStatusPage() {
         // 4. Ermittle Portal-Rolle
         const { data: employeeRecord } = await supabase
           .from('v7_employees')
-          .select('id, user_id, portal_role, display_name')
+          .select('id, user_id, portal_role')
           .eq('client_company_id', companyId)
           .eq('user_id', user.id)
           .maybeSingle();
 
         let userPortalRole: PortalRole = 'employee';
         let userEmployeeId: string | null = null;
-
-        // Fallback: display_name aus Employee wenn in Profile leer
-        if (employeeRecord?.display_name && !profile.display_name) {
-          profile.display_name = employeeRecord.display_name;
-        }
 
         if (profile.role === 'client_admin') {
           userPortalRole = 'client_admin';
@@ -365,6 +362,7 @@ export default function MeinStatusPage() {
             .from('v7_timesheets')
             .select('id, project_id, employee_id, work_date, hours, day_type')
             .eq('employee_id', userEmployeeId)
+            .eq('is_active', true)
             .in('project_id', projectIds);
 
           setTimesheets(timesheetData || []);
