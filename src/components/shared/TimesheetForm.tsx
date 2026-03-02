@@ -390,9 +390,9 @@ export default function TimesheetForm({
         // 1. Geplante PM pro WP fuer diesen MA aus v7_work_package_assignments
         const { data: assignments, error: assErr } = await supabaseClient
           .from('v7_work_package_assignments')
-          .select('work_package_id, planned_pm')
+          .select('work_package_id, planned_person_months')
           .eq('employee_id', selectedEmployeeId)
-          .gt('planned_pm', 0);
+          .eq('is_active', true);
 
         if (assErr) {
           console.error('[TimesheetForm] Fehler beim Laden der Assignments:', assErr);
@@ -409,8 +409,11 @@ export default function TimesheetForm({
 
         (assignments || []).forEach((a: any) => {
           if (projectWPIds.includes(a.work_package_id)) {
-            planned[a.work_package_id] = (a.planned_pm || 0) * 173.33;
-            assignedIds.push(a.work_package_id);
+            const pm = a.planned_person_months || 0;
+            if (pm > 0) {
+              planned[a.work_package_id] = pm * 173.33;
+              assignedIds.push(a.work_package_id);
+            }
           }
         });
 
@@ -1385,7 +1388,7 @@ export default function TimesheetForm({
                   );
                 })}
                 <th className="border p-1 text-center" style={{ width: '50px' }}>Summe<br/>Monat</th>
-                <th className="border p-1 text-center" style={{ width: '50px', backgroundColor: '#E8F5E9' }}>offen</th>
+                <th className="border p-1 text-center print:hidden" style={{ width: '50px', backgroundColor: '#E8F5E9' }}>offen</th>
               </tr>
             </thead>
             <tbody>
@@ -1511,7 +1514,7 @@ export default function TimesheetForm({
                       {calculateRowSum(row) > 0 ? calculateRowSum(row).toFixed(2) : '0,00'}
                     </td>
                     {/* NEU v7.4.3: offen-Spalte */}
-                    <td className="border p-1 text-center text-xs" style={{ backgroundColor: '#F1F8E9' }}>
+                    <td className="border p-1 text-center text-xs print:hidden" style={{ backgroundColor: '#F1F8E9' }}>
                       {(() => {
                         const remaining = calculateRemainingHours(row.workPackageId);
                         if (remaining === null) return <span className="text-gray-300">-</span>;
@@ -1555,7 +1558,7 @@ export default function TimesheetForm({
                     <td className="border p-1 text-center bg-green-200">
                       {calculateTechnicalTotal(true).toFixed(2)}
                     </td>
-                    <td className="border p-1 bg-green-50"></td>
+                    <td className="border p-1 bg-green-50 print:hidden"></td>
                   </tr>
                   {/* Summe nicht-technische APs */}
                   <tr className="font-semibold" style={{ backgroundColor: '#E3F2FD' }}>
@@ -1571,7 +1574,7 @@ export default function TimesheetForm({
                     <td className="border p-1 text-center bg-blue-200">
                       {calculateTechnicalTotal(false).toFixed(2)}
                     </td>
-                    <td className="border p-1 bg-blue-50"></td>
+                    <td className="border p-1 bg-blue-50 print:hidden"></td>
                   </tr>
                   {/* Gesamtsumme */}
                   <tr className="font-bold" style={{ backgroundColor: '#C8E6C9' }}>
@@ -1587,7 +1590,7 @@ export default function TimesheetForm({
                     <td className="border p-1 text-center bg-green-300">
                       {calculateTotalBillable().toFixed(2)}
                     </td>
-                    <td className="border p-1 bg-green-100"></td>
+                    <td className="border p-1 bg-green-100 print:hidden"></td>
                   </tr>
                 </>
               ) : (
@@ -1604,7 +1607,7 @@ export default function TimesheetForm({
                   <td className="border p-1 text-center bg-green-200">
                     {calculateTotalBillable().toFixed(2)}
                   </td>
-                  <td className="border p-1 bg-green-50"></td>
+                  <td className="border p-1 bg-green-50 print:hidden"></td>
                 </tr>
               )}
 
@@ -1643,7 +1646,7 @@ export default function TimesheetForm({
                 <td className="border p-1 text-center font-semibold bg-yellow-50">
                   {calculateNonBillableSum().toFixed(2)}
                 </td>
-                <td className="border p-1 bg-yellow-50"></td>
+                <td className="border p-1 bg-yellow-50 print:hidden"></td>
               </tr>
 
               {/* Abschnitt 3: Fehlzeiten */}
@@ -1667,7 +1670,7 @@ export default function TimesheetForm({
                 <td className="border p-1 text-center font-semibold bg-blue-100">
                   {absenceSums.U > 0 ? absenceSums.U.toFixed(2) : '0,00'}
                 </td>
-                <td className="border p-1 bg-blue-50"></td>
+                <td className="border p-1 bg-blue-50 print:hidden"></td>
               </tr>
               {/* Krankheit */}
               <tr>
@@ -1684,7 +1687,7 @@ export default function TimesheetForm({
                 <td className="border p-1 text-center font-semibold bg-red-100">
                   {absenceSums.K > 0 ? absenceSums.K.toFixed(2) : '0,00'}
                 </td>
-                <td className="border p-1 bg-red-50"></td>
+                <td className="border p-1 bg-red-50 print:hidden"></td>
               </tr>
               {/* Sonstige */}
               <tr>
@@ -1702,7 +1705,7 @@ export default function TimesheetForm({
                 <td className="border p-1 text-center font-semibold bg-purple-100">
                   {absenceSums.S > 0 ? absenceSums.S.toFixed(2) : '0,00'}
                 </td>
-                <td className="border p-1 bg-purple-50"></td>
+                <td className="border p-1 bg-purple-50 print:hidden"></td>
               </tr>
             </tbody>
           </table>
