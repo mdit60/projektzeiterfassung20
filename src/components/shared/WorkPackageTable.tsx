@@ -3,7 +3,7 @@
 // PZE V7 - Arbeitsplan-Tabelle (Excel-Style mit Inline-Edit)
 // ============================================================================
 // Datum: 02. Maerz 2026
-// Version: 7.3.90-2
+// Version: 7.4.2-4
 //
 // SHARED COMPONENT - wird von beiden Portalen genutzt:
 // - Berater-Portal: /v7/berater/foerderung/firma/[id]/projekt/[projektId]
@@ -15,11 +15,17 @@
 // - Summen pro MA und pro AP
 // - Zeitraum pro AP (von/bis)
 //
-// v7.3.90-2: NEU: Stunden + Erfasst + Verfuegbar pro AP in Summe-Spalte
+// v7.4.2-4: NEU: Stunden + Erfasst + Verfuegbar pro AP in Summe-Spalte
 //            Laedt Ist-Stunden direkt aus v7_timesheets (kein Prop-Drilling)
 //            Summe-Spalte: PM, darunter Stunden, darunter "X h frei" / "X h ueber"
 //            Footer: Zeile "Erfasst (Ist)" + Zeile "Verfuegbar (Rest)" pro MA
 //            Farb-Ampel: gruen = frei, rot = ueberschritten, grau = ausgeschoepft
+// v7.4.2-3: Anlage 5 Kontrollsummen unterhalb des Arbeitsplans
+//           Fuer ALLE ZIM-Formate:
+//           a) Personenmonate je Arbeitspaket
+//           b) Personenmonate je Mitarbeiter (+ beteiligte AP)
+//           Bei ZIM_DS zusaetzlich: T/NT-Spalten getrennt
+//           Bei normalem ZIM: nur eine PM-Spalte
 // v7.3.90: T/NT Spalte: Header "T/NT", Werte "T" und "NT" statt "X" und "-"
 // v7.3.85 FIXES:
 // - Sortierung: AP1.1/1.2 kommen nach AP1, nicht ans Ende
@@ -140,6 +146,12 @@ const getShortName = (emp: Employee): string => {
     return `${vorname.charAt(0)}. ${nachname}`;
   }
   return emp.display_name;
+};
+
+// PM formatieren: deutsches Komma, 0 als "0"
+const fmtPM = (val: number): string => {
+  if (val === 0) return '0';
+  return val.toFixed(2).replace('.', ',');
 };
 
 const sortWorkPackages = (wps: WorkPackage[]): WorkPackage[] => {
@@ -263,12 +275,12 @@ export default function WorkPackageTable({
 }: WorkPackageTableProps) {
   const colors = PORTAL_COLORS[portal];
   const isZimDS = fundingFormat === 'ZIM_DS';
+  const isZim = (fundingFormat || '').startsWith('ZIM');
 
   // ============================================================================
   // TIMESHEET IST-STUNDEN LADEN
   // ============================================================================
 
-  // Erfasste Stunden pro AP und pro MA
   const [hoursPerWP, setHoursPerWP] = useState<Record<string, number>>({});
   const [hoursPerEmployee, setHoursPerEmployee] = useState<Record<string, number>>({});
   const [timesheetLoaded, setTimesheetLoaded] = useState(false);
@@ -280,8 +292,6 @@ export default function WorkPackageTable({
       try {
         const supabase = createClient();
 
-        // Alle aktiven billable Timesheet-Eintraege fuer dieses Projekt laden
-        // Nur die Felder die wir brauchen: work_package_id, employee_id, hours
         const { data: entries, error } = await supabase
           .from('v7_timesheets')
           .select('work_package_id, employee_id, hours')
@@ -299,20 +309,15 @@ export default function WorkPackageTable({
           return;
         }
 
-        // Aggregieren: Stunden pro AP
         const wpHours: Record<string, number> = {};
         const empHours: Record<string, number> = {};
 
         entries.forEach((entry: any) => {
           const h = parseFloat(entry.hours) || 0;
           if (h <= 0) return;
-
-          // Pro Arbeitspaket
           if (entry.work_package_id) {
             wpHours[entry.work_package_id] = (wpHours[entry.work_package_id] || 0) + h;
           }
-
-          // Pro Mitarbeiter
           if (entry.employee_id) {
             empHours[entry.employee_id] = (empHours[entry.employee_id] || 0) + h;
           }
@@ -321,12 +326,6 @@ export default function WorkPackageTable({
         setHoursPerWP(wpHours);
         setHoursPerEmployee(empHours);
         setTimesheetLoaded(true);
-
-        console.log('[WorkPackageTable] Timesheet-Daten geladen:', {
-          eintraege: entries.length,
-          aps_mit_stunden: Object.keys(wpHours).length,
-          ma_mit_stunden: Object.keys(empHours).length,
-        });
       } catch (err) {
         console.error('[WorkPackageTable] Timesheet-Lade-Fehler:', err);
       }
@@ -335,7 +334,6 @@ export default function WorkPackageTable({
     loadTimesheetHours();
   }, [projectId, workPackages.length]);
 
-  // Pruefen ob tatsaechlich Ist-Stunden existieren
   const hasTimesheetData = timesheetLoaded && (
     Object.values(hoursPerWP).some(h => h > 0) ||
     Object.values(hoursPerEmployee).some(h => h > 0)
@@ -400,6 +398,99 @@ export default function WorkPackageTable({
     Object.values(hoursPerEmployee).forEach(h => { total += h; });
     return total;
   }, [hoursPerEmployee]);
+
+  // ============================================================================
+  // ANLAGE 5 KONTROLLSUMMEN (fuer alle ZIM-Formate)
+  // ============================================================================
+
+  const anlage5 = useMemo(() => {
+    if (!isZim) return null;
+
+    // a) PM je Arbeitspaket
+    const perAP: Array<{
+      apCode: string;
+      pmTechnisch: number;
+      pmNichtTechnisch: number;
+      pmGesamt: number;
+    }> = [];
+
+    sortedWPs.forEach(wp => {
+      const wpPM = sums.perWP.get(wp.id) || 0;
+      if (isZimDS) {
+        perAP.push({
+          apCode: wp.ap_code.replace(/^AP/i, ''),
+          pmTechnisch: wp.is_technical ? wpPM : 0,
+          pmNichtTechnisch: wp.is_technical ? 0 : wpPM,
+          pmGesamt: wpPM,
+        });
+      } else {
+        perAP.push({
+          apCode: wp.ap_code.replace(/^AP/i, ''),
+          pmTechnisch: 0,
+          pmNichtTechnisch: 0,
+          pmGesamt: wpPM,
+        });
+      }
+    });
+
+    const sumT = perAP.reduce((s, a) => s + a.pmTechnisch, 0);
+    const sumNT = perAP.reduce((s, a) => s + a.pmNichtTechnisch, 0);
+    const sumGesamt = perAP.reduce((s, a) => s + a.pmGesamt, 0);
+
+    // b) PM je Mitarbeiter
+    const perMA: Array<{
+      maNumber: number | null;
+      pmTechnisch: number;
+      pmNichtTechnisch: number;
+      pmGesamt: number;
+      beteiligteAP: string[];
+    }> = [];
+
+    sortedEmployees.forEach(emp => {
+      let pmT = 0;
+      let pmNT = 0;
+      let pmTotal = 0;
+      const apList: string[] = [];
+
+      sortedWPs.forEach(wp => {
+        const pm = getPM(wp.id, emp.id) || 0;
+        if (pm > 0) {
+          apList.push(wp.ap_code.replace(/^AP/i, ''));
+          if (isZimDS) {
+            if (wp.is_technical) {
+              pmT += pm;
+            } else {
+              pmNT += pm;
+            }
+          }
+          pmTotal += pm;
+        }
+      });
+
+      if (pmTotal > 0) {
+        perMA.push({
+          maNumber: getEmployeeNumber(emp),
+          pmTechnisch: pmT,
+          pmNichtTechnisch: pmNT,
+          pmGesamt: pmTotal,
+          beteiligteAP: apList,
+        });
+      }
+    });
+
+    const maSumT = perMA.reduce((s, m) => s + m.pmTechnisch, 0);
+    const maSumNT = perMA.reduce((s, m) => s + m.pmNichtTechnisch, 0);
+    const maSumGesamt = perMA.reduce((s, m) => s + m.pmGesamt, 0);
+
+    return {
+      perAP, sumT, sumNT, sumGesamt,
+      perMA, maSumT, maSumNT, maSumGesamt,
+    };
+  }, [isZim, isZimDS, sortedWPs, sortedEmployees, sums, assignments]);
+
+  // ============================================================================
+  // HANDLER
+  // ============================================================================
 
   const handleCellChange = async (wpId: string, empId: string, newPm: number | null) => {
     await onAssignmentChange(wpId, empId, newPm);
@@ -597,17 +688,14 @@ export default function WorkPackageTable({
 
                   {/* Summe-Spalte: PM + Stunden + Verfuegbar */}
                   <td className="px-2 py-1 text-center bg-gray-100 border-l border-gray-300">
-                    {/* PM-Summe */}
                     <div className="font-semibold text-gray-900 text-sm">
                       {wpSum > 0 ? wpSum.toFixed(2).replace('.', ',') : '-'}
                     </div>
-                    {/* Geplante Stunden */}
                     {wpSum > 0 && (
                       <div className="text-[10px] text-gray-500 leading-tight mt-0.5">
                         = {Math.round(wpHours).toLocaleString('de-DE')} h
                       </div>
                     )}
-                    {/* Verfuegbare Stunden (nur wenn Ist-Daten vorhanden) */}
                     {wpSum > 0 && hasTimesheetData && (
                       <div className="text-[10px] leading-tight mt-0.5">
                         {wpBooked > 0 && (
@@ -693,7 +781,7 @@ export default function WorkPackageTable({
               {canEdit && <td></td>}
             </tr>
 
-            {/* Zeile 2: Geplante Stunden (PM x 173,33) */}
+            {/* Zeile 2: Geplante Stunden */}
             <tr className="bg-gray-100 text-gray-600">
               <td 
                 className="px-3 py-1.5 text-sm border-r bg-gray-100 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]"
@@ -724,7 +812,7 @@ export default function WorkPackageTable({
               {canEdit && <td></td>}
             </tr>
 
-            {/* Zeile 3: Erfasste Stunden (Ist) - nur wenn Daten vorhanden */}
+            {/* Zeile 3: Erfasste Stunden (Ist) */}
             {hasTimesheetData && (
               <tr className="bg-blue-50 text-blue-800">
                 <td 
@@ -755,7 +843,7 @@ export default function WorkPackageTable({
               </tr>
             )}
 
-            {/* Zeile 4: Verfuegbare Stunden (Rest) - nur wenn Daten vorhanden */}
+            {/* Zeile 4: Verfuegbare Stunden (Rest) */}
             {hasTimesheetData && (
               <tr className="bg-green-50 text-green-800 border-t border-green-200">
                 <td 
@@ -806,6 +894,160 @@ export default function WorkPackageTable({
         <span>1 PM = 173,33 Stunden</span>
         {canEdit && <span className="text-blue-600">Klicken Sie in eine Zelle zum Bearbeiten</span>}
       </div>
+
+      {/* ================================================================ */}
+      {/* ANLAGE 5 KONTROLLSUMMEN (nur bei ZIM-Formaten)                  */}
+      {/* ================================================================ */}
+      {isZim && anlage5 && (
+        <div className="border-t border-gray-300 px-4 py-4 bg-gray-50">
+          <h4 className="text-sm font-semibold text-gray-700 mb-3">
+            Kontrollsummen (Anlage 5)
+          </h4>
+
+          <div className={`grid gap-6 ${isZimDS ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-2'}`}>
+
+            {/* a) Personenmonate je Arbeitspaket */}
+            <div>
+              <p className="text-xs font-medium text-gray-600 mb-2">
+                a) Personenmonate je Arbeitspaket
+              </p>
+              <table className="w-full text-xs border border-gray-300">
+                <thead>
+                  <tr className="bg-gray-200">
+                    <th className="px-2 py-1.5 text-left border-r border-gray-300 font-medium">AP Nr.</th>
+                    {isZimDS ? (
+                      <>
+                        <th className="px-2 py-1.5 text-right border-r border-gray-300 font-medium">
+                          <span title="Aufwand PM fuer technische Vorprojekte, Vorstudien und Tests">PM technisch</span>
+                        </th>
+                        <th className="px-2 py-1.5 text-right border-r border-gray-300 font-medium">
+                          <span title="Aufwand PM fuer weitere Arbeiten">PM weitere</span>
+                        </th>
+                      </>
+                    ) : (
+                      <th className="px-2 py-1.5 text-right border-r border-gray-300 font-medium">PM</th>
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {anlage5.perAP.map((ap, idx) => (
+                    <tr key={idx} className="border-t border-gray-200 hover:bg-gray-100">
+                      <td className="px-2 py-1 border-r border-gray-300 font-mono">{ap.apCode}</td>
+                      {isZimDS ? (
+                        <>
+                          <td className="px-2 py-1 text-right border-r border-gray-300">
+                            {ap.pmTechnisch > 0 ? fmtPM(ap.pmTechnisch) : '0'}
+                          </td>
+                          <td className="px-2 py-1 text-right border-r border-gray-300">
+                            {ap.pmNichtTechnisch > 0 ? fmtPM(ap.pmNichtTechnisch) : '0'}
+                          </td>
+                        </>
+                      ) : (
+                        <td className="px-2 py-1 text-right border-r border-gray-300">
+                          {ap.pmGesamt > 0 ? fmtPM(ap.pmGesamt) : '0'}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-gray-400 bg-gray-200 font-semibold">
+                    <td className="px-2 py-1.5 border-r border-gray-300">Summe</td>
+                    {isZimDS ? (
+                      <>
+                        <td className="px-2 py-1.5 text-right border-r border-gray-300">
+                          {fmtPM(anlage5.sumT)}
+                        </td>
+                        <td className="px-2 py-1.5 text-right border-r border-gray-300">
+                          {fmtPM(anlage5.sumNT)}
+                        </td>
+                      </>
+                    ) : (
+                      <td className="px-2 py-1.5 text-right border-r border-gray-300">
+                        {fmtPM(anlage5.sumGesamt)}
+                      </td>
+                    )}
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            {/* b) Personenmonate je Mitarbeiter */}
+            <div>
+              <p className="text-xs font-medium text-gray-600 mb-2">
+                b) Personenmonate je Mitarbeiter
+              </p>
+              <table className="w-full text-xs border border-gray-300">
+                <thead>
+                  <tr className="bg-gray-200">
+                    <th className="px-2 py-1.5 text-left border-r border-gray-300 font-medium">MA Nr.</th>
+                    {isZimDS ? (
+                      <>
+                        <th className="px-2 py-1.5 text-right border-r border-gray-300 font-medium">
+                          <span title="Aufwand PM fuer technische Vorprojekte, Vorstudien und Tests">PM technisch</span>
+                        </th>
+                        <th className="px-2 py-1.5 text-right border-r border-gray-300 font-medium">
+                          <span title="Aufwand PM fuer weitere Arbeiten">PM weitere</span>
+                        </th>
+                      </>
+                    ) : (
+                      <th className="px-2 py-1.5 text-right border-r border-gray-300 font-medium">PM</th>
+                    )}
+                    <th className="px-2 py-1.5 text-left font-medium">beteiligt an AP</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {anlage5.perMA.map((ma, idx) => (
+                    <tr key={idx} className="border-t border-gray-200 hover:bg-gray-100">
+                      <td className="px-2 py-1 border-r border-gray-300 font-mono">
+                        {ma.maNumber || (idx + 1)}
+                      </td>
+                      {isZimDS ? (
+                        <>
+                          <td className="px-2 py-1 text-right border-r border-gray-300">
+                            {ma.pmTechnisch > 0 ? fmtPM(ma.pmTechnisch) : '0'}
+                          </td>
+                          <td className="px-2 py-1 text-right border-r border-gray-300">
+                            {ma.pmNichtTechnisch > 0 ? fmtPM(ma.pmNichtTechnisch) : '0'}
+                          </td>
+                        </>
+                      ) : (
+                        <td className="px-2 py-1 text-right border-r border-gray-300">
+                          {ma.pmGesamt > 0 ? fmtPM(ma.pmGesamt) : '0'}
+                        </td>
+                      )}
+                      <td className="px-2 py-1 text-gray-600">
+                        {ma.beteiligteAP.join('; ')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-gray-400 bg-gray-200 font-semibold">
+                    <td className="px-2 py-1.5 border-r border-gray-300">Summe</td>
+                    {isZimDS ? (
+                      <>
+                        <td className="px-2 py-1.5 text-right border-r border-gray-300">
+                          {fmtPM(anlage5.maSumT)}
+                        </td>
+                        <td className="px-2 py-1.5 text-right border-r border-gray-300">
+                          {fmtPM(anlage5.maSumNT)}
+                        </td>
+                      </>
+                    ) : (
+                      <td className="px-2 py-1.5 text-right border-r border-gray-300">
+                        {fmtPM(anlage5.maSumGesamt)}
+                      </td>
+                    )}
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 }
