@@ -158,11 +158,9 @@ function getBudgetColor(
 }
 
 function getErfasstCellStyle(color: BudgetColor): string {
-  // Erfasst: schwarze Schrift, Hintergrund wechselt
+  // Erfasst: schwarze Schrift, Hintergrund nur weiss oder orange (Warnung)
   switch (color) {
-    case 'green': return 'text-gray-900 bg-white';
     case 'orange': return 'text-gray-900 bg-orange-100';
-    case 'red': return 'text-gray-900 bg-red-100';
     default: return 'text-gray-900 bg-white';
   }
 }
