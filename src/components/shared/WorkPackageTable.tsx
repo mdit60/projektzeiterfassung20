@@ -3,40 +3,27 @@
 // PZE V7 - Arbeitsplan-Tabelle (Excel-Style mit Inline-Edit)
 // ============================================================================
 // Datum: 02. Maerz 2026
-// Version: 7.4.2-4
+// Version: 7.4.2-5
 //
 // SHARED COMPONENT - wird von beiden Portalen genutzt:
 // - Berater-Portal: /v7/berater/foerderung/firma/[id]/projekt/[projektId]
 // - Firmen-Portal: /v7/firma/projekte/[projektId]
 //
-// Zeigt Arbeitspakete als Tabelle mit:
-// - Spalten fuer jeden Mitarbeiter
-// - Inline-Edit fuer PM-Werte (wie Zeiterfassung)
-// - Summen pro MA und pro AP
-// - Zeitraum pro AP (von/bis)
-//
-// v7.4.2-4: NEU: Stunden + Erfasst + Verfuegbar pro AP in Summe-Spalte
-//            Laedt Ist-Stunden direkt aus v7_timesheets (kein Prop-Drilling)
-//            Summe-Spalte: PM, darunter Stunden, darunter "X h frei" / "X h ueber"
-//            Footer: Zeile "Erfasst (Ist)" + Zeile "Verfuegbar (Rest)" pro MA
-//            Farb-Ampel: gruen = frei, rot = ueberschritten, grau = ausgeschoepft
+// v7.4.2-5: REDESIGN Stunden-Anzeige:
+//           - 3 eigene Spalten rechts: Soll (h) | Erfasst (h) | Frei (h)
+//           - Normale Schriftgroesse statt Minitext unter PM
+//           - Kontrollsummen Anlage 5 als aufklappbares Accordion
+//           - Summe-Spalte zeigt nur noch PM (sauber)
+// v7.4.2-4: Stunden + Erfasst + Verfuegbar als Minitext in Summe-Spalte
 // v7.4.2-3: Anlage 5 Kontrollsummen unterhalb des Arbeitsplans
-//           Fuer ALLE ZIM-Formate:
-//           a) Personenmonate je Arbeitspaket
-//           b) Personenmonate je Mitarbeiter (+ beteiligte AP)
-//           Bei ZIM_DS zusaetzlich: T/NT-Spalten getrennt
-//           Bei normalem ZIM: nur eine PM-Spalte
-// v7.3.90: T/NT Spalte: Header "T/NT", Werte "T" und "NT" statt "X" und "-"
-// v7.3.85 FIXES:
-// - Sortierung: AP1.1/1.2 kommen nach AP1, nicht ans Ende
-// - Sticky Spalten: AP + Beschreibung bleiben beim Scrollen sichtbar
-// - MA-Namen: "M. Duehrkop" statt nur "Duehrkop" (unterscheidbar)
+// v7.3.90: T/NT Spalte fuer ZIM_DS
+// v7.3.85: Sortierung, Sticky Spalten, MA-Kurznamen
 // ============================================================================
 
 'use client';
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
 // ============================================================================
@@ -133,25 +120,24 @@ const formatDateShort = (dateStr: string | null): string => {
 
 const getShortName = (emp: Employee): string => {
   if (emp.first_name && emp.last_name) {
-    const initial = emp.first_name.charAt(0) + '.';
-    return `${initial} ${emp.last_name}`;
+    return `${emp.first_name.charAt(0)}. ${emp.last_name}`;
   }
-  if (emp.last_name) {
-    return emp.last_name;
-  }
+  if (emp.last_name) return emp.last_name;
   const parts = emp.display_name.split(',');
   if (parts.length >= 2) {
-    const nachname = parts[0].trim();
-    const vorname = parts[1].trim();
-    return `${vorname.charAt(0)}. ${nachname}`;
+    return `${parts[1].trim().charAt(0)}. ${parts[0].trim()}`;
   }
   return emp.display_name;
 };
 
-// PM formatieren: deutsches Komma, 0 als "0"
 const fmtPM = (val: number): string => {
   if (val === 0) return '0';
   return val.toFixed(2).replace('.', ',');
+};
+
+const fmtHours = (val: number): string => {
+  if (val === 0) return '-';
+  return Math.round(val).toLocaleString('de-DE');
 };
 
 const sortWorkPackages = (wps: WorkPackage[]): WorkPackage[] => {
@@ -277,6 +263,9 @@ export default function WorkPackageTable({
   const isZimDS = fundingFormat === 'ZIM_DS';
   const isZim = (fundingFormat || '').startsWith('ZIM');
 
+  // Accordion State fuer Kontrollsummen
+  const [showKontrollsummen, setShowKontrollsummen] = useState(false);
+
   // ============================================================================
   // TIMESHEET IST-STUNDEN LADEN
   // ============================================================================
@@ -400,13 +389,12 @@ export default function WorkPackageTable({
   }, [hoursPerEmployee]);
 
   // ============================================================================
-  // ANLAGE 5 KONTROLLSUMMEN (fuer alle ZIM-Formate)
+  // ANLAGE 5 KONTROLLSUMMEN
   // ============================================================================
 
   const anlage5 = useMemo(() => {
     if (!isZim) return null;
 
-    // a) PM je Arbeitspaket
     const perAP: Array<{
       apCode: string;
       pmTechnisch: number;
@@ -437,7 +425,6 @@ export default function WorkPackageTable({
     const sumNT = perAP.reduce((s, a) => s + a.pmNichtTechnisch, 0);
     const sumGesamt = perAP.reduce((s, a) => s + a.pmGesamt, 0);
 
-    // b) PM je Mitarbeiter
     const perMA: Array<{
       maNumber: number | null;
       pmTechnisch: number;
@@ -457,11 +444,7 @@ export default function WorkPackageTable({
         if (pm > 0) {
           apList.push(wp.ap_code.replace(/^AP/i, ''));
           if (isZimDS) {
-            if (wp.is_technical) {
-              pmT += pm;
-            } else {
-              pmNT += pm;
-            }
+            if (wp.is_technical) { pmT += pm; } else { pmNT += pm; }
           }
           pmTotal += pm;
         }
@@ -482,10 +465,7 @@ export default function WorkPackageTable({
     const maSumNT = perMA.reduce((s, m) => s + m.pmNichtTechnisch, 0);
     const maSumGesamt = perMA.reduce((s, m) => s + m.pmGesamt, 0);
 
-    return {
-      perAP, sumT, sumNT, sumGesamt,
-      perMA, maSumT, maSumNT, maSumGesamt,
-    };
+    return { perAP, sumT, sumNT, sumGesamt, perMA, maSumT, maSumNT, maSumGesamt };
   }, [isZim, isZimDS, sortedWPs, sortedEmployees, sums, assignments]);
 
   // ============================================================================
@@ -559,13 +539,13 @@ export default function WorkPackageTable({
           {/* Tabellenkopf */}
           <thead>
             <tr className="bg-gray-100 border-b">
-              <th 
+              <th
                 className="px-3 py-2 text-left font-medium text-gray-600 border-r bg-gray-100 sticky left-0 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]"
                 style={{ minWidth: '70px' }}
               >
                 AP
               </th>
-              <th 
+              <th
                 className="px-2 py-2 text-left font-medium text-gray-600 border-r bg-gray-100"
                 style={{ minWidth: '140px', maxWidth: '180px' }}
               >
@@ -578,14 +558,15 @@ export default function WorkPackageTable({
                 bis
               </th>
               {isZimDS && (
-                <th 
-                  className="px-1 py-2 text-center font-medium text-gray-600 border-r" 
+                <th
+                  className="px-1 py-2 text-center font-medium text-gray-600 border-r"
                   style={{ minWidth: '35px', maxWidth: '40px' }}
                   title="Technisch / Nicht-technisch"
                 >
                   T/NT
                 </th>
               )}
+              {/* MA-Spalten */}
               {sortedEmployees.map((emp) => {
                 const empNumber = getEmployeeNumber(emp);
                 return (
@@ -604,9 +585,21 @@ export default function WorkPackageTable({
                   </th>
                 );
               })}
-              <th className="px-2 py-2 text-center font-semibold text-gray-700 bg-gray-200" style={{ minWidth: '90px' }}>
+              {/* Summe PM */}
+              <th className="px-2 py-2 text-center font-semibold text-gray-700 bg-gray-200 border-r" style={{ minWidth: '70px' }}>
                 Summe
               </th>
+              {/* Stunden-Spalten */}
+              <th className="px-2 py-2 text-center font-medium text-gray-600 bg-gray-200 border-r" style={{ minWidth: '70px' }}>
+                Soll (h)
+              </th>
+              <th className="px-2 py-2 text-center font-medium text-blue-700 bg-blue-50 border-r" style={{ minWidth: '75px' }}>
+                Erfasst (h)
+              </th>
+              <th className="px-2 py-2 text-center font-medium text-green-700 bg-green-50 border-r" style={{ minWidth: '70px' }}>
+                Frei (h)
+              </th>
+              {/* Aktionen */}
               {canEdit && (
                 <th className="px-2 py-2 text-center font-medium text-gray-600" style={{ minWidth: '60px' }}>
                 </th>
@@ -627,7 +620,7 @@ export default function WorkPackageTable({
               return (
                 <tr key={wp.id} className={`border-b hover:bg-blue-50 ${rowBg}`}>
                   {/* STICKY: AP-Nummer */}
-                  <td 
+                  <td
                     className={`px-3 py-2 border-r font-mono text-sm sticky left-0 z-10 ${rowBg} shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] ${
                       isSubAP ? 'text-gray-600 pl-5' : 'font-semibold text-gray-900'
                     }`}
@@ -637,13 +630,13 @@ export default function WorkPackageTable({
                   </td>
 
                   {/* Beschreibung */}
-                  <td 
+                  <td
                     className={`px-2 py-1 border-r ${rowBg}`}
                     style={{ minWidth: '140px', maxWidth: '180px' }}
                   >
-                    <div className={`text-xs leading-tight ${isSubAP ? 'text-gray-700' : 'font-medium text-gray-900'}`} 
+                    <div className={`text-xs leading-tight ${isSubAP ? 'text-gray-700' : 'font-medium text-gray-900'}`}
                          title={wp.name}
-                         style={{ 
+                         style={{
                            display: '-webkit-box',
                            WebkitLineClamp: 2,
                            WebkitBoxOrient: 'vertical',
@@ -686,37 +679,29 @@ export default function WorkPackageTable({
                     </td>
                   ))}
 
-                  {/* Summe-Spalte: PM + Stunden + Verfuegbar */}
-                  <td className="px-2 py-1 text-center bg-gray-100 border-l border-gray-300">
-                    <div className="font-semibold text-gray-900 text-sm">
-                      {wpSum > 0 ? wpSum.toFixed(2).replace('.', ',') : '-'}
-                    </div>
-                    {wpSum > 0 && (
-                      <div className="text-[10px] text-gray-500 leading-tight mt-0.5">
-                        = {Math.round(wpHours).toLocaleString('de-DE')} h
-                      </div>
-                    )}
-                    {wpSum > 0 && hasTimesheetData && (
-                      <div className="text-[10px] leading-tight mt-0.5">
-                        {wpBooked > 0 && (
-                          <span className="text-blue-600">
-                            {Math.round(wpBooked).toLocaleString('de-DE')} h erfasst
-                          </span>
-                        )}
-                        {wpBooked > 0 && <br />}
-                        <span className={`font-medium ${
-                          wpAvailable > 0 ? 'text-green-700' : 
-                          wpAvailable < 0 ? 'text-red-600' : 
-                          'text-gray-500'
-                        }`}>
-                          {wpAvailable > 0 
-                            ? `${Math.round(wpAvailable).toLocaleString('de-DE')} h frei`
-                            : wpAvailable < 0 
-                              ? `${Math.round(Math.abs(wpAvailable)).toLocaleString('de-DE')} h ueber`
-                              : 'ausgeschoepft'}
-                        </span>
-                      </div>
-                    )}
+                  {/* Summe PM */}
+                  <td className="px-2 py-2 text-center font-semibold text-gray-900 bg-gray-100 border-r">
+                    {wpSum > 0 ? wpSum.toFixed(2).replace('.', ',') : '-'}
+                  </td>
+
+                  {/* Soll (h) */}
+                  <td className="px-2 py-2 text-center text-sm text-gray-700 bg-gray-50 border-r">
+                    {wpHours > 0 ? fmtHours(wpHours) : '-'}
+                  </td>
+
+                  {/* Erfasst (h) */}
+                  <td className="px-2 py-2 text-center text-sm text-blue-700 bg-blue-50/50 border-r font-medium">
+                    {wpBooked > 0 ? fmtHours(wpBooked) : '-'}
+                  </td>
+
+                  {/* Frei (h) */}
+                  <td className={`px-2 py-2 text-center text-sm font-medium border-r ${
+                    wpHours <= 0 ? 'text-gray-400 bg-green-50/30' :
+                    wpAvailable > 0 ? 'text-green-700 bg-green-50/50' :
+                    wpAvailable < 0 ? 'text-red-600 bg-red-50/50' :
+                    'text-gray-500 bg-gray-50'
+                  }`}>
+                    {wpHours > 0 ? fmtHours(wpAvailable) : '-'}
                   </td>
 
                   {/* Aktionen */}
@@ -753,13 +738,13 @@ export default function WorkPackageTable({
           <tfoot>
             {/* Zeile 1: PM-Summen */}
             <tr className={`${colors.header} ${colors.headerText}`}>
-              <td 
+              <td
                 className={`px-3 py-2 font-semibold border-r border-white/20 sticky left-0 z-10 ${colors.header} shadow-[2px_0_5px_-2px_rgba(0,0,0,0.2)]`}
                 style={{ minWidth: '70px' }}
               >
                 Summe
               </td>
-              <td 
+              <td
                 className={`px-2 py-2 text-xs font-semibold border-r border-white/20 ${colors.header}`}
                 style={{ minWidth: '140px', maxWidth: '180px' }}
               >
@@ -775,21 +760,34 @@ export default function WorkPackageTable({
                   </td>
                 );
               })}
-              <td className="px-2 py-2 text-center font-bold text-lg">
+              {/* PM Gesamt */}
+              <td className="px-2 py-2 text-center font-bold text-lg border-r border-white/30">
                 {sums.total.toFixed(2).replace('.', ',')}
+              </td>
+              {/* Soll Gesamt */}
+              <td className="px-2 py-2 text-center font-semibold border-r border-white/30">
+                {fmtHours(sums.total * PM_TO_HOURS)} h
+              </td>
+              {/* Erfasst Gesamt */}
+              <td className="px-2 py-2 text-center font-semibold border-r border-white/30">
+                {totalTimesheetHours > 0 ? `${fmtHours(totalTimesheetHours)} h` : '-'}
+              </td>
+              {/* Frei Gesamt */}
+              <td className="px-2 py-2 text-center font-semibold border-r border-white/30">
+                {fmtHours(sums.total * PM_TO_HOURS - totalTimesheetHours)} h
               </td>
               {canEdit && <td></td>}
             </tr>
 
-            {/* Zeile 2: Geplante Stunden */}
+            {/* Zeile 2: Stunden pro MA */}
             <tr className="bg-gray-100 text-gray-600">
-              <td 
+              <td
                 className="px-3 py-1.5 text-sm border-r bg-gray-100 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]"
                 style={{ minWidth: '70px' }}
               >
                 =
               </td>
-              <td 
+              <td
                 className="px-2 py-1.5 text-sm border-r bg-gray-100"
                 style={{ minWidth: '140px', maxWidth: '180px' }}
               >
@@ -802,25 +800,24 @@ export default function WorkPackageTable({
                 const hours = empSum * PM_TO_HOURS;
                 return (
                   <td key={emp.id} className="px-2 py-1.5 text-center text-xs border-r">
-                    {hours > 0 ? Math.round(hours).toLocaleString('de-DE') : '-'}
+                    {hours > 0 ? fmtHours(hours) : '-'}
                   </td>
                 );
               })}
-              <td className="px-2 py-1.5 text-center font-medium text-sm">
-                {Math.round(sums.total * PM_TO_HOURS).toLocaleString('de-DE')} h
-              </td>
+              {/* Leere Zellen fuer die 4 rechten Spalten */}
+              <td colSpan={4} className="px-2 py-1.5 border-r"></td>
               {canEdit && <td></td>}
             </tr>
 
-            {/* Zeile 3: Erfasste Stunden (Ist) */}
+            {/* Zeile 3: Erfasste Stunden pro MA */}
             {hasTimesheetData && (
               <tr className="bg-blue-50 text-blue-800">
-                <td 
+                <td
                   className="px-3 py-1.5 text-sm border-r bg-blue-50 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]"
                   style={{ minWidth: '70px' }}
                 >
                 </td>
-                <td 
+                <td
                   className="px-2 py-1.5 text-sm font-medium border-r bg-blue-50"
                   style={{ minWidth: '140px', maxWidth: '180px' }}
                 >
@@ -832,26 +829,24 @@ export default function WorkPackageTable({
                   const booked = hoursPerEmployee[emp.id] || 0;
                   return (
                     <td key={emp.id} className="px-2 py-1.5 text-center text-xs border-r bg-blue-50 font-medium">
-                      {booked > 0 ? Math.round(booked).toLocaleString('de-DE') : '-'}
+                      {booked > 0 ? fmtHours(booked) : '-'}
                     </td>
                   );
                 })}
-                <td className="px-2 py-1.5 text-center font-medium text-sm bg-blue-50">
-                  {totalTimesheetHours > 0 ? `${Math.round(totalTimesheetHours).toLocaleString('de-DE')} h` : '-'}
-                </td>
+                <td colSpan={4} className="px-2 py-1.5 border-r bg-blue-50"></td>
                 {canEdit && <td className="bg-blue-50"></td>}
               </tr>
             )}
 
-            {/* Zeile 4: Verfuegbare Stunden (Rest) */}
+            {/* Zeile 4: Verfuegbare Stunden pro MA */}
             {hasTimesheetData && (
               <tr className="bg-green-50 text-green-800 border-t border-green-200">
-                <td 
+                <td
                   className="px-3 py-1.5 text-sm border-r bg-green-50 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]"
                   style={{ minWidth: '70px' }}
                 >
                 </td>
-                <td 
+                <td
                   className="px-2 py-1.5 text-sm font-medium border-r bg-green-50"
                   style={{ minWidth: '140px', maxWidth: '180px' }}
                 >
@@ -867,20 +862,11 @@ export default function WorkPackageTable({
                   const isOver = available < 0;
                   return (
                     <td key={emp.id} className={`px-2 py-1.5 text-center text-xs border-r bg-green-50 font-semibold ${isOver ? 'text-red-600' : ''}`}>
-                      {planned > 0 ? Math.round(available).toLocaleString('de-DE') : '-'}
+                      {planned > 0 ? fmtHours(available) : '-'}
                     </td>
                   );
                 })}
-                {(() => {
-                  const totalPlanned = sums.total * PM_TO_HOURS;
-                  const totalAvailable = totalPlanned - totalTimesheetHours;
-                  const isOver = totalAvailable < 0;
-                  return (
-                    <td className={`px-2 py-1.5 text-center font-semibold text-sm bg-green-50 ${isOver ? 'text-red-600' : ''}`}>
-                      {Math.round(totalAvailable).toLocaleString('de-DE')} h
-                    </td>
-                  );
-                })()}
+                <td colSpan={4} className="px-2 py-1.5 border-r bg-green-50"></td>
                 {canEdit && <td className="bg-green-50"></td>}
               </tr>
             )}
@@ -896,156 +882,172 @@ export default function WorkPackageTable({
       </div>
 
       {/* ================================================================ */}
-      {/* ANLAGE 5 KONTROLLSUMMEN (nur bei ZIM-Formaten)                  */}
+      {/* ANLAGE 5 KONTROLLSUMMEN - Accordion (nur bei ZIM-Formaten)      */}
       {/* ================================================================ */}
       {isZim && anlage5 && (
-        <div className="border-t border-gray-300 px-4 py-4 bg-gray-50">
-          <h4 className="text-sm font-semibold text-gray-700 mb-3">
-            Kontrollsummen (Anlage 5)
-          </h4>
+        <div className="border-t border-gray-300">
+          {/* Accordion-Button */}
+          <button
+            onClick={() => setShowKontrollsummen(!showKontrollsummen)}
+            className="w-full flex items-center gap-2 px-4 py-3 bg-gray-100 hover:bg-gray-200 transition-colors text-left"
+          >
+            {showKontrollsummen ? (
+              <ChevronDown size={16} className="text-gray-500" />
+            ) : (
+              <ChevronRight size={16} className="text-gray-500" />
+            )}
+            <span className="text-sm font-semibold text-gray-700">
+              Kontrollsummen (Anlage 5)
+            </span>
+          </button>
 
-          <div className={`grid gap-6 ${isZimDS ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-2'}`}>
+          {/* Accordion-Inhalt */}
+          {showKontrollsummen && (
+            <div className="px-4 py-4 bg-gray-50">
+              <div className="grid gap-6 grid-cols-1 md:grid-cols-2">
 
-            {/* a) Personenmonate je Arbeitspaket */}
-            <div>
-              <p className="text-xs font-medium text-gray-600 mb-2">
-                a) Personenmonate je Arbeitspaket
-              </p>
-              <table className="w-full text-xs border border-gray-300">
-                <thead>
-                  <tr className="bg-gray-200">
-                    <th className="px-2 py-1.5 text-left border-r border-gray-300 font-medium">AP Nr.</th>
-                    {isZimDS ? (
-                      <>
-                        <th className="px-2 py-1.5 text-right border-r border-gray-300 font-medium">
-                          <span title="Aufwand PM fuer technische Vorprojekte, Vorstudien und Tests">PM technisch</span>
-                        </th>
-                        <th className="px-2 py-1.5 text-right border-r border-gray-300 font-medium">
-                          <span title="Aufwand PM fuer weitere Arbeiten">PM weitere</span>
-                        </th>
-                      </>
-                    ) : (
-                      <th className="px-2 py-1.5 text-right border-r border-gray-300 font-medium">PM</th>
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {anlage5.perAP.map((ap, idx) => (
-                    <tr key={idx} className="border-t border-gray-200 hover:bg-gray-100">
-                      <td className="px-2 py-1 border-r border-gray-300 font-mono">{ap.apCode}</td>
-                      {isZimDS ? (
-                        <>
-                          <td className="px-2 py-1 text-right border-r border-gray-300">
-                            {ap.pmTechnisch > 0 ? fmtPM(ap.pmTechnisch) : '0'}
+                {/* a) Personenmonate je Arbeitspaket */}
+                <div>
+                  <p className="text-xs font-medium text-gray-600 mb-2">
+                    a) Personenmonate je Arbeitspaket
+                  </p>
+                  <table className="w-full text-xs border border-gray-300">
+                    <thead>
+                      <tr className="bg-gray-200">
+                        <th className="px-2 py-1.5 text-left border-r border-gray-300 font-medium">AP Nr.</th>
+                        {isZimDS ? (
+                          <>
+                            <th className="px-2 py-1.5 text-right border-r border-gray-300 font-medium">
+                              <span title="Aufwand PM fuer technische Vorprojekte, Vorstudien und Tests">PM technisch</span>
+                            </th>
+                            <th className="px-2 py-1.5 text-right border-r border-gray-300 font-medium">
+                              <span title="Aufwand PM fuer weitere Arbeiten">PM weitere</span>
+                            </th>
+                          </>
+                        ) : (
+                          <th className="px-2 py-1.5 text-right border-r border-gray-300 font-medium">PM</th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {anlage5.perAP.map((ap, idx) => (
+                        <tr key={idx} className="border-t border-gray-200 hover:bg-gray-100">
+                          <td className="px-2 py-1 border-r border-gray-300 font-mono">{ap.apCode}</td>
+                          {isZimDS ? (
+                            <>
+                              <td className="px-2 py-1 text-right border-r border-gray-300">
+                                {ap.pmTechnisch > 0 ? fmtPM(ap.pmTechnisch) : '0'}
+                              </td>
+                              <td className="px-2 py-1 text-right border-r border-gray-300">
+                                {ap.pmNichtTechnisch > 0 ? fmtPM(ap.pmNichtTechnisch) : '0'}
+                              </td>
+                            </>
+                          ) : (
+                            <td className="px-2 py-1 text-right border-r border-gray-300">
+                              {ap.pmGesamt > 0 ? fmtPM(ap.pmGesamt) : '0'}
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 border-gray-400 bg-gray-200 font-semibold">
+                        <td className="px-2 py-1.5 border-r border-gray-300">Summe</td>
+                        {isZimDS ? (
+                          <>
+                            <td className="px-2 py-1.5 text-right border-r border-gray-300">
+                              {fmtPM(anlage5.sumT)}
+                            </td>
+                            <td className="px-2 py-1.5 text-right border-r border-gray-300">
+                              {fmtPM(anlage5.sumNT)}
+                            </td>
+                          </>
+                        ) : (
+                          <td className="px-2 py-1.5 text-right border-r border-gray-300">
+                            {fmtPM(anlage5.sumGesamt)}
                           </td>
-                          <td className="px-2 py-1 text-right border-r border-gray-300">
-                            {ap.pmNichtTechnisch > 0 ? fmtPM(ap.pmNichtTechnisch) : '0'}
+                        )}
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+
+                {/* b) Personenmonate je Mitarbeiter */}
+                <div>
+                  <p className="text-xs font-medium text-gray-600 mb-2">
+                    b) Personenmonate je Mitarbeiter
+                  </p>
+                  <table className="w-full text-xs border border-gray-300">
+                    <thead>
+                      <tr className="bg-gray-200">
+                        <th className="px-2 py-1.5 text-left border-r border-gray-300 font-medium">MA Nr.</th>
+                        {isZimDS ? (
+                          <>
+                            <th className="px-2 py-1.5 text-right border-r border-gray-300 font-medium">
+                              <span title="Aufwand PM fuer technische Vorprojekte, Vorstudien und Tests">PM technisch</span>
+                            </th>
+                            <th className="px-2 py-1.5 text-right border-r border-gray-300 font-medium">
+                              <span title="Aufwand PM fuer weitere Arbeiten">PM weitere</span>
+                            </th>
+                          </>
+                        ) : (
+                          <th className="px-2 py-1.5 text-right border-r border-gray-300 font-medium">PM</th>
+                        )}
+                        <th className="px-2 py-1.5 text-left font-medium">beteiligt an AP</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {anlage5.perMA.map((ma, idx) => (
+                        <tr key={idx} className="border-t border-gray-200 hover:bg-gray-100">
+                          <td className="px-2 py-1 border-r border-gray-300 font-mono">
+                            {ma.maNumber || (idx + 1)}
                           </td>
-                        </>
-                      ) : (
-                        <td className="px-2 py-1 text-right border-r border-gray-300">
-                          {ap.pmGesamt > 0 ? fmtPM(ap.pmGesamt) : '0'}
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t-2 border-gray-400 bg-gray-200 font-semibold">
-                    <td className="px-2 py-1.5 border-r border-gray-300">Summe</td>
-                    {isZimDS ? (
-                      <>
-                        <td className="px-2 py-1.5 text-right border-r border-gray-300">
-                          {fmtPM(anlage5.sumT)}
-                        </td>
-                        <td className="px-2 py-1.5 text-right border-r border-gray-300">
-                          {fmtPM(anlage5.sumNT)}
-                        </td>
-                      </>
-                    ) : (
-                      <td className="px-2 py-1.5 text-right border-r border-gray-300">
-                        {fmtPM(anlage5.sumGesamt)}
-                      </td>
-                    )}
-                  </tr>
-                </tfoot>
-              </table>
+                          {isZimDS ? (
+                            <>
+                              <td className="px-2 py-1 text-right border-r border-gray-300">
+                                {ma.pmTechnisch > 0 ? fmtPM(ma.pmTechnisch) : '0'}
+                              </td>
+                              <td className="px-2 py-1 text-right border-r border-gray-300">
+                                {ma.pmNichtTechnisch > 0 ? fmtPM(ma.pmNichtTechnisch) : '0'}
+                              </td>
+                            </>
+                          ) : (
+                            <td className="px-2 py-1 text-right border-r border-gray-300">
+                              {ma.pmGesamt > 0 ? fmtPM(ma.pmGesamt) : '0'}
+                            </td>
+                          )}
+                          <td className="px-2 py-1 text-gray-600">
+                            {ma.beteiligteAP.join('; ')}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 border-gray-400 bg-gray-200 font-semibold">
+                        <td className="px-2 py-1.5 border-r border-gray-300">Summe</td>
+                        {isZimDS ? (
+                          <>
+                            <td className="px-2 py-1.5 text-right border-r border-gray-300">
+                              {fmtPM(anlage5.maSumT)}
+                            </td>
+                            <td className="px-2 py-1.5 text-right border-r border-gray-300">
+                              {fmtPM(anlage5.maSumNT)}
+                            </td>
+                          </>
+                        ) : (
+                          <td className="px-2 py-1.5 text-right border-r border-gray-300">
+                            {fmtPM(anlage5.maSumGesamt)}
+                          </td>
+                        )}
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+
+              </div>
             </div>
-
-            {/* b) Personenmonate je Mitarbeiter */}
-            <div>
-              <p className="text-xs font-medium text-gray-600 mb-2">
-                b) Personenmonate je Mitarbeiter
-              </p>
-              <table className="w-full text-xs border border-gray-300">
-                <thead>
-                  <tr className="bg-gray-200">
-                    <th className="px-2 py-1.5 text-left border-r border-gray-300 font-medium">MA Nr.</th>
-                    {isZimDS ? (
-                      <>
-                        <th className="px-2 py-1.5 text-right border-r border-gray-300 font-medium">
-                          <span title="Aufwand PM fuer technische Vorprojekte, Vorstudien und Tests">PM technisch</span>
-                        </th>
-                        <th className="px-2 py-1.5 text-right border-r border-gray-300 font-medium">
-                          <span title="Aufwand PM fuer weitere Arbeiten">PM weitere</span>
-                        </th>
-                      </>
-                    ) : (
-                      <th className="px-2 py-1.5 text-right border-r border-gray-300 font-medium">PM</th>
-                    )}
-                    <th className="px-2 py-1.5 text-left font-medium">beteiligt an AP</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {anlage5.perMA.map((ma, idx) => (
-                    <tr key={idx} className="border-t border-gray-200 hover:bg-gray-100">
-                      <td className="px-2 py-1 border-r border-gray-300 font-mono">
-                        {ma.maNumber || (idx + 1)}
-                      </td>
-                      {isZimDS ? (
-                        <>
-                          <td className="px-2 py-1 text-right border-r border-gray-300">
-                            {ma.pmTechnisch > 0 ? fmtPM(ma.pmTechnisch) : '0'}
-                          </td>
-                          <td className="px-2 py-1 text-right border-r border-gray-300">
-                            {ma.pmNichtTechnisch > 0 ? fmtPM(ma.pmNichtTechnisch) : '0'}
-                          </td>
-                        </>
-                      ) : (
-                        <td className="px-2 py-1 text-right border-r border-gray-300">
-                          {ma.pmGesamt > 0 ? fmtPM(ma.pmGesamt) : '0'}
-                        </td>
-                      )}
-                      <td className="px-2 py-1 text-gray-600">
-                        {ma.beteiligteAP.join('; ')}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t-2 border-gray-400 bg-gray-200 font-semibold">
-                    <td className="px-2 py-1.5 border-r border-gray-300">Summe</td>
-                    {isZimDS ? (
-                      <>
-                        <td className="px-2 py-1.5 text-right border-r border-gray-300">
-                          {fmtPM(anlage5.maSumT)}
-                        </td>
-                        <td className="px-2 py-1.5 text-right border-r border-gray-300">
-                          {fmtPM(anlage5.maSumNT)}
-                        </td>
-                      </>
-                    ) : (
-                      <td className="px-2 py-1.5 text-right border-r border-gray-300">
-                        {fmtPM(anlage5.maSumGesamt)}
-                      </td>
-                    )}
-                    <td></td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-
-          </div>
+          )}
         </div>
       )}
     </div>
