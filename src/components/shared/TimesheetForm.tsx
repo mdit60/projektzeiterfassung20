@@ -3,12 +3,16 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 02. Maerz 2026
-// Version: 7.4.3-2
+// Version: 7.4.3-4
 //
 // Wird von beiden Portalen genutzt:
 // - Firmen-Portal: /v7/firma/zeiterfassung
 // - Berater-Portal: /v7/berater/foerderung/firma/[id]/zeiterfassung
 //
+// v7.4.3-4: FIX: Vorbelegung wartet auf geladene Arbeitsplan-Daten
+//            Verhindert dass APs mit offen=0 oder negativ vorbelegt werden
+// v7.4.3-3: Vorbelegung + Dropdown nur APs mit offenen Stunden
+//            Ausgeschoepfte APs nur ueber "Weitere AP" waehlbar
 // v7.4.3-2: FIX: offen-Spalte aktualisiert sich sofort nach Speichern
 //            (reloadBookedHours nach handleSave aufrufen)
 // v7.4.3:    NEU: "offen"-Spalte pro AP-Zeile zeigt verbleibende Stunden
@@ -609,11 +613,21 @@ export default function TimesheetForm({
         console.log('[TimesheetForm] Fehlzeiten in erste Zeile geladen mit WP:', wpIds[0]);
       }
 
-      // NEU v7.4.3: AP-Vorbelegung aus Arbeitsplan wenn keine DB-Eintraege
-      // Zugeordnete APs vorbelegen, damit MA sofort seine APs sieht
-      if (wpEntryMap.size === 0 && absenceEntries.size === 0 && assignedWPIds.length > 0) {
-        const relevantAssigned = assignedWPIds.filter(id => wpIds.includes(id));
-        console.log('[TimesheetForm] Vorbelege zugeordnete APs:', relevantAssigned.length);
+      // NEU v7.4.3-3: AP-Vorbelegung nur fuer APs mit offenen Stunden
+      // Wichtig: Nur ausfuehren wenn die Arbeitsplan-Daten bereits geladen sind
+      const hasAssignmentData = Object.keys(plannedHoursPerWP).length > 0;
+      
+      if (wpEntryMap.size === 0 && absenceEntries.size === 0 && assignedWPIds.length > 0 && hasAssignmentData) {
+        // Nur APs vorbelegen die dem MA zugeordnet sind UND noch Stunden offen haben
+        const relevantAssigned = assignedWPIds.filter(id => {
+          if (!wpIds.includes(id)) return false;
+          const planned = plannedHoursPerWP[id] || 0;
+          const booked = totalBookedPerWP[id] || 0;
+          const remaining = planned - booked;
+          console.log(`[TimesheetForm] AP ${id}: planned=${planned.toFixed(0)}h, booked=${booked.toFixed(0)}h, remaining=${remaining.toFixed(0)}h`);
+          return planned > 0 && remaining > 0; // nur wenn noch offen
+        });
+        console.log('[TimesheetForm] Vorbelege APs mit offenen Stunden:', relevantAssigned.length);
         
         // Erstelle Zeilen fuer zugeordnete APs + eine leere Zeile
         const prefilledRows: APRow[] = relevantAssigned.map(wpId => ({
@@ -646,7 +660,7 @@ export default function TimesheetForm({
     };
 
     loadTimeEntries();
-  }, [selectedEmployeeId, selectedProjectId, selectedYear, selectedMonth, workPackages, supabase, assignedWPIds]);
+  }, [selectedEmployeeId, selectedProjectId, selectedYear, selectedMonth, workPackages, supabase, assignedWPIds, plannedHoursPerWP, totalBookedPerWP]);
 
   // ============================================================================
   // EVENT HANDLERS
@@ -1430,11 +1444,21 @@ export default function TimesheetForm({
                         className="w-full h-full p-1 text-xs border-0 bg-transparent print:appearance-none text-center"
                       >
                         <option value="">-</option>
-                        {/* NEU v7.4.3: Zugeordnete APs zuerst (fett) */}
-                        {assignedWPIds.length > 0 && availableWorkPackages.some(wp => assignedWPIds.includes(wp.id)) && (
+                        {/* NEU v7.4.3-3: Zugeordnete APs mit offenen Stunden zuerst */}
+                        {assignedWPIds.length > 0 && availableWorkPackages.some(wp => {
+                          if (!assignedWPIds.includes(wp.id)) return false;
+                          const planned = plannedHoursPerWP[wp.id] || 0;
+                          const booked = totalBookedPerWP[wp.id] || 0;
+                          return planned > 0 && (planned - booked) > 0;
+                        }) && (
                           <optgroup label="Zugeordnete AP">
                             {availableWorkPackages
-                              .filter(wp => assignedWPIds.includes(wp.id))
+                              .filter(wp => {
+                                if (!assignedWPIds.includes(wp.id)) return false;
+                                const planned = plannedHoursPerWP[wp.id] || 0;
+                                const booked = totalBookedPerWP[wp.id] || 0;
+                                return planned > 0 && (planned - booked) > 0;
+                              })
                               .map(wp => {
                                 const apDisplay = wp.ap_code
                                   ? wp.ap_code.replace(/^AP/i, '')
@@ -1447,11 +1471,21 @@ export default function TimesheetForm({
                               })}
                           </optgroup>
                         )}
-                        {/* Weitere APs (nicht zugeordnet) */}
-                        {availableWorkPackages.some(wp => !assignedWPIds.includes(wp.id)) && (
-                          <optgroup label={assignedWPIds.length > 0 ? 'Weitere AP' : 'Alle AP'}>
+                        {/* Weitere APs (nicht zugeordnet oder ausgeschoepft) */}
+                        {availableWorkPackages.some(wp => {
+                          if (!assignedWPIds.includes(wp.id)) return true;
+                          const planned = plannedHoursPerWP[wp.id] || 0;
+                          const booked = totalBookedPerWP[wp.id] || 0;
+                          return planned <= 0 || (planned - booked) <= 0;
+                        }) && (
+                          <optgroup label="Weitere AP">
                             {availableWorkPackages
-                              .filter(wp => !assignedWPIds.includes(wp.id))
+                              .filter(wp => {
+                                if (!assignedWPIds.includes(wp.id)) return true;
+                                const planned = plannedHoursPerWP[wp.id] || 0;
+                                const booked = totalBookedPerWP[wp.id] || 0;
+                                return planned <= 0 || (planned - booked) <= 0;
+                              })
                               .map(wp => {
                                 const apDisplay = wp.ap_code
                                   ? wp.ap_code.replace(/^AP/i, '')
