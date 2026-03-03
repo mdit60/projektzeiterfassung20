@@ -511,9 +511,9 @@ export default function BerichtePage() {
           portal="firma" 
           companyName="" 
           userName=""
-          userRole="client_admin"
+          userRole={userProfile?.role || "client_admin"}
         />
-        <PortalNav portal="firma" userRole="client_admin" portalRole="client_admin" />
+        <PortalNav portal="firma" userRole={userProfile?.role || "client_admin"} portalRole={userProfile?.role || "client_admin"} />
         <main className="max-w-7xl mx-auto px-4 py-8">
           <div className="flex items-center justify-center h-64">
             <div className="w-10 h-10 border-4 border-green-200 border-t-green-600 rounded-full animate-spin"></div>
@@ -530,9 +530,9 @@ export default function BerichtePage() {
           portal="firma" 
           companyName="" 
           userName=""
-          userRole="client_admin"
+          userRole={userProfile?.role || "client_admin"}
         />
-        <PortalNav portal="firma" userRole="client_admin" portalRole="client_admin" />
+        <PortalNav portal="firma" userRole={userProfile?.role || "client_admin"} portalRole={userProfile?.role || "client_admin"} />
         <main className="max-w-7xl mx-auto px-4 py-8">
           <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
             <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
@@ -552,9 +552,9 @@ export default function BerichtePage() {
         portal="firma" 
         companyName={company?.name || ''} 
         userName={userProfile?.display_name || ''}
-        userRole="client_admin"
+        userRole={userProfile?.role || "client_admin"}
       />
-      <PortalNav portal="firma" userRole="client_admin" portalRole="client_admin" />
+      <PortalNav portal="firma" userRole={userProfile?.role || "client_admin"} portalRole={userProfile?.role || "client_admin"} />
       
       <main className="max-w-7xl mx-auto px-4 py-8">
         {/* Header */}
