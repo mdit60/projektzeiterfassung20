@@ -2,14 +2,17 @@
 // ============================================================================
 // PZE V7 - Berichte & Controlling (Firmen-Portal)
 // ============================================================================
-// Version: 7.4.3-10
+// Version: 7.4.3-8
 // Datum: 03. Maerz 2026
 //
-// v7.4.3-10: FIX: v7_work_package_assignments statt v7_project_assignments
-//            (project_assignments hat keine planned_person_months!)
-//            FIX: portalRole an PortalHeader (Rollenanzeige unter Name)
-//            Projekt-Uebersicht: 2 Fortschrittsbalken (Erfasst + Laufzeit)
-// v7.4.3-8: is_active Filter, is_billable PM, Zeiterfassungs-Status Umbau
+// v7.4.3-8: KRITISCH: is_active Filter fuer Timesheets (fehlte komplett!)
+//           PM-Berechnung: nur is_billable=true Stunden zaehlen
+//           Zeiterfassungs-Status: komplett umgebaut
+//           - Stunden statt Tage (Soll/Erfasst/Offen)
+//           - Fortschrittsbalken pro MA (gruen/orange/rot)
+//           - Orange-Warnung wenn Erfassung > 25 Pp hinter Zeitfortschritt
+//           - Bezug: Gesamtprojekt (nicht Monat)
+//           - Monats-Dropdown entfernt (nicht mehr noetig)
 // v7.3.88-4: Monats-Dropdown, Aktion-Spalte, Feld-Korrekturen
 // ============================================================================
 
@@ -352,22 +355,22 @@ export default function BerichtePage() {
           }
           console.log('Arbeitspakete geladen:', wpData?.length || 0);
           setWorkPackages(wpData || []);
-        }
         
-        // AP-Zuordnungen mit geplanten PM
-        if (wpData && wpData.length > 0) {
-          const wpIds = wpData.map((wp: any) => wp.id);
-          const { data: wpaData, error: wpaError } = await supabase
-            .from('v7_work_package_assignments')
-            .select('id, work_package_id, employee_id, planned_person_months')
-            .in('work_package_id', wpIds)
-            .eq('is_active', true);
-          
-          if (wpaError) {
-            console.error('WP-Assignment-Fehler:', wpaError);
+          // AP-Zuordnungen mit geplanten PM
+          if (wpData && wpData.length > 0) {
+            const wpIds = wpData.map((wp: any) => wp.id);
+            const { data: wpaData, error: wpaError } = await supabase
+              .from('v7_work_package_assignments')
+              .select('id, work_package_id, employee_id, planned_person_months')
+              .in('work_package_id', wpIds)
+              .eq('is_active', true);
+            
+            if (wpaError) {
+              console.error('WP-Assignment-Fehler:', wpaError);
+            }
+            console.log('AP-Zuordnungen geladen:', wpaData?.length || 0);
+            setWpAssignments(wpaData || []);
           }
-          console.log('AP-Zuordnungen geladen:', wpaData?.length || 0);
-          setWpAssignments(wpaData || []);
         }
         
         // Zeiterfassung - KORREKTER FELDNAME: work_date (nicht date)
