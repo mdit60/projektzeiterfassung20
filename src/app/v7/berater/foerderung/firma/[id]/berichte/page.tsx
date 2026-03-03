@@ -2,13 +2,18 @@
 // ============================================================================
 // PZE V7 - Berichte & Controlling (Berater-Portal - Firmenansicht)
 // ============================================================================
-// Version: 7.3.88
-// Datum: 05. Februar 2026
+// Version: 7.4.3-8
+// Datum: 03. Maerz 2026
 //
-// Gleiche Funktionalitaet wie Firmen-Portal Berichte, aber:
-// - Blauer Header (Berater-Portal)
-// - firmaId aus URL statt aus User-Profil
-// - Berater sieht Daten der ausgewaehlten Kundenfirma
+// v7.4.3-8: KRITISCH: is_active Filter fuer Timesheets (fehlte komplett!)
+//           PM-Berechnung: nur is_billable=true Stunden zaehlen
+//           Zeiterfassungs-Status: komplett umgebaut
+//           - Stunden statt Tage (Soll/Erfasst/Offen)
+//           - Fortschrittsbalken pro MA (gruen/orange/rot)
+//           - Orange-Warnung wenn Erfassung > 25 Pp hinter Zeitfortschritt
+//           - Bezug: Gesamtprojekt (nicht Monat)
+//           - Monats-Dropdown entfernt (nicht mehr noetig)
+// v7.3.88-4: Monats-Dropdown, Aktion-Spalte, Feld-Korrekturen
 // ============================================================================
 
 'use client';
@@ -17,6 +22,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import PortalHeader from '@/components/shared/PortalHeader';
+import PortalNav from '@/components/shared/PortalNav';
 import {
   BarChart3,
   FolderKanban,
@@ -31,7 +37,6 @@ import {
   FileText,
   Download,
   Calendar,
-  ArrowLeft,
   ExternalLink,
 } from 'lucide-react';
 
@@ -50,6 +55,7 @@ interface UserProfile {
   email: string;
   display_name: string | null;
   role: string;
+  client_company_id: string | null;
 }
 
 interface Company {
@@ -85,19 +91,22 @@ interface WorkPackage {
   total_person_months: number | null;
 }
 
-interface ProjectAssignment {
+interface WorkPackageAssignment {
   id: string;
-  project_id: string;
+  work_package_id: string;
   employee_id: string;
+  planned_person_months: number;
 }
 
 interface TimesheetEntry {
   id: string;
   project_id: string;
   employee_id: string;
-  work_date: string;
+  work_date: string;  // Korrekter Feldname!
   hours: number;
-  day_type: string | null;
+  day_type: string | null;  // 'work', 'vacation', 'sick', etc.
+  is_active: boolean;
+  is_billable: boolean;
 }
 
 interface ProjectStats {
@@ -105,16 +114,18 @@ interface ProjectStats {
   plannedPM: number;
   actualPM: number;
   progressPercent: number;
+  timeProgressPercent: number;
   status: 'on-track' | 'warning' | 'critical';
 }
 
 interface EmployeeTimesheetStatus {
   employee: Employee;
   projects: string[];
-  workingDays: number;
-  recordedDays: number;
-  status: 'complete' | 'partial' | 'missing';
-  missingDays: number;
+  sollHours: number;
+  erfasstHours: number;
+  offenHours: number;
+  progressPercent: number;
+  budgetStatus: 'on-track' | 'warning' | 'exceeded';
 }
 
 // ============================================================================
@@ -214,10 +225,10 @@ const getMonthName = (month: number): string => {
 // KOMPONENTE
 // ============================================================================
 
-export default function BeraterBerichtePage() {
+export default function BerichtePage() {
   const router = useRouter();
   const params = useParams();
-  const companyId = params.id as string;
+  const companyId = params?.id as string;
   const supabase = createClient();
   
   const [loading, setLoading] = useState(true);
@@ -227,7 +238,7 @@ export default function BeraterBerichtePage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [workPackages, setWorkPackages] = useState<WorkPackage[]>([]);
-  const [assignments, setAssignments] = useState<ProjectAssignment[]>([]);
+  const [wpAssignments, setWpAssignments] = useState<WorkPackageAssignment[]>([]);
   const [timesheets, setTimesheets] = useState<TimesheetEntry[]>([]);
   
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
@@ -249,7 +260,7 @@ export default function BeraterBerichtePage() {
         
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
-          router.push('/login');
+          router.push('/v7/login');
           return;
         }
         
@@ -275,64 +286,86 @@ export default function BeraterBerichtePage() {
           .single();
         
         if (companyError || !companyData) {
+          console.error('Firma-Fehler:', companyError);
           setError('Firma nicht gefunden');
           return;
         }
         setCompany(companyData);
         
         // Projekte
-        const { data: projectsData } = await supabase
+        const { data: projectsData, error: projectsError } = await supabase
           .from('v7_projects')
           .select('id, name, short_name, funding_format, funding_reference, start_date, end_date, is_active')
           .eq('client_company_id', companyId)
           .eq('is_active', true);
         
+        if (projectsError) {
+          console.error('Projekte-Fehler:', projectsError);
+        }
         setProjects(projectsData || []);
         
         // Mitarbeiter
-        const { data: employeesData } = await supabase
+        const { data: employeesData, error: employeesError } = await supabase
           .from('v7_employees')
           .select('id, display_name, first_name, last_name')
           .eq('client_company_id', companyId)
           .eq('is_active', true);
         
+        if (employeesError) {
+          console.error('MA-Fehler:', employeesError);
+        }
         setEmployees(employeesData || []);
         
         // Arbeitspakete
         const projectIds = (projectsData || []).map(p => p.id);
         if (projectIds.length > 0) {
-          const { data: wpData } = await supabase
+          const { data: wpData, error: wpError } = await supabase
             .from('v7_work_packages')
             .select('id, project_id, ap_number, ap_code, name, total_person_months')
             .in('project_id', projectIds)
             .eq('is_active', true);
           
+          if (wpError) {
+            console.error('WP-Fehler:', wpError);
+          }
+          console.log('Arbeitspakete geladen:', wpData?.length || 0);
           setWorkPackages(wpData || []);
+        
+          // AP-Zuordnungen mit geplanten PM
+          if (wpData && wpData.length > 0) {
+            const wpIds = wpData.map((wp: any) => wp.id);
+            const { data: wpaData, error: wpaError } = await supabase
+              .from('v7_work_package_assignments')
+              .select('id, work_package_id, employee_id, planned_person_months')
+              .in('work_package_id', wpIds)
+              .eq('is_active', true);
+            
+            if (wpaError) {
+              console.error('WP-Assignment-Fehler:', wpaError);
+            }
+            console.log('AP-Zuordnungen geladen:', wpaData?.length || 0);
+            setWpAssignments(wpaData || []);
+          }
         }
         
-        // Projekt-Zuordnungen
+        // Zeiterfassung - KORREKTER FELDNAME: work_date (nicht date)
+        // FIX v7.4.3: is_active=true (keine geloeschten Eintraege) + is_billable fuer PM-Berechnung
         if (projectIds.length > 0) {
-          const { data: assignmentData } = await supabase
-            .from('v7_project_assignments')
-            .select('id, project_id, employee_id')
+          const { data: timesheetData, error: timesheetError } = await supabase
+            .from('v7_timesheets')
+            .select('id, project_id, employee_id, work_date, hours, day_type, is_active, is_billable')
             .in('project_id', projectIds)
             .eq('is_active', true);
           
-          setAssignments(assignmentData || []);
-        }
-        
-        // Zeiterfassung
-        if (projectIds.length > 0) {
-          const { data: timesheetData } = await supabase
-            .from('v7_timesheets')
-            .select('id, project_id, employee_id, work_date, hours, day_type')
-            .in('project_id', projectIds);
-          
+          if (timesheetError) {
+            console.error('Timesheet-Fehler:', timesheetError);
+          }
+          console.log('Zeiteintraege geladen:', timesheetData?.length || 0);
           setTimesheets(timesheetData || []);
         }
         
       } catch (err: any) {
-        console.error('Fehler:', err);
+        console.error('Allgemeiner Fehler:', err);
         setError(err.message);
       } finally {
         setLoading(false);
@@ -349,12 +382,13 @@ export default function BeraterBerichtePage() {
   const stats = useMemo(() => {
     const totalPlannedPM = workPackages.reduce((sum, wp) => sum + (wp.total_person_months || 0), 0);
     
+    // Nur foerderbare Arbeitsstunden zaehlen (is_billable=true)
     const totalHours = timesheets
-      .filter(t => !t.day_type || t.day_type === 'work')
+      .filter(t => t.is_billable === true)
       .reduce((sum, t) => sum + (t.hours || 0), 0);
     const totalActualPM = totalHours / HOURS_PER_PM;
     
-    const uniqueEmployeesInProjects = new Set(assignments.map(a => a.employee_id)).size;
+    const uniqueEmployeesInProjects = new Set(wpAssignments.map(a => a.employee_id)).size;
     
     return {
       projectCount: projects.length,
@@ -364,79 +398,119 @@ export default function BeraterBerichtePage() {
       totalActualPM,
       progressPercent: totalPlannedPM > 0 ? (totalActualPM / totalPlannedPM) * 100 : 0,
     };
-  }, [projects, workPackages, timesheets, assignments]);
+  }, [projects, workPackages, timesheets, wpAssignments]);
 
   const projectStats: ProjectStats[] = useMemo(() => {
     return projects.map(project => {
-      const projectWPs = (workPackages || []).filter(wp => wp.project_id === project.id);
+      const projectWPs = workPackages.filter(wp => wp.project_id === project.id);
       const plannedPM = projectWPs.reduce((sum, wp) => sum + (wp.total_person_months || 0), 0);
       
-      const projectTimesheets = (timesheets || []).filter(t => 
+      const projectTimesheets = timesheets.filter(t => 
         t.project_id === project.id && 
-        (!t.day_type || t.day_type === 'work')
+        t.is_billable === true
       );
       const actualHours = projectTimesheets.reduce((sum, t) => sum + (t.hours || 0), 0);
       const actualPM = actualHours / HOURS_PER_PM;
       
       const progressPercent = plannedPM > 0 ? (actualPM / plannedPM) * 100 : 0;
       
+      // Zeitfortschritt berechnen
+      let timeProgressPercent = 0;
+      if (project.start_date && project.end_date) {
+        const now = new Date();
+        const start = new Date(project.start_date);
+        const end = new Date(project.end_date);
+        const totalDuration = end.getTime() - start.getTime();
+        if (totalDuration > 0) {
+          const elapsed = Math.max(0, now.getTime() - start.getTime());
+          timeProgressPercent = Math.min(100, (elapsed / totalDuration) * 100);
+        }
+      }
+      
+      // Status basierend auf Differenz Zeitfortschritt vs Erfassungsgrad
       let status: 'on-track' | 'warning' | 'critical' = 'on-track';
       if (progressPercent > 110) {
         status = 'critical';
-      } else if (progressPercent > 90) {
+      } else if (timeProgressPercent - progressPercent > 25) {
         status = 'warning';
       }
       
-      return { project, plannedPM, actualPM, progressPercent, status };
+      return { project, plannedPM, actualPM, progressPercent, timeProgressPercent, status };
     });
   }, [projects, workPackages, timesheets]);
 
   const employeeTimesheetStatus: EmployeeTimesheetStatus[] = useMemo(() => {
-    const startDate = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
-    const daysInMonth = new Date(selectedYear, selectedMonth, 0).getDate();
-    const endDate = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${daysInMonth}`;
-    
-    const workingDays = getWorkingDaysInMonth(selectedYear, selectedMonth, holidays);
-    
-    const employeesInProjects = (employees || []).filter(emp => 
-      assignments.some(a => a.employee_id === emp.id)
+    const employeesInProjects = employees.filter(emp => 
+      wpAssignments.some(a => a.employee_id === emp.id)
     );
     
+    // Projekt-Gesamtzeitraum fuer Zeitfortschritt
+    let projectStart: string | null = null;
+    let projectEnd: string | null = null;
+    workPackages.forEach(wp => {
+      if (wp.start_date && (!projectStart || wp.start_date < projectStart)) projectStart = wp.start_date;
+      if (wp.end_date && (!projectEnd || wp.end_date > projectEnd)) projectEnd = wp.end_date;
+    });
+    
+    // Zeitfortschritt berechnen
+    let timeProgress = 0;
+    if (projectStart && projectEnd) {
+      const now = new Date();
+      const start = new Date(projectStart);
+      const end = new Date(projectEnd);
+      const totalDuration = end.getTime() - start.getTime();
+      if (totalDuration > 0) {
+        const elapsed = Math.max(0, now.getTime() - start.getTime());
+        timeProgress = Math.min(100, (elapsed / totalDuration) * 100);
+      }
+    }
+    
     return employeesInProjects.map(employee => {
-      const employeeProjectIds = assignments
-        .filter(a => a.employee_id === employee.id)
-        .map(a => a.project_id);
+      const employeeAssignments = wpAssignments.filter(a => a.employee_id === employee.id);
+      
+      // Projekte ueber WP-Zuordnungen ermitteln
+      const employeeWpIds = employeeAssignments.map(a => a.work_package_id);
+      const employeeProjectIds = [...new Set(
+        workPackages
+          .filter(wp => employeeWpIds.includes(wp.id))
+          .map(wp => wp.project_id)
+      )];
       
       const projectNames = projects
         .filter(p => employeeProjectIds.includes(p.id))
         .map(p => p.short_name || p.name);
       
-      const employeeTimesheets = (timesheets || []).filter(t => 
-        t.employee_id === employee.id &&
-        t.work_date >= startDate &&
-        t.work_date <= endDate
-      );
+      // Soll-Stunden: Summe geplante PM * 173,33
+      const sollPM = employeeAssignments.reduce((sum, a) => sum + (a.planned_person_months || 0), 0);
+      const sollHours = sollPM * HOURS_PER_PM;
       
-      const uniqueDates = new Set(employeeTimesheets.map(t => t.work_date));
-      const recordedDays = uniqueDates.size;
+      // Erfasste Stunden: nur billable, gesamtes Projekt
+      const erfasstHours = timesheets
+        .filter(t => t.employee_id === employee.id && t.is_billable === true)
+        .reduce((sum, t) => sum + (t.hours || 0), 0);
       
-      let status: 'complete' | 'partial' | 'missing' = 'missing';
-      if (recordedDays >= workingDays) {
-        status = 'complete';
-      } else if (recordedDays > 0) {
-        status = 'partial';
+      const offenHours = sollHours - erfasstHours;
+      const progressPercent = sollHours > 0 ? (erfasstHours / sollHours) * 100 : 0;
+      
+      // Ampel-Status: Vergleich Zeitfortschritt vs Erfassungsgrad
+      let budgetStatus: 'on-track' | 'warning' | 'exceeded' = 'on-track';
+      if (offenHours < 0) {
+        budgetStatus = 'exceeded';
+      } else if (timeProgress - progressPercent > 25) {
+        budgetStatus = 'warning';
       }
       
       return {
         employee,
         projects: projectNames,
-        workingDays,
-        recordedDays,
-        status,
-        missingDays: Math.max(0, workingDays - recordedDays),
+        sollHours,
+        erfasstHours,
+        offenHours,
+        progressPercent,
+        budgetStatus,
       };
     });
-  }, [employees, assignments, projects, timesheets, selectedYear, selectedMonth, holidays]);
+  }, [employees, wpAssignments, projects, timesheets, workPackages]);
 
   // ============================================================================
   // RENDER
@@ -451,9 +525,10 @@ export default function BeraterBerichtePage() {
           userName=""
           userRole="consultant"
         />
+        <PortalNav portal="berater" userRole="consultant" />
         <main className="max-w-7xl mx-auto px-4 py-8">
           <div className="flex items-center justify-center h-64">
-            <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+            <div className="w-10 h-10 border-4 border-green-200 border-t-green-600 rounded-full animate-spin"></div>
           </div>
         </main>
       </div>
@@ -469,16 +544,14 @@ export default function BeraterBerichtePage() {
           userName=""
           userRole="consultant"
         />
+        <PortalNav portal="berater" userRole="consultant" />
         <main className="max-w-7xl mx-auto px-4 py-8">
           <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
             <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
             <p className="text-red-700">{error}</p>
-            <button
-              onClick={() => router.back()}
-              className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-            >
-              Zurueck
-            </button>
+            <p className="text-sm text-red-600 mt-2">
+              Tipp: Loggen Sie sich als Firmen-Benutzer ein (z.B. Thomas Duehrkop bei AS System).
+            </p>
           </div>
         </main>
       </div>
@@ -492,18 +565,21 @@ export default function BeraterBerichtePage() {
         companyName={company?.name || ''} 
         userName={userProfile?.display_name || ''}
         userRole="consultant"
+       
       />
+      <PortalNav portal="berater" userRole="consultant" />
       
       <main className="max-w-7xl mx-auto px-4 py-8">
-        {/* Zurueck-Button + Header */}
+        {/* Zurueck-Link */}
+        <a 
+          href={`/v7/berater/foerderung/firma/${companyId}`}
+          className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 mb-4 text-sm"
+        >
+          &larr; Zurueck zur Firmenuebersicht
+        </a>
+        
+        {/* Header */}
         <div className="mb-8">
-          <button
-            onClick={() => router.push(`/v7/berater/foerderung/firma/${companyId}?tab=berichte`)}
-            className="flex items-center gap-2 text-blue-600 hover:text-blue-800 mb-4"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Zurueck zur Firmenuebersicht
-          </button>
           <h1 className="text-2xl font-bold text-gray-900">Berichte & Controlling</h1>
           <p className="text-gray-600 mt-1">{company?.name} - Uebersicht ueber Projekte, Kosten und Zeiterfassung</p>
         </div>
@@ -514,11 +590,11 @@ export default function BeraterBerichtePage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">Foerderprojekte</p>
-                <p className="text-3xl font-bold text-blue-600">{stats.projectCount}</p>
+                <p className="text-3xl font-bold text-green-600">{stats.projectCount}</p>
                 <p className="text-xs text-gray-400 mt-1">aktiv</p>
               </div>
-              <div className="w-12 h-12 bg-blue-50 rounded-lg flex items-center justify-center">
-                <FolderKanban className="w-6 h-6 text-blue-600" />
+              <div className="w-12 h-12 bg-green-50 rounded-lg flex items-center justify-center">
+                <FolderKanban className="w-6 h-6 text-green-600" />
               </div>
             </div>
           </div>
@@ -619,22 +695,41 @@ export default function BeraterBerichtePage() {
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="flex-1 bg-gray-200 rounded-full h-2 min-w-[100px]">
-                            <div 
-                              className={`h-2 rounded-full ${
-                                ps.status === 'critical' ? 'bg-red-500' :
-                                ps.status === 'warning' ? 'bg-yellow-500' :
-                                'bg-green-500'
-                              }`}
-                              style={{ width: `${Math.min(100, ps.progressPercent)}%` }}
-                            />
+                          <div className="flex-1 min-w-[140px]">
+                            {/* Erfassungsfortschritt */}
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-xs text-gray-500 w-14">Erfasst</span>
+                              <div className="flex-1 bg-gray-200 rounded-full h-2">
+                                <div 
+                                  className={`h-2 rounded-full ${
+                                    ps.status === 'critical' ? 'bg-red-500' :
+                                    ps.status === 'warning' ? 'bg-orange-400' :
+                                    'bg-green-500'
+                                  }`}
+                                  style={{ width: `${Math.min(100, ps.progressPercent)}%` }}
+                                />
+                              </div>
+                              <span className="text-xs font-medium text-gray-700 w-10 text-right">
+                                {ps.progressPercent.toFixed(0)}%
+                              </span>
+                            </div>
+                            {/* Zeitfortschritt */}
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500 w-14">Laufzeit</span>
+                              <div className="flex-1 bg-gray-200 rounded-full h-2">
+                                <div 
+                                  className="h-2 rounded-full bg-blue-400"
+                                  style={{ width: `${Math.min(100, ps.timeProgressPercent)}%` }}
+                                />
+                              </div>
+                              <span className="text-xs font-medium text-blue-600 w-10 text-right">
+                                {ps.timeProgressPercent.toFixed(0)}%
+                              </span>
+                            </div>
                           </div>
-                          <span className="text-sm font-medium text-gray-700 min-w-[40px]">
-                            {ps.progressPercent.toFixed(0)}%
-                          </span>
-                          {ps.status === 'on-track' && <CheckCircle className="w-4 h-4 text-green-500" />}
-                          {ps.status === 'warning' && <AlertTriangle className="w-4 h-4 text-yellow-500" />}
-                          {ps.status === 'critical' && <AlertCircle className="w-4 h-4 text-red-500" />}
+                          {ps.status === 'on-track' && <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />}
+                          {ps.status === 'warning' && <AlertTriangle className="w-4 h-4 text-orange-500 flex-shrink-0" />}
+                          {ps.status === 'critical' && <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />}
                         </div>
                       </td>
                     </tr>
@@ -647,54 +742,9 @@ export default function BeraterBerichtePage() {
 
         {/* Zeiterfassungs-Status */}
         <div className="bg-white rounded-lg shadow mb-8">
-          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+          <div className="px-6 py-4 border-b border-gray-200">
             <h2 className="text-lg font-semibold text-gray-900">Zeiterfassungs-Status</h2>
-            <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-gray-400" />
-              <select
-                value={`${selectedYear}-${String(selectedMonth).padStart(2, '0')}`}
-                onChange={(e) => {
-                  const [year, month] = e.target.value.split('-');
-                  setSelectedYear(parseInt(year));
-                  setSelectedMonth(parseInt(month));
-                }}
-                className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                {(() => {
-                  let earliestStart: Date | null = null;
-                  let latestEnd: Date | null = null;
-                  
-                  projects.forEach(p => {
-                    if (p.start_date) {
-                      const start = new Date(p.start_date);
-                      if (!earliestStart || start < earliestStart) earliestStart = start;
-                    }
-                    if (p.end_date) {
-                      const end = new Date(p.end_date);
-                      if (!latestEnd || end > latestEnd) latestEnd = end;
-                    }
-                  });
-                  
-                  if (!earliestStart) earliestStart = new Date();
-                  if (!latestEnd) latestEnd = new Date();
-                  
-                  const months: { year: number; month: number }[] = [];
-                  const current = new Date(latestEnd.getFullYear(), latestEnd.getMonth(), 1);
-                  const earliest = new Date(earliestStart.getFullYear(), earliestStart.getMonth(), 1);
-                  
-                  while (current >= earliest) {
-                    months.push({ year: current.getFullYear(), month: current.getMonth() + 1 });
-                    current.setMonth(current.getMonth() - 1);
-                  }
-                  
-                  return months.map(({ year, month }) => (
-                    <option key={`${year}-${month}`} value={`${year}-${String(month).padStart(2, '0')}`}>
-                      {getMonthName(month)} {year}
-                    </option>
-                  ));
-                })()}
-              </select>
-            </div>
+            <p className="text-sm text-gray-500 mt-1">Stundenbudget pro Mitarbeiter (Gesamtprojekt)</p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -702,21 +752,29 @@ export default function BeraterBerichtePage() {
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Mitarbeiter</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Projekt(e)</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Soll-Tage</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Erfasst</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Soll (h)</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Erfasst (h)</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Offen (h)</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" style={{ minWidth: '200px' }}>Fortschritt</th>
                   <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Aktion</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {employeeTimesheetStatus.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                    <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
                       Keine Mitarbeiter mit Projektzuordnung
                     </td>
                   </tr>
                 ) : (
-                  employeeTimesheetStatus.map(ets => (
+                  employeeTimesheetStatus.map(ets => {
+                    const progressCapped = Math.min(100, ets.progressPercent);
+                    const barColor = ets.budgetStatus === 'exceeded' ? 'bg-red-500' 
+                      : ets.budgetStatus === 'warning' ? 'bg-orange-400' 
+                      : 'bg-green-500';
+                    const offenColor = ets.offenHours < 0 ? 'text-red-600' : 'text-green-700';
+
+                    return (
                     <tr key={ets.employee.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 font-medium text-gray-900">
                         {ets.employee.display_name}
@@ -724,43 +782,45 @@ export default function BeraterBerichtePage() {
                       <td className="px-6 py-4 text-sm text-gray-500">
                         {ets.projects.join(', ') || '-'}
                       </td>
-                      <td className="px-6 py-4 text-right text-gray-700">
-                        {ets.workingDays}
+                      <td className="px-6 py-4 text-right text-gray-700 tabular-nums">
+                        {ets.sollHours > 0 ? Math.round(ets.sollHours).toLocaleString('de-DE') : '-'}
                       </td>
-                      <td className="px-6 py-4 text-right text-gray-700">
-                        {ets.recordedDays}
+                      <td className={`px-6 py-4 text-right tabular-nums font-medium ${
+                        ets.budgetStatus === 'warning' ? 'bg-orange-50' : ''
+                      }`}>
+                        {ets.erfasstHours > 0 ? Math.round(ets.erfasstHours).toLocaleString('de-DE') : '-'}
+                      </td>
+                      <td className={`px-6 py-4 text-right tabular-nums font-medium ${offenColor}`}>
+                        {ets.sollHours > 0 ? Math.round(ets.offenHours).toLocaleString('de-DE') : '-'}
                       </td>
                       <td className="px-6 py-4">
-                        {ets.status === 'complete' && (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                            <CheckCircle className="w-3 h-3" />
-                            Vollstaendig
+                        <div className="flex items-center gap-3">
+                          <div className="flex-1 bg-gray-200 rounded-full h-2.5">
+                            <div
+                              className={`h-2.5 rounded-full ${barColor}`}
+                              style={{ width: `${progressCapped}%` }}
+                            />
+                          </div>
+                          <span className="text-sm font-medium text-gray-700 w-12 text-right">
+                            {Math.round(ets.progressPercent)}%
                           </span>
-                        )}
-                        {ets.status === 'partial' && (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                            <AlertTriangle className="w-3 h-3" />
-                            {ets.missingDays} offen
-                          </span>
-                        )}
-                        {ets.status === 'missing' && (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                            <XCircle className="w-3 h-3" />
-                            Fehlt
-                          </span>
-                        )}
+                          {ets.budgetStatus === 'exceeded' && (
+                            <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                          )}
+                          {ets.budgetStatus === 'warning' && (
+                            <AlertTriangle className="w-4 h-4 text-orange-500 flex-shrink-0" />
+                          )}
+                          {ets.budgetStatus === 'on-track' && ets.erfasstHours > 0 && (
+                            <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-center">
                         <button
                           onClick={() => {
-                            const params = new URLSearchParams({
-                              employee: ets.employee.id,
-                              year: selectedYear.toString(),
-                              month: selectedMonth.toString(),
-                            });
-                            router.push(`/v7/berater/foerderung/firma/${companyId}/zeiterfassung?${params.toString()}`);
+                            router.push(`/v7/berater/foerderung/firma/${companyId}/zeiterfassung?employee=${ets.employee.id}`);
                           }}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
+                          className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-green-700 bg-green-50 hover:bg-green-100 rounded-lg transition-colors"
                           title={`Zeiterfassung fuer ${ets.employee.display_name} oeffnen`}
                         >
                           <ExternalLink className="w-4 h-4" />
@@ -768,7 +828,8 @@ export default function BeraterBerichtePage() {
                         </button>
                       </td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -815,7 +876,7 @@ export default function BeraterBerichtePage() {
       </main>
       
       <footer className="text-center py-4 text-sm text-gray-500 mt-8">
-        Projektzeiterfassung v7.3.88 · Berater-Portal · © 2026
+        Projektzeiterfassung v7.4.3 - Berater-Portal - 2026
       </footer>
     </div>
   );
