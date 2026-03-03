@@ -2,15 +2,15 @@
 // ============================================================================
 // PZE V7 - Berichte & Controlling (Firmen-Portal)
 // ============================================================================
-// Version: 7.4.3-9
+// Version: 7.4.3-10
 // Datum: 03. Maerz 2026
 //
-// v7.4.3-9: FIX: portalRole korrekt aus v7_employees.portal_role lesen
-//           (vorher wurde userProfile.role verwendet = falscher Typ)
-//           Projekt-Uebersicht: 2 Fortschrittsbalken (Erfasst + Laufzeit)
-//           Warning-Status basierend auf Zeitfortschritt vs Erfassungsgrad
-// v7.4.3-8: is_active Filter, is_billable PM-Berechnung,
-//           Zeiterfassungs-Status mit Stunden+Fortschrittsbalken
+// v7.4.3-10: FIX: v7_work_package_assignments statt v7_project_assignments
+//            (project_assignments hat keine planned_person_months!)
+//            FIX: portalRole an PortalHeader (Rollenanzeige unter Name)
+//            Projekt-Uebersicht: 2 Fortschrittsbalken (Erfasst + Laufzeit)
+// v7.4.3-8: is_active Filter, is_billable PM, Zeiterfassungs-Status Umbau
+// v7.3.88-4: Monats-Dropdown, Aktion-Spalte, Feld-Korrekturen
 // ============================================================================
 
 'use client';
@@ -88,10 +88,11 @@ interface WorkPackage {
   total_person_months: number | null;
 }
 
-interface ProjectAssignment {
+interface WorkPackageAssignment {
   id: string;
-  project_id: string;
+  work_package_id: string;
   employee_id: string;
+  planned_person_months: number;
 }
 
 interface TimesheetEntry {
@@ -233,7 +234,7 @@ export default function BerichtePage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [workPackages, setWorkPackages] = useState<WorkPackage[]>([]);
-  const [assignments, setAssignments] = useState<ProjectAssignment[]>([]);
+  const [wpAssignments, setWpAssignments] = useState<WorkPackageAssignment[]>([]);
   const [timesheets, setTimesheets] = useState<TimesheetEntry[]>([]);
   
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
@@ -353,19 +354,20 @@ export default function BerichtePage() {
           setWorkPackages(wpData || []);
         }
         
-        // Projekt-Zuordnungen
-        if (projectIds.length > 0) {
-          const { data: assignmentData, error: assignmentError } = await supabase
-            .from('v7_project_assignments')
-            .select('id, project_id, employee_id')
-            .in('project_id', projectIds)
+        // AP-Zuordnungen mit geplanten PM
+        if (wpData && wpData.length > 0) {
+          const wpIds = wpData.map((wp: any) => wp.id);
+          const { data: wpaData, error: wpaError } = await supabase
+            .from('v7_work_package_assignments')
+            .select('id, work_package_id, employee_id, planned_person_months')
+            .in('work_package_id', wpIds)
             .eq('is_active', true);
           
-          if (assignmentError) {
-            console.error('Assignment-Fehler:', assignmentError);
+          if (wpaError) {
+            console.error('WP-Assignment-Fehler:', wpaError);
           }
-          console.log('Zuordnungen geladen:', assignmentData?.length || 0);
-          setAssignments(assignmentData || []);
+          console.log('AP-Zuordnungen geladen:', wpaData?.length || 0);
+          setWpAssignments(wpaData || []);
         }
         
         // Zeiterfassung - KORREKTER FELDNAME: work_date (nicht date)
@@ -408,7 +410,7 @@ export default function BerichtePage() {
       .reduce((sum, t) => sum + (t.hours || 0), 0);
     const totalActualPM = totalHours / HOURS_PER_PM;
     
-    const uniqueEmployeesInProjects = new Set(assignments.map(a => a.employee_id)).size;
+    const uniqueEmployeesInProjects = new Set(wpAssignments.map(a => a.employee_id)).size;
     
     return {
       projectCount: projects.length,
@@ -418,7 +420,7 @@ export default function BerichtePage() {
       totalActualPM,
       progressPercent: totalPlannedPM > 0 ? (totalActualPM / totalPlannedPM) * 100 : 0,
     };
-  }, [projects, workPackages, timesheets, assignments]);
+  }, [projects, workPackages, timesheets, wpAssignments]);
 
   const projectStats: ProjectStats[] = useMemo(() => {
     return projects.map(project => {
@@ -461,7 +463,7 @@ export default function BerichtePage() {
 
   const employeeTimesheetStatus: EmployeeTimesheetStatus[] = useMemo(() => {
     const employeesInProjects = employees.filter(emp => 
-      assignments.some(a => a.employee_id === emp.id)
+      wpAssignments.some(a => a.employee_id === emp.id)
     );
     
     // Projekt-Gesamtzeitraum fuer Zeitfortschritt
@@ -486,8 +488,15 @@ export default function BerichtePage() {
     }
     
     return employeesInProjects.map(employee => {
-      const employeeAssignments = assignments.filter(a => a.employee_id === employee.id);
-      const employeeProjectIds = employeeAssignments.map(a => a.project_id);
+      const employeeAssignments = wpAssignments.filter(a => a.employee_id === employee.id);
+      
+      // Projekte ueber WP-Zuordnungen ermitteln
+      const employeeWpIds = employeeAssignments.map(a => a.work_package_id);
+      const employeeProjectIds = [...new Set(
+        workPackages
+          .filter(wp => employeeWpIds.includes(wp.id))
+          .map(wp => wp.project_id)
+      )];
       
       const projectNames = projects
         .filter(p => employeeProjectIds.includes(p.id))
@@ -523,7 +532,7 @@ export default function BerichtePage() {
         budgetStatus,
       };
     });
-  }, [employees, assignments, projects, timesheets, workPackages]);
+  }, [employees, wpAssignments, projects, timesheets, workPackages]);
 
   // ============================================================================
   // RENDER
@@ -578,6 +587,7 @@ export default function BerichtePage() {
         companyName={company?.name || ''} 
         userName={userProfile?.display_name || ''}
         userRole={portalRole === "client_admin" ? "client_admin" : "client_user"}
+        portalRole={portalRole as any}
       />
       <PortalNav portal="firma" userRole={portalRole === "client_admin" ? "client_admin" : "client_user"} portalRole={portalRole} />
       
