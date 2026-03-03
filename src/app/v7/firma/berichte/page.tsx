@@ -2,18 +2,15 @@
 // ============================================================================
 // PZE V7 - Berichte & Controlling (Firmen-Portal)
 // ============================================================================
-// Version: 7.4.3-8
+// Version: 7.4.3-9
 // Datum: 03. Maerz 2026
 //
-// v7.4.3-8: KRITISCH: is_active Filter fuer Timesheets (fehlte komplett!)
-//           PM-Berechnung: nur is_billable=true Stunden zaehlen
-//           Zeiterfassungs-Status: komplett umgebaut
-//           - Stunden statt Tage (Soll/Erfasst/Offen)
-//           - Fortschrittsbalken pro MA (gruen/orange/rot)
-//           - Orange-Warnung wenn Erfassung > 25 Pp hinter Zeitfortschritt
-//           - Bezug: Gesamtprojekt (nicht Monat)
-//           - Monats-Dropdown entfernt (nicht mehr noetig)
-// v7.3.88-4: Monats-Dropdown, Aktion-Spalte, Feld-Korrekturen
+// v7.4.3-9: FIX: portalRole korrekt aus v7_employees.portal_role lesen
+//           (vorher wurde userProfile.role verwendet = falscher Typ)
+//           Projekt-Uebersicht: 2 Fortschrittsbalken (Erfasst + Laufzeit)
+//           Warning-Status basierend auf Zeitfortschritt vs Erfassungsgrad
+// v7.4.3-8: is_active Filter, is_billable PM-Berechnung,
+//           Zeiterfassungs-Status mit Stunden+Fortschrittsbalken
 // ============================================================================
 
 'use client';
@@ -113,6 +110,7 @@ interface ProjectStats {
   plannedPM: number;
   actualPM: number;
   progressPercent: number;
+  timeProgressPercent: number;
   status: 'on-track' | 'warning' | 'critical';
 }
 
@@ -230,6 +228,7 @@ export default function BerichtePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [portalRole, setPortalRole] = useState<string>('employee');
   const [company, setCompany] = useState<Company | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -316,7 +315,7 @@ export default function BerichtePage() {
         // Mitarbeiter - KORREKTER FELDNAME: client_company_id
         const { data: employeesData, error: employeesError } = await supabase
           .from('v7_employees')
-          .select('id, display_name, first_name, last_name')
+          .select('id, display_name, first_name, last_name, user_id, portal_role')
           .eq('client_company_id', companyId)
           .eq('is_active', true);
         
@@ -325,6 +324,18 @@ export default function BerichtePage() {
         }
         console.log('Mitarbeiter geladen:', employeesData?.length || 0);
         setEmployees(employeesData || []);
+        
+        // Portal-Rolle des eingeloggten Users bestimmen
+        const myEmployee = (employeesData || []).find(
+          (emp: any) => emp.user_id === user.id
+        );
+        if (profile.role === 'client_admin') {
+          setPortalRole('client_admin');
+        } else if (myEmployee?.portal_role) {
+          setPortalRole(myEmployee.portal_role);
+        } else {
+          setPortalRole('employee');
+        }
         
         // Arbeitspakete
         const projectIds = (projectsData || []).map(p => p.id);
@@ -423,14 +434,28 @@ export default function BerichtePage() {
       
       const progressPercent = plannedPM > 0 ? (actualPM / plannedPM) * 100 : 0;
       
+      // Zeitfortschritt berechnen
+      let timeProgressPercent = 0;
+      if (project.start_date && project.end_date) {
+        const now = new Date();
+        const start = new Date(project.start_date);
+        const end = new Date(project.end_date);
+        const totalDuration = end.getTime() - start.getTime();
+        if (totalDuration > 0) {
+          const elapsed = Math.max(0, now.getTime() - start.getTime());
+          timeProgressPercent = Math.min(100, (elapsed / totalDuration) * 100);
+        }
+      }
+      
+      // Status basierend auf Differenz Zeitfortschritt vs Erfassungsgrad
       let status: 'on-track' | 'warning' | 'critical' = 'on-track';
       if (progressPercent > 110) {
         status = 'critical';
-      } else if (progressPercent > 90) {
+      } else if (timeProgressPercent - progressPercent > 25) {
         status = 'warning';
       }
       
-      return { project, plannedPM, actualPM, progressPercent, status };
+      return { project, plannedPM, actualPM, progressPercent, timeProgressPercent, status };
     });
   }, [projects, workPackages, timesheets]);
 
@@ -511,9 +536,9 @@ export default function BerichtePage() {
           portal="firma" 
           companyName="" 
           userName=""
-          userRole={userProfile?.role || "client_admin"}
+          userRole={portalRole === "client_admin" ? "client_admin" : "client_user"}
         />
-        <PortalNav portal="firma" userRole={userProfile?.role || "client_admin"} portalRole={userProfile?.role || "client_admin"} />
+        <PortalNav portal="firma" userRole={portalRole === "client_admin" ? "client_admin" : "client_user"} portalRole={portalRole} />
         <main className="max-w-7xl mx-auto px-4 py-8">
           <div className="flex items-center justify-center h-64">
             <div className="w-10 h-10 border-4 border-green-200 border-t-green-600 rounded-full animate-spin"></div>
@@ -530,9 +555,9 @@ export default function BerichtePage() {
           portal="firma" 
           companyName="" 
           userName=""
-          userRole={userProfile?.role || "client_admin"}
+          userRole={portalRole === "client_admin" ? "client_admin" : "client_user"}
         />
-        <PortalNav portal="firma" userRole={userProfile?.role || "client_admin"} portalRole={userProfile?.role || "client_admin"} />
+        <PortalNav portal="firma" userRole={portalRole === "client_admin" ? "client_admin" : "client_user"} portalRole={portalRole} />
         <main className="max-w-7xl mx-auto px-4 py-8">
           <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
             <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
@@ -552,9 +577,9 @@ export default function BerichtePage() {
         portal="firma" 
         companyName={company?.name || ''} 
         userName={userProfile?.display_name || ''}
-        userRole={userProfile?.role || "client_admin"}
+        userRole={portalRole === "client_admin" ? "client_admin" : "client_user"}
       />
-      <PortalNav portal="firma" userRole={userProfile?.role || "client_admin"} portalRole={userProfile?.role || "client_admin"} />
+      <PortalNav portal="firma" userRole={portalRole === "client_admin" ? "client_admin" : "client_user"} portalRole={portalRole} />
       
       <main className="max-w-7xl mx-auto px-4 py-8">
         {/* Header */}
@@ -674,22 +699,41 @@ export default function BerichtePage() {
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="flex-1 bg-gray-200 rounded-full h-2 min-w-[100px]">
-                            <div 
-                              className={`h-2 rounded-full ${
-                                ps.status === 'critical' ? 'bg-red-500' :
-                                ps.status === 'warning' ? 'bg-yellow-500' :
-                                'bg-green-500'
-                              }`}
-                              style={{ width: `${Math.min(100, ps.progressPercent)}%` }}
-                            />
+                          <div className="flex-1 min-w-[140px]">
+                            {/* Erfassungsfortschritt */}
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-xs text-gray-500 w-14">Erfasst</span>
+                              <div className="flex-1 bg-gray-200 rounded-full h-2">
+                                <div 
+                                  className={`h-2 rounded-full ${
+                                    ps.status === 'critical' ? 'bg-red-500' :
+                                    ps.status === 'warning' ? 'bg-orange-400' :
+                                    'bg-green-500'
+                                  }`}
+                                  style={{ width: `${Math.min(100, ps.progressPercent)}%` }}
+                                />
+                              </div>
+                              <span className="text-xs font-medium text-gray-700 w-10 text-right">
+                                {ps.progressPercent.toFixed(0)}%
+                              </span>
+                            </div>
+                            {/* Zeitfortschritt */}
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500 w-14">Laufzeit</span>
+                              <div className="flex-1 bg-gray-200 rounded-full h-2">
+                                <div 
+                                  className="h-2 rounded-full bg-blue-400"
+                                  style={{ width: `${Math.min(100, ps.timeProgressPercent)}%` }}
+                                />
+                              </div>
+                              <span className="text-xs font-medium text-blue-600 w-10 text-right">
+                                {ps.timeProgressPercent.toFixed(0)}%
+                              </span>
+                            </div>
                           </div>
-                          <span className="text-sm font-medium text-gray-700 min-w-[40px]">
-                            {ps.progressPercent.toFixed(0)}%
-                          </span>
-                          {ps.status === 'on-track' && <CheckCircle className="w-4 h-4 text-green-500" />}
-                          {ps.status === 'warning' && <AlertTriangle className="w-4 h-4 text-yellow-500" />}
-                          {ps.status === 'critical' && <AlertCircle className="w-4 h-4 text-red-500" />}
+                          {ps.status === 'on-track' && <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />}
+                          {ps.status === 'warning' && <AlertTriangle className="w-4 h-4 text-orange-500 flex-shrink-0" />}
+                          {ps.status === 'critical' && <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />}
                         </div>
                       </td>
                     </tr>
