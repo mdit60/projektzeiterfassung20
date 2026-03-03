@@ -2,11 +2,10 @@
 // ============================================================================
 // PZE V7 - Mein Status (Firmen-Portal)
 // ============================================================================
-// Version: 7.3.95-4
+// Version: 7.3.95-5
 //
+// v7.3.95-5: FAQ Zeiterfassung als zweiter PDF-Download-Link
 // v7.3.95-4: FIX: Timesheet-Query mit is_active=true Filter
-//            Ohne Filter wurden auch geloeschte Eintraege gezaehlt,
-//            sodass Monate faelschlich als "vollstaendig" angezeigt wurden
 // Datum: 18. Februar 2026
 //
 // v7.3.95-3: Ampel-Logik korrigiert:
@@ -620,20 +619,39 @@ export default function MeinStatusPage() {
           };
           const manual = manualMap[portalRole] || manualMap.employee;
           return (
-            <div className="mb-6 bg-green-50 border border-green-200 rounded-lg px-4 py-3 flex items-center justify-between print:hidden">
-              <div className="flex items-center gap-2 text-sm text-green-800">
-                <Download className="w-4 h-4 flex-shrink-0" />
-                <span>
-                  <strong>{manual.label}</strong> als PDF herunterladen
-                </span>
+            <div className="mb-6 space-y-2 print:hidden">
+              {/* Kurzanleitung */}
+              <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm text-green-800">
+                  <Download className="w-4 h-4 flex-shrink-0" />
+                  <span>
+                    <strong>{manual.label}</strong> als PDF herunterladen
+                  </span>
+                </div>
+                <a
+                  href={manual.file}
+                  download
+                  className="text-sm font-medium text-green-700 hover:text-green-900 underline"
+                >
+                  Download
+                </a>
               </div>
-              <a
-                href={manual.file}
-                download
-                className="text-sm font-medium text-green-700 hover:text-green-900 underline"
-              >
-                Download
-              </a>
+              {/* FAQ Zeiterfassung */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm text-blue-800">
+                  <Download className="w-4 h-4 flex-shrink-0" />
+                  <span>
+                    <strong>FAQ Zeiterfassung</strong> als PDF herunterladen
+                  </span>
+                </div>
+                <a
+                  href="/manuals/PZE-FAQ-Zeiterfassung-v1.pdf"
+                  download
+                  className="text-sm font-medium text-blue-700 hover:text-blue-900 underline"
+                >
+                  Download
+                </a>
+              </div>
             </div>
           );
         })()}
