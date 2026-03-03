@@ -2,18 +2,18 @@
 // ============================================================================
 // PZE V7 - Berichte & Controlling (Firmen-Portal)
 // ============================================================================
-// Version: 7.3.95-1
-// Datum: 20. Februar 2026
+// Version: 7.4.3-8
+// Datum: 03. Maerz 2026
 //
-// v7.3.95-1: userName Fallback auf v7_employees.display_name
-// Fix v7.3.88-4: 
-//   - Monats-Dropdown zeigt NUR Projektzeitraum (Start bis Ende)
-//   - Neue Spalte "Aktion" mit Button zur Zeiterfassung
-//   - Klick auf "Erfassen" oeffnet Zeiterfassung mit MA+Monat
-//   - v7_projects.client_company_id (nicht company_id)
-//   - v7_employees.client_company_id (nicht company_id)
-//   - v7_timesheets.work_date (nicht date)
-//   - v7_timesheets hat kein absence_code - day_type verwenden
+// v7.4.3-8: KRITISCH: is_active Filter fuer Timesheets (fehlte komplett!)
+//           PM-Berechnung: nur is_billable=true Stunden zaehlen
+//           Zeiterfassungs-Status: komplett umgebaut
+//           - Stunden statt Tage (Soll/Erfasst/Offen)
+//           - Fortschrittsbalken pro MA (gruen/orange/rot)
+//           - Orange-Warnung wenn Erfassung > 25 Pp hinter Zeitfortschritt
+//           - Bezug: Gesamtprojekt (nicht Monat)
+//           - Monats-Dropdown entfernt (nicht mehr noetig)
+// v7.3.88-4: Monats-Dropdown, Aktion-Spalte, Feld-Korrekturen
 // ============================================================================
 
 'use client';
@@ -104,6 +104,8 @@ interface TimesheetEntry {
   work_date: string;  // Korrekter Feldname!
   hours: number;
   day_type: string | null;  // 'work', 'vacation', 'sick', etc.
+  is_active: boolean;
+  is_billable: boolean;
 }
 
 interface ProjectStats {
@@ -117,10 +119,11 @@ interface ProjectStats {
 interface EmployeeTimesheetStatus {
   employee: Employee;
   projects: string[];
-  workingDays: number;
-  recordedDays: number;
-  status: 'complete' | 'partial' | 'missing';
-  missingDays: number;
+  sollHours: number;
+  erfasstHours: number;
+  offenHours: number;
+  progressPercent: number;
+  budgetStatus: 'on-track' | 'warning' | 'exceeded';
 }
 
 // ============================================================================
@@ -282,20 +285,6 @@ export default function BerichtePage() {
         
         setUserProfile(profile);
         const companyId = profile.client_company_id;
-
-        // Fallback: display_name aus Employee wenn in Profile leer
-        if (!profile.display_name) {
-          const { data: empRecord } = await supabase
-            .from('v7_employees')
-            .select('display_name')
-            .eq('client_company_id', companyId)
-            .eq('user_id', user.id)
-            .maybeSingle();
-          if (empRecord?.display_name) {
-            profile.display_name = empRecord.display_name;
-            setUserProfile({ ...profile });
-          }
-        }
         
         // Company
         const { data: companyData, error: companyError } = await supabase
@@ -369,11 +358,13 @@ export default function BerichtePage() {
         }
         
         // Zeiterfassung - KORREKTER FELDNAME: work_date (nicht date)
+        // FIX v7.4.3: is_active=true (keine geloeschten Eintraege) + is_billable fuer PM-Berechnung
         if (projectIds.length > 0) {
           const { data: timesheetData, error: timesheetError } = await supabase
             .from('v7_timesheets')
-            .select('id, project_id, employee_id, work_date, hours, day_type')
-            .in('project_id', projectIds);
+            .select('id, project_id, employee_id, work_date, hours, day_type, is_active, is_billable')
+            .in('project_id', projectIds)
+            .eq('is_active', true);
           
           if (timesheetError) {
             console.error('Timesheet-Fehler:', timesheetError);
@@ -400,9 +391,9 @@ export default function BerichtePage() {
   const stats = useMemo(() => {
     const totalPlannedPM = workPackages.reduce((sum, wp) => sum + (wp.total_person_months || 0), 0);
     
-    // Nur Arbeitsstunden zaehlen (day_type = 'work' oder null)
+    // Nur foerderbare Arbeitsstunden zaehlen (is_billable=true)
     const totalHours = timesheets
-      .filter(t => !t.day_type || t.day_type === 'work')
+      .filter(t => t.is_billable === true)
       .reduce((sum, t) => sum + (t.hours || 0), 0);
     const totalActualPM = totalHours / HOURS_PER_PM;
     
@@ -425,7 +416,7 @@ export default function BerichtePage() {
       
       const projectTimesheets = timesheets.filter(t => 
         t.project_id === project.id && 
-        (!t.day_type || t.day_type === 'work')
+        t.is_billable === true
       );
       const actualHours = projectTimesheets.reduce((sum, t) => sum + (t.hours || 0), 0);
       const actualPM = actualHours / HOURS_PER_PM;
@@ -444,52 +435,70 @@ export default function BerichtePage() {
   }, [projects, workPackages, timesheets]);
 
   const employeeTimesheetStatus: EmployeeTimesheetStatus[] = useMemo(() => {
-    const startDate = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
-    const daysInMonth = new Date(selectedYear, selectedMonth, 0).getDate();
-    const endDate = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${daysInMonth}`;
-    
-    const workingDays = getWorkingDaysInMonth(selectedYear, selectedMonth, holidays);
-    
     const employeesInProjects = employees.filter(emp => 
       assignments.some(a => a.employee_id === emp.id)
     );
     
+    // Projekt-Gesamtzeitraum fuer Zeitfortschritt
+    let projectStart: string | null = null;
+    let projectEnd: string | null = null;
+    workPackages.forEach(wp => {
+      if (wp.start_date && (!projectStart || wp.start_date < projectStart)) projectStart = wp.start_date;
+      if (wp.end_date && (!projectEnd || wp.end_date > projectEnd)) projectEnd = wp.end_date;
+    });
+    
+    // Zeitfortschritt berechnen
+    let timeProgress = 0;
+    if (projectStart && projectEnd) {
+      const now = new Date();
+      const start = new Date(projectStart);
+      const end = new Date(projectEnd);
+      const totalDuration = end.getTime() - start.getTime();
+      if (totalDuration > 0) {
+        const elapsed = Math.max(0, now.getTime() - start.getTime());
+        timeProgress = Math.min(100, (elapsed / totalDuration) * 100);
+      }
+    }
+    
     return employeesInProjects.map(employee => {
-      const employeeProjectIds = assignments
-        .filter(a => a.employee_id === employee.id)
-        .map(a => a.project_id);
+      const employeeAssignments = assignments.filter(a => a.employee_id === employee.id);
+      const employeeProjectIds = employeeAssignments.map(a => a.project_id);
       
       const projectNames = projects
         .filter(p => employeeProjectIds.includes(p.id))
         .map(p => p.short_name || p.name);
       
-      // Erfasste Tage - KORREKTER FELDNAME: work_date
-      const employeeTimesheets = timesheets.filter(t => 
-        t.employee_id === employee.id &&
-        t.work_date >= startDate &&
-        t.work_date <= endDate
-      );
+      // Soll-Stunden: Summe geplante PM * 173,33
+      const sollPM = employeeAssignments.reduce((sum, a) => sum + (a.planned_person_months || 0), 0);
+      const sollHours = sollPM * HOURS_PER_PM;
       
-      const uniqueDates = new Set(employeeTimesheets.map(t => t.work_date));
-      const recordedDays = uniqueDates.size;
+      // Erfasste Stunden: nur billable, gesamtes Projekt
+      const erfasstHours = timesheets
+        .filter(t => t.employee_id === employee.id && t.is_billable === true)
+        .reduce((sum, t) => sum + (t.hours || 0), 0);
       
-      let status: 'complete' | 'partial' | 'missing' = 'missing';
-      if (recordedDays >= workingDays) {
-        status = 'complete';
-      } else if (recordedDays > 0) {
-        status = 'partial';
+      const offenHours = sollHours - erfasstHours;
+      const progressPercent = sollHours > 0 ? (erfasstHours / sollHours) * 100 : 0;
+      
+      // Ampel-Status: Vergleich Zeitfortschritt vs Erfassungsgrad
+      let budgetStatus: 'on-track' | 'warning' | 'exceeded' = 'on-track';
+      if (offenHours < 0) {
+        budgetStatus = 'exceeded';
+      } else if (timeProgress - progressPercent > 25) {
+        budgetStatus = 'warning';
       }
       
       return {
         employee,
         projects: projectNames,
-        workingDays,
-        recordedDays,
-        status,
-        missingDays: Math.max(0, workingDays - recordedDays),
+        sollHours,
+        erfasstHours,
+        offenHours,
+        progressPercent,
+        budgetStatus,
       };
     });
-  }, [employees, assignments, projects, timesheets, selectedYear, selectedMonth, holidays]);
+  }, [employees, assignments, projects, timesheets, workPackages]);
 
   // ============================================================================
   // RENDER
@@ -693,57 +702,9 @@ export default function BerichtePage() {
 
         {/* Zeiterfassungs-Status */}
         <div className="bg-white rounded-lg shadow mb-8">
-          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+          <div className="px-6 py-4 border-b border-gray-200">
             <h2 className="text-lg font-semibold text-gray-900">Zeiterfassungs-Status</h2>
-            <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-gray-400" />
-              <select
-                value={`${selectedYear}-${String(selectedMonth).padStart(2, '0')}`}
-                onChange={(e) => {
-                  const [year, month] = e.target.value.split('-');
-                  setSelectedYear(parseInt(year));
-                  setSelectedMonth(parseInt(month));
-                }}
-                className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
-              >
-                {(() => {
-                  // Berechne Zeitraum basierend auf Projekten (NUR Projektzeitraum!)
-                  let earliestStart: Date | null = null;
-                  let latestEnd: Date | null = null;
-                  
-                  projects.forEach(p => {
-                    if (p.start_date) {
-                      const start = new Date(p.start_date);
-                      if (!earliestStart || start < earliestStart) earliestStart = start;
-                    }
-                    if (p.end_date) {
-                      const end = new Date(p.end_date);
-                      if (!latestEnd || end > latestEnd) latestEnd = end;
-                    }
-                  });
-                  
-                  // Fallback falls keine Projektdaten
-                  if (!earliestStart) earliestStart = new Date();
-                  if (!latestEnd) latestEnd = new Date();
-                  
-                  // Generiere Monate vom Projektende rueckwaerts bis Projektstart
-                  const months: { year: number; month: number }[] = [];
-                  const current = new Date(latestEnd.getFullYear(), latestEnd.getMonth(), 1);
-                  const earliest = new Date(earliestStart.getFullYear(), earliestStart.getMonth(), 1);
-                  
-                  while (current >= earliest) {
-                    months.push({ year: current.getFullYear(), month: current.getMonth() + 1 });
-                    current.setMonth(current.getMonth() - 1);
-                  }
-                  
-                  return months.map(({ year, month }) => (
-                    <option key={`${year}-${month}`} value={`${year}-${String(month).padStart(2, '0')}`}>
-                      {getMonthName(month)} {year}
-                    </option>
-                  ));
-                })()}
-              </select>
-            </div>
+            <p className="text-sm text-gray-500 mt-1">Stundenbudget pro Mitarbeiter (Gesamtprojekt)</p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -751,21 +712,29 @@ export default function BerichtePage() {
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Mitarbeiter</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Projekt(e)</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Soll-Tage</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Erfasst</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Soll (h)</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Erfasst (h)</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Offen (h)</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" style={{ minWidth: '200px' }}>Fortschritt</th>
                   <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Aktion</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {employeeTimesheetStatus.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                    <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
                       Keine Mitarbeiter mit Projektzuordnung
                     </td>
                   </tr>
                 ) : (
-                  employeeTimesheetStatus.map(ets => (
+                  employeeTimesheetStatus.map(ets => {
+                    const progressCapped = Math.min(100, ets.progressPercent);
+                    const barColor = ets.budgetStatus === 'exceeded' ? 'bg-red-500' 
+                      : ets.budgetStatus === 'warning' ? 'bg-orange-400' 
+                      : 'bg-green-500';
+                    const offenColor = ets.offenHours < 0 ? 'text-red-600' : 'text-green-700';
+
+                    return (
                     <tr key={ets.employee.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 font-medium text-gray-900">
                         {ets.employee.display_name}
@@ -773,42 +742,43 @@ export default function BerichtePage() {
                       <td className="px-6 py-4 text-sm text-gray-500">
                         {ets.projects.join(', ') || '-'}
                       </td>
-                      <td className="px-6 py-4 text-right text-gray-700">
-                        {ets.workingDays}
+                      <td className="px-6 py-4 text-right text-gray-700 tabular-nums">
+                        {ets.sollHours > 0 ? Math.round(ets.sollHours).toLocaleString('de-DE') : '-'}
                       </td>
-                      <td className="px-6 py-4 text-right text-gray-700">
-                        {ets.recordedDays}
+                      <td className={`px-6 py-4 text-right tabular-nums font-medium ${
+                        ets.budgetStatus === 'warning' ? 'bg-orange-50' : ''
+                      }`}>
+                        {ets.erfasstHours > 0 ? Math.round(ets.erfasstHours).toLocaleString('de-DE') : '-'}
+                      </td>
+                      <td className={`px-6 py-4 text-right tabular-nums font-medium ${offenColor}`}>
+                        {ets.sollHours > 0 ? Math.round(ets.offenHours).toLocaleString('de-DE') : '-'}
                       </td>
                       <td className="px-6 py-4">
-                        {ets.status === 'complete' && (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                            <CheckCircle className="w-3 h-3" />
-                            Vollstaendig
+                        <div className="flex items-center gap-3">
+                          <div className="flex-1 bg-gray-200 rounded-full h-2.5">
+                            <div
+                              className={`h-2.5 rounded-full ${barColor}`}
+                              style={{ width: `${progressCapped}%` }}
+                            />
+                          </div>
+                          <span className="text-sm font-medium text-gray-700 w-12 text-right">
+                            {Math.round(ets.progressPercent)}%
                           </span>
-                        )}
-                        {ets.status === 'partial' && (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                            <AlertTriangle className="w-3 h-3" />
-                            {ets.missingDays} offen
-                          </span>
-                        )}
-                        {ets.status === 'missing' && (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                            <XCircle className="w-3 h-3" />
-                            Fehlt
-                          </span>
-                        )}
+                          {ets.budgetStatus === 'exceeded' && (
+                            <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                          )}
+                          {ets.budgetStatus === 'warning' && (
+                            <AlertTriangle className="w-4 h-4 text-orange-500 flex-shrink-0" />
+                          )}
+                          {ets.budgetStatus === 'on-track' && ets.erfasstHours > 0 && (
+                            <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-center">
                         <button
                           onClick={() => {
-                            // Navigiere zur Zeiterfassung mit MA-ID und Monat als Parameter
-                            const params = new URLSearchParams({
-                              employee: ets.employee.id,
-                              year: selectedYear.toString(),
-                              month: selectedMonth.toString(),
-                            });
-                            router.push(`/v7/firma/zeiterfassung?${params.toString()}`);
+                            router.push(`/v7/firma/zeiterfassung?employee=${ets.employee.id}`);
                           }}
                           className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-green-700 bg-green-50 hover:bg-green-100 rounded-lg transition-colors"
                           title={`Zeiterfassung fuer ${ets.employee.display_name} oeffnen`}
@@ -818,7 +788,8 @@ export default function BerichtePage() {
                         </button>
                       </td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -865,7 +836,7 @@ export default function BerichtePage() {
       </main>
       
       <footer className="text-center py-4 text-sm text-gray-500 mt-8">
-        Projektzeiterfassung v7.3.88 &middot; Firmen-Portal &middot; &copy; 2026
+        Projektzeiterfassung v7.4.3 - Firmen-Portal - 2026
       </footer>
     </div>
   );
