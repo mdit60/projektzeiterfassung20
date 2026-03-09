@@ -2,24 +2,31 @@
 // ============================================================================
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
-// Datum: 03. Maerz 2026
-// Version: 7.4.4-1
+// Datum: 09. Maerz 2026
+// Version: 7.3.88-8
 //
 // Gemeinsame Projekt-Detailseite fuer beide Portale:
 // - Berater-Portal: /v7/berater/foerderung/firma/[firmaId]/projekt/[projektId]
 // - Firmen-Portal: /v7/firma/projekte/[id]
 //
-// v7.4.4-1: NEU: ZA-Felder im Uebersicht-Tab und Edit-Modal
-//           (Zuwendungsbescheid, Foerdersatz, Zuschlag, ZA-Rhythmus,
-//            Ansprechpartner, individuelle ZA-Termine)
+// v7.3.88-8: NEU: syncProjectDatesFromAPs()
+//            Nach jedem AP-Speichern/Loeschen/Import wird project.start_date
+//            automatisch auf das frueheste AP-Startdatum und project.end_date
+//            auf das spaeteste AP-Enddatum gesetzt.
+//            Verhindert falsche "Monate ohne Zeiterfassung"-Anzeige in Mein Status.
 // v7.3.88-7: FIX: projectTeam an WorkPackageTable uebergeben
 //            MA-Sortierung im Arbeitsplan nach employee_number (lfd. Nr.)
 // v7.3.87: NEU: Team-Tab mit ProjectTeamManager (MA vor APs zuordnen)
 //          NEU: ArbeitsplanImport fuer Excel Download/Upload im AP-Tab
-// v7.3.86: TypeScript Typ-Korrekturen
+// v7.3.86: TypeScript Typ-Korrekturen:
+//          - PortalHeader userRole/portalRole korrigiert
+//          - Lokale Employee/WorkPackage Typen fuer Kompatibilitaet
+//          - hideNavigation fuer Detailseiten
 // v7.3.84: Zeiterfassungs-Tab mit Link zur Zeiterfassungsseite
 // v7.3.81: Team-Sortierung nach employee_number (Anlage 6.2)
-// v7.3.76-2: AP-Nummer mit Sub-Nummer, Datumsfelder, is_technical
+// v7.3.76-2: AP-Nummer mit Sub-Nummer (z.B. AP2.1)
+//            Datumsfelder statt Monatsnummern
+//            is_technical Flag fuer technische APs
 //
 // Props:
 // - portal: 'berater' | 'firma' (steuert Farben)
@@ -47,8 +54,6 @@ import {
   X,
   Plus,
   Trash2,
-  CalendarDays,
-  FileText,
 } from 'lucide-react';
 
 // Shared Components
@@ -147,18 +152,6 @@ interface Project {
   notes: string | null;
   is_active: boolean;
   client_company_id: string;
-  // ZA-Felder (v7.4.4)
-  zuwendungsbescheid_datum: string | null;
-  za_rhythmus: string | null;
-  za_overhead_percent_technical: number | null;
-  za_overhead_percent_nontechnical: number | null;
-  foerdersatz_percent: number | null;
-  bewilligte_gesamtkosten: number | null;
-  bewilligte_zuwendung: number | null;
-  za_schedule: any | null;
-  za_contact_name: string | null;
-  za_contact_phone: string | null;
-  za_contact_email: string | null;
 }
 
 interface TeamMember {
@@ -187,18 +180,6 @@ interface ProjectEditData {
   start_date: string;
   end_date: string;
   notes: string;
-  // ZA-Felder (v7.4.4)
-  zuwendungsbescheid_datum: string;
-  za_rhythmus: string;
-  za_overhead_percent_technical: string;
-  za_overhead_percent_nontechnical: string;
-  za_overhead_same: boolean;
-  foerdersatz_percent: string;
-  bewilligte_gesamtkosten: string;
-  bewilligte_zuwendung: string;
-  za_contact_name: string;
-  za_contact_phone: string;
-  za_contact_email: string;
 }
 
 // Foerderprogramm-Optionen
@@ -287,17 +268,6 @@ export default function ProjectDetailPage({
     start_date: '',
     end_date: '',
     notes: '',
-    zuwendungsbescheid_datum: '',
-    za_rhythmus: 'quarterly',
-    za_overhead_percent_technical: '',
-    za_overhead_percent_nontechnical: '',
-    za_overhead_same: true,
-    foerdersatz_percent: '',
-    bewilligte_gesamtkosten: '',
-    bewilligte_zuwendung: '',
-    za_contact_name: '',
-    za_contact_phone: '',
-    za_contact_email: '',
   });
   const [savingProject, setSavingProject] = useState(false);
   const [showProjectDeleteConfirm, setShowProjectDeleteConfirm] = useState(false);
@@ -672,11 +642,55 @@ export default function ProjectDetailPage({
 
       closeWPEditModal();
       await loadData();
+      // NEU v7.3.88-8: Projektdaten automatisch synchronisieren
+      await syncProjectDatesFromAPs();
 
     } catch (err: any) {
       setWpError(err.message);
     } finally {
       setSavingWP(false);
+    }
+  };
+
+  // NEU v7.3.88-8: Projektdaten aus APs synchronisieren
+  // Setzt project.start_date auf das frueheste AP-Startdatum
+  // und project.end_date auf das spaeteste AP-Enddatum.
+  // Wird nach jedem AP-Speichern, Loeschen und Import aufgerufen.
+  const syncProjectDatesFromAPs = async () => {
+    try {
+      const { data: aps } = await supabase
+        .from('v7_work_packages')
+        .select('start_date, end_date')
+        .eq('project_id', projectId)
+        .eq('is_active', true);
+
+      if (!aps || aps.length === 0) return;
+
+      const startDates = (aps || [])
+        .map((ap: any) => ap.start_date)
+        .filter((d: any) => !!d)
+        .sort();
+      const endDates = (aps || [])
+        .map((ap: any) => ap.end_date)
+        .filter((d: any) => !!d)
+        .sort();
+
+      if (startDates.length === 0 && endDates.length === 0) return;
+
+      const newStartDate = startDates.length > 0 ? startDates[0] : null;
+      const newEndDate = endDates.length > 0 ? endDates[endDates.length - 1] : null;
+
+      await supabase
+        .from('v7_projects')
+        .update({
+          start_date: newStartDate,
+          end_date: newEndDate,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', projectId);
+    } catch (err) {
+      // Nicht-kritischer Fehler - still ignorieren
+      console.warn('syncProjectDatesFromAPs fehlgeschlagen:', err);
     }
   };
 
@@ -705,6 +719,8 @@ export default function ProjectDetailPage({
 
       closeDeleteConfirmation();
       await loadData();
+      // NEU v7.3.88-8: Projektdaten synchronisieren
+      await syncProjectDatesFromAPs();
 
     } catch (err: any) {
       alert('Fehler beim Loeschen: ' + err.message);
@@ -964,20 +980,6 @@ export default function ProjectDetailPage({
       start_date: project.start_date || '',
       end_date: project.end_date || '',
       notes: project.notes || '',
-      zuwendungsbescheid_datum: project.zuwendungsbescheid_datum || '',
-      za_rhythmus: project.za_rhythmus || 'quarterly',
-      za_overhead_percent_technical: project.za_overhead_percent_technical?.toString() || '',
-      za_overhead_percent_nontechnical: project.za_overhead_percent_nontechnical?.toString() || '',
-      za_overhead_same: (
-        project.za_overhead_percent_technical === project.za_overhead_percent_nontechnical ||
-        (!project.za_overhead_percent_technical && !project.za_overhead_percent_nontechnical)
-      ),
-      foerdersatz_percent: project.foerdersatz_percent?.toString() || '',
-      bewilligte_gesamtkosten: project.bewilligte_gesamtkosten?.toString() || '',
-      bewilligte_zuwendung: project.bewilligte_zuwendung?.toString() || '',
-      za_contact_name: project.za_contact_name || '',
-      za_contact_phone: project.za_contact_phone || '',
-      za_contact_email: project.za_contact_email || '',
     });
     setShowProjectEditModal(true);
   };
@@ -1001,19 +1003,6 @@ export default function ProjectDetailPage({
           start_date: projectEditData.start_date || null,
           end_date: projectEditData.end_date || null,
           notes: projectEditData.notes.trim() || null,
-          // ZA-Felder (v7.4.4)
-          zuwendungsbescheid_datum: projectEditData.zuwendungsbescheid_datum || null,
-          za_rhythmus: projectEditData.za_rhythmus || 'quarterly',
-          za_overhead_percent_technical: projectEditData.za_overhead_percent_technical ? parseFloat(projectEditData.za_overhead_percent_technical) : null,
-          za_overhead_percent_nontechnical: projectEditData.za_overhead_same
-            ? (projectEditData.za_overhead_percent_technical ? parseFloat(projectEditData.za_overhead_percent_technical) : null)
-            : (projectEditData.za_overhead_percent_nontechnical ? parseFloat(projectEditData.za_overhead_percent_nontechnical) : null),
-          foerdersatz_percent: projectEditData.foerdersatz_percent ? parseFloat(projectEditData.foerdersatz_percent) : null,
-          bewilligte_gesamtkosten: projectEditData.bewilligte_gesamtkosten ? parseFloat(projectEditData.bewilligte_gesamtkosten) : null,
-          bewilligte_zuwendung: projectEditData.bewilligte_zuwendung ? parseFloat(projectEditData.bewilligte_zuwendung) : null,
-          za_contact_name: projectEditData.za_contact_name.trim() || null,
-          za_contact_phone: projectEditData.za_contact_phone.trim() || null,
-          za_contact_email: projectEditData.za_contact_email.trim() || null,
           updated_at: new Date().toISOString(),
         })
         .eq('id', project.id);
@@ -1029,18 +1018,6 @@ export default function ProjectDetailPage({
         start_date: projectEditData.start_date || null,
         end_date: projectEditData.end_date || null,
         notes: projectEditData.notes.trim() || null,
-        zuwendungsbescheid_datum: projectEditData.zuwendungsbescheid_datum || null,
-        za_rhythmus: projectEditData.za_rhythmus || 'quarterly',
-        za_overhead_percent_technical: projectEditData.za_overhead_percent_technical ? parseFloat(projectEditData.za_overhead_percent_technical) : null,
-        za_overhead_percent_nontechnical: projectEditData.za_overhead_same
-          ? (projectEditData.za_overhead_percent_technical ? parseFloat(projectEditData.za_overhead_percent_technical) : null)
-          : (projectEditData.za_overhead_percent_nontechnical ? parseFloat(projectEditData.za_overhead_percent_nontechnical) : null),
-        foerdersatz_percent: projectEditData.foerdersatz_percent ? parseFloat(projectEditData.foerdersatz_percent) : null,
-        bewilligte_gesamtkosten: projectEditData.bewilligte_gesamtkosten ? parseFloat(projectEditData.bewilligte_gesamtkosten) : null,
-        bewilligte_zuwendung: projectEditData.bewilligte_zuwendung ? parseFloat(projectEditData.bewilligte_zuwendung) : null,
-        za_contact_name: projectEditData.za_contact_name.trim() || null,
-        za_contact_phone: projectEditData.za_contact_phone.trim() || null,
-        za_contact_email: projectEditData.za_contact_email.trim() || null,
       } : null);
 
       closeProjectEditModal();
@@ -1301,113 +1278,6 @@ export default function ProjectDetailPage({
                 </div>
               )}
             </div>
-
-            {/* ZA-Abschnitt: Nur fuer ZIM-Projekte anzeigen (v7.4.4) */}
-            {project.funding_format && ['ZIM', 'ZIM_KOOP', 'ZIM_DS'].includes(project.funding_format) && (
-              <div className="bg-white rounded-lg border border-gray-200 p-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <FileText size={20} className="text-gray-600" />
-                  <h2 className="text-lg font-semibold text-gray-900">Zahlungsanforderung</h2>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <div className="text-sm text-gray-500 mb-1">Datum Zuwendungsbescheid</div>
-                    <div className="text-gray-900">{formatDate(project.zuwendungsbescheid_datum)}</div>
-                  </div>
-                  <div>
-                    <div className="text-sm text-gray-500 mb-1">Foerdersatz</div>
-                    <div className="text-gray-900">
-                      {project.foerdersatz_percent ? `${project.foerdersatz_percent} %` : '-'}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-sm text-gray-500 mb-1">Bewilligte Gesamtkosten</div>
-                    <div className="text-gray-900">
-                      {project.bewilligte_gesamtkosten
-                        ? new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(project.bewilligte_gesamtkosten)
-                        : '-'}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-sm text-gray-500 mb-1">Bewilligte Zuwendung (Hoechstbetrag)</div>
-                    <div className="text-gray-900">
-                      {project.bewilligte_zuwendung
-                        ? new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(project.bewilligte_zuwendung)
-                        : '-'}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-sm text-gray-500 mb-1">Zuschlag uebrige Kosten</div>
-                    <div className="text-gray-900">
-                      {project.za_overhead_percent_technical != null ? (
-                        project.za_overhead_percent_technical === project.za_overhead_percent_nontechnical ? (
-                          <span>{project.za_overhead_percent_technical} % (T/NT gleich)</span>
-                        ) : (
-                          <span>T: {project.za_overhead_percent_technical} % / NT: {project.za_overhead_percent_nontechnical} %</span>
-                        )
-                      ) : '-'}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-sm text-gray-500 mb-1">ZA-Rhythmus</div>
-                    <div className="text-gray-900">
-                      {project.za_rhythmus === 'quarterly' ? 'Quartalsweise (3 Monate)' : 'Individuell'}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Ansprechpartner */}
-                {(project.za_contact_name || project.za_contact_phone || project.za_contact_email) && (
-                  <div className="mt-6 pt-6 border-t border-gray-200">
-                    <div className="text-sm font-medium text-gray-700 mb-3">Ansprechpartner fuer Rueckfragen</div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {project.za_contact_name && (
-                        <div>
-                          <div className="text-sm text-gray-500 mb-1">Name</div>
-                          <div className="text-gray-900">{project.za_contact_name}</div>
-                        </div>
-                      )}
-                      {project.za_contact_phone && (
-                        <div>
-                          <div className="text-sm text-gray-500 mb-1">Telefon</div>
-                          <div className="text-gray-900">{project.za_contact_phone}</div>
-                        </div>
-                      )}
-                      {project.za_contact_email && (
-                        <div>
-                          <div className="text-sm text-gray-500 mb-1">E-Mail</div>
-                          <div className="text-gray-900">{project.za_contact_email}</div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Individuelle ZA-Termine */}
-                {project.za_schedule && Array.isArray(project.za_schedule) && project.za_schedule.length > 0 && (
-                  <div className="mt-6 pt-6 border-t border-gray-200">
-                    <div className="text-sm font-medium text-gray-700 mb-3">Individuelle ZA-Termine</div>
-                    <div className="space-y-2">
-                      {project.za_schedule.map((entry: any, idx: number) => (
-                        <div key={idx} className="flex items-center gap-3 text-sm">
-                          <CalendarDays size={14} className="text-gray-400" />
-                          <span className="text-gray-900 font-medium">{formatDate(entry.date)}</span>
-                          {entry.note && <span className="text-gray-500">({entry.note})</span>}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Hinweis wenn noch nicht konfiguriert */}
-                {!project.zuwendungsbescheid_datum && !project.foerdersatz_percent && (
-                  <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
-                    <strong>Hinweis:</strong> ZA-Daten sind noch nicht hinterlegt. Bitte die Projektdaten 
-                    bearbeiten und die Angaben aus dem Zuwendungsbescheid eintragen.
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         )}
 
@@ -1425,8 +1295,9 @@ export default function ProjectDetailPage({
                     hasTeam={teamMembers.length > 0}
                     teamCount={teamMembers.length}
                     onImportComplete={() => {
-                      // Nach Import: Daten neu laden
+                      // Nach Import: Daten neu laden + Projektdaten synchronisieren
                       loadData();
+                      syncProjectDatesFromAPs();
                     }}
                     portal={portal}
                   />
@@ -1858,209 +1729,6 @@ export default function ProjectDetailPage({
                   placeholder="Optionale Notizen zum Projekt"
                 />
               </div>
-
-              {/* ZA-Felder: Nur fuer ZIM-Projekte (v7.4.4) */}
-              {projectEditData.funding_format && ['ZIM', 'ZIM_KOOP', 'ZIM_DS'].includes(projectEditData.funding_format) && (
-                <>
-                  <div className="pt-4 border-t border-gray-200">
-                    <h4 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                      <FileText size={16} className="text-gray-600" />
-                      Zahlungsanforderung (ZA)
-                    </h4>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Datum Zuwendungsbescheid
-                    </label>
-                    <input
-                      type="date"
-                      value={projectEditData.zuwendungsbescheid_datum}
-                      onChange={(e) => setProjectEditData(prev => ({ ...prev, zuwendungsbescheid_datum: e.target.value }))}
-                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Foerdersatz (%)
-                    </label>
-                    <input
-                      type="number"
-                      value={projectEditData.foerdersatz_percent}
-                      onChange={(e) => setProjectEditData(prev => ({ ...prev, foerdersatz_percent: e.target.value }))}
-                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
-                      placeholder="z.B. 45 oder 70"
-                      step="0.01"
-                      min="0"
-                      max="100"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Lt. Zuwendungsbescheid</p>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Bewilligte Gesamtkosten (EUR)
-                      </label>
-                      <input
-                        type="number"
-                        value={projectEditData.bewilligte_gesamtkosten}
-                        onChange={(e) => setProjectEditData(prev => ({ ...prev, bewilligte_gesamtkosten: e.target.value }))}
-                        className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
-                        placeholder="z.B. 76936"
-                        step="0.01"
-                        min="0"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Zeile 1.1.9 im Bescheid</p>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Bewilligte Zuwendung (EUR)
-                      </label>
-                      <input
-                        type="number"
-                        value={projectEditData.bewilligte_zuwendung}
-                        onChange={(e) => setProjectEditData(prev => ({ ...prev, bewilligte_zuwendung: e.target.value }))}
-                        className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
-                        placeholder="z.B. 53855"
-                        step="0.01"
-                        min="0"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Hoechstbetrag lt. Bescheid</p>
-                    </div>
-                  </div>
-
-                  {/* Zuschlag uebrige Kosten - T/NT getrennt oder gleich */}
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="block text-sm font-medium text-gray-700">
-                        Zuschlag uebrige Kosten (%)
-                      </label>
-                      <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={projectEditData.za_overhead_same}
-                          onChange={(e) => {
-                            const same = e.target.checked;
-                            setProjectEditData(prev => ({
-                              ...prev,
-                              za_overhead_same: same,
-                              za_overhead_percent_nontechnical: same ? prev.za_overhead_percent_technical : prev.za_overhead_percent_nontechnical,
-                            }));
-                          }}
-                          className="rounded border-gray-300"
-                        />
-                        T/NT gleich
-                      </label>
-                    </div>
-
-                    {projectEditData.za_overhead_same ? (
-                      <div>
-                        <input
-                          type="number"
-                          value={projectEditData.za_overhead_percent_technical}
-                          onChange={(e) => setProjectEditData(prev => ({
-                            ...prev,
-                            za_overhead_percent_technical: e.target.value,
-                            za_overhead_percent_nontechnical: e.target.value,
-                          }))}
-                          className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
-                          placeholder="z.B. 100"
-                          step="0.01"
-                          min="0"
-                        />
-                        <p className="text-xs text-gray-500 mt-1">Lt. Zuwendungsbescheid (gilt fuer T und NT)</p>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <input
-                            type="number"
-                            value={projectEditData.za_overhead_percent_technical}
-                            onChange={(e) => setProjectEditData(prev => ({ ...prev, za_overhead_percent_technical: e.target.value }))}
-                            className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
-                            placeholder="z.B. 28.42"
-                            step="0.01"
-                            min="0"
-                          />
-                          <p className="text-xs text-gray-500 mt-1">Technische Arbeiten</p>
-                        </div>
-                        <div>
-                          <input
-                            type="number"
-                            value={projectEditData.za_overhead_percent_nontechnical}
-                            onChange={(e) => setProjectEditData(prev => ({ ...prev, za_overhead_percent_nontechnical: e.target.value }))}
-                            className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
-                            placeholder="z.B. 29.88"
-                            step="0.01"
-                            min="0"
-                          />
-                          <p className="text-xs text-gray-500 mt-1">Nichttechnische Arbeiten</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      ZA-Rhythmus
-                    </label>
-                    <select
-                      value={projectEditData.za_rhythmus}
-                      onChange={(e) => setProjectEditData(prev => ({ ...prev, za_rhythmus: e.target.value }))}
-                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
-                    >
-                      <option value="quarterly">Quartalsweise (alle 3 Monate)</option>
-                      <option value="custom">Individuell</option>
-                    </select>
-                  </div>
-
-                  <div className="pt-3 border-t border-gray-100">
-                    <h5 className="text-sm font-medium text-gray-700 mb-2">Ansprechpartner fuer Rueckfragen (Deckblatt)</h5>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Name
-                    </label>
-                    <input
-                      type="text"
-                      value={projectEditData.za_contact_name}
-                      onChange={(e) => setProjectEditData(prev => ({ ...prev, za_contact_name: e.target.value }))}
-                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
-                      placeholder="Vor- und Nachname"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Telefon
-                      </label>
-                      <input
-                        type="text"
-                        value={projectEditData.za_contact_phone}
-                        onChange={(e) => setProjectEditData(prev => ({ ...prev, za_contact_phone: e.target.value }))}
-                        className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
-                        placeholder="+49 ..."
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        E-Mail
-                      </label>
-                      <input
-                        type="email"
-                        value={projectEditData.za_contact_email}
-                        onChange={(e) => setProjectEditData(prev => ({ ...prev, za_contact_email: e.target.value }))}
-                        className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
-                        placeholder="name@firma.de"
-                      />
-                    </div>
-                  </div>
-                </>
-              )}
             </div>
 
             <div className="flex justify-between gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-lg sticky bottom-0">
@@ -2183,7 +1851,7 @@ export default function ProjectDetailPage({
       <footer className="bg-white border-t mt-auto">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <p className="text-center text-sm text-gray-500">
-            PZE v7.4.4 | {company?.name}
+            PZE v7.3.86 | {company?.name}
           </p>
         </div>
       </footer>
