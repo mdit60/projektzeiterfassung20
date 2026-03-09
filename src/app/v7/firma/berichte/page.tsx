@@ -2,21 +2,21 @@
 // ============================================================================
 // PZE V7 - Berichte & Controlling (Firmen-Portal)
 // ============================================================================
-// Version: 7.4.3-12
+// Version: 7.4.3-13
 // Datum: 09. Maerz 2026
 //
-// v7.4.3-12: NEU: Stundennachweis-Matrix unter Reports-Kachel
-//            - Kachel "Stundennachweis" oeffnet aufklappbare Matrix
-//            - Zeilen: Projekt-MA (sortiert nach employee_number)
-//            - Spalten: alle Projektmonate gruppiert nach Jahr
-//            - Ampelfarben pro Zelle: gruen/orange/rot/grau (Zukunft)
-//            - Stunden als Tooltip bei Hover
-//            - Klick auf Zelle: navigiert direkt zur Zeiterfassung
-//              des MA im jeweiligen Monat (mit returnUrl zurueck zur Berichte-Seite)
-//            - Kachel "Stundennachweis" jetzt aktiv (nicht mehr disabled)
-// v7.4.3-8: KRITISCH: is_active Filter fuer Timesheets (fehlte komplett!)
-//           PM-Berechnung: nur is_billable=true Stunden zaehlen
-//           Zeiterfassungs-Status: komplett umgebaut
+// v7.4.3-13: NEU: Personalkosten Excel-Export (Kachel 1)
+//            - Kachel "Personalkosten" jetzt aktiv (gruen)
+//            - Excel-Download direkt aus dem Browser (SheetJS)
+//            - Tab 1 "Personalkosten": Pro MA: Lfd.Nr, Name, Qualifikation,
+//              Jahresgehalt, pWAZ, Stundensatz, Geplante PM, Erfasste h,
+//              Erfasste PM, Personalkosten bisher, Geplante Gesamtkosten
+//            - Tab 2 "Jahresscheiben": Anlage-5-Tabelle: MA x Projektjahre
+//              mit PM pro Jahr und Personalkosten gesamt
+//            - Dateiname: Personalkosten_[ProjektName]_[Datum].xlsx
+//            - Neuer State: projectAssignments (hourly_rate, employee_number,
+//              annual_salary, qualification aus v7_project_assignments + JOIN)
+// v7.4.3-12: Stundennachweis-Matrix aktiviert
 // ============================================================================
 
 'use client';
@@ -118,6 +118,20 @@ interface WorkPackageAssignment {
   work_package_id: string;
   employee_id: string;
   planned_person_months: number;
+}
+
+// Projekt-Zuordnung mit Gehalts- und Stundensatz-Daten (fuer Personalkosten-Export)
+interface ProjectAssignment {
+  id: string;
+  project_id: string;
+  employee_id: string;
+  employee_number: number | null;
+  hourly_rate: number | null;
+  role_in_project: string | null;
+  // Joined aus v7_employees:
+  annual_salary: number | null;
+  weekly_hours: number | null;
+  qualification: string | null;
 }
 
 interface TimesheetEntry {
@@ -261,6 +275,8 @@ export default function BerichtePage() {
   const [workPackages, setWorkPackages] = useState<WorkPackage[]>([]);
   const [wpAssignments, setWpAssignments] = useState<WorkPackageAssignment[]>([]);
   const [timesheets, setTimesheets] = useState<TimesheetEntry[]>([]);
+  const [projectAssignments, setProjectAssignments] = useState<ProjectAssignment[]>([]);
+  const [exportLoading, setExportLoading] = useState(false);
   
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -411,6 +427,41 @@ export default function BerichtePage() {
           }
           console.log('Zeiteintraege geladen:', timesheetData?.length || 0);
           setTimesheets(timesheetData || []);
+        }
+
+        // Projekt-Zuordnungen mit Gehalts-Daten (fuer Personalkosten-Export)
+        // JOIN ueber v7_employees fuer annual_salary, weekly_hours, qualification
+        if (projectIds.length > 0) {
+          const { data: paData, error: paError } = await supabase
+            .from('v7_project_assignments')
+            .select(`
+              id,
+              project_id,
+              employee_id,
+              employee_number,
+              hourly_rate,
+              role_in_project,
+              v7_employees!inner(annual_salary, weekly_hours, qualification)
+            `)
+            .in('project_id', projectIds)
+            .eq('is_active', true);
+
+          if (paError) {
+            console.error('PA-Fehler:', paError);
+          }
+
+          const paFlat: ProjectAssignment[] = (paData || []).map((pa: any) => ({
+            id: pa.id,
+            project_id: pa.project_id,
+            employee_id: pa.employee_id,
+            employee_number: pa.employee_number,
+            hourly_rate: pa.hourly_rate,
+            role_in_project: pa.role_in_project,
+            annual_salary: pa.v7_employees?.annual_salary ?? null,
+            weekly_hours: pa.v7_employees?.weekly_hours ?? null,
+            qualification: pa.v7_employees?.qualification ?? null,
+          }));
+          setProjectAssignments(paFlat);
         }
         
       } catch (err: any) {
@@ -652,6 +703,276 @@ export default function BerichtePage() {
 
     return { project, months, years, employees: matrixEmployees, cells };
   }, [matrixProjectId, projects, workPackages, wpAssignments, employees, timesheets, company]);
+
+  // ============================================================================
+  // PERSONALKOSTEN EXCEL-EXPORT
+  // ============================================================================
+
+  const handlePersonalkostenExport = async (exportProjectId?: string) => {
+    const projectId = exportProjectId || (projects.length > 0 ? projects[0].id : null);
+    if (!projectId) return;
+
+    const project = projects.find(p => p.id === projectId);
+    if (!project) return;
+
+    setExportLoading(true);
+    try {
+      // SheetJS dynamisch laden
+      const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs' as any);
+
+      // --- Datenbasis ---
+      const projectWPs = workPackages.filter(wp => wp.project_id === projectId);
+      const projectWPIds = projectWPs.map(wp => wp.id);
+      const projectWPAs = wpAssignments.filter(a => projectWPIds.includes(a.work_package_id));
+
+      // MA die in diesem Projekt sind (ueber WPA)
+      const assignedEmpIds = [...new Set(projectWPAs.map(a => a.employee_id))];
+      const projectPAs = projectAssignments.filter(
+        pa => pa.project_id === projectId && assignedEmpIds.includes(pa.employee_id)
+      );
+
+      // Sortierung nach employee_number, dann alphabetisch
+      const sortedPAs = [...projectPAs].sort((a, b) => {
+        if (a.employee_number !== null && b.employee_number !== null) {
+          return a.employee_number - b.employee_number;
+        }
+        if (a.employee_number !== null) return -1;
+        if (b.employee_number !== null) return 1;
+        const nameA = employees.find(e => e.id === a.employee_id)?.display_name || '';
+        const nameB = employees.find(e => e.id === b.employee_id)?.display_name || '';
+        return nameA.localeCompare(nameB, 'de');
+      });
+
+      // Projektjahre bestimmen
+      const pStart = project.start_date ? new Date(project.start_date) : null;
+      const pEnd = project.end_date ? new Date(project.end_date) : null;
+      const startYear = pStart ? pStart.getFullYear() : new Date().getFullYear();
+      const endYear = pEnd ? pEnd.getFullYear() : startYear;
+      const projectYears: number[] = [];
+      for (let y = startYear; y <= endYear; y++) projectYears.push(y);
+
+      // Hilfsfunktion: PM eines MA in einem bestimmten Jahr (aus WP-Zeitraeumen)
+      const getPMForYear = (empId: string, year: number): number => {
+        let totalPM = 0;
+        projectWPs.forEach(wp => {
+          if (!wp.start_date || !wp.end_date) return;
+          const wpStart = new Date(wp.start_date);
+          const wpEnd = new Date(wp.end_date);
+          // Schnitt mit dem Kalenderjahr
+          const yearStart = new Date(year, 0, 1);
+          const yearEnd = new Date(year, 11, 31);
+          if (wpEnd < yearStart || wpStart > yearEnd) return;
+
+          // Geplante PM fuer diesen MA in diesem AP
+          const wpa = projectWPAs.find(a => a.work_package_id === wp.id && a.employee_id === empId);
+          if (!wpa || !wpa.planned_person_months) return;
+
+          // Anteil des AP der in dieses Jahr faellt
+          const apDuration = (wpEnd.getTime() - wpStart.getTime()) / (1000 * 60 * 60 * 24 * 30.4375);
+          if (apDuration <= 0) return;
+
+          const overlapStart = wpStart < yearStart ? yearStart : wpStart;
+          const overlapEnd = wpEnd > yearEnd ? yearEnd : wpEnd;
+          const overlapDuration = (overlapEnd.getTime() - overlapStart.getTime()) / (1000 * 60 * 60 * 24 * 30.4375);
+          const fraction = Math.max(0, overlapDuration) / apDuration;
+          totalPM += wpa.planned_person_months * fraction;
+        });
+        return totalPM;
+      };
+
+      // ---------------------------------------------------------------
+      // TAB 1: Personalkosten Uebersicht
+      // ---------------------------------------------------------------
+      const today = new Date().toLocaleDateString('de-DE');
+      const tab1Rows: any[][] = [];
+
+      // Titel
+      tab1Rows.push([`Personalkosten - ${project.name}`]);
+      tab1Rows.push([`Foerderkennzeichen: ${project.funding_reference || '-'}`]);
+      tab1Rows.push([`Projektlaufzeit: ${project.start_date ? new Date(project.start_date).toLocaleDateString('de-DE') : '-'} bis ${project.end_date ? new Date(project.end_date).toLocaleDateString('de-DE') : '-'}`]);
+      tab1Rows.push([`Erstellt am: ${today}`]);
+      tab1Rows.push([]);
+
+      // Header
+      tab1Rows.push([
+        'Lfd.Nr.',
+        'Name',
+        'Qualifikation',
+        'Jahresgehalt (EUR)',
+        'pWAZ (Std/Woche)',
+        'Stundensatz (EUR/h)',
+        'Geplante PM',
+        'Erfasste Stunden',
+        'Erfasste PM',
+        'Personalkosten bisher (EUR)',
+        'Geplante Gesamtkosten (EUR)',
+      ]);
+
+      let sumGeplantePM = 0;
+      let sumErfassteH = 0;
+      let sumErfasstePM = 0;
+      let sumKostenBisher = 0;
+      let sumKostenGesamt = 0;
+
+      sortedPAs.forEach((pa, idx) => {
+        const emp = employees.find(e => e.id === pa.employee_id);
+        const empName = emp?.display_name || pa.employee_id;
+
+        // Geplante PM (alle APs dieses MA in diesem Projekt)
+        const geplantePM = projectWPAs
+          .filter(a => a.employee_id === pa.employee_id)
+          .reduce((sum, a) => sum + (a.planned_person_months || 0), 0);
+
+        // Erfasste Stunden (is_billable)
+        const erfassteH = timesheets
+          .filter(t => t.project_id === projectId && t.employee_id === pa.employee_id && t.is_billable)
+          .reduce((sum, t) => sum + (t.hours || 0), 0);
+        const erfasstePM = erfassteH / HOURS_PER_PM;
+
+        const stundensatz = pa.hourly_rate || 0;
+        const kostenBisher = erfassteH * stundensatz;
+        const kostenGesamt = geplantePM * HOURS_PER_PM * stundensatz;
+
+        sumGeplantePM += geplantePM;
+        sumErfassteH += erfassteH;
+        sumErfasstePM += erfasstePM;
+        sumKostenBisher += kostenBisher;
+        sumKostenGesamt += kostenGesamt;
+
+        tab1Rows.push([
+          pa.employee_number ?? (idx + 1),
+          empName,
+          pa.qualification || '-',
+          pa.annual_salary ?? '-',
+          pa.weekly_hours ?? '-',
+          stundensatz > 0 ? stundensatz : '-',
+          Math.round(geplantePM * 100) / 100,
+          Math.round(erfassteH * 100) / 100,
+          Math.round(erfasstePM * 100) / 100,
+          Math.round(kostenBisher * 100) / 100,
+          Math.round(kostenGesamt * 100) / 100,
+        ]);
+      });
+
+      // Summenzeile
+      tab1Rows.push([]);
+      tab1Rows.push([
+        '', 'SUMME', '', '', '', '',
+        Math.round(sumGeplantePM * 100) / 100,
+        Math.round(sumErfassteH * 100) / 100,
+        Math.round(sumErfasstePM * 100) / 100,
+        Math.round(sumKostenBisher * 100) / 100,
+        Math.round(sumKostenGesamt * 100) / 100,
+      ]);
+
+      // Hinweis
+      tab1Rows.push([]);
+      tab1Rows.push(['Hinweis: Personalkosten bisher = Erfasste Stunden x Stundensatz (nur foerderbare Stunden)']);
+      tab1Rows.push(['Geplante Gesamtkosten = Geplante PM x 173,33 h/PM x Stundensatz']);
+
+      // ---------------------------------------------------------------
+      // TAB 2: Jahresscheiben (Anlage 5)
+      // ---------------------------------------------------------------
+      const tab2Rows: any[][] = [];
+
+      tab2Rows.push([`Jahresscheiben (Anlage 5) - ${project.name}`]);
+      tab2Rows.push([`Foerderkennzeichen: ${project.funding_reference || '-'}`]);
+      tab2Rows.push([`Erstellt am: ${today}`]);
+      tab2Rows.push([]);
+
+      // Header: MA-Nr | Name | Qualif. | Stundensatz | Jahr1 PM | Jahr2 PM | ... | Gesamt PM | Personalkosten gesamt
+      const yearHeaders = projectYears.map((y, i) => `Jahr ${i + 1} (${y}) [PM]`);
+      tab2Rows.push([
+        'Lfd.Nr.',
+        'Name',
+        'Qualifikation',
+        'Stundensatz (EUR/h)',
+        ...yearHeaders,
+        'Gesamt [PM]',
+        'Personalkosten gesamt (EUR)',
+      ]);
+
+      let sumJahresPMs: number[] = projectYears.map(() => 0);
+      let sumGesamtPM2 = 0;
+      let sumGesamtKosten2 = 0;
+
+      sortedPAs.forEach((pa, idx) => {
+        const emp = employees.find(e => e.id === pa.employee_id);
+        const empName = emp?.display_name || pa.employee_id;
+        const stundensatz = pa.hourly_rate || 0;
+
+        const yearPMs = projectYears.map(y => {
+          const pm = getPMForYear(pa.employee_id, y);
+          return Math.round(pm * 100) / 100;
+        });
+        const gesamtPM = yearPMs.reduce((s, v) => s + v, 0);
+        const gesamtKosten = Math.round(gesamtPM * HOURS_PER_PM * stundensatz * 100) / 100;
+
+        yearPMs.forEach((pm, i) => { sumJahresPMs[i] += pm; });
+        sumGesamtPM2 += gesamtPM;
+        sumGesamtKosten2 += gesamtKosten;
+
+        tab2Rows.push([
+          pa.employee_number ?? (idx + 1),
+          empName,
+          pa.qualification || '-',
+          stundensatz > 0 ? stundensatz : '-',
+          ...yearPMs,
+          Math.round(gesamtPM * 100) / 100,
+          gesamtKosten,
+        ]);
+      });
+
+      // Summenzeile
+      tab2Rows.push([]);
+      tab2Rows.push([
+        '', 'SUMME', '', '',
+        ...sumJahresPMs.map(v => Math.round(v * 100) / 100),
+        Math.round(sumGesamtPM2 * 100) / 100,
+        Math.round(sumGesamtKosten2 * 100) / 100,
+      ]);
+
+      tab2Rows.push([]);
+      tab2Rows.push(['Hinweis: 1 PM = 173,33 Stunden (40h/Woche x 52 Wochen / 12 Monate)']);
+      tab2Rows.push(['Jahresscheiben werden aus AP-Zeitraeumen anteilig berechnet']);
+
+      // ---------------------------------------------------------------
+      // Workbook erstellen
+      // ---------------------------------------------------------------
+      const wb = XLSX.utils.book_new();
+
+      const ws1 = XLSX.utils.aoa_to_sheet(tab1Rows);
+      // Spaltenbreiten Tab 1
+      ws1['!cols'] = [
+        { wch: 8 }, { wch: 25 }, { wch: 18 }, { wch: 18 },
+        { wch: 16 }, { wch: 18 }, { wch: 12 }, { wch: 15 },
+        { wch: 12 }, { wch: 24 }, { wch: 24 },
+      ];
+      XLSX.utils.book_append_sheet(wb, ws1, 'Personalkosten');
+
+      const ws2 = XLSX.utils.aoa_to_sheet(tab2Rows);
+      // Spaltenbreiten Tab 2
+      const yearCols = projectYears.map(() => ({ wch: 16 }));
+      ws2['!cols'] = [
+        { wch: 8 }, { wch: 25 }, { wch: 18 }, { wch: 18 },
+        ...yearCols,
+        { wch: 14 }, { wch: 24 },
+      ];
+      XLSX.utils.book_append_sheet(wb, ws2, 'Jahresscheiben (Anlage 5)');
+
+      // Download
+      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const safeName = (project.short_name || project.name).replace(/[^a-zA-Z0-9_\-]/g, '_');
+      const filename = `Personalkosten_${safeName}_${dateStr}.xlsx`;
+      XLSX.writeFile(wb, filename);
+
+    } catch (err: any) {
+      console.error('Export-Fehler:', err);
+      alert('Export fehlgeschlagen: ' + err.message);
+    } finally {
+      setExportLoading(false);
+    }
+  };
 
   // ============================================================================
   // RENDER
@@ -977,12 +1298,28 @@ export default function BerichtePage() {
           <div className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
 
-              {/* Kachel 1: Personalkosten - noch deaktiviert */}
-              <button disabled className="flex flex-col items-center p-6 border-2 border-dashed border-gray-300 rounded-lg text-gray-400 cursor-not-allowed">
+              {/* Kachel 1: Personalkosten - AKTIV */}
+              <button
+                onClick={() => handlePersonalkostenExport()}
+                disabled={exportLoading || projects.length === 0}
+                className={`flex flex-col items-center p-6 border-2 rounded-lg transition-colors ${
+                  projects.length === 0
+                    ? 'border-dashed border-gray-300 text-gray-400 cursor-not-allowed'
+                    : 'border-green-400 text-green-700 bg-green-50 hover:bg-green-100 cursor-pointer'
+                }`}
+              >
                 <FileSpreadsheet className="w-10 h-10 mb-3" />
                 <span className="font-medium">Personalkosten</span>
                 <span className="text-xs mt-1">Excel-Export</span>
-                <span className="text-xs mt-2 bg-gray-100 px-2 py-0.5 rounded">Demnaechst</span>
+                <span className={`text-xs mt-2 px-2 py-0.5 rounded flex items-center gap-1 ${
+                  exportLoading
+                    ? 'bg-yellow-100 text-yellow-700'
+                    : projects.length === 0
+                      ? 'bg-gray-100 text-gray-500'
+                      : 'bg-green-200 text-green-800'
+                }`}>
+                  {exportLoading ? 'Wird erstellt...' : 'Download'}
+                </span>
               </button>
 
               {/* Kachel 2: Stundennachweis - AKTIV */}
@@ -1203,7 +1540,7 @@ export default function BerichtePage() {
       </main>
       
       <footer className="text-center py-4 text-sm text-gray-500 mt-8">
-        Projektzeiterfassung v7.4.3-12 - Firmen-Portal - 2026
+        Projektzeiterfassung v7.4.3-13 - Firmen-Portal - 2026
       </footer>
     </div>
   );
