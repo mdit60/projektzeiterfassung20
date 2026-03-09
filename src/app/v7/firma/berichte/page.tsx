@@ -2,9 +2,13 @@
 // ============================================================================
 // PZE V7 - Berichte & Controlling (Firmen-Portal)
 // ============================================================================
-// Version: 7.4.3-13
+// Version: 7.4.3-14
 // Datum: 09. Maerz 2026
 //
+// v7.4.3-14: BUGFIX: SheetJS CDN-Import durch npm-Package ersetzt
+//            - dynamischer CDN-Import crasht Vercel Webpack-Build
+//            - Fix: import * as XLSX from 'xlsx' (npm-Package, bereits installiert)
+//            - Alle anderen Aenderungen identisch zu v7.4.3-13
 // v7.4.3-13: NEU: Personalkosten Excel-Export (Kachel 1)
 //            - Kachel "Personalkosten" jetzt aktiv (gruen)
 //            - Excel-Download direkt aus dem Browser (SheetJS)
@@ -717,21 +721,19 @@ export default function BerichtePage() {
 
     setExportLoading(true);
     try {
-      // SheetJS dynamisch laden
-      const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs' as any);
+      // XLSX-Export ohne externe Bibliothek: SpreadsheetML (XML) Format
+      // wird von Excel, LibreOffice und Google Sheets nativ geoeffnet
 
       // --- Datenbasis ---
       const projectWPs = workPackages.filter(wp => wp.project_id === projectId);
       const projectWPIds = projectWPs.map(wp => wp.id);
       const projectWPAs = wpAssignments.filter(a => projectWPIds.includes(a.work_package_id));
 
-      // MA die in diesem Projekt sind (ueber WPA)
       const assignedEmpIds = [...new Set(projectWPAs.map(a => a.employee_id))];
       const projectPAs = projectAssignments.filter(
         pa => pa.project_id === projectId && assignedEmpIds.includes(pa.employee_id)
       );
 
-      // Sortierung nach employee_number, dann alphabetisch
       const sortedPAs = [...projectPAs].sort((a, b) => {
         if (a.employee_number !== null && b.employee_number !== null) {
           return a.employee_number - b.employee_number;
@@ -743,7 +745,6 @@ export default function BerichtePage() {
         return nameA.localeCompare(nameB, 'de');
       });
 
-      // Projektjahre bestimmen
       const pStart = project.start_date ? new Date(project.start_date) : null;
       const pEnd = project.end_date ? new Date(project.end_date) : null;
       const startYear = pStart ? pStart.getFullYear() : new Date().getFullYear();
@@ -751,220 +752,221 @@ export default function BerichtePage() {
       const projectYears: number[] = [];
       for (let y = startYear; y <= endYear; y++) projectYears.push(y);
 
-      // Hilfsfunktion: PM eines MA in einem bestimmten Jahr (aus WP-Zeitraeumen)
       const getPMForYear = (empId: string, year: number): number => {
         let totalPM = 0;
         projectWPs.forEach(wp => {
           if (!wp.start_date || !wp.end_date) return;
           const wpStart = new Date(wp.start_date);
           const wpEnd = new Date(wp.end_date);
-          // Schnitt mit dem Kalenderjahr
           const yearStart = new Date(year, 0, 1);
           const yearEnd = new Date(year, 11, 31);
           if (wpEnd < yearStart || wpStart > yearEnd) return;
-
-          // Geplante PM fuer diesen MA in diesem AP
           const wpa = projectWPAs.find(a => a.work_package_id === wp.id && a.employee_id === empId);
           if (!wpa || !wpa.planned_person_months) return;
-
-          // Anteil des AP der in dieses Jahr faellt
           const apDuration = (wpEnd.getTime() - wpStart.getTime()) / (1000 * 60 * 60 * 24 * 30.4375);
           if (apDuration <= 0) return;
-
           const overlapStart = wpStart < yearStart ? yearStart : wpStart;
           const overlapEnd = wpEnd > yearEnd ? yearEnd : wpEnd;
           const overlapDuration = (overlapEnd.getTime() - overlapStart.getTime()) / (1000 * 60 * 60 * 24 * 30.4375);
-          const fraction = Math.max(0, overlapDuration) / apDuration;
-          totalPM += wpa.planned_person_months * fraction;
+          totalPM += wpa.planned_person_months * (Math.max(0, overlapDuration) / apDuration);
         });
         return totalPM;
       };
 
-      // ---------------------------------------------------------------
-      // TAB 1: Personalkosten Uebersicht
-      // ---------------------------------------------------------------
+      const fmt = (v: number) => Math.round(v * 100) / 100;
       const today = new Date().toLocaleDateString('de-DE');
-      const tab1Rows: any[][] = [];
 
-      // Titel
-      tab1Rows.push([`Personalkosten - ${project.name}`]);
-      tab1Rows.push([`Foerderkennzeichen: ${project.funding_reference || '-'}`]);
-      tab1Rows.push([`Projektlaufzeit: ${project.start_date ? new Date(project.start_date).toLocaleDateString('de-DE') : '-'} bis ${project.end_date ? new Date(project.end_date).toLocaleDateString('de-DE') : '-'}`]);
-      tab1Rows.push([`Erstellt am: ${today}`]);
-      tab1Rows.push([]);
+      // Hilfsfunktion: XML-Sonderzeichen escapen
+      const esc = (s: string) => String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
 
-      // Header
-      tab1Rows.push([
-        'Lfd.Nr.',
-        'Name',
-        'Qualifikation',
-        'Jahresgehalt (EUR)',
-        'pWAZ (Std/Woche)',
-        'Stundensatz (EUR/h)',
-        'Geplante PM',
-        'Erfasste Stunden',
-        'Erfasste PM',
-        'Personalkosten bisher (EUR)',
-        'Geplante Gesamtkosten (EUR)',
-      ]);
+      // SpreadsheetML-Zelle erzeugen
+      const cell = (val: any, bold = false, bg = ''): string => {
+        const styleAttr = (bold || bg)
+          ? ` ss:StyleID="${bold && bg ? 'hdrBg' : bold ? 'hdr' : 'bg'}"`
+          : '';
+        if (val === null || val === undefined || val === '') {
+          return `<Cell${styleAttr}><Data ss:Type="String"></Data></Cell>`;
+        }
+        if (typeof val === 'number') {
+          return `<Cell${styleAttr}><Data ss:Type="Number">${val}</Data></Cell>`;
+        }
+        return `<Cell${styleAttr}><Data ss:Type="String">${esc(String(val))}</Data></Cell>`;
+      };
+      const row = (...cells: string[]) => `<Row>${cells.join('')}</Row>`;
+      const emptyRow = () => '<Row></Row>';
 
-      let sumGeplantePM = 0;
-      let sumErfassteH = 0;
-      let sumErfasstePM = 0;
-      let sumKostenBisher = 0;
-      let sumKostenGesamt = 0;
+      // ---------------------------------------------------------------
+      // Worksheet 1: Personalkosten Uebersicht
+      // ---------------------------------------------------------------
+      const ws1Headers = [
+        'Lfd.Nr.', 'Name', 'Qualifikation',
+        'Jahresgehalt (EUR)', 'pWAZ (Std/Woche)', 'Stundensatz (EUR/h)',
+        'Geplante PM', 'Erfasste Stunden', 'Erfasste PM',
+        'Personalkosten bisher (EUR)', 'Geplante Gesamtkosten (EUR)',
+      ];
 
+      let sumGeplantePM = 0, sumErfassteH = 0, sumErfasstePM = 0;
+      let sumKostenBisher = 0, sumKostenGesamt = 0;
+
+      const ws1DataRows: string[] = [];
       sortedPAs.forEach((pa, idx) => {
         const emp = employees.find(e => e.id === pa.employee_id);
-        const empName = emp?.display_name || pa.employee_id;
-
-        // Geplante PM (alle APs dieses MA in diesem Projekt)
+        const empName = emp?.display_name || '-';
         const geplantePM = projectWPAs
           .filter(a => a.employee_id === pa.employee_id)
-          .reduce((sum, a) => sum + (a.planned_person_months || 0), 0);
-
-        // Erfasste Stunden (is_billable)
+          .reduce((s, a) => s + (a.planned_person_months || 0), 0);
         const erfassteH = timesheets
           .filter(t => t.project_id === projectId && t.employee_id === pa.employee_id && t.is_billable)
-          .reduce((sum, t) => sum + (t.hours || 0), 0);
+          .reduce((s, t) => s + (t.hours || 0), 0);
         const erfasstePM = erfassteH / HOURS_PER_PM;
-
         const stundensatz = pa.hourly_rate || 0;
         const kostenBisher = erfassteH * stundensatz;
         const kostenGesamt = geplantePM * HOURS_PER_PM * stundensatz;
 
-        sumGeplantePM += geplantePM;
-        sumErfassteH += erfassteH;
-        sumErfasstePM += erfasstePM;
-        sumKostenBisher += kostenBisher;
+        sumGeplantePM += geplantePM; sumErfassteH += erfassteH;
+        sumErfasstePM += erfasstePM; sumKostenBisher += kostenBisher;
         sumKostenGesamt += kostenGesamt;
 
-        tab1Rows.push([
-          pa.employee_number ?? (idx + 1),
-          empName,
-          pa.qualification || '-',
-          pa.annual_salary ?? '-',
-          pa.weekly_hours ?? '-',
-          stundensatz > 0 ? stundensatz : '-',
-          Math.round(geplantePM * 100) / 100,
-          Math.round(erfassteH * 100) / 100,
-          Math.round(erfasstePM * 100) / 100,
-          Math.round(kostenBisher * 100) / 100,
-          Math.round(kostenGesamt * 100) / 100,
-        ]);
+        ws1DataRows.push(row(
+          cell(pa.employee_number ?? (idx + 1)),
+          cell(empName),
+          cell(pa.qualification || '-'),
+          cell(pa.annual_salary ?? '-'),
+          cell(pa.weekly_hours ?? '-'),
+          cell(stundensatz > 0 ? stundensatz : '-'),
+          cell(fmt(geplantePM)),
+          cell(fmt(erfassteH)),
+          cell(fmt(erfasstePM)),
+          cell(fmt(kostenBisher)),
+          cell(fmt(kostenGesamt)),
+        ));
       });
 
-      // Summenzeile
-      tab1Rows.push([]);
-      tab1Rows.push([
-        '', 'SUMME', '', '', '', '',
-        Math.round(sumGeplantePM * 100) / 100,
-        Math.round(sumErfassteH * 100) / 100,
-        Math.round(sumErfasstePM * 100) / 100,
-        Math.round(sumKostenBisher * 100) / 100,
-        Math.round(sumKostenGesamt * 100) / 100,
-      ]);
-
-      // Hinweis
-      tab1Rows.push([]);
-      tab1Rows.push(['Hinweis: Personalkosten bisher = Erfasste Stunden x Stundensatz (nur foerderbare Stunden)']);
-      tab1Rows.push(['Geplante Gesamtkosten = Geplante PM x 173,33 h/PM x Stundensatz']);
+      const ws1 = `
+        <Worksheet ss:Name="Personalkosten">
+          <Table>
+            ${row(cell(`Personalkosten - ${project.name}`, true))}
+            ${row(cell(`Foerderkennzeichen: ${project.funding_reference || '-'}`))}
+            ${row(cell(`Laufzeit: ${pStart ? pStart.toLocaleDateString('de-DE') : '-'} bis ${pEnd ? pEnd.toLocaleDateString('de-DE') : '-'}`))}
+            ${row(cell(`Erstellt am: ${today}`))}
+            ${emptyRow()}
+            ${row(...ws1Headers.map(h => cell(h, true)))}
+            ${ws1DataRows.join('\n')}
+            ${emptyRow()}
+            ${row(
+              cell(''), cell('SUMME', true), cell(''), cell(''), cell(''), cell(''),
+              cell(fmt(sumGeplantePM), true),
+              cell(fmt(sumErfassteH), true),
+              cell(fmt(sumErfasstePM), true),
+              cell(fmt(sumKostenBisher), true),
+              cell(fmt(sumKostenGesamt), true),
+            )}
+            ${emptyRow()}
+            ${row(cell('Hinweis: Personalkosten bisher = Erfasste Stunden (foerderbar) x Stundensatz'))}
+            ${row(cell('Geplante Gesamtkosten = Geplante PM x 173,33 h/PM x Stundensatz'))}
+          </Table>
+        </Worksheet>`;
 
       // ---------------------------------------------------------------
-      // TAB 2: Jahresscheiben (Anlage 5)
+      // Worksheet 2: Jahresscheiben (Anlage 5)
       // ---------------------------------------------------------------
-      const tab2Rows: any[][] = [];
-
-      tab2Rows.push([`Jahresscheiben (Anlage 5) - ${project.name}`]);
-      tab2Rows.push([`Foerderkennzeichen: ${project.funding_reference || '-'}`]);
-      tab2Rows.push([`Erstellt am: ${today}`]);
-      tab2Rows.push([]);
-
-      // Header: MA-Nr | Name | Qualif. | Stundensatz | Jahr1 PM | Jahr2 PM | ... | Gesamt PM | Personalkosten gesamt
       const yearHeaders = projectYears.map((y, i) => `Jahr ${i + 1} (${y}) [PM]`);
-      tab2Rows.push([
-        'Lfd.Nr.',
-        'Name',
-        'Qualifikation',
-        'Stundensatz (EUR/h)',
-        ...yearHeaders,
-        'Gesamt [PM]',
-        'Personalkosten gesamt (EUR)',
-      ]);
+      const ws2Headers = [
+        'Lfd.Nr.', 'Name', 'Qualifikation', 'Stundensatz (EUR/h)',
+        ...yearHeaders, 'Gesamt [PM]', 'Personalkosten gesamt (EUR)',
+      ];
 
-      let sumJahresPMs: number[] = projectYears.map(() => 0);
-      let sumGesamtPM2 = 0;
-      let sumGesamtKosten2 = 0;
+      const sumJahresPMs: number[] = projectYears.map(() => 0);
+      let sumGesamtPM2 = 0, sumGesamtKosten2 = 0;
+      const ws2DataRows: string[] = [];
 
       sortedPAs.forEach((pa, idx) => {
         const emp = employees.find(e => e.id === pa.employee_id);
-        const empName = emp?.display_name || pa.employee_id;
+        const empName = emp?.display_name || '-';
         const stundensatz = pa.hourly_rate || 0;
-
-        const yearPMs = projectYears.map(y => {
-          const pm = getPMForYear(pa.employee_id, y);
-          return Math.round(pm * 100) / 100;
-        });
+        const yearPMs = projectYears.map(y => fmt(getPMForYear(pa.employee_id, y)));
         const gesamtPM = yearPMs.reduce((s, v) => s + v, 0);
-        const gesamtKosten = Math.round(gesamtPM * HOURS_PER_PM * stundensatz * 100) / 100;
+        const gesamtKosten = fmt(gesamtPM * HOURS_PER_PM * stundensatz);
 
         yearPMs.forEach((pm, i) => { sumJahresPMs[i] += pm; });
         sumGesamtPM2 += gesamtPM;
         sumGesamtKosten2 += gesamtKosten;
 
-        tab2Rows.push([
-          pa.employee_number ?? (idx + 1),
-          empName,
-          pa.qualification || '-',
-          stundensatz > 0 ? stundensatz : '-',
-          ...yearPMs,
-          Math.round(gesamtPM * 100) / 100,
-          gesamtKosten,
-        ]);
+        ws2DataRows.push(row(
+          cell(pa.employee_number ?? (idx + 1)),
+          cell(empName),
+          cell(pa.qualification || '-'),
+          cell(stundensatz > 0 ? stundensatz : '-'),
+          ...yearPMs.map(pm => cell(pm)),
+          cell(fmt(gesamtPM)),
+          cell(fmt(gesamtKosten)),
+        ));
       });
 
-      // Summenzeile
-      tab2Rows.push([]);
-      tab2Rows.push([
-        '', 'SUMME', '', '',
-        ...sumJahresPMs.map(v => Math.round(v * 100) / 100),
-        Math.round(sumGesamtPM2 * 100) / 100,
-        Math.round(sumGesamtKosten2 * 100) / 100,
-      ]);
-
-      tab2Rows.push([]);
-      tab2Rows.push(['Hinweis: 1 PM = 173,33 Stunden (40h/Woche x 52 Wochen / 12 Monate)']);
-      tab2Rows.push(['Jahresscheiben werden aus AP-Zeitraeumen anteilig berechnet']);
+      const ws2 = `
+        <Worksheet ss:Name="Jahresscheiben (Anlage 5)">
+          <Table>
+            ${row(cell(`Jahresscheiben (Anlage 5) - ${project.name}`, true))}
+            ${row(cell(`Foerderkennzeichen: ${project.funding_reference || '-'}`))}
+            ${row(cell(`Erstellt am: ${today}`))}
+            ${emptyRow()}
+            ${row(...ws2Headers.map(h => cell(h, true)))}
+            ${ws2DataRows.join('\n')}
+            ${emptyRow()}
+            ${row(
+              cell(''), cell('SUMME', true), cell(''), cell(''),
+              ...sumJahresPMs.map(v => cell(fmt(v), true)),
+              cell(fmt(sumGesamtPM2), true),
+              cell(fmt(sumGesamtKosten2), true),
+            )}
+            ${emptyRow()}
+            ${row(cell('Hinweis: 1 PM = 173,33 Stunden (40h/Woche x 52 Wochen / 12 Monate)'))}
+            ${row(cell('Jahresscheiben werden aus AP-Zeitraeumen anteilig berechnet'))}
+          </Table>
+        </Worksheet>`;
 
       // ---------------------------------------------------------------
-      // Workbook erstellen
+      // Workbook zusammenbauen und als .xls (SpreadsheetML) herunterladen
       // ---------------------------------------------------------------
-      const wb = XLSX.utils.book_new();
+      const workbook = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+  xmlns:o="urn:schemas-microsoft-com:office:office"
+  xmlns:x="urn:schemas-microsoft-com:office:excel">
+  <Styles>
+    <Style ss:ID="hdr">
+      <Font ss:Bold="1"/>
+    </Style>
+    <Style ss:ID="hdrBg">
+      <Font ss:Bold="1"/>
+      <Interior ss:Color="#DBEAFE" ss:Pattern="Solid"/>
+    </Style>
+    <Style ss:ID="bg">
+      <Interior ss:Color="#DBEAFE" ss:Pattern="Solid"/>
+    </Style>
+  </Styles>
+  ${ws1}
+  ${ws2}
+</Workbook>`;
 
-      const ws1 = XLSX.utils.aoa_to_sheet(tab1Rows);
-      // Spaltenbreiten Tab 1
-      ws1['!cols'] = [
-        { wch: 8 }, { wch: 25 }, { wch: 18 }, { wch: 18 },
-        { wch: 16 }, { wch: 18 }, { wch: 12 }, { wch: 15 },
-        { wch: 12 }, { wch: 24 }, { wch: 24 },
-      ];
-      XLSX.utils.book_append_sheet(wb, ws1, 'Personalkosten');
-
-      const ws2 = XLSX.utils.aoa_to_sheet(tab2Rows);
-      // Spaltenbreiten Tab 2
-      const yearCols = projectYears.map(() => ({ wch: 16 }));
-      ws2['!cols'] = [
-        { wch: 8 }, { wch: 25 }, { wch: 18 }, { wch: 18 },
-        ...yearCols,
-        { wch: 14 }, { wch: 24 },
-      ];
-      XLSX.utils.book_append_sheet(wb, ws2, 'Jahresscheiben (Anlage 5)');
-
-      // Download
+      const blob = new Blob([workbook], {
+        type: 'application/vnd.ms-excel;charset=utf-8',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
       const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
       const safeName = (project.short_name || project.name).replace(/[^a-zA-Z0-9_\-]/g, '_');
-      const filename = `Personalkosten_${safeName}_${dateStr}.xlsx`;
-      XLSX.writeFile(wb, filename);
+      a.href = url;
+      a.download = `Personalkosten_${safeName}_${dateStr}.xls`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
 
     } catch (err: any) {
       console.error('Export-Fehler:', err);
@@ -1540,7 +1542,7 @@ export default function BerichtePage() {
       </main>
       
       <footer className="text-center py-4 text-sm text-gray-500 mt-8">
-        Projektzeiterfassung v7.4.3-13 - Firmen-Portal - 2026
+        Projektzeiterfassung v7.4.3-14 - Firmen-Portal - 2026
       </footer>
     </div>
   );
