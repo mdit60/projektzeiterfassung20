@@ -2,19 +2,17 @@
 // ============================================================================
 // PZE V7 - Berichte & Controlling (Firmen-Portal)
 // ============================================================================
-// Version: 7.4.3-16
+// Version: 7.4.3-17
 // Datum: 09. Maerz 2026
 //
-// v7.4.3-16: BUGFIX: Excel-Warnung dauerhaft behoben
-//            - SpreadsheetML-XLS ersetzt durch zwei CSV-Downloads
-//            - CSV oeffnet Excel ohne jede Warnung, kein npm noetig
-//            - Trennzeichen: Semikolon (Excel DE-Standard)
-//            - Dezimaltrennzeichen: Komma (DE-Format)
-//            - Encoding: UTF-8 mit BOM (Umlaute korrekt in Excel)
-//            - Download 1: Personalkosten_[Name]_[Datum].csv
-//            - Download 2: Jahresscheiben_[Name]_[Datum].csv (500ms verzoegert)
-//            - Button-Label angepasst: "CSV-Export (2 Dateien)"
-// v7.4.3-15: BUGFIX: Jahresscheiben PM=0 + Excel-Warnung (SpreadsheetML)
+// v7.4.3-17: Echter XLSX Multi-Sheet Export (xlsx npm-Paket v0.18.5)
+//            - xlsx ist in package.json vorhanden (^0.18.5)
+//            - import * as XLSX from 'xlsx' (statisch, Vercel-kompatibel)
+//            - Sheet 1 "Personalkosten": Personalkosten-Uebersicht
+//            - Sheet 2 "Jahresscheiben (Anlage 5)": Anlage-5-Tabelle
+//            - Kein Excel-Warning, kein CSV, echte .xlsx-Datei
+//            - Spaltenbreiten via ws['!cols'] gesetzt
+// v7.4.3-16: CSV-Export (eine Datei) - kein Excel-Warning
 //            - Kachel "Personalkosten" jetzt aktiv (gruen)
 //            - Excel-Download direkt aus dem Browser (SheetJS)
 //            - Tab 1 "Personalkosten": Pro MA: Lfd.Nr, Name, Qualifikation,
@@ -33,6 +31,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import * as XLSX from 'xlsx';
 import PortalHeader from '@/components/shared/PortalHeader';
 import PortalNav from '@/components/shared/PortalNav';
 import {
@@ -720,37 +719,7 @@ export default function BerichtePage() {
   // ============================================================================
 
   // Hilfsfunktion: CSV-Zelle escapen (Semikolon als Trenner, Komma als Dezimal)
-  const csvCell = (val: any): string => {
-    if (val === null || val === undefined) return '';
-    let s = String(val);
-    // Dezimalpunkt -> Komma fuer Excel DE
-    if (typeof val === 'number') {
-      s = val.toFixed(2).replace('.', ',');
-    }
-    // Wenn Semikolon, Zeilenumbruch oder Anfuehrungszeichen -> in Anfuehrungszeichen
-    if (s.includes(';') || s.includes('\n') || s.includes('"')) {
-      s = '"' + s.replace(/"/g, '""') + '"';
-    }
-    return s;
-  };
-
-  const csvRow = (...vals: any[]): string => vals.map(csvCell).join(';');
-
-  const downloadCSV = (content: string, filename: string) => {
-    // UTF-8 BOM damit Excel Umlaute korrekt erkennt
-    const bom = '\uFEFF';
-    const blob = new Blob([bom + content], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  const handlePersonalkostenExport = async (exportProjectId?: string) => {
+  const handlePersonalkostenExport = (exportProjectId?: string) => {
     const projectId = exportProjectId || (projects.length > 0 ? projects[0].id : null);
     if (!projectId) return;
     const project = projects.find(p => p.id === projectId);
@@ -806,24 +775,22 @@ export default function BerichtePage() {
       };
 
       const today = new Date().toLocaleDateString('de-DE');
-      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-      const safeName = (project.short_name || project.name).replace(/[^a-zA-Z0-9_\-]/g, '_');
 
       // ----------------------------------------------------------------
-      // CSV 1: Personalkosten Uebersicht
+      // Sheet 1: Personalkosten Uebersicht
       // ----------------------------------------------------------------
-      const csv1Lines: string[] = [];
-      csv1Lines.push(csvRow(`Personalkosten - ${project.name}`));
-      csv1Lines.push(csvRow(`Foerderkennzeichen: ${project.funding_reference || '-'}`));
-      csv1Lines.push(csvRow(`Laufzeit: ${pStart ? pStart.toLocaleDateString('de-DE') : '-'} bis ${pEnd ? pEnd.toLocaleDateString('de-DE') : '-'}`));
-      csv1Lines.push(csvRow(`Erstellt am: ${today}`));
-      csv1Lines.push('');
-      csv1Lines.push(csvRow(
+      const ws1Data: any[][] = [];
+      ws1Data.push([`Personalkosten - ${project.name}`]);
+      ws1Data.push([`Foerderkennzeichen: ${project.funding_reference || '-'}`]);
+      ws1Data.push([`Laufzeit: ${pStart ? pStart.toLocaleDateString('de-DE') : '-'} bis ${pEnd ? pEnd.toLocaleDateString('de-DE') : '-'}`]);
+      ws1Data.push([`Erstellt am: ${today}`]);
+      ws1Data.push([]);
+      ws1Data.push([
         'Lfd.Nr.', 'Name', 'Qualifikation',
         'Jahresgehalt (EUR)', 'pWAZ (Std/Woche)', 'Stundensatz (EUR/h)',
         'Geplante PM', 'Erfasste Stunden', 'Erfasste PM',
-        'Personalkosten bisher (EUR)', 'Geplante Gesamtkosten (EUR)'
-      ));
+        'Personalkosten bisher (EUR)', 'Geplante Gesamtkosten (EUR)',
+      ]);
 
       let sumGeplantePM = 0, sumErfassteH = 0, sumErfasstePM = 0;
       let sumKostenBisher = 0, sumKostenGesamt = 0;
@@ -846,48 +813,51 @@ export default function BerichtePage() {
         sumErfasstePM += erfasstePM; sumKostenBisher += kostenBisher;
         sumKostenGesamt += kostenGesamt;
 
-        csv1Lines.push(csvRow(
+        ws1Data.push([
           pa.employee_number ?? (idx + 1),
           empName,
           pa.qualification || '-',
-          pa.annual_salary ?? '',
-          pa.weekly_hours ?? '',
-          stundensatz > 0 ? stundensatz : '',
+          pa.annual_salary ?? null,
+          pa.weekly_hours ?? null,
+          stundensatz > 0 ? stundensatz : null,
           fmt(geplantePM),
           fmt(erfassteH),
           fmt(erfasstePM),
           fmt(kostenBisher),
           fmt(kostenGesamt),
-        ));
+        ]);
       });
 
-      csv1Lines.push('');
-      csv1Lines.push(csvRow(
-        '', 'SUMME', '', '', '', '',
+      ws1Data.push([]);
+      ws1Data.push([
+        null, 'SUMME', null, null, null, null,
         fmt(sumGeplantePM), fmt(sumErfassteH), fmt(sumErfasstePM),
-        fmt(sumKostenBisher), fmt(sumKostenGesamt)
-      ));
-      csv1Lines.push('');
-      csv1Lines.push(csvRow('Hinweis: Personalkosten bisher = Erfasste Stunden (foerderbar) x Stundensatz'));
-      csv1Lines.push(csvRow('Geplante Gesamtkosten = Geplante PM x 173,33 h/PM x Stundensatz'));
+        fmt(sumKostenBisher), fmt(sumKostenGesamt),
+      ]);
+      ws1Data.push([]);
+      ws1Data.push(['Hinweis: Personalkosten bisher = Erfasste Stunden (foerderbar) x Stundensatz']);
+      ws1Data.push(['Geplante Gesamtkosten = Geplante PM x 173,33 h/PM x Stundensatz']);
 
-      downloadCSV(csv1Lines.join('\n'), `Personalkosten_${safeName}_${dateStr}.csv`);
+      const ws1 = XLSX.utils.aoa_to_sheet(ws1Data);
+      ws1['!cols'] = [
+        { wch: 8 }, { wch: 25 }, { wch: 18 }, { wch: 18 },
+        { wch: 16 }, { wch: 18 }, { wch: 12 }, { wch: 16 },
+        { wch: 12 }, { wch: 26 }, { wch: 26 },
+      ];
 
       // ----------------------------------------------------------------
-      // CSV 2: Jahresscheiben (Anlage 5) - leicht verzoegert
+      // Sheet 2: Jahresscheiben (Anlage 5)
       // ----------------------------------------------------------------
-      await new Promise(res => setTimeout(res, 600));
-
-      const csv2Lines: string[] = [];
-      csv2Lines.push(csvRow(`Jahresscheiben (Anlage 5) - ${project.name}`));
-      csv2Lines.push(csvRow(`Foerderkennzeichen: ${project.funding_reference || '-'}`));
-      csv2Lines.push(csvRow(`Erstellt am: ${today}`));
-      csv2Lines.push('');
       const yearHeaders = projectYears.map((y, i) => `Jahr ${i + 1} (${y}) [PM]`);
-      csv2Lines.push(csvRow(
+      const ws2Data: any[][] = [];
+      ws2Data.push([`Jahresscheiben (Anlage 5) - ${project.name}`]);
+      ws2Data.push([`Foerderkennzeichen: ${project.funding_reference || '-'}`]);
+      ws2Data.push([`Erstellt am: ${today}`]);
+      ws2Data.push([]);
+      ws2Data.push([
         'Lfd.Nr.', 'Name', 'Qualifikation', 'Stundensatz (EUR/h)',
-        ...yearHeaders, 'Gesamt [PM]', 'Personalkosten gesamt (EUR)'
-      ));
+        ...yearHeaders, 'Gesamt [PM]', 'Personalkosten gesamt (EUR)',
+      ]);
 
       const sumJahresPMs: number[] = projectYears.map(() => 0);
       let sumGesamtPM2 = 0, sumGesamtKosten2 = 0;
@@ -897,35 +867,51 @@ export default function BerichtePage() {
         const empName = emp?.display_name || '-';
         const stundensatz = pa.hourly_rate || 0;
         const yearPMs = projectYears.map(y => fmt(getPMForYear(pa.employee_id, y)));
-        const gesamtPM = yearPMs.reduce((s, v) => s + v, 0);
+        const gesamtPM = fmt(yearPMs.reduce((s, v) => s + v, 0));
         const gesamtKosten = fmt(gesamtPM * HOURS_PER_PM * stundensatz);
 
         yearPMs.forEach((pm, i) => { sumJahresPMs[i] += pm; });
         sumGesamtPM2 += gesamtPM;
         sumGesamtKosten2 += gesamtKosten;
 
-        csv2Lines.push(csvRow(
+        ws2Data.push([
           pa.employee_number ?? (idx + 1),
           empName,
           pa.qualification || '-',
-          stundensatz > 0 ? stundensatz : '',
+          stundensatz > 0 ? stundensatz : null,
           ...yearPMs,
-          fmt(gesamtPM),
-          fmt(gesamtKosten),
-        ));
+          gesamtPM,
+          gesamtKosten,
+        ]);
       });
 
-      csv2Lines.push('');
-      csv2Lines.push(csvRow(
-        '', 'SUMME', '', '',
+      ws2Data.push([]);
+      ws2Data.push([
+        null, 'SUMME', null, null,
         ...sumJahresPMs.map(v => fmt(v)),
-        fmt(sumGesamtPM2), fmt(sumGesamtKosten2)
-      ));
-      csv2Lines.push('');
-      csv2Lines.push(csvRow('Hinweis: 1 PM = 173,33 Stunden (40h/Woche x 52 Wochen / 12 Monate)'));
-      csv2Lines.push(csvRow('Jahresscheiben werden aus AP-Zeitraeumen anteilig berechnet'));
+        fmt(sumGesamtPM2), fmt(sumGesamtKosten2),
+      ]);
+      ws2Data.push([]);
+      ws2Data.push(['Hinweis: 1 PM = 173,33 Stunden (40h/Woche x 52 Wochen / 12 Monate)']);
+      ws2Data.push(['Jahresscheiben werden aus AP-Zeitraeumen anteilig berechnet']);
 
-      downloadCSV(csv2Lines.join('\n'), `Jahresscheiben_${safeName}_${dateStr}.csv`);
+      const ws2 = XLSX.utils.aoa_to_sheet(ws2Data);
+      ws2['!cols'] = [
+        { wch: 8 }, { wch: 25 }, { wch: 18 }, { wch: 18 },
+        ...projectYears.map(() => ({ wch: 18 })),
+        { wch: 14 }, { wch: 26 },
+      ];
+
+      // ----------------------------------------------------------------
+      // Workbook zusammenbauen und herunterladen
+      // ----------------------------------------------------------------
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws1, 'Personalkosten');
+      XLSX.utils.book_append_sheet(wb, ws2, 'Jahresscheiben (Anlage 5)');
+
+      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const safeName = (project.short_name || project.name).replace(/[^a-zA-Z0-9_\-]/g, '_');
+      XLSX.writeFile(wb, `Personalkosten_${safeName}_${dateStr}.xlsx`);
 
     } catch (err: any) {
       console.error('Export-Fehler:', err);
@@ -935,7 +921,6 @@ export default function BerichtePage() {
     }
   };
 
-  // ============================================================================
   // RENDER
   // ============================================================================
 
@@ -1271,7 +1256,7 @@ export default function BerichtePage() {
               >
                 <FileSpreadsheet className="w-10 h-10 mb-3" />
                 <span className="font-medium">Personalkosten</span>
-                <span className="text-xs mt-1">CSV-Export (2 Dateien)</span>
+                <span className="text-xs mt-1">Excel-Export</span>
                 <span className={`text-xs mt-2 px-2 py-0.5 rounded flex items-center gap-1 ${
                   exportLoading
                     ? 'bg-yellow-100 text-yellow-700'
@@ -1501,7 +1486,7 @@ export default function BerichtePage() {
       </main>
       
       <footer className="text-center py-4 text-sm text-gray-500 mt-8">
-        Projektzeiterfassung v7.4.3-16 - Firmen-Portal - 2026
+        Projektzeiterfassung v7.4.3-17 - Firmen-Portal - 2026
       </footer>
     </div>
   );
