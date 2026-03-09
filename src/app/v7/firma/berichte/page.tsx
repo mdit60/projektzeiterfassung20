@@ -2,17 +2,19 @@
 // ============================================================================
 // PZE V7 - Berichte & Controlling (Firmen-Portal)
 // ============================================================================
-// Version: 7.4.3-15
+// Version: 7.4.3-16
 // Datum: 09. Maerz 2026
 //
-// v7.4.3-15: BUGFIX: Jahresscheiben PM = 0 (WorkPackage fehlte start_date/end_date)
-//            - WorkPackage-Typ: start_date + end_date ergaenzt
-//            - Datenlade-Query: start_date, end_date fuer v7_work_packages ergaenzt
-//            - Excel-Warnung eliminiert: echte XLSX-Struktur (ZIP-basiert)
-//              via SheetJS aus pnpm (xlsx Paket ist Transitivabhaengigkeit via
-//              react-pdf o.ae. - falls nicht vorhanden: Fallback auf CSV-Export)
-//            - Fallback: zwei CSV-Downloads falls xlsx nicht verfuegbar
-// v7.4.3-14: BUGFIX: SheetJS CDN-Import durch SpreadsheetML-XML ersetzt
+// v7.4.3-16: BUGFIX: Excel-Warnung dauerhaft behoben
+//            - SpreadsheetML-XLS ersetzt durch zwei CSV-Downloads
+//            - CSV oeffnet Excel ohne jede Warnung, kein npm noetig
+//            - Trennzeichen: Semikolon (Excel DE-Standard)
+//            - Dezimaltrennzeichen: Komma (DE-Format)
+//            - Encoding: UTF-8 mit BOM (Umlaute korrekt in Excel)
+//            - Download 1: Personalkosten_[Name]_[Datum].csv
+//            - Download 2: Jahresscheiben_[Name]_[Datum].csv (500ms verzoegert)
+//            - Button-Label angepasst: "CSV-Export (2 Dateien)"
+// v7.4.3-15: BUGFIX: Jahresscheiben PM=0 + Excel-Warnung (SpreadsheetML)
 //            - Kachel "Personalkosten" jetzt aktiv (gruen)
 //            - Excel-Download direkt aus dem Browser (SheetJS)
 //            - Tab 1 "Personalkosten": Pro MA: Lfd.Nr, Name, Qualifikation,
@@ -717,32 +719,62 @@ export default function BerichtePage() {
   // PERSONALKOSTEN EXCEL-EXPORT
   // ============================================================================
 
+  // Hilfsfunktion: CSV-Zelle escapen (Semikolon als Trenner, Komma als Dezimal)
+  const csvCell = (val: any): string => {
+    if (val === null || val === undefined) return '';
+    let s = String(val);
+    // Dezimalpunkt -> Komma fuer Excel DE
+    if (typeof val === 'number') {
+      s = val.toFixed(2).replace('.', ',');
+    }
+    // Wenn Semikolon, Zeilenumbruch oder Anfuehrungszeichen -> in Anfuehrungszeichen
+    if (s.includes(';') || s.includes('\n') || s.includes('"')) {
+      s = '"' + s.replace(/"/g, '""') + '"';
+    }
+    return s;
+  };
+
+  const csvRow = (...vals: any[]): string => vals.map(csvCell).join(';');
+
+  const downloadCSV = (content: string, filename: string) => {
+    // UTF-8 BOM damit Excel Umlaute korrekt erkennt
+    const bom = '\uFEFF';
+    const blob = new Blob([bom + content], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const handlePersonalkostenExport = async (exportProjectId?: string) => {
     const projectId = exportProjectId || (projects.length > 0 ? projects[0].id : null);
     if (!projectId) return;
-
     const project = projects.find(p => p.id === projectId);
     if (!project) return;
 
     setExportLoading(true);
     try {
-      // XLSX-Export ohne externe Bibliothek: SpreadsheetML (XML) Format
-      // wird von Excel, LibreOffice und Google Sheets nativ geoeffnet
+      const pStart = project.start_date ? new Date(project.start_date) : null;
+      const pEnd = project.end_date ? new Date(project.end_date) : null;
+      const startYear = pStart ? pStart.getFullYear() : new Date().getFullYear();
+      const endYear = pEnd ? pEnd.getFullYear() : startYear;
+      const projectYears: number[] = [];
+      for (let y = startYear; y <= endYear; y++) projectYears.push(y);
 
-      // --- Datenbasis ---
       const projectWPs = workPackages.filter(wp => wp.project_id === projectId);
       const projectWPIds = projectWPs.map(wp => wp.id);
       const projectWPAs = wpAssignments.filter(a => projectWPIds.includes(a.work_package_id));
-
       const assignedEmpIds = [...new Set(projectWPAs.map(a => a.employee_id))];
       const projectPAs = projectAssignments.filter(
         pa => pa.project_id === projectId && assignedEmpIds.includes(pa.employee_id)
       );
 
       const sortedPAs = [...projectPAs].sort((a, b) => {
-        if (a.employee_number !== null && b.employee_number !== null) {
-          return a.employee_number - b.employee_number;
-        }
+        if (a.employee_number !== null && b.employee_number !== null) return a.employee_number - b.employee_number;
         if (a.employee_number !== null) return -1;
         if (b.employee_number !== null) return 1;
         const nameA = employees.find(e => e.id === a.employee_id)?.display_name || '';
@@ -750,12 +782,7 @@ export default function BerichtePage() {
         return nameA.localeCompare(nameB, 'de');
       });
 
-      const pStart = project.start_date ? new Date(project.start_date) : null;
-      const pEnd = project.end_date ? new Date(project.end_date) : null;
-      const startYear = pStart ? pStart.getFullYear() : new Date().getFullYear();
-      const endYear = pEnd ? pEnd.getFullYear() : startYear;
-      const projectYears: number[] = [];
-      for (let y = startYear; y <= endYear; y++) projectYears.push(y);
+      const fmt = (v: number): number => Math.round(v * 100) / 100;
 
       const getPMForYear = (empId: string, year: number): number => {
         let totalPM = 0;
@@ -778,46 +805,29 @@ export default function BerichtePage() {
         return totalPM;
       };
 
-      const fmt = (v: number) => Math.round(v * 100) / 100;
       const today = new Date().toLocaleDateString('de-DE');
+      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const safeName = (project.short_name || project.name).replace(/[^a-zA-Z0-9_\-]/g, '_');
 
-      // Hilfsfunktion: XML-Sonderzeichen escapen
-      const esc = (s: string) => String(s)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-
-      // SpreadsheetML-Zelle erzeugen
-      const cell = (val: any, bold = false, bg = ''): string => {
-        const styleAttr = (bold || bg)
-          ? ` ss:StyleID="${bold && bg ? 'hdrBg' : bold ? 'hdr' : 'bg'}"`
-          : '';
-        if (val === null || val === undefined || val === '') {
-          return `<Cell${styleAttr}><Data ss:Type="String"></Data></Cell>`;
-        }
-        if (typeof val === 'number') {
-          return `<Cell${styleAttr}><Data ss:Type="Number">${val}</Data></Cell>`;
-        }
-        return `<Cell${styleAttr}><Data ss:Type="String">${esc(String(val))}</Data></Cell>`;
-      };
-      const row = (...cells: string[]) => `<Row>${cells.join('')}</Row>`;
-      const emptyRow = () => '<Row></Row>';
-
-      // ---------------------------------------------------------------
-      // Worksheet 1: Personalkosten Uebersicht
-      // ---------------------------------------------------------------
-      const ws1Headers = [
+      // ----------------------------------------------------------------
+      // CSV 1: Personalkosten Uebersicht
+      // ----------------------------------------------------------------
+      const csv1Lines: string[] = [];
+      csv1Lines.push(csvRow(`Personalkosten - ${project.name}`));
+      csv1Lines.push(csvRow(`Foerderkennzeichen: ${project.funding_reference || '-'}`));
+      csv1Lines.push(csvRow(`Laufzeit: ${pStart ? pStart.toLocaleDateString('de-DE') : '-'} bis ${pEnd ? pEnd.toLocaleDateString('de-DE') : '-'}`));
+      csv1Lines.push(csvRow(`Erstellt am: ${today}`));
+      csv1Lines.push('');
+      csv1Lines.push(csvRow(
         'Lfd.Nr.', 'Name', 'Qualifikation',
         'Jahresgehalt (EUR)', 'pWAZ (Std/Woche)', 'Stundensatz (EUR/h)',
         'Geplante PM', 'Erfasste Stunden', 'Erfasste PM',
-        'Personalkosten bisher (EUR)', 'Geplante Gesamtkosten (EUR)',
-      ];
+        'Personalkosten bisher (EUR)', 'Geplante Gesamtkosten (EUR)'
+      ));
 
       let sumGeplantePM = 0, sumErfassteH = 0, sumErfasstePM = 0;
       let sumKostenBisher = 0, sumKostenGesamt = 0;
 
-      const ws1DataRows: string[] = [];
       sortedPAs.forEach((pa, idx) => {
         const emp = employees.find(e => e.id === pa.employee_id);
         const empName = emp?.display_name || '-';
@@ -836,58 +846,51 @@ export default function BerichtePage() {
         sumErfasstePM += erfasstePM; sumKostenBisher += kostenBisher;
         sumKostenGesamt += kostenGesamt;
 
-        ws1DataRows.push(row(
-          cell(pa.employee_number ?? (idx + 1)),
-          cell(empName),
-          cell(pa.qualification || '-'),
-          cell(pa.annual_salary ?? '-'),
-          cell(pa.weekly_hours ?? '-'),
-          cell(stundensatz > 0 ? stundensatz : '-'),
-          cell(fmt(geplantePM)),
-          cell(fmt(erfassteH)),
-          cell(fmt(erfasstePM)),
-          cell(fmt(kostenBisher)),
-          cell(fmt(kostenGesamt)),
+        csv1Lines.push(csvRow(
+          pa.employee_number ?? (idx + 1),
+          empName,
+          pa.qualification || '-',
+          pa.annual_salary ?? '',
+          pa.weekly_hours ?? '',
+          stundensatz > 0 ? stundensatz : '',
+          fmt(geplantePM),
+          fmt(erfassteH),
+          fmt(erfasstePM),
+          fmt(kostenBisher),
+          fmt(kostenGesamt),
         ));
       });
 
-      const ws1 = `
-        <Worksheet ss:Name="Personalkosten">
-          <Table>
-            ${row(cell(`Personalkosten - ${project.name}`, true))}
-            ${row(cell(`Foerderkennzeichen: ${project.funding_reference || '-'}`))}
-            ${row(cell(`Laufzeit: ${pStart ? pStart.toLocaleDateString('de-DE') : '-'} bis ${pEnd ? pEnd.toLocaleDateString('de-DE') : '-'}`))}
-            ${row(cell(`Erstellt am: ${today}`))}
-            ${emptyRow()}
-            ${row(...ws1Headers.map(h => cell(h, true)))}
-            ${ws1DataRows.join('\n')}
-            ${emptyRow()}
-            ${row(
-              cell(''), cell('SUMME', true), cell(''), cell(''), cell(''), cell(''),
-              cell(fmt(sumGeplantePM), true),
-              cell(fmt(sumErfassteH), true),
-              cell(fmt(sumErfasstePM), true),
-              cell(fmt(sumKostenBisher), true),
-              cell(fmt(sumKostenGesamt), true),
-            )}
-            ${emptyRow()}
-            ${row(cell('Hinweis: Personalkosten bisher = Erfasste Stunden (foerderbar) x Stundensatz'))}
-            ${row(cell('Geplante Gesamtkosten = Geplante PM x 173,33 h/PM x Stundensatz'))}
-          </Table>
-        </Worksheet>`;
+      csv1Lines.push('');
+      csv1Lines.push(csvRow(
+        '', 'SUMME', '', '', '', '',
+        fmt(sumGeplantePM), fmt(sumErfassteH), fmt(sumErfasstePM),
+        fmt(sumKostenBisher), fmt(sumKostenGesamt)
+      ));
+      csv1Lines.push('');
+      csv1Lines.push(csvRow('Hinweis: Personalkosten bisher = Erfasste Stunden (foerderbar) x Stundensatz'));
+      csv1Lines.push(csvRow('Geplante Gesamtkosten = Geplante PM x 173,33 h/PM x Stundensatz'));
 
-      // ---------------------------------------------------------------
-      // Worksheet 2: Jahresscheiben (Anlage 5)
-      // ---------------------------------------------------------------
+      downloadCSV(csv1Lines.join('\n'), `Personalkosten_${safeName}_${dateStr}.csv`);
+
+      // ----------------------------------------------------------------
+      // CSV 2: Jahresscheiben (Anlage 5) - leicht verzoegert
+      // ----------------------------------------------------------------
+      await new Promise(res => setTimeout(res, 600));
+
+      const csv2Lines: string[] = [];
+      csv2Lines.push(csvRow(`Jahresscheiben (Anlage 5) - ${project.name}`));
+      csv2Lines.push(csvRow(`Foerderkennzeichen: ${project.funding_reference || '-'}`));
+      csv2Lines.push(csvRow(`Erstellt am: ${today}`));
+      csv2Lines.push('');
       const yearHeaders = projectYears.map((y, i) => `Jahr ${i + 1} (${y}) [PM]`);
-      const ws2Headers = [
+      csv2Lines.push(csvRow(
         'Lfd.Nr.', 'Name', 'Qualifikation', 'Stundensatz (EUR/h)',
-        ...yearHeaders, 'Gesamt [PM]', 'Personalkosten gesamt (EUR)',
-      ];
+        ...yearHeaders, 'Gesamt [PM]', 'Personalkosten gesamt (EUR)'
+      ));
 
       const sumJahresPMs: number[] = projectYears.map(() => 0);
       let sumGesamtPM2 = 0, sumGesamtKosten2 = 0;
-      const ws2DataRows: string[] = [];
 
       sortedPAs.forEach((pa, idx) => {
         const emp = employees.find(e => e.id === pa.employee_id);
@@ -901,77 +904,28 @@ export default function BerichtePage() {
         sumGesamtPM2 += gesamtPM;
         sumGesamtKosten2 += gesamtKosten;
 
-        ws2DataRows.push(row(
-          cell(pa.employee_number ?? (idx + 1)),
-          cell(empName),
-          cell(pa.qualification || '-'),
-          cell(stundensatz > 0 ? stundensatz : '-'),
-          ...yearPMs.map(pm => cell(pm)),
-          cell(fmt(gesamtPM)),
-          cell(fmt(gesamtKosten)),
+        csv2Lines.push(csvRow(
+          pa.employee_number ?? (idx + 1),
+          empName,
+          pa.qualification || '-',
+          stundensatz > 0 ? stundensatz : '',
+          ...yearPMs,
+          fmt(gesamtPM),
+          fmt(gesamtKosten),
         ));
       });
 
-      const ws2 = `
-        <Worksheet ss:Name="Jahresscheiben (Anlage 5)">
-          <Table>
-            ${row(cell(`Jahresscheiben (Anlage 5) - ${project.name}`, true))}
-            ${row(cell(`Foerderkennzeichen: ${project.funding_reference || '-'}`))}
-            ${row(cell(`Erstellt am: ${today}`))}
-            ${emptyRow()}
-            ${row(...ws2Headers.map(h => cell(h, true)))}
-            ${ws2DataRows.join('\n')}
-            ${emptyRow()}
-            ${row(
-              cell(''), cell('SUMME', true), cell(''), cell(''),
-              ...sumJahresPMs.map(v => cell(fmt(v), true)),
-              cell(fmt(sumGesamtPM2), true),
-              cell(fmt(sumGesamtKosten2), true),
-            )}
-            ${emptyRow()}
-            ${row(cell('Hinweis: 1 PM = 173,33 Stunden (40h/Woche x 52 Wochen / 12 Monate)'))}
-            ${row(cell('Jahresscheiben werden aus AP-Zeitraeumen anteilig berechnet'))}
-          </Table>
-        </Worksheet>`;
+      csv2Lines.push('');
+      csv2Lines.push(csvRow(
+        '', 'SUMME', '', '',
+        ...sumJahresPMs.map(v => fmt(v)),
+        fmt(sumGesamtPM2), fmt(sumGesamtKosten2)
+      ));
+      csv2Lines.push('');
+      csv2Lines.push(csvRow('Hinweis: 1 PM = 173,33 Stunden (40h/Woche x 52 Wochen / 12 Monate)'));
+      csv2Lines.push(csvRow('Jahresscheiben werden aus AP-Zeitraeumen anteilig berechnet'));
 
-      // ---------------------------------------------------------------
-      // Workbook zusammenbauen und als .xls (SpreadsheetML) herunterladen
-      // ---------------------------------------------------------------
-      const workbook = `<?xml version="1.0" encoding="UTF-8"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
-  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
-  xmlns:o="urn:schemas-microsoft-com:office:office"
-  xmlns:x="urn:schemas-microsoft-com:office:excel">
-  <Styles>
-    <Style ss:ID="hdr">
-      <Font ss:Bold="1"/>
-    </Style>
-    <Style ss:ID="hdrBg">
-      <Font ss:Bold="1"/>
-      <Interior ss:Color="#DBEAFE" ss:Pattern="Solid"/>
-    </Style>
-    <Style ss:ID="bg">
-      <Interior ss:Color="#DBEAFE" ss:Pattern="Solid"/>
-    </Style>
-  </Styles>
-  ${ws1}
-  ${ws2}
-</Workbook>`;
-
-      const blob = new Blob(['\uFEFF' + workbook], {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=utf-8',
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-      const safeName = (project.short_name || project.name).replace(/[^a-zA-Z0-9_\-]/g, '_');
-      a.href = url;
-      a.download = `Personalkosten_${safeName}_${dateStr}.xls`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      downloadCSV(csv2Lines.join('\n'), `Jahresscheiben_${safeName}_${dateStr}.csv`);
 
     } catch (err: any) {
       console.error('Export-Fehler:', err);
@@ -1317,7 +1271,7 @@ export default function BerichtePage() {
               >
                 <FileSpreadsheet className="w-10 h-10 mb-3" />
                 <span className="font-medium">Personalkosten</span>
-                <span className="text-xs mt-1">Excel-Export</span>
+                <span className="text-xs mt-1">CSV-Export (2 Dateien)</span>
                 <span className={`text-xs mt-2 px-2 py-0.5 rounded flex items-center gap-1 ${
                   exportLoading
                     ? 'bg-yellow-100 text-yellow-700'
@@ -1547,7 +1501,7 @@ export default function BerichtePage() {
       </main>
       
       <footer className="text-center py-4 text-sm text-gray-500 mt-8">
-        Projektzeiterfassung v7.4.3-15 - Firmen-Portal - 2026
+        Projektzeiterfassung v7.4.3-16 - Firmen-Portal - 2026
       </footer>
     </div>
   );
