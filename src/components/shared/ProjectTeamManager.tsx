@@ -3,13 +3,22 @@
 // PZE V7 - Projekt-Team Management
 // ============================================================================
 // Datum: 09. Maerz 2026
-// Version: 7.3.95-3
+// Version: 7.3.95-4
 //
 // Verwaltet das Projektteam:
 // - MA aus Firmenstamm zum Projekt hinzufuegen
 // - Projektspezifische Daten: Lfd. Nr., Stundensatz, Rolle, Zeitraum
 // - Anlage 6.1 Felder: Jahresgehalt, Betriebl. Wochenstunden -> Stundensatz
 // - MA wird nie geloescht, nur Zeitraum beendet
+//
+// AENDERUNGEN v7.3.95-4:
+// - DB-Migration: monthly_gross + additional_salary_components neu in v7_employees
+// - Employee-Interface: monthly_gross + additional_salary_components ergaenzt
+// - useEffect: Laedt monthly_gross + additional_salary_components direkt aus DB
+//   (kein Rueckrechnen aus annual_salary mehr noetig)
+// - handleEditMember: Speichert alle 3 Felder: monthly_gross, additional_salary_components,
+//   annual_salary (berechnet) in v7_employees
+// - Datenmigration in SQL: bestehende annual_salary Werte werden aufgeteilt
 //
 // AENDERUNGEN v7.3.95-3:
 // - EditMemberDialog: Gehaltsberechnung erweitert wie in Prod-Version:
@@ -78,6 +87,8 @@ interface Employee {
   qualification: string | null;
   weekly_hours: number | null;
   annual_salary: number | null;
+  monthly_gross: number | null;
+  additional_salary_components: number | null;
   company_weekly_hours: number | null;
   hourly_rate: number | null;
   is_active: boolean;
@@ -396,6 +407,8 @@ interface EditMemberDialogProps {
     employeeNumber: number;
     hourlyRate: number | null;
     annualSalary: number | null;
+    monthlyGross: number | null;
+    additionalSalaryComponents: number | null;
     personalWeeklyHours: number | null;
     companyWeeklyHours: number | null;
     roleInProject: string | null;
@@ -458,33 +471,39 @@ function EditMemberDialog({
   useEffect(() => {
     if (isOpen && member) {
       setEmployeeNumber(member.employee_number?.toString() || '');
-      // Anlage 6.1 Felder aus Employee-Stammdaten laden
       const emp = member.employee;
-      // Jahresbrutto auf Monatsbrutto zurueckrechnen (annual_salary / 12, Rest = Zusatzkomponenten)
-      // Da wir Monatsbrutto nicht separat speichern, nehmen wir annual_salary / 12 als Startwert
-      if (emp?.annual_salary) {
-        const monthly = emp.annual_salary / 12;
-        setMonthlyGross(monthly.toFixed(2));
+
+      // Anlage 6.1: Gehaltsdetails direkt aus neuen DB-Feldern laden
+      if (emp?.monthly_gross) {
+        // Neue DB-Felder vorhanden - direkt laden
+        setMonthlyGross(emp.monthly_gross.toString());
+        setAdditionalComponents((emp.additional_salary_components ?? 0).toString());
+      } else if (emp?.annual_salary) {
+        // Fallback: annual_salary / 12 als Naeherung (alte Datensaetze vor Migration)
+        setMonthlyGross((emp.annual_salary / 12).toFixed(2));
         setAdditionalComponents('0');
       } else {
         setMonthlyGross('');
         setAdditionalComponents('0');
       }
-      // pWAZ = weekly_hours des MA (kann Teilzeit sein)
+
       setPersonalWeeklyHours(emp?.weekly_hours?.toString() || '40');
-      // bWAZ = betriebsuebliche Arbeitszeit (i.d.R. 40h)
       setCompanyWeeklyHours(emp?.company_weekly_hours?.toString() || '40');
       setHourlyRate(member.hourly_rate?.toString().replace('.', ',') || '');
       setApprovedRate('');
+
       // Pruefen ob Stundensatz manuell gesetzt wurde (nicht berechnet)
-      if (emp?.annual_salary && emp?.weekly_hours) {
-        const calcRate = emp.annual_salary / (emp.weekly_hours * 52);
+      const effectiveAnnual = emp?.monthly_gross
+        ? emp.monthly_gross * 12 + (emp.additional_salary_components ?? 0)
+        : (emp?.annual_salary ?? null);
+      if (effectiveAnnual && emp?.weekly_hours) {
+        const calcRate = effectiveAnnual / (emp.weekly_hours * 52);
         const currentRate = member.hourly_rate || 0;
-        // Wenn Differenz > 1 Cent: manuell gesetzt
         setHourlyRateManual(Math.abs(calcRate - currentRate) > 0.01);
       } else {
         setHourlyRateManual(member.hourly_rate !== null && member.hourly_rate > 0);
       }
+
       setRoleInProject(member.role_in_project || '');
       setAssignmentStart(member.assignment_start || '');
       setAssignmentEnd(member.assignment_end || '');
@@ -566,6 +585,8 @@ function EditMemberDialog({
         employeeNumber: numValue,
         hourlyRate: hourlyRate ? parseFloat(hourlyRate.replace(',', '.')) : null,
         annualSalary: annualSalary,
+        monthlyGross: monthlyGross ? parseFloat(monthlyGross) : null,
+        additionalSalaryComponents: additionalComponents ? parseFloat(additionalComponents) : 0,
         personalWeeklyHours: personalWeeklyHours ? parseFloat(personalWeeklyHours) : null,
         companyWeeklyHours: companyWeeklyHours ? parseFloat(companyWeeklyHours) : null,
         roleInProject: roleInProject || null,
@@ -1008,6 +1029,8 @@ export default function ProjectTeamManager({
     employeeNumber: number;
     hourlyRate: number | null;
     annualSalary: number | null;
+    monthlyGross: number | null;
+    additionalSalaryComponents: number | null;
     personalWeeklyHours: number | null;
     companyWeeklyHours: number | null;
     roleInProject: string | null;
@@ -1025,18 +1048,20 @@ export default function ProjectTeamManager({
         role_in_project: data.roleInProject,
         assignment_start: data.assignmentStart,
         assignment_end: data.assignmentEnd,
-        is_active: !data.assignmentEnd, // Wenn Enddatum gesetzt, nicht mehr aktiv
+        is_active: !data.assignmentEnd,
       })
       .eq('id', editingMember.id);
 
     if (assignError) throw assignError;
 
-    // 2. Anlage 6.1 Felder im Employee-Stamm speichern
+    // 2. Anlage 6.1 Felder im Employee-Stamm speichern (inkl. neue Felder)
     const empUpdate: Record<string, any> = {};
-    if (data.annualSalary !== null) empUpdate.annual_salary = data.annualSalary;
-    if (data.personalWeeklyHours !== null) empUpdate.weekly_hours = data.personalWeeklyHours;
-    if (data.companyWeeklyHours !== null) empUpdate.company_weekly_hours = data.companyWeeklyHours;
-    if (data.hourlyRate !== null) empUpdate.hourly_rate = data.hourlyRate;
+    if (data.monthlyGross !== null)              empUpdate.monthly_gross = data.monthlyGross;
+    if (data.additionalSalaryComponents !== null) empUpdate.additional_salary_components = data.additionalSalaryComponents;
+    if (data.annualSalary !== null)              empUpdate.annual_salary = data.annualSalary;
+    if (data.personalWeeklyHours !== null)       empUpdate.weekly_hours = data.personalWeeklyHours;
+    if (data.companyWeeklyHours !== null)        empUpdate.company_weekly_hours = data.companyWeeklyHours;
+    if (data.hourlyRate !== null)                empUpdate.hourly_rate = data.hourlyRate;
 
     if (Object.keys(empUpdate).length > 0) {
       const { error: empError } = await supabase
