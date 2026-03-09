@@ -2,18 +2,21 @@
 // ============================================================================
 // PZE V7 - Berichte & Controlling (Firmen-Portal)
 // ============================================================================
-// Version: 7.4.3-8
-// Datum: 03. Maerz 2026
+// Version: 7.4.3-12
+// Datum: 09. Maerz 2026
 //
+// v7.4.3-12: NEU: Stundennachweis-Matrix unter Reports-Kachel
+//            - Kachel "Stundennachweis" oeffnet aufklappbare Matrix
+//            - Zeilen: Projekt-MA (sortiert nach employee_number)
+//            - Spalten: alle Projektmonate gruppiert nach Jahr
+//            - Ampelfarben pro Zelle: gruen/orange/rot/grau (Zukunft)
+//            - Stunden als Tooltip bei Hover
+//            - Klick auf Zelle: navigiert direkt zur Zeiterfassung
+//              des MA im jeweiligen Monat (mit returnUrl zurueck zur Berichte-Seite)
+//            - Kachel "Stundennachweis" jetzt aktiv (nicht mehr disabled)
 // v7.4.3-8: KRITISCH: is_active Filter fuer Timesheets (fehlte komplett!)
 //           PM-Berechnung: nur is_billable=true Stunden zaehlen
 //           Zeiterfassungs-Status: komplett umgebaut
-//           - Stunden statt Tage (Soll/Erfasst/Offen)
-//           - Fortschrittsbalken pro MA (gruen/orange/rot)
-//           - Orange-Warnung wenn Erfassung > 25 Pp hinter Zeitfortschritt
-//           - Bezug: Gesamtprojekt (nicht Monat)
-//           - Monats-Dropdown entfernt (nicht mehr noetig)
-// v7.3.88-4: Monats-Dropdown, Aktion-Spalte, Feld-Korrekturen
 // ============================================================================
 
 'use client';
@@ -38,6 +41,9 @@ import {
   Download,
   Calendar,
   ExternalLink,
+  ChevronDown,
+  ChevronUp,
+  Grid3x3,
 } from 'lucide-react';
 
 // ============================================================================
@@ -56,6 +62,22 @@ interface UserProfile {
   display_name: string | null;
   role: string;
   client_company_id: string | null;
+}
+
+// Fuer die Stundennachweis-Matrix
+interface MatrixMonth {
+  year: number;
+  month: number;
+  label: string; // "Jan", "Feb", ...
+}
+
+interface MatrixCell {
+  employeeId: string;
+  year: number;
+  month: number;
+  hoursRecorded: number;
+  status: 'complete' | 'partial' | 'missing' | 'future' | 'outside';
+  // outside = Monat liegt ausserhalb der Projekt-Laufzeit fuer diesen MA
 }
 
 interface Company {
@@ -242,6 +264,8 @@ export default function BerichtePage() {
   
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [showMatrix, setShowMatrix] = useState(false);
+  const [matrixProjectId, setMatrixProjectId] = useState<string | null>(null);
   
   const holidays = useMemo(() => {
     if (!company?.federal_state) return new Map<string, string>();
@@ -536,6 +560,98 @@ export default function BerichtePage() {
       };
     });
   }, [employees, wpAssignments, projects, timesheets, workPackages]);
+
+  // ============================================================================
+  // STUNDENNACHWEIS-MATRIX BERECHNUNG
+  // ============================================================================
+
+  // Monatskuerzel
+  const MONTH_SHORT = ['Jan','Feb','Mrz','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+
+  const matrixData = useMemo(() => {
+    const projectId = matrixProjectId || (projects.length > 0 ? projects[0].id : null);
+    if (!projectId) return null;
+
+    const project = projects.find(p => p.id === projectId);
+    if (!project || !project.start_date || !project.end_date) return null;
+
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+
+    // Alle Projektmonate berechnen
+    const pStart = new Date(project.start_date);
+    const pEnd = new Date(project.end_date);
+    const startYear = pStart.getFullYear();
+    const startMonth = pStart.getMonth() + 1;
+    const endYear = pEnd.getFullYear();
+    const endMonth = pEnd.getMonth() + 1;
+
+    const months: MatrixMonth[] = [];
+    for (let y = startYear; y <= endYear; y++) {
+      const mStart = y === startYear ? startMonth : 1;
+      const mEnd = y === endYear ? endMonth : 12;
+      for (let m = mStart; m <= mEnd; m++) {
+        months.push({ year: y, month: m, label: MONTH_SHORT[m - 1] });
+      }
+    }
+
+    // Jahre fuer Gruppierung
+    const years = [...new Set(months.map(m => m.year))];
+
+    // MA die im Projekt sind (ueber v7_project_assignments Logik: WP-Zuordnungen)
+    const projectWPs = workPackages.filter(wp => wp.project_id === projectId);
+    const projectWPIds = projectWPs.map(wp => wp.id);
+    const assignedEmployeeIds = [...new Set(
+      wpAssignments
+        .filter(a => projectWPIds.includes(a.work_package_id))
+        .map(a => a.employee_id)
+    )];
+    const matrixEmployees = employees
+      .filter(e => assignedEmployeeIds.includes(e.id));
+
+    // Feiertage fuer relevante Jahre berechnen
+    const holidaysByYear: Record<number, Map<string, string>> = {};
+    years.forEach(y => {
+      holidaysByYear[y] = getGermanHolidays(y, company?.federal_state || '');
+    });
+
+    // Zellen berechnen
+    const cells: MatrixCell[] = [];
+    matrixEmployees.forEach(emp => {
+      months.forEach(({ year, month }) => {
+        const isFuture = year > currentYear || (year === currentYear && month > currentMonth);
+
+        const monthTimesheets = timesheets.filter(t => {
+          if (t.project_id !== projectId) return false;
+          if (t.employee_id !== emp.id) return false;
+          const d = new Date(t.work_date);
+          return d.getFullYear() === year && d.getMonth() + 1 === month;
+        });
+
+        const hoursRecorded = monthTimesheets.reduce((sum, t) => sum + (t.hours || 0), 0);
+        const workingDays = getWorkingDaysInMonth(year, month, holidaysByYear[year] || new Map());
+        const daysRecorded = new Set(
+          monthTimesheets.filter(t => (t.hours || 0) > 0).map(t => t.work_date)
+        ).size;
+
+        let status: MatrixCell['status'] = 'missing';
+        if (isFuture) {
+          status = 'future';
+        } else if (hoursRecorded > 0 && daysRecorded >= workingDays) {
+          status = 'complete';
+        } else if (hoursRecorded > 0) {
+          status = 'partial';
+        } else {
+          status = 'missing';
+        }
+
+        cells.push({ employeeId: emp.id, year, month, hoursRecorded, status });
+      });
+    });
+
+    return { project, months, years, employees: matrixEmployees, cells };
+  }, [matrixProjectId, projects, workPackages, wpAssignments, employees, timesheets, company]);
 
   // ============================================================================
   // RENDER
@@ -860,27 +976,43 @@ export default function BerichtePage() {
           </div>
           <div className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+
+              {/* Kachel 1: Personalkosten - noch deaktiviert */}
               <button disabled className="flex flex-col items-center p-6 border-2 border-dashed border-gray-300 rounded-lg text-gray-400 cursor-not-allowed">
                 <FileSpreadsheet className="w-10 h-10 mb-3" />
                 <span className="font-medium">Personalkosten</span>
                 <span className="text-xs mt-1">Excel-Export</span>
                 <span className="text-xs mt-2 bg-gray-100 px-2 py-0.5 rounded">Demnaechst</span>
               </button>
-              
-              <button disabled className="flex flex-col items-center p-6 border-2 border-dashed border-gray-300 rounded-lg text-gray-400 cursor-not-allowed">
-                <FileText className="w-10 h-10 mb-3" />
+
+              {/* Kachel 2: Stundennachweis - AKTIV */}
+              <button
+                onClick={() => {
+                  if (projects.length > 0 && !matrixProjectId) {
+                    setMatrixProjectId(projects[0].id);
+                  }
+                  setShowMatrix(prev => !prev);
+                }}
+                className="flex flex-col items-center p-6 border-2 border-green-400 rounded-lg text-green-700 bg-green-50 hover:bg-green-100 transition-colors cursor-pointer"
+              >
+                <Grid3x3 className="w-10 h-10 mb-3" />
                 <span className="font-medium">Stundennachweis</span>
-                <span className="text-xs mt-1">PDF-Export</span>
-                <span className="text-xs mt-2 bg-gray-100 px-2 py-0.5 rounded">Demnaechst</span>
+                <span className="text-xs mt-1">Matrix-Uebersicht</span>
+                <span className="text-xs mt-2 bg-green-200 text-green-800 px-2 py-0.5 rounded flex items-center gap-1">
+                  {showMatrix ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+                  {showMatrix ? 'Schliessen' : 'Oeffnen'}
+                </span>
               </button>
-              
+
+              {/* Kachel 3: Projektfortschritt - noch deaktiviert */}
               <button disabled className="flex flex-col items-center p-6 border-2 border-dashed border-gray-300 rounded-lg text-gray-400 cursor-not-allowed">
                 <BarChart3 className="w-10 h-10 mb-3" />
                 <span className="font-medium">Projekt-Fortschritt</span>
                 <span className="text-xs mt-1">Grafische Auswertung</span>
                 <span className="text-xs mt-2 bg-gray-100 px-2 py-0.5 rounded">Demnaechst</span>
               </button>
-              
+
+              {/* Kachel 4: Zahlungsanforderung - noch deaktiviert */}
               <button disabled className="flex flex-col items-center p-6 border-2 border-dashed border-gray-300 rounded-lg text-gray-400 cursor-not-allowed">
                 <Download className="w-10 h-10 mb-3" />
                 <span className="font-medium">Zahlungsanforderung</span>
@@ -888,12 +1020,190 @@ export default function BerichtePage() {
                 <span className="text-xs mt-2 bg-gray-100 px-2 py-0.5 rounded">Demnaechst</span>
               </button>
             </div>
+
+            {/* Stundennachweis-Matrix (aufklappbar) */}
+            {showMatrix && (
+              <div className="mt-6 border border-gray-200 rounded-lg overflow-hidden">
+
+                {/* Matrix-Header: Projekt-Auswahl (falls mehrere Projekte) */}
+                <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Grid3x3 className="w-5 h-5 text-green-600" />
+                    <span className="font-medium text-gray-900">Stundennachweis-Matrix</span>
+                    {projects.length > 1 && (
+                      <select
+                        value={matrixProjectId || projects[0]?.id || ''}
+                        onChange={e => setMatrixProjectId(e.target.value)}
+                        className="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-1 focus:ring-green-500"
+                      >
+                        {projects.map(p => (
+                          <option key={p.id} value={p.id}>
+                            {p.short_name || p.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    {projects.length === 1 && (
+                      <span className="text-sm text-gray-600">
+                        {projects[0].short_name || projects[0].name}
+                      </span>
+                    )}
+                  </div>
+                  {/* Legende */}
+                  <div className="flex items-center gap-3 text-xs text-gray-500">
+                    <span className="flex items-center gap-1">
+                      <span className="w-3 h-3 rounded-sm bg-green-500 inline-block"></span>
+                      Vollstaendig
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-3 h-3 rounded-sm bg-orange-400 inline-block"></span>
+                      Teilweise
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-3 h-3 rounded-sm bg-red-400 inline-block"></span>
+                      Fehlt
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-3 h-3 rounded-sm bg-gray-200 inline-block"></span>
+                      Zukunft
+                    </span>
+                  </div>
+                </div>
+
+                {/* Matrix-Tabelle */}
+                {!matrixData ? (
+                  <div className="p-8 text-center text-gray-500">
+                    Keine Projektdaten verfuegbar (Projekt benoetigt Start- und Enddatum).
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-xs">
+                      <thead>
+                        {/* Jahres-Gruppen-Header */}
+                        <tr className="bg-gray-100 border-b border-gray-200">
+                          <th className="px-3 py-2 text-left font-semibold text-gray-600 w-40 sticky left-0 bg-gray-100 z-10">
+                            Mitarbeiter
+                          </th>
+                          {matrixData.years.map(year => {
+                            const monthsInYear = matrixData.months.filter(m => m.year === year);
+                            return (
+                              <th
+                                key={year}
+                                colSpan={monthsInYear.length}
+                                className="px-2 py-2 text-center font-bold text-gray-700 border-l border-gray-300"
+                              >
+                                Jahr {year - matrixData.years[0] + 1} ({year})
+                              </th>
+                            );
+                          })}
+                        </tr>
+                        {/* Monats-Header */}
+                        <tr className="bg-gray-50 border-b border-gray-200">
+                          <th className="px-3 py-2 sticky left-0 bg-gray-50 z-10"></th>
+                          {matrixData.months.map(({ year, month, label }) => {
+                            const now = new Date();
+                            const isCurrent = year === now.getFullYear() && month === now.getMonth() + 1;
+                            return (
+                              <th
+                                key={`${year}-${month}`}
+                                className={`px-1 py-2 text-center font-medium w-10 border-l border-gray-200 ${
+                                  isCurrent ? 'text-green-700 bg-green-50' : 'text-gray-500'
+                                }`}
+                              >
+                                {label}
+                              </th>
+                            );
+                          })}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {matrixData.employees.map((emp, empIdx) => (
+                          <tr
+                            key={emp.id}
+                            className={empIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}
+                          >
+                            {/* MA-Name sticky links */}
+                            <td className={`px-3 py-2 font-medium text-gray-800 sticky left-0 z-10 ${
+                              empIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'
+                            }`}>
+                              {emp.display_name}
+                            </td>
+                            {/* Monatszellen */}
+                            {matrixData.months.map(({ year, month }) => {
+                              const cell = matrixData.cells.find(
+                                c => c.employeeId === emp.id && c.year === year && c.month === month
+                              );
+                              const status = cell?.status || 'future';
+                              const hours = cell?.hoursRecorded || 0;
+
+                              // Farben pro Status
+                              const colorMap: Record<string, string> = {
+                                complete: 'bg-green-500 hover:bg-green-600 cursor-pointer',
+                                partial:  'bg-orange-400 hover:bg-orange-500 cursor-pointer',
+                                missing:  'bg-red-400 hover:bg-red-500 cursor-pointer',
+                                future:   'bg-gray-200 cursor-default',
+                                outside:  'bg-gray-100 cursor-default',
+                              };
+                              const colorClass = colorMap[status] || 'bg-gray-100';
+                              const isClickable = status !== 'future' && status !== 'outside';
+
+                              // Tooltip-Text
+                              const monthName = ['Januar','Februar','Maerz','April','Mai','Juni',
+                                'Juli','August','September','Oktober','November','Dezember'][month - 1];
+                              const tooltip = status === 'future'
+                                ? `${monthName} ${year}: Noch nicht erfasst`
+                                : status === 'complete'
+                                  ? `${monthName} ${year}: ${hours.toFixed(1)}h - Vollstaendig`
+                                  : status === 'partial'
+                                    ? `${monthName} ${year}: ${hours.toFixed(1)}h - In Bearbeitung`
+                                    : `${monthName} ${year}: Keine Erfassung`;
+
+                              return (
+                                <td
+                                  key={`${year}-${month}`}
+                                  className="px-1 py-2 text-center border-l border-gray-100"
+                                  title={tooltip}
+                                >
+                                  <div
+                                    className={`w-8 h-7 mx-auto rounded flex items-center justify-center text-white font-bold transition-colors ${colorClass}`}
+                                    onClick={() => {
+                                      if (!isClickable) return;
+                                      // Finde employee_id fuer URL-Parameter
+                                      const returnUrl = encodeURIComponent('/v7/firma/berichte');
+                                      router.push(
+                                        `/v7/firma/zeiterfassung?employee=${emp.id}&year=${year}&month=${month}&returnUrl=${returnUrl}`
+                                      );
+                                    }}
+                                  >
+                                    {status === 'complete' && <CheckCircle size={14} />}
+                                    {status === 'partial' && <AlertTriangle size={14} />}
+                                    {status === 'missing' && <XCircle size={14} />}
+                                    {status === 'future' && (
+                                      <span className="text-gray-400 text-xs">-</span>
+                                    )}
+                                  </div>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Hinweis-Zeile */}
+                <div className="bg-gray-50 px-4 py-2 border-t border-gray-200 text-xs text-gray-500">
+                  Klick auf eine Zelle oeffnet die Zeiterfassung des Mitarbeiters fuer den jeweiligen Monat.
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </main>
       
       <footer className="text-center py-4 text-sm text-gray-500 mt-8">
-        Projektzeiterfassung v7.4.3 - Firmen-Portal - 2026
+        Projektzeiterfassung v7.4.3-12 - Firmen-Portal - 2026
       </footer>
     </div>
   );
