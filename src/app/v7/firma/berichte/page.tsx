@@ -960,7 +960,6 @@ export default function BerichtePage() {
       setExportLoading(false);
     }
   };
-  };
 
   // RENDER
   // ============================================================================
@@ -1316,12 +1315,7 @@ export default function BerichtePage() {
                         <label className="block text-xs font-medium text-gray-600 mb-1">Projekt</label>
                         <select
                           value={pkProjectId}
-                          onChange={e => {
-                            const pid = e.target.value;
-                            setPKProjectId(pid);
-                            const p = projects.find(x => x.id === pid);
-                            if (p?.start_date) setPKVon(p.start_date.slice(0, 10));
-                          }}
+                          onChange={e => handlePkProjectChange(e.target.value)}
                           className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-green-500"
                         >
                           {projects.map(p => (
