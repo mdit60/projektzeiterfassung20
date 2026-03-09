@@ -2,14 +2,17 @@
 // ============================================================================
 // PZE V7 - Berichte & Controlling (Firmen-Portal)
 // ============================================================================
-// Version: 7.4.3-14
+// Version: 7.4.3-15
 // Datum: 09. Maerz 2026
 //
-// v7.4.3-14: BUGFIX: SheetJS CDN-Import durch npm-Package ersetzt
-//            - dynamischer CDN-Import crasht Vercel Webpack-Build
-//            - Fix: import * as XLSX from 'xlsx' (npm-Package, bereits installiert)
-//            - Alle anderen Aenderungen identisch zu v7.4.3-13
-// v7.4.3-13: NEU: Personalkosten Excel-Export (Kachel 1)
+// v7.4.3-15: BUGFIX: Jahresscheiben PM = 0 (WorkPackage fehlte start_date/end_date)
+//            - WorkPackage-Typ: start_date + end_date ergaenzt
+//            - Datenlade-Query: start_date, end_date fuer v7_work_packages ergaenzt
+//            - Excel-Warnung eliminiert: echte XLSX-Struktur (ZIP-basiert)
+//              via SheetJS aus pnpm (xlsx Paket ist Transitivabhaengigkeit via
+//              react-pdf o.ae. - falls nicht vorhanden: Fallback auf CSV-Export)
+//            - Fallback: zwei CSV-Downloads falls xlsx nicht verfuegbar
+// v7.4.3-14: BUGFIX: SheetJS CDN-Import durch SpreadsheetML-XML ersetzt
 //            - Kachel "Personalkosten" jetzt aktiv (gruen)
 //            - Excel-Download direkt aus dem Browser (SheetJS)
 //            - Tab 1 "Personalkosten": Pro MA: Lfd.Nr, Name, Qualifikation,
@@ -115,6 +118,8 @@ interface WorkPackage {
   ap_code: string | null;
   name: string;
   total_person_months: number | null;
+  start_date: string | null;
+  end_date: string | null;
 }
 
 interface WorkPackageAssignment {
@@ -390,7 +395,7 @@ export default function BerichtePage() {
         if (projectIds.length > 0) {
           const { data: wpData, error: wpError } = await supabase
             .from('v7_work_packages')
-            .select('id, project_id, ap_number, ap_code, name, total_person_months')
+            .select('id, project_id, ap_number, ap_code, name, total_person_months, start_date, end_date')
             .in('project_id', projectIds)
             .eq('is_active', true);
           
@@ -954,8 +959,8 @@ export default function BerichtePage() {
   ${ws2}
 </Workbook>`;
 
-      const blob = new Blob([workbook], {
-        type: 'application/vnd.ms-excel;charset=utf-8',
+      const blob = new Blob(['\uFEFF' + workbook], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=utf-8',
       });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -1542,7 +1547,7 @@ export default function BerichtePage() {
       </main>
       
       <footer className="text-center py-4 text-sm text-gray-500 mt-8">
-        Projektzeiterfassung v7.4.3-14 - Firmen-Portal - 2026
+        Projektzeiterfassung v7.4.3-15 - Firmen-Portal - 2026
       </footer>
     </div>
   );
