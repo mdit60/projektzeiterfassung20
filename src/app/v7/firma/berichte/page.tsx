@@ -2,17 +2,18 @@
 // ============================================================================
 // PZE V7 - Berichte & Controlling (Firmen-Portal)
 // ============================================================================
-// Version: 7.4.3-17
+// Version: 7.4.3-18
 // Datum: 09. Maerz 2026
 //
+// v7.4.3-18: Zeitraum-Filter fuer Personalkosten-Export
+//            - Kachel klappt Inline-Panel auf (wie Stundennachweis-Matrix)
+//            - Von/Bis-Datumsfelder (vorbelegt: Projektstart / heute)
+//            - Projekt-Dropdown falls mehrere Projekte vorhanden
+//            - Export-Button loest XLSX-Download aus
+//            - Timesheets werden nach work_date gefiltert (>= von, <= bis)
+//            - Neue State-Variablen: showPKPanel, pkProjectId,
+//              pkVon (string YYYY-MM-DD), pkBis (string YYYY-MM-DD)
 // v7.4.3-17: Echter XLSX Multi-Sheet Export (xlsx npm-Paket v0.18.5)
-//            - xlsx ist in package.json vorhanden (^0.18.5)
-//            - import * as XLSX from 'xlsx' (statisch, Vercel-kompatibel)
-//            - Sheet 1 "Personalkosten": Personalkosten-Uebersicht
-//            - Sheet 2 "Jahresscheiben (Anlage 5)": Anlage-5-Tabelle
-//            - Kein Excel-Warning, kein CSV, echte .xlsx-Datei
-//            - Spaltenbreiten via ws['!cols'] gesetzt
-// v7.4.3-16: CSV-Export (eine Datei) - kein Excel-Warning
 //            - Kachel "Personalkosten" jetzt aktiv (gruen)
 //            - Excel-Download direkt aus dem Browser (SheetJS)
 //            - Tab 1 "Personalkosten": Pro MA: Lfd.Nr, Name, Qualifikation,
@@ -287,6 +288,12 @@ export default function BerichtePage() {
   const [timesheets, setTimesheets] = useState<TimesheetEntry[]>([]);
   const [projectAssignments, setProjectAssignments] = useState<ProjectAssignment[]>([]);
   const [exportLoading, setExportLoading] = useState(false);
+
+  // Personalkosten-Panel
+  const [showPKPanel, setShowPKPanel] = useState(false);
+  const [pkProjectId, setPKProjectId] = useState<string>('');
+  const [pkVon, setPKVon] = useState<string>('');
+  const [pkBis, setPKBis] = useState<string>('');
   
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -365,6 +372,16 @@ export default function BerichtePage() {
         }
         console.log('Projekte geladen:', projectsData?.length || 0);
         setProjects(projectsData || []);
+
+        // PK-Panel Standardwerte: erstes Projekt, Von=Projektstart, Bis=heute
+        if (projectsData && projectsData.length > 0) {
+          const firstProject = projectsData[0];
+          setPKProjectId(firstProject.id);
+          setPKVon(firstProject.start_date
+            ? firstProject.start_date.slice(0, 10)
+            : new Date().toISOString().slice(0, 10));
+          setPKBis(new Date().toISOString().slice(0, 10));
+        }
         
         // Mitarbeiter - KORREKTER FELDNAME: client_company_id
         const { data: employeesData, error: employeesError } = await supabase
@@ -714,16 +731,29 @@ export default function BerichtePage() {
     return { project, months, years, employees: matrixEmployees, cells };
   }, [matrixProjectId, projects, workPackages, wpAssignments, employees, timesheets, company]);
 
+  // Wenn Projekt im Panel wechselt: Von auf Projektstart zuruecksetzen
+  const handlePkProjectChange = (newId: string) => {
+    setPKProjectId(newId);
+    const p = projects.find(pr => pr.id === newId);
+    if (p) {
+      setPKVon(p.start_date ? p.start_date.slice(0, 10) : '');
+      setPKBis(p.end_date ? p.end_date.slice(0, 10) : new Date().toISOString().slice(0, 10));
+    }
+  };
+
   // ============================================================================
   // PERSONALKOSTEN EXCEL-EXPORT
   // ============================================================================
 
-  // Hilfsfunktion: CSV-Zelle escapen (Semikolon als Trenner, Komma als Dezimal)
-  const handlePersonalkostenExport = (exportProjectId?: string) => {
-    const projectId = exportProjectId || (projects.length > 0 ? projects[0].id : null);
+  const handlePersonalkostenExport = (exportProjectId?: string, vonStr?: string, bisStr?: string) => {
+    const projectId = exportProjectId || pkProjectId || (projects.length > 0 ? projects[0].id : null);
     if (!projectId) return;
     const project = projects.find(p => p.id === projectId);
     if (!project) return;
+
+    const vonDate = vonStr || pkVon || project.start_date || '';
+    const bisDate = bisStr || pkBis || project.end_date || '';
+    if (!vonDate || !bisDate) { alert('Bitte Von- und Bis-Datum angeben.'); return; }
 
     setExportLoading(true);
     try {
@@ -775,6 +805,13 @@ export default function BerichtePage() {
       };
 
       const today = new Date().toLocaleDateString('de-DE');
+      const vonLabel = new Date(vonDate).toLocaleDateString('de-DE');
+      const bisLabel = new Date(bisDate).toLocaleDateString('de-DE');
+
+      // Timesheets auf Abrechnungszeitraum einschraenken
+      const timesheetsInRange = timesheets.filter(t =>
+        t.work_date >= vonDate && t.work_date <= bisDate
+      );
 
       // ----------------------------------------------------------------
       // Sheet 1: Personalkosten Uebersicht
@@ -782,14 +819,15 @@ export default function BerichtePage() {
       const ws1Data: any[][] = [];
       ws1Data.push([`Personalkosten - ${project.name}`]);
       ws1Data.push([`Foerderkennzeichen: ${project.funding_reference || '-'}`]);
-      ws1Data.push([`Laufzeit: ${pStart ? pStart.toLocaleDateString('de-DE') : '-'} bis ${pEnd ? pEnd.toLocaleDateString('de-DE') : '-'}`]);
+      ws1Data.push([`Abrechnungszeitraum: ${vonLabel} bis ${bisLabel}`]);
+      ws1Data.push([`Laufzeit gesamt: ${pStart ? pStart.toLocaleDateString('de-DE') : '-'} bis ${pEnd ? pEnd.toLocaleDateString('de-DE') : '-'}`]);
       ws1Data.push([`Erstellt am: ${today}`]);
       ws1Data.push([]);
       ws1Data.push([
         'Lfd.Nr.', 'Name', 'Qualifikation',
         'Jahresgehalt (EUR)', 'pWAZ (Std/Woche)', 'Stundensatz (EUR/h)',
         'Geplante PM', 'Erfasste Stunden', 'Erfasste PM',
-        'Personalkosten bisher (EUR)', 'Geplante Gesamtkosten (EUR)',
+        'Personalkosten im Zeitraum (EUR)', 'Geplante Gesamtkosten (EUR)',
       ]);
 
       let sumGeplantePM = 0, sumErfassteH = 0, sumErfasstePM = 0;
@@ -801,7 +839,7 @@ export default function BerichtePage() {
         const geplantePM = projectWPAs
           .filter(a => a.employee_id === pa.employee_id)
           .reduce((s, a) => s + (a.planned_person_months || 0), 0);
-        const erfassteH = timesheets
+        const erfassteH = timesheetsInRange
           .filter(t => t.project_id === projectId && t.employee_id === pa.employee_id && t.is_billable)
           .reduce((s, t) => s + (t.hours || 0), 0);
         const erfasstePM = erfassteH / HOURS_PER_PM;
@@ -835,14 +873,14 @@ export default function BerichtePage() {
         fmt(sumKostenBisher), fmt(sumKostenGesamt),
       ]);
       ws1Data.push([]);
-      ws1Data.push(['Hinweis: Personalkosten bisher = Erfasste Stunden (foerderbar) x Stundensatz']);
-      ws1Data.push(['Geplante Gesamtkosten = Geplante PM x 173,33 h/PM x Stundensatz']);
+      ws1Data.push(['Hinweis: Personalkosten im Zeitraum = Erfasste Stunden (foerderbar) x Stundensatz']);
+      ws1Data.push(['Geplante Gesamtkosten = Geplante PM (gesamt) x 173,33 h/PM x Stundensatz']);
 
       const ws1 = XLSX.utils.aoa_to_sheet(ws1Data);
       ws1['!cols'] = [
         { wch: 8 }, { wch: 25 }, { wch: 18 }, { wch: 18 },
         { wch: 16 }, { wch: 18 }, { wch: 12 }, { wch: 16 },
-        { wch: 12 }, { wch: 26 }, { wch: 26 },
+        { wch: 12 }, { wch: 28 }, { wch: 26 },
       ];
 
       // ----------------------------------------------------------------
@@ -852,6 +890,7 @@ export default function BerichtePage() {
       const ws2Data: any[][] = [];
       ws2Data.push([`Jahresscheiben (Anlage 5) - ${project.name}`]);
       ws2Data.push([`Foerderkennzeichen: ${project.funding_reference || '-'}`]);
+      ws2Data.push([`Abrechnungszeitraum: ${vonLabel} bis ${bisLabel}`]);
       ws2Data.push([`Erstellt am: ${today}`]);
       ws2Data.push([]);
       ws2Data.push([
@@ -903,15 +942,16 @@ export default function BerichtePage() {
       ];
 
       // ----------------------------------------------------------------
-      // Workbook zusammenbauen und herunterladen
+      // Workbook herunterladen
       // ----------------------------------------------------------------
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws1, 'Personalkosten');
       XLSX.utils.book_append_sheet(wb, ws2, 'Jahresscheiben (Anlage 5)');
 
-      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const vonDateStr = vonDate.replace(/-/g, '');
+      const bisDateStr = bisDate.replace(/-/g, '');
       const safeName = (project.short_name || project.name).replace(/[^a-zA-Z0-9_\-]/g, '_');
-      XLSX.writeFile(wb, `Personalkosten_${safeName}_${dateStr}.xlsx`);
+      XLSX.writeFile(wb, `Personalkosten_${safeName}_${vonDateStr}-${bisDateStr}.xlsx`);
 
     } catch (err: any) {
       console.error('Export-Fehler:', err);
@@ -919,6 +959,7 @@ export default function BerichtePage() {
     } finally {
       setExportLoading(false);
     }
+  };
   };
 
   // RENDER
@@ -1244,29 +1285,88 @@ export default function BerichtePage() {
           <div className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
 
-              {/* Kachel 1: Personalkosten - AKTIV */}
-              <button
-                onClick={() => handlePersonalkostenExport()}
-                disabled={exportLoading || projects.length === 0}
-                className={`flex flex-col items-center p-6 border-2 rounded-lg transition-colors ${
-                  projects.length === 0
-                    ? 'border-dashed border-gray-300 text-gray-400 cursor-not-allowed'
-                    : 'border-green-400 text-green-700 bg-green-50 hover:bg-green-100 cursor-pointer'
-                }`}
-              >
-                <FileSpreadsheet className="w-10 h-10 mb-3" />
-                <span className="font-medium">Personalkosten</span>
-                <span className="text-xs mt-1">Excel-Export</span>
-                <span className={`text-xs mt-2 px-2 py-0.5 rounded flex items-center gap-1 ${
-                  exportLoading
-                    ? 'bg-yellow-100 text-yellow-700'
-                    : projects.length === 0
-                      ? 'bg-gray-100 text-gray-500'
-                      : 'bg-green-200 text-green-800'
-                }`}>
-                  {exportLoading ? 'Wird erstellt...' : 'Download'}
-                </span>
-              </button>
+              {/* Kachel 1: Personalkosten - AKTIV mit aufklappbarem Panel */}
+              <div className="flex flex-col">
+                <button
+                  onClick={() => setShowPKPanel(prev => !prev)}
+                  disabled={projects.length === 0}
+                  className={`flex flex-col items-center p-6 border-2 rounded-lg transition-colors ${
+                    projects.length === 0
+                      ? 'border-dashed border-gray-300 text-gray-400 cursor-not-allowed'
+                      : showPKPanel
+                        ? 'border-green-600 text-green-800 bg-green-100 cursor-pointer'
+                        : 'border-green-400 text-green-700 bg-green-50 hover:bg-green-100 cursor-pointer'
+                  }`}
+                >
+                  <FileSpreadsheet className="w-10 h-10 mb-3" />
+                  <span className="font-medium">Personalkosten</span>
+                  <span className="text-xs mt-1">Excel-Export</span>
+                  <span className="text-xs mt-2 bg-green-200 text-green-800 px-2 py-0.5 rounded flex items-center gap-1">
+                    {showPKPanel ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                    {showPKPanel ? 'Schliessen' : 'Zeitraum waehlen'}
+                  </span>
+                </button>
+
+                {/* Aufklappbares Panel */}
+                {showPKPanel && (
+                  <div className="mt-2 p-4 bg-white border border-green-300 rounded-lg shadow-sm">
+                    {/* Projekt-Auswahl (nur wenn mehrere Projekte) */}
+                    {projects.length > 1 && (
+                      <div className="mb-3">
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Projekt</label>
+                        <select
+                          value={pkProjectId}
+                          onChange={e => {
+                            const pid = e.target.value;
+                            setPKProjectId(pid);
+                            const p = projects.find(x => x.id === pid);
+                            if (p?.start_date) setPKVon(p.start_date.slice(0, 10));
+                          }}
+                          className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-green-500"
+                        >
+                          {projects.map(p => (
+                            <option key={p.id} value={p.id}>
+                              {p.short_name || p.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    {/* Von / Bis */}
+                    <div className="grid grid-cols-2 gap-3 mb-4">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Von</label>
+                        <input
+                          type="date"
+                          value={pkVon}
+                          onChange={e => setPKVon(e.target.value)}
+                          className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-green-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Bis</label>
+                        <input
+                          type="date"
+                          value={pkBis}
+                          onChange={e => setPKBis(e.target.value)}
+                          className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-green-500"
+                        />
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        handlePersonalkostenExport(pkProjectId, pkVon, pkBis);
+                        setShowPKPanel(false);
+                      }}
+                      disabled={exportLoading || !pkVon || !pkBis}
+                      className="w-full py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white text-sm font-medium rounded transition-colors flex items-center justify-center gap-2"
+                    >
+                      <FileSpreadsheet className="w-4 h-4" />
+                      {exportLoading ? 'Wird erstellt...' : 'Excel herunterladen'}
+                    </button>
+                  </div>
+                )}
+              </div>
 
               {/* Kachel 2: Stundennachweis - AKTIV */}
               <button
@@ -1486,7 +1586,7 @@ export default function BerichtePage() {
       </main>
       
       <footer className="text-center py-4 text-sm text-gray-500 mt-8">
-        Projektzeiterfassung v7.4.3-17 - Firmen-Portal - 2026
+        Projektzeiterfassung v7.4.3-18 - Firmen-Portal - 2026
       </footer>
     </div>
   );
