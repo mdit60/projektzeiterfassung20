@@ -2,14 +2,12 @@
 // ============================================================================
 // PZE V7 - Zeiterfassung (Berater-Portal - Firmenansicht)
 // ============================================================================
-// Version: 7.4.0-2
+// Version: 7.4.0-1
 // Datum: 23. Februar 2026
 //
-// v7.4.0-2: FIX handleBack Default -> Dashboard (statt Firmendaten-Tab)
-//           FIX companyName=PZE -> company.name (Header zeigt jetzt Firmenname)
 // v7.4.0-1: returnUrl-Parameter: Zurueck-Button kehrt zur Ausgangsseite zurueck
 //           Liest ?employee=, ?year=, ?month=, ?returnUrl= aus URL
-//           Default-Zurueck: Dashboard
+//           Default-Zurueck: Firmen-Detail-Seite (Tab Zeiterfassung)
 // v7.3.88-6: Erste Version - Berater sieht ZE der ausgewaehlten Kundenfirma
 //
 // Route: /v7/berater/foerderung/firma/[id]/zeiterfassung
@@ -204,8 +202,8 @@ function BeraterZeiterfassungContent() {
       // Vom Timesheet-Viewer (oder anderer Seite) gekommen -> dorthin zurueck
       router.push(urlReturnUrl);
     } else {
-      // Standard: Dashboard
-      router.push('/v7/berater/dashboard');
+      // Standard: Firmen-Detail-Seite, Tab Zeiterfassung
+      router.push(`/v7/berater/foerderung/firma/${companyId}?tab=zeiterfassung`);
     }
   };
 
@@ -262,7 +260,7 @@ function BeraterZeiterfassungContent() {
         userRole={userProfile.role}
         userName={userProfile.display_name || userProfile.email}
         userEmail={userProfile.email}
-        companyName={company.name}
+        companyName="PZE"
         currentPath={`/v7/berater/foerderung/firma/${companyId}/zeiterfassung`}
       />
       <PortalNav
