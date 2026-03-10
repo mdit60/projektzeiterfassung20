@@ -1173,7 +1173,7 @@ export default function BerichtePage() {
       const totalT = monthData.reduce((s, m) => s + m.hoursT, 0);
       const totalNT = monthData.reduce((s, m) => s + m.hoursNT, 0);
       return { empId, empName, monthData, totalT, totalNT, totalAll: totalT + totalNT };
-    });
+    }).filter(row => row.totalAll > 0); // Nur MA mit Stunden im Zeitraum anzeigen
   };
 
   // Hilfsfunktion: Stundensatz fuer MA aus project_assignments
@@ -1739,20 +1739,52 @@ export default function BerichtePage() {
                     )}
                   </div>
 
-                  {/* Tab-Navigation */}
-                  <div className="flex border-b border-gray-200 bg-white">
-                    {(['deckblatt', 'anlage1a', 'anlage1b'] as const).map(tab => (
-                      <button
-                        key={tab}
-                        onClick={() => setZATab(tab)}
-                        className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors
-                          ${zaTab === tab
-                            ? 'border-green-600 text-green-700'
-                            : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-                      >
-                        {tab === 'deckblatt' ? 'Deckblatt (Seite 5)' : tab === 'anlage1a' ? 'Anlage 1a - Personenstunden' : 'Anlage 1b - Personalkosten'}
-                      </button>
-                    ))}
+                  {/* Tab-Navigation + Drucken-Button */}
+                  <div className="flex items-center border-b border-gray-200 bg-white">
+                    <div className="flex flex-1">
+                      {(['deckblatt', 'anlage1a', 'anlage1b'] as const).map(tab => (
+                        <button
+                          key={tab}
+                          onClick={() => setZATab(tab)}
+                          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors
+                            ${zaTab === tab
+                              ? 'border-green-600 text-green-700'
+                              : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                        >
+                          {tab === 'deckblatt' ? 'Deckblatt (Seite 5)' : tab === 'anlage1a' ? 'Anlage 1a - Personenstunden' : 'Anlage 1b - Personalkosten'}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      onClick={() => {
+                        const el = document.getElementById('za-print-area');
+                        if (!el) return;
+                        const printWin = window.open('', '_blank', 'width=900,height=700');
+                        if (!printWin) return;
+                        const styles = Array.from(document.styleSheets)
+                          .map(ss => { try { return Array.from(ss.cssRules).map(r => r.cssText).join('\n'); } catch { return ''; } })
+                          .join('\n');
+                        const tabLabel = zaTab === 'deckblatt' ? 'Deckblatt' : zaTab === 'anlage1a' ? 'Anlage 1a' : 'Anlage 1b';
+                        printWin.document.write(
+                          '<html><head><title>ZA ' + zaFormData.za_nummer + ' - ' + tabLabel +
+                          '</title><style>' + styles +
+                          ' @media print { body { margin: 10mm; } } @page { size: A4 portrait; margin: 15mm; }</style></head><body>' +
+                          el.innerHTML + '</body></html>'
+                        );
+                        printWin.document.close();
+                        printWin.focus();
+                        setTimeout(() => { printWin.print(); printWin.close(); }, 400);
+                      }}
+                      className="flex items-center gap-1.5 mx-3 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded transition-colors"
+                      title="Dieses Formblatt drucken"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="6 9 6 2 18 2 18 9"/>
+                        <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+                        <rect x="6" y="14" width="12" height="8"/>
+                      </svg>
+                      Drucken
+                    </button>
                   </div>
 
                   {zaLoading ? (
@@ -1765,7 +1797,7 @@ export default function BerichtePage() {
                         <div className="space-y-4">
 
                           {/* Formular-Header wie ZIM-PDF */}
-                          <div className="border-2 border-gray-400 rounded bg-white p-4">
+                          <div id="za-print-area" className="border-2 border-gray-400 rounded bg-white p-4">
                             <div className="text-center text-xs text-gray-500 mb-3 font-medium uppercase tracking-wide">
                               Zentrales Innovationsprogramm Mittelstand (ZIM) &mdash; Zahlungsanforderung
                               {isDS ? ' fuer Durchfuehrbarkeitsstudien' : ''}
@@ -2033,7 +2065,7 @@ export default function BerichtePage() {
                               Keine Zeiterfassungsdaten im gewaehlten Zeitraum gefunden.
                             </div>
                           ) : (
-                            <div className="border-2 border-gray-400 rounded bg-white p-4">
+                            <div id="za-print-area" className="border-2 border-gray-400 rounded bg-white p-4">
                               {/* Formular-Header Anlage 1a */}
                               <div className="text-center text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">
                                 Zentrales Innovationsprogramm Mittelstand (ZIM) &mdash; Anlage 1a
@@ -2167,7 +2199,7 @@ export default function BerichtePage() {
                               Keine Zeiterfassungsdaten im gewaehlten Zeitraum gefunden.
                             </div>
                           ) : (
-                            <div className="border-2 border-gray-400 rounded bg-white p-4">
+                            <div id="za-print-area" className="border-2 border-gray-400 rounded bg-white p-4">
                               {/* Formular-Header Anlage 1b */}
                               <div className="text-center text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">
                                 Zentrales Innovationsprogramm Mittelstand (ZIM) &mdash; Anlage 1b
