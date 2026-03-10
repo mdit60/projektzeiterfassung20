@@ -1742,6 +1742,8 @@ export default function ProjectDetailPage({
                 <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
                   <div className="text-sm font-medium text-gray-700 mb-3">Foerderparameter (ZIM)</div>
                   <div className="grid grid-cols-2 gap-4">
+
+                    {/* Foerdersatz - immer sichtbar */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Foerdersatz (%)
@@ -1757,56 +1759,83 @@ export default function ProjectDetailPage({
                         placeholder="z.B. 45.00"
                       />
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        {projectEditData.overhead_gleich ? 'Gemeinkostenzuschlag (%)' : 'Gemeinkostenzuschlag T (%)'}
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={projectEditData.overhead_t}
-                        onChange={(e) => setProjectEditData(prev => ({
-                          ...prev,
-                          overhead_t: e.target.value,
-                          overhead_nt: prev.overhead_gleich ? e.target.value : prev.overhead_nt
-                        }))}
-                        className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
-                        placeholder="z.B. 28.42"
-                      />
-                    </div>
-                    {!projectEditData.overhead_gleich && (
+
+                    {/* ZIM_DS: GKZ T + NT getrennt mit Toggle */}
+                    {projectEditData.funding_format === 'ZIM_DS' ? (
+                      <>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Gemeinkostenzuschlag T (%)
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={projectEditData.overhead_t}
+                            onChange={(e) => setProjectEditData(prev => ({
+                              ...prev,
+                              overhead_t: e.target.value,
+                              overhead_nt: prev.overhead_gleich ? e.target.value : prev.overhead_nt
+                            }))}
+                            className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                            placeholder="z.B. 28.42"
+                          />
+                        </div>
+                        {!projectEditData.overhead_gleich && (
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              Gemeinkostenzuschlag NT (%)
+                            </label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={projectEditData.overhead_nt}
+                              onChange={(e) => setProjectEditData(prev => ({ ...prev, overhead_nt: e.target.value }))}
+                              className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                              placeholder="z.B. 29.88"
+                            />
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2 pt-2">
+                          <input
+                            type="checkbox"
+                            id="overhead_gleich"
+                            checked={projectEditData.overhead_gleich}
+                            onChange={(e) => setProjectEditData(prev => ({
+                              ...prev,
+                              overhead_gleich: e.target.checked,
+                              overhead_nt: e.target.checked ? prev.overhead_t : prev.overhead_nt
+                            }))}
+                            className="w-4 h-4 rounded border-gray-300"
+                          />
+                          <label htmlFor="overhead_gleich" className="text-sm text-gray-700">
+                            T und NT gleich
+                          </label>
+                        </div>
+                      </>
+                    ) : (
+                      /* Alle anderen ZIM-Typen: nur ein GKZ */
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Gemeinkostenzuschlag NT (%)
+                          Gemeinkostenzuschlag (%)
                         </label>
                         <input
                           type="number"
                           step="0.01"
                           min="0"
-                          value={projectEditData.overhead_nt}
-                          onChange={(e) => setProjectEditData(prev => ({ ...prev, overhead_nt: e.target.value }))}
+                          value={projectEditData.overhead_t}
+                          onChange={(e) => setProjectEditData(prev => ({
+                            ...prev,
+                            overhead_t: e.target.value,
+                            overhead_nt: e.target.value
+                          }))}
                           className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
-                          placeholder="z.B. 29.88"
+                          placeholder="z.B. 28.42"
                         />
                       </div>
                     )}
-                    <div className="flex items-center gap-2 pt-6">
-                      <input
-                        type="checkbox"
-                        id="overhead_gleich"
-                        checked={projectEditData.overhead_gleich}
-                        onChange={(e) => setProjectEditData(prev => ({
-                          ...prev,
-                          overhead_gleich: e.target.checked,
-                          overhead_nt: e.target.checked ? prev.overhead_t : prev.overhead_nt
-                        }))}
-                        className="w-4 h-4 rounded border-gray-300"
-                      />
-                      <label htmlFor="overhead_gleich" className="text-sm text-gray-700">
-                        T und NT gleich
-                      </label>
-                    </div>
+
                   </div>
                 </div>
               )}
