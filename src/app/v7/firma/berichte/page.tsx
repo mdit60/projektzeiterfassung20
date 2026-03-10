@@ -153,6 +153,7 @@ interface WorkPackage {
   total_person_months: number | null;
   start_date: string | null;
   end_date: string | null;
+  is_technical: boolean | null;
 }
 
 interface WorkPackageAssignment {
@@ -180,9 +181,10 @@ interface TimesheetEntry {
   id: string;
   project_id: string;
   employee_id: string;
-  work_date: string;  // Korrekter Feldname!
+  work_package_id: string | null;
+  work_date: string;
   hours: number;
-  day_type: string | null;  // 'work', 'vacation', 'sick', etc.
+  day_type: string | null;
   is_active: boolean;
   is_billable: boolean;
 }
@@ -463,7 +465,7 @@ export default function BerichtePage() {
         if (projectIds.length > 0) {
           const { data: wpData, error: wpError } = await supabase
             .from('v7_work_packages')
-            .select('id, project_id, ap_number, ap_code, name, total_person_months, start_date, end_date')
+            .select('id, project_id, ap_number, ap_code, name, total_person_months, start_date, end_date, is_technical')
             .in('project_id', projectIds)
             .eq('is_active', true);
           
@@ -495,7 +497,7 @@ export default function BerichtePage() {
         if (projectIds.length > 0) {
           const { data: timesheetData, error: timesheetError } = await supabase
             .from('v7_timesheets')
-            .select('id, project_id, employee_id, work_date, hours, day_type, is_active, is_billable')
+            .select('id, project_id, employee_id, work_package_id, work_date, hours, day_type, is_active, is_billable')
             .in('project_id', projectIds)
             .eq('is_active', true);
           
@@ -1145,7 +1147,7 @@ export default function BerichtePage() {
 
       // Technische AP-IDs fuer diesen MA
       const technicalWPIds = isDS
-        ? projectWPs.filter(wp => (wp as any).is_technical === true).map(wp => wp.id)
+        ? projectWPs.filter(wp => wp.is_technical === true).map(wp => wp.id)
         : [];
 
       const monthData = months.map(m => {
@@ -1160,10 +1162,10 @@ export default function BerichtePage() {
           })()
         );
         const hoursT = isDS
-          ? monthEntries.filter(ts => technicalWPIds.includes((ts as any).work_package_id || '')).reduce((s, ts) => s + ts.hours, 0)
+          ? monthEntries.filter(ts => technicalWPIds.includes(ts.work_package_id || '')).reduce((s, ts) => s + ts.hours, 0)
           : monthEntries.reduce((s, ts) => s + ts.hours, 0);
         const hoursNT = isDS
-          ? monthEntries.filter(ts => !technicalWPIds.includes((ts as any).work_package_id || '')).reduce((s, ts) => s + ts.hours, 0)
+          ? monthEntries.filter(ts => !technicalWPIds.includes(ts.work_package_id || '')).reduce((s, ts) => s + ts.hours, 0)
           : 0;
         return { ...m, hoursT, hoursNT, hoursTotal: hoursT + hoursNT };
       });
