@@ -1,29 +1,36 @@
-// src/app/v7/berater/foerderung/firma/[id]/berichte/page.tsx
+// src/app/v7/firma/berichte/page.tsx
 // ============================================================================
-// PZE V7 - Berichte & Controlling (Berater-Portal - Firmenansicht)
+// PZE V7 - Berichte & Controlling (Firmen-Portal)
 // ============================================================================
-// Version: 7.4.4-2
-// Datum: 10. Maerz 2026
+// Version: 7.4.3-18
+// Datum: 09. Maerz 2026
 //
-// v7.4.4-2: Personalkosten Excel-Export + ZA-Modul portiert aus Firmen-Portal
-// v7.4.3-12: NEU: Stundennachweis-Matrix unter Reports-Kachel
-//            - Kachel "Stundennachweis" oeffnet aufklappbare Matrix
-//            - Projekt-Auswahl Dropdown (Firma bereits aus URL-Parameter)
-//            - Zeilen: Projekt-MA (aus WP-Zuordnungen)
-//            - Spalten: alle Projektmonate gruppiert nach Jahr
-//            - Ampelfarben: gruen/orange/rot/grau (Zukunft)
-//            - Tooltip mit Stunden und Status bei Hover
-//            - Klick -> navigiert zu Berater-Zeiterfassung des MA/Monats
-//            - returnUrl zurueck zur Berichte-Seite
-// v7.4.3-8: KRITISCH: is_active Filter fuer Timesheets
-//           PM-Berechnung: nur is_billable=true Stunden zaehlen
-//           Zeiterfassungs-Status: komplett umgebaut
+// v7.4.3-18: Zeitraum-Filter fuer Personalkosten-Export
+//            - Kachel klappt Inline-Panel auf (wie Stundennachweis-Matrix)
+//            - Von/Bis-Datumsfelder (vorbelegt: Projektstart / heute)
+//            - Projekt-Dropdown falls mehrere Projekte vorhanden
+//            - Export-Button loest XLSX-Download aus
+//            - Timesheets werden nach work_date gefiltert (>= von, <= bis)
+//            - Neue State-Variablen: showPKPanel, pkProjectId,
+//              pkVon (string YYYY-MM-DD), pkBis (string YYYY-MM-DD)
+// v7.4.3-17: Echter XLSX Multi-Sheet Export (xlsx npm-Paket v0.18.5)
+//            - Kachel "Personalkosten" jetzt aktiv (gruen)
+//            - Excel-Download direkt aus dem Browser (SheetJS)
+//            - Tab 1 "Personalkosten": Pro MA: Lfd.Nr, Name, Qualifikation,
+//              Jahresgehalt, pWAZ, Stundensatz, Geplante PM, Erfasste h,
+//              Erfasste PM, Personalkosten bisher, Geplante Gesamtkosten
+//            - Tab 2 "Jahresscheiben": Anlage-5-Tabelle: MA x Projektjahre
+//              mit PM pro Jahr und Personalkosten gesamt
+//            - Dateiname: Personalkosten_[ProjektName]_[Datum].xlsx
+//            - Neuer State: projectAssignments (hourly_rate, employee_number,
+//              annual_salary, qualification aus v7_project_assignments + JOIN)
+// v7.4.3-12: Stundennachweis-Matrix aktiviert
 // ============================================================================
 
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import * as XLSX from 'xlsx';
 import PortalHeader from '@/components/shared/PortalHeader';
@@ -70,7 +77,7 @@ interface UserProfile {
 interface MatrixMonth {
   year: number;
   month: number;
-  label: string;
+  label: string; // "Jan", "Feb", ...
 }
 
 interface MatrixCell {
@@ -79,6 +86,7 @@ interface MatrixCell {
   month: number;
   hoursRecorded: number;
   status: 'complete' | 'partial' | 'missing' | 'future' | 'outside';
+  // outside = Monat liegt ausserhalb der Projekt-Laufzeit fuer diesen MA
 }
 
 interface Company {
@@ -102,6 +110,33 @@ interface Project {
   overhead_gleich: boolean | null;
 }
 
+// ZA-Eintrag aus der Datenbank
+interface ZahlungsanforderungDB {
+  id: string;
+  project_id: string;
+  za_nummer: number;
+  zeitraum_von: string;
+  zeitraum_bis: string;
+  auftraege_dritte_t: number | null;
+  auftraege_dritte_nt: number | null;
+  fue_unterauftrag: number | null;
+  zeitw_personalaufnahme: number | null;
+  status: string;
+  notizen: string | null;
+}
+
+// ZA-Formular-Zustand (Strings fuer Eingabefelder)
+interface ZAFormData {
+  za_nummer: string;
+  zeitraum_von: string;
+  zeitraum_bis: string;
+  auftraege_dritte_t: string;
+  auftraege_dritte_nt: string;
+  fue_unterauftrag: string;
+  zeitw_personalaufnahme: string;
+  notizen: string;
+}
+
 interface Employee {
   id: string;
   display_name: string;
@@ -116,6 +151,8 @@ interface WorkPackage {
   ap_code: string | null;
   name: string;
   total_person_months: number | null;
+  start_date: string | null;
+  end_date: string | null;
   is_technical: boolean | null;
 }
 
@@ -124,6 +161,20 @@ interface WorkPackageAssignment {
   work_package_id: string;
   employee_id: string;
   planned_person_months: number;
+}
+
+// Projekt-Zuordnung mit Gehalts- und Stundensatz-Daten (fuer Personalkosten-Export)
+interface ProjectAssignment {
+  id: string;
+  project_id: string;
+  employee_id: string;
+  employee_number: number | null;
+  hourly_rate: number | null;
+  role_in_project: string | null;
+  // Joined aus v7_employees:
+  annual_salary: number | null;
+  weekly_hours: number | null;
+  qualification: string | null;
 }
 
 interface TimesheetEntry {
@@ -136,42 +187,6 @@ interface TimesheetEntry {
   day_type: string | null;
   is_active: boolean;
   is_billable: boolean;
-}
-
-interface ZahlungsanforderungDB {
-  id: string;
-  project_id: string;
-  za_nummer: number;
-  zeitraum_von: string;
-  zeitraum_bis: string;
-  auftraege_dritte_t: number;
-  auftraege_dritte_nt: number;
-  fue_unterauftrag: number;
-  zeitw_personalaufnahme: number;
-  status: string;
-  notizen: string | null;
-}
-
-interface ZAFormData {
-  za_nummer: string;
-  zeitraum_von: string;
-  zeitraum_bis: string;
-  auftraege_dritte_t: string;
-  auftraege_dritte_nt: string;
-  fue_unterauftrag: string;
-  zeitw_personalaufnahme: string;
-  notizen: string;
-}
-
-interface ProjectAssignment {
-  id: string;
-  project_id: string;
-  employee_id: string;
-  employee_number: number | null;
-  hourly_rate: number | null;
-  annual_salary: number | null;
-  weekly_hours: number | null;
-  qualification: string | null;
 }
 
 interface ProjectStats {
@@ -292,42 +307,46 @@ const getMonthName = (month: number): string => {
 
 export default function BerichtePage() {
   const router = useRouter();
-  const params = useParams();
-  const companyId = params?.id as string;
   const supabase = createClient();
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [portalRole, setPortalRole] = useState<string>('employee');
   const [company, setCompany] = useState<Company | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [workPackages, setWorkPackages] = useState<WorkPackage[]>([]);
   const [wpAssignments, setWpAssignments] = useState<WorkPackageAssignment[]>([]);
   const [timesheets, setTimesheets] = useState<TimesheetEntry[]>([]);
-  
-  // Personalkosten-Export States
+  const [projectAssignments, setProjectAssignments] = useState<ProjectAssignment[]>([]);
+  const [exportLoading, setExportLoading] = useState(false);
+
+  // Personalkosten-Panel
   const [showPKPanel, setShowPKPanel] = useState(false);
   const [pkProjectId, setPKProjectId] = useState<string>('');
-  const [pkVon, setPKVon] = useState('');
-  const [pkBis, setPKBis] = useState('');
-  const [exportLoading, setExportLoading] = useState(false);
-  const [projectAssignments, setProjectAssignments] = useState<ProjectAssignment[]>([]);
+  const [pkVon, setPKVon] = useState<string>('');
+  const [pkBis, setPKBis] = useState<string>('');
 
-  // ZA-Modul States
+  // ZA-Panel
   const [showZAPanel, setShowZAPanel] = useState(false);
   const [zaProjectId, setZAProjectId] = useState<string>('');
   const [zaTab, setZATab] = useState<'deckblatt' | 'anlage1a' | 'anlage1b'>('deckblatt');
   const [zaList, setZAList] = useState<ZahlungsanforderungDB[]>([]);
   const [zaFormData, setZAFormData] = useState<ZAFormData>({
-    za_nummer: '1', zeitraum_von: '', zeitraum_bis: '',
-    auftraege_dritte_t: '0', auftraege_dritte_nt: '0',
-    fue_unterauftrag: '0', zeitw_personalaufnahme: '0', notizen: ''
+    za_nummer: '1',
+    zeitraum_von: '',
+    zeitraum_bis: '',
+    auftraege_dritte_t: '',
+    auftraege_dritte_nt: '',
+    fue_unterauftrag: '',
+    zeitw_personalaufnahme: '',
+    notizen: '',
   });
   const [zaSelectedId, setZASelectedId] = useState<string | null>(null);
   const [zaSaving, setZASaving] = useState(false);
   const [zaLoading, setZALoading] = useState(false);
-
+  
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [showMatrix, setShowMatrix] = useState(false);
@@ -353,21 +372,33 @@ export default function BerichtePage() {
           return;
         }
         
-        // User-Profil (Berater)
+        // User-Profil
         const { data: profile, error: profileError } = await supabase
           .from('v7_user_profiles')
-          .select('id, email, display_name, role')
+          .select('id, email, display_name, role, client_company_id')
           .eq('email', user.email)
           .maybeSingle();
         
-        if (profileError || !profile) {
+        if (profileError) {
+          console.error('Profil-Fehler:', profileError);
+          setError('Fehler beim Laden des Benutzerprofils');
+          return;
+        }
+        
+        if (!profile) {
           setError('Kein Benutzerprofil gefunden');
           return;
         }
         
-        setUserProfile(profile);
+        if (!profile.client_company_id) {
+          setError('Keine Firma zugeordnet. Bitte melden Sie sich mit einem Firmen-Account an.');
+          return;
+        }
         
-        // Company aus URL-Parameter
+        setUserProfile(profile);
+        const companyId = profile.client_company_id;
+        
+        // Company
         const { data: companyData, error: companyError } = await supabase
           .from('v7_client_companies')
           .select('id, name, federal_state')
@@ -381,7 +412,7 @@ export default function BerichtePage() {
         }
         setCompany(companyData);
         
-        // Projekte
+        // Projekte - KORREKTER FELDNAME: client_company_id
         const { data: projectsData, error: projectsError } = await supabase
           .from('v7_projects')
           .select('id, name, short_name, funding_format, funding_reference, start_date, end_date, is_active, foerdersatz, overhead_t, overhead_nt, overhead_gleich')
@@ -391,26 +422,50 @@ export default function BerichtePage() {
         if (projectsError) {
           console.error('Projekte-Fehler:', projectsError);
         }
+        console.log('Projekte geladen:', projectsData?.length || 0);
         setProjects(projectsData || []);
+
+        // PK-Panel Standardwerte: erstes Projekt, Von=Projektstart, Bis=heute
+        if (projectsData && projectsData.length > 0) {
+          const firstProject = projectsData[0];
+          setPKProjectId(firstProject.id);
+          setPKVon(firstProject.start_date
+            ? firstProject.start_date.slice(0, 10)
+            : new Date().toISOString().slice(0, 10));
+          setPKBis(new Date().toISOString().slice(0, 10));
+        }
         
-        // Mitarbeiter
+        // Mitarbeiter - KORREKTER FELDNAME: client_company_id
         const { data: employeesData, error: employeesError } = await supabase
           .from('v7_employees')
-          .select('id, display_name, first_name, last_name')
+          .select('id, display_name, first_name, last_name, user_id, portal_role')
           .eq('client_company_id', companyId)
           .eq('is_active', true);
         
         if (employeesError) {
           console.error('MA-Fehler:', employeesError);
         }
+        console.log('Mitarbeiter geladen:', employeesData?.length || 0);
         setEmployees(employeesData || []);
+        
+        // Portal-Rolle des eingeloggten Users bestimmen
+        const myEmployee = (employeesData || []).find(
+          (emp: any) => emp.user_id === user.id
+        );
+        if (profile.role === 'client_admin') {
+          setPortalRole('client_admin');
+        } else if (myEmployee?.portal_role) {
+          setPortalRole(myEmployee.portal_role);
+        } else {
+          setPortalRole('employee');
+        }
         
         // Arbeitspakete
         const projectIds = (projectsData || []).map(p => p.id);
         if (projectIds.length > 0) {
           const { data: wpData, error: wpError } = await supabase
             .from('v7_work_packages')
-            .select('id, project_id, ap_number, ap_code, name, total_person_months, is_technical')
+            .select('id, project_id, ap_number, ap_code, name, total_person_months, start_date, end_date, is_technical')
             .in('project_id', projectIds)
             .eq('is_active', true);
           
@@ -452,16 +507,42 @@ export default function BerichtePage() {
           console.log('Zeiteintraege geladen:', timesheetData?.length || 0);
           setTimesheets(timesheetData || []);
         }
-        
-        // Project-Assignments fuer Stundensaetze + Gehaltsdata (Personalkosten-Export)
-        if (projectIds.length > 0) {
-          const { data: paData } = await supabase
-            .from('v7_project_assignments')
-            .select('id, project_id, employee_id, employee_number, hourly_rate, annual_salary, weekly_hours, qualification')
-            .in('project_id', projectIds);
-          setProjectAssignments(paData || []);
-        }
 
+        // Projekt-Zuordnungen mit Gehalts-Daten (fuer Personalkosten-Export)
+        // JOIN ueber v7_employees fuer annual_salary, weekly_hours, qualification
+        if (projectIds.length > 0) {
+          const { data: paData, error: paError } = await supabase
+            .from('v7_project_assignments')
+            .select(`
+              id,
+              project_id,
+              employee_id,
+              employee_number,
+              hourly_rate,
+              role_in_project,
+              v7_employees!inner(annual_salary, weekly_hours, qualification)
+            `)
+            .in('project_id', projectIds)
+            .eq('is_active', true);
+
+          if (paError) {
+            console.error('PA-Fehler:', paError);
+          }
+
+          const paFlat: ProjectAssignment[] = (paData || []).map((pa: any) => ({
+            id: pa.id,
+            project_id: pa.project_id,
+            employee_id: pa.employee_id,
+            employee_number: pa.employee_number,
+            hourly_rate: pa.hourly_rate,
+            role_in_project: pa.role_in_project,
+            annual_salary: pa.v7_employees?.annual_salary ?? null,
+            weekly_hours: pa.v7_employees?.weekly_hours ?? null,
+            qualification: pa.v7_employees?.qualification ?? null,
+          }));
+          setProjectAssignments(paFlat);
+        }
+        
       } catch (err: any) {
         console.error('Allgemeiner Fehler:', err);
         setError(err.message);
@@ -471,7 +552,7 @@ export default function BerichtePage() {
     };
     
     loadData();
-  }, [router, supabase, companyId]);
+  }, [router, supabase]);
 
   // ============================================================================
   // BERECHNUNGEN
@@ -614,6 +695,7 @@ export default function BerichtePage() {
   // STUNDENNACHWEIS-MATRIX BERECHNUNG
   // ============================================================================
 
+  // Monatskuerzel
   const MONTH_SHORT = ['Jan','Feb','Mrz','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
 
   const matrixData = useMemo(() => {
@@ -627,6 +709,7 @@ export default function BerichtePage() {
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth() + 1;
 
+    // Alle Projektmonate berechnen
     const pStart = new Date(project.start_date);
     const pEnd = new Date(project.end_date);
     const startYear = pStart.getFullYear();
@@ -643,8 +726,10 @@ export default function BerichtePage() {
       }
     }
 
+    // Jahre fuer Gruppierung
     const years = [...new Set(months.map(m => m.year))];
 
+    // MA die im Projekt sind (ueber v7_project_assignments Logik: WP-Zuordnungen)
     const projectWPs = workPackages.filter(wp => wp.project_id === projectId);
     const projectWPIds = projectWPs.map(wp => wp.id);
     const assignedEmployeeIds = [...new Set(
@@ -652,13 +737,16 @@ export default function BerichtePage() {
         .filter(a => projectWPIds.includes(a.work_package_id))
         .map(a => a.employee_id)
     )];
-    const matrixEmployees = employees.filter(e => assignedEmployeeIds.includes(e.id));
+    const matrixEmployees = employees
+      .filter(e => assignedEmployeeIds.includes(e.id));
 
+    // Feiertage fuer relevante Jahre berechnen
     const holidaysByYear: Record<number, Map<string, string>> = {};
     years.forEach(y => {
       holidaysByYear[y] = getGermanHolidays(y, company?.federal_state || '');
     });
 
+    // Zellen berechnen
     const cells: MatrixCell[] = [];
     matrixEmployees.forEach(emp => {
       months.forEach(({ year, month }) => {
@@ -695,9 +783,18 @@ export default function BerichtePage() {
     return { project, months, years, employees: matrixEmployees, cells };
   }, [matrixProjectId, projects, workPackages, wpAssignments, employees, timesheets, company]);
 
+  // Wenn Projekt im Panel wechselt: Von auf Projektstart zuruecksetzen
+  const handlePkProjectChange = (newId: string) => {
+    setPKProjectId(newId);
+    const p = projects.find(pr => pr.id === newId);
+    if (p) {
+      setPKVon(p.start_date ? p.start_date.slice(0, 10) : '');
+      setPKBis(p.end_date ? p.end_date.slice(0, 10) : new Date().toISOString().slice(0, 10));
+    }
+  };
+
   // ============================================================================
-  // ============================================================================
-  // PERSONALKOSTEN-EXPORT
+  // PERSONALKOSTEN EXCEL-EXPORT
   // ============================================================================
 
   const handlePersonalkostenExport = (exportProjectId?: string, vonStr?: string, bisStr?: string) => {
@@ -736,11 +833,11 @@ export default function BerichtePage() {
         return nameA.localeCompare(nameB, 'de');
       });
 
-      const fmt2 = (v: number): number => Math.round(v * 100) / 100;
+      const fmt = (v: number): number => Math.round(v * 100) / 100;
 
       const getPMForYear = (empId: string, year: number): number => {
         let totalPM = 0;
-        projectWPs.forEach((wp: any) => {
+        projectWPs.forEach(wp => {
           if (!wp.start_date || !wp.end_date) return;
           const wpStart = new Date(wp.start_date);
           const wpEnd = new Date(wp.end_date);
@@ -763,11 +860,14 @@ export default function BerichtePage() {
       const vonLabel = new Date(vonDate).toLocaleDateString('de-DE');
       const bisLabel = new Date(bisDate).toLocaleDateString('de-DE');
 
+      // Timesheets auf Abrechnungszeitraum einschraenken
       const timesheetsInRange = timesheets.filter(t =>
         t.work_date >= vonDate && t.work_date <= bisDate
       );
 
+      // ----------------------------------------------------------------
       // Sheet 1: Personalkosten Uebersicht
+      // ----------------------------------------------------------------
       const ws1Data: any[][] = [];
       ws1Data.push([`Personalkosten - ${project.name}`]);
       ws1Data.push([`Foerderkennzeichen: ${project.funding_reference || '-'}`]);
@@ -804,18 +904,25 @@ export default function BerichtePage() {
         sumKostenGesamt += kostenGesamt;
 
         ws1Data.push([
-          pa.employee_number ?? (idx + 1), empName, pa.qualification || '-',
-          pa.annual_salary ?? null, pa.weekly_hours ?? null,
+          pa.employee_number ?? (idx + 1),
+          empName,
+          pa.qualification || '-',
+          pa.annual_salary ?? null,
+          pa.weekly_hours ?? null,
           stundensatz > 0 ? stundensatz : null,
-          fmt2(geplantePM), fmt2(erfassteH), fmt2(erfasstePM),
-          fmt2(kostenBisher), fmt2(kostenGesamt),
+          fmt(geplantePM),
+          fmt(erfassteH),
+          fmt(erfasstePM),
+          fmt(kostenBisher),
+          fmt(kostenGesamt),
         ]);
       });
 
       ws1Data.push([]);
-      ws1Data.push([null, 'SUMME', null, null, null, null,
-        fmt2(sumGeplantePM), fmt2(sumErfassteH), fmt2(sumErfasstePM),
-        fmt2(sumKostenBisher), fmt2(sumKostenGesamt),
+      ws1Data.push([
+        null, 'SUMME', null, null, null, null,
+        fmt(sumGeplantePM), fmt(sumErfassteH), fmt(sumErfasstePM),
+        fmt(sumKostenBisher), fmt(sumKostenGesamt),
       ]);
       ws1Data.push([]);
       ws1Data.push(['Hinweis: Personalkosten im Zeitraum = Erfasste Stunden (foerderbar) x Stundensatz']);
@@ -828,7 +935,9 @@ export default function BerichtePage() {
         { wch: 12 }, { wch: 28 }, { wch: 26 },
       ];
 
-      // Sheet 2: Jahresscheiben
+      // ----------------------------------------------------------------
+      // Sheet 2: Jahresscheiben (Anlage 5)
+      // ----------------------------------------------------------------
       const yearHeaders = projectYears.map((y, i) => `Jahr ${i + 1} (${y}) [PM]`);
       const ws2Data: any[][] = [];
       ws2Data.push([`Jahresscheiben (Anlage 5) - ${project.name}`]);
@@ -848,23 +957,30 @@ export default function BerichtePage() {
         const emp = employees.find(e => e.id === pa.employee_id);
         const empName = emp?.display_name || '-';
         const stundensatz = pa.hourly_rate || 0;
-        const yearPMs = projectYears.map(y => fmt2(getPMForYear(pa.employee_id, y)));
-        const gesamtPM = fmt2(yearPMs.reduce((s, v) => s + v, 0));
-        const gesamtKosten = fmt2(gesamtPM * HOURS_PER_PM * stundensatz);
+        const yearPMs = projectYears.map(y => fmt(getPMForYear(pa.employee_id, y)));
+        const gesamtPM = fmt(yearPMs.reduce((s, v) => s + v, 0));
+        const gesamtKosten = fmt(gesamtPM * HOURS_PER_PM * stundensatz);
+
         yearPMs.forEach((pm, i) => { sumJahresPMs[i] += pm; });
         sumGesamtPM2 += gesamtPM;
         sumGesamtKosten2 += gesamtKosten;
+
         ws2Data.push([
-          pa.employee_number ?? (idx + 1), empName, pa.qualification || '-',
+          pa.employee_number ?? (idx + 1),
+          empName,
+          pa.qualification || '-',
           stundensatz > 0 ? stundensatz : null,
-          ...yearPMs, gesamtPM, gesamtKosten,
+          ...yearPMs,
+          gesamtPM,
+          gesamtKosten,
         ]);
       });
 
       ws2Data.push([]);
-      ws2Data.push([null, 'SUMME', null, null,
-        ...sumJahresPMs.map(v => fmt2(v)),
-        fmt2(sumGesamtPM2), fmt2(sumGesamtKosten2),
+      ws2Data.push([
+        null, 'SUMME', null, null,
+        ...sumJahresPMs.map(v => fmt(v)),
+        fmt(sumGesamtPM2), fmt(sumGesamtKosten2),
       ]);
       ws2Data.push([]);
       ws2Data.push(['Hinweis: 1 PM = 173,33 Stunden (40h/Woche x 52 Wochen / 12 Monate)']);
@@ -877,6 +993,9 @@ export default function BerichtePage() {
         { wch: 14 }, { wch: 26 },
       ];
 
+      // ----------------------------------------------------------------
+      // Workbook herunterladen
+      // ----------------------------------------------------------------
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws1, 'Personalkosten');
       XLSX.utils.book_append_sheet(wb, ws2, 'Jahresscheiben (Anlage 5)');
@@ -898,11 +1017,13 @@ export default function BerichtePage() {
   // ZA-FUNKTIONEN
   // ============================================================================
 
+  // ZA-Panel oeffnen: ZA-Liste fuer Projekt laden und Formular vorbelegen
   const openZAPanel = async (projectId: string) => {
     setZALoading(true);
     setZASelectedId(null);
     const project = projects.find(p => p.id === projectId);
 
+    // Naechste freie ZA-Nummer ermitteln
     const { data: existingZAs } = await supabase
       .from('v7_zahlungsanforderungen')
       .select('id, project_id, za_nummer, zeitraum_von, zeitraum_bis, auftraege_dritte_t, auftraege_dritte_nt, fue_unterauftrag, zeitw_personalaufnahme, status, notizen')
@@ -916,6 +1037,7 @@ export default function BerichtePage() {
       ? Math.max(...zaListLoaded.map(z => z.za_nummer)) + 1
       : 1;
 
+    // Zeitraum: nach letzter ZA oder Projektstart
     const lastZA = zaListLoaded.length > 0 ? zaListLoaded[zaListLoaded.length - 1] : null;
     const vonDefault = lastZA
       ? (() => {
@@ -939,6 +1061,7 @@ export default function BerichtePage() {
     setZALoading(false);
   };
 
+  // Bestehende ZA in Formular laden
   const loadZAIntoForm = (za: ZahlungsanforderungDB) => {
     setZASelectedId(za.id);
     setZAFormData({
@@ -953,6 +1076,7 @@ export default function BerichtePage() {
     });
   };
 
+  // ZA speichern (neu oder update)
   const handleZASave = async () => {
     if (!zaProjectId) return;
     setZASaving(true);
@@ -976,6 +1100,7 @@ export default function BerichtePage() {
         const { data: newZA } = await supabase.from('v7_zahlungsanforderungen').insert(payload).select().single();
         if (newZA) setZASelectedId(newZA.id);
       }
+      // Liste neu laden
       await openZAPanel(zaProjectId);
       alert('ZA gespeichert.');
     } catch (err: any) {
@@ -985,12 +1110,14 @@ export default function BerichtePage() {
     }
   };
 
+  // Hilfsfunktion: Personenstunden je MA je Monat im ZA-Zeitraum
   const getZAPersonenstunden = (projectId: string, vonStr: string, bisStr: string) => {
     if (!vonStr || !bisStr) return [];
     const project = projects.find(p => p.id === projectId);
     if (!project) return [];
     const isDS = project.funding_format === 'ZIM_DS';
 
+    // MA die dem Projekt zugeordnet sind (ueber WP-Assignments)
     const projectWPs = workPackages.filter(wp => wp.project_id === projectId);
     const projectWPIds = projectWPs.map(wp => wp.id);
     const assignedEmployeeIds = [...new Set(
@@ -999,6 +1126,7 @@ export default function BerichtePage() {
         .map(wpa => wpa.employee_id)
     )];
 
+    // Monate im Zeitraum bestimmen
     const vonDate = new Date(vonStr);
     const bisDate = new Date(bisStr);
     const months: { year: number; month: number; label: string }[] = [];
@@ -1012,10 +1140,12 @@ export default function BerichtePage() {
       cur.setMonth(cur.getMonth() + 1);
     }
 
+    // Pro MA: Stunden je Monat
     return assignedEmployeeIds.map(empId => {
       const emp = employees.find(e => e.id === empId);
       const empName = emp ? emp.display_name : empId;
 
+      // Technische AP-IDs fuer diesen MA
       const technicalWPIds = isDS
         ? projectWPs.filter(wp => wp.is_technical === true).map(wp => wp.id)
         : [];
@@ -1043,9 +1173,10 @@ export default function BerichtePage() {
       const totalT = monthData.reduce((s, m) => s + m.hoursT, 0);
       const totalNT = monthData.reduce((s, m) => s + m.hoursNT, 0);
       return { empId, empName, monthData, totalT, totalNT, totalAll: totalT + totalNT };
-    }).filter(row => row.totalAll > 0);
+    }).filter(row => row.totalAll > 0); // Nur MA mit Stunden im Zeitraum anzeigen
   };
 
+  // Hilfsfunktion: Stundensatz fuer MA aus project_assignments
   const getHourlyRate = (empId: string, projectId: string): number | null => {
     const pa = projectAssignments.find(pa => pa.employee_id === empId && pa.project_id === projectId);
     return pa?.hourly_rate || null;
@@ -1058,12 +1189,12 @@ export default function BerichtePage() {
     return (
       <div className="min-h-screen bg-gray-50">
         <PortalHeader 
-          portal="berater" 
+          portal="firma" 
           companyName="" 
           userName=""
-          userRole="consultant"
+          userRole={portalRole === "client_admin" ? "client_admin" : "client_user"}
         />
-        <PortalNav portal="berater" userRole="consultant" />
+        <PortalNav portal="firma" userRole={portalRole === "client_admin" ? "client_admin" : "client_user"} portalRole={portalRole} />
         <main className="max-w-7xl mx-auto px-4 py-8">
           <div className="flex items-center justify-center h-64">
             <div className="w-10 h-10 border-4 border-green-200 border-t-green-600 rounded-full animate-spin"></div>
@@ -1077,12 +1208,12 @@ export default function BerichtePage() {
     return (
       <div className="min-h-screen bg-gray-50">
         <PortalHeader 
-          portal="berater" 
+          portal="firma" 
           companyName="" 
           userName=""
-          userRole="consultant"
+          userRole={portalRole === "client_admin" ? "client_admin" : "client_user"}
         />
-        <PortalNav portal="berater" userRole="consultant" />
+        <PortalNav portal="firma" userRole={portalRole === "client_admin" ? "client_admin" : "client_user"} portalRole={portalRole} />
         <main className="max-w-7xl mx-auto px-4 py-8">
           <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
             <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
@@ -1099,27 +1230,19 @@ export default function BerichtePage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <PortalHeader 
-        portal="berater" 
+        portal="firma" 
         companyName={company?.name || ''} 
         userName={userProfile?.display_name || ''}
-        userRole="consultant"
-       
+        userRole={portalRole === "client_admin" ? "client_admin" : "client_user"}
+        portalRole={portalRole as any}
       />
-      <PortalNav portal="berater" userRole="consultant" />
+      <PortalNav portal="firma" userRole={portalRole === "client_admin" ? "client_admin" : "client_user"} portalRole={portalRole} />
       
       <main className="max-w-7xl mx-auto px-4 py-8">
-        {/* Zurueck-Link */}
-        <a 
-          href={`/v7/berater/foerderung/firma/${companyId}`}
-          className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 mb-4 text-sm"
-        >
-          &larr; Zurueck zur Firmenuebersicht
-        </a>
-        
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-gray-900">Berichte & Controlling</h1>
-          <p className="text-gray-600 mt-1">{company?.name} - Uebersicht ueber Projekte, Kosten und Zeiterfassung</p>
+          <p className="text-gray-600 mt-1">Uebersicht ueber Projekte, Kosten und Zeiterfassung</p>
         </div>
 
         {/* Kennzahlen */}
@@ -1356,7 +1479,7 @@ export default function BerichtePage() {
                       <td className="px-6 py-4 text-center">
                         <button
                           onClick={() => {
-                            router.push(`/v7/berater/foerderung/firma/${companyId}/zeiterfassung?employee=${ets.employee.id}`);
+                            router.push(`/v7/firma/zeiterfassung?employee=${ets.employee.id}`);
                           }}
                           className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-green-700 bg-green-50 hover:bg-green-100 rounded-lg transition-colors"
                           title={`Zeiterfassung fuer ${ets.employee.display_name} oeffnen`}
@@ -1382,58 +1505,67 @@ export default function BerichtePage() {
           <div className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
 
-              {/* Kachel 1: Personalkosten - AKTIV */}
+              {/* Kachel 1: Personalkosten - AKTIV mit aufklappbarem Panel */}
               <div className="flex flex-col">
                 <button
-                  onClick={() => {
-                    const newShow = !showPKPanel;
-                    setShowPKPanel(newShow);
-                    if (newShow && projects.length > 0 && !pkProjectId) {
-                      setPKProjectId(projects[0].id);
-                    }
-                  }}
-                  className={`flex flex-col items-center p-6 border-2 rounded-lg transition-colors
-                    ${showPKPanel
-                      ? 'border-blue-600 bg-blue-50 text-blue-700'
-                      : 'border-blue-200 bg-white text-blue-700 hover:border-blue-400 hover:bg-blue-50'
-                    }`}
+                  onClick={() => setShowPKPanel(prev => !prev)}
+                  disabled={projects.length === 0}
+                  className={`flex flex-col items-center p-6 border-2 rounded-lg transition-colors ${
+                    projects.length === 0
+                      ? 'border-dashed border-gray-300 text-gray-400 cursor-not-allowed'
+                      : showPKPanel
+                        ? 'border-green-600 text-green-800 bg-green-100 cursor-pointer'
+                        : 'border-green-400 text-green-700 bg-green-50 hover:bg-green-100 cursor-pointer'
+                  }`}
                 >
                   <FileSpreadsheet className="w-10 h-10 mb-3" />
                   <span className="font-medium">Personalkosten</span>
-                  <span className="text-xs mt-1 text-blue-600">Excel-Export</span>
-                  <span className={`text-xs mt-2 flex items-center gap-1 px-2 py-0.5 rounded ${showPKPanel ? 'bg-blue-200' : 'bg-blue-100'}`}>
+                  <span className="text-xs mt-1">Excel-Export</span>
+                  <span className="text-xs mt-2 bg-green-200 text-green-800 px-2 py-0.5 rounded flex items-center gap-1">
                     {showPKPanel ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                    {showPKPanel ? 'Schliessen' : 'Oeffnen'}
+                    {showPKPanel ? 'Schliessen' : 'Zeitraum waehlen'}
                   </span>
                 </button>
+
+                {/* Aufklappbares Panel */}
                 {showPKPanel && (
-                  <div className="mt-2 p-4 border border-blue-200 rounded-lg bg-blue-50 text-sm">
+                  <div className="mt-2 p-4 bg-white border border-green-300 rounded-lg shadow-sm">
+                    {/* Projekt-Auswahl (nur wenn mehrere Projekte) */}
                     {projects.length > 1 && (
                       <div className="mb-3">
                         <label className="block text-xs font-medium text-gray-600 mb-1">Projekt</label>
                         <select
                           value={pkProjectId}
-                          onChange={e => setPKProjectId(e.target.value)}
-                          className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-blue-500"
+                          onChange={e => handlePkProjectChange(e.target.value)}
+                          className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-green-500"
                         >
                           {projects.map(p => (
-                            <option key={p.id} value={p.id}>{p.short_name || p.name}</option>
+                            <option key={p.id} value={p.id}>
+                              {p.short_name || p.name}
+                            </option>
                           ))}
                         </select>
                       </div>
                     )}
+                    {/* Von / Bis */}
                     <div className="grid grid-cols-2 gap-3 mb-4">
                       <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">Von</label>
-                        <input type="date" value={pkVon}
+                        <input
+                          type="date"
+                          value={pkVon}
                           onChange={e => setPKVon(e.target.value)}
-                          className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-blue-500" />
+                          className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-green-500"
+                        />
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">Bis</label>
-                        <input type="date" value={pkBis}
+                        <input
+                          type="date"
+                          value={pkBis}
                           onChange={e => setPKBis(e.target.value)}
-                          className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-blue-500" />
+                          className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-green-500"
+                        />
                       </div>
                     </div>
                     <button
@@ -1442,7 +1574,7 @@ export default function BerichtePage() {
                         setShowPKPanel(false);
                       }}
                       disabled={exportLoading || !pkVon || !pkBis}
-                      className="w-full py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white text-sm font-medium rounded transition-colors flex items-center justify-center gap-2"
+                      className="w-full py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white text-sm font-medium rounded transition-colors flex items-center justify-center gap-2"
                     >
                       <FileSpreadsheet className="w-4 h-4" />
                       {exportLoading ? 'Wird erstellt...' : 'Excel herunterladen'}
@@ -1459,12 +1591,12 @@ export default function BerichtePage() {
                   }
                   setShowMatrix(prev => !prev);
                 }}
-                className="flex flex-col items-center p-6 border-2 border-blue-400 rounded-lg text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors cursor-pointer"
+                className="flex flex-col items-center p-6 border-2 border-green-400 rounded-lg text-green-700 bg-green-50 hover:bg-green-100 transition-colors cursor-pointer"
               >
                 <Grid3x3 className="w-10 h-10 mb-3" />
                 <span className="font-medium">Stundennachweis</span>
                 <span className="text-xs mt-1">Matrix-Uebersicht</span>
-                <span className="text-xs mt-2 bg-blue-200 text-blue-800 px-2 py-0.5 rounded flex items-center gap-1">
+                <span className="text-xs mt-2 bg-green-200 text-green-800 px-2 py-0.5 rounded flex items-center gap-1">
                   {showMatrix ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
                   {showMatrix ? 'Schliessen' : 'Oeffnen'}
                 </span>
@@ -1491,14 +1623,14 @@ export default function BerichtePage() {
                 }}
                 className={`flex flex-col items-center p-6 border-2 rounded-lg transition-colors
                   ${showZAPanel
-                    ? 'border-blue-600 bg-blue-50 text-blue-700'
-                    : 'border-blue-200 bg-white text-blue-700 hover:border-blue-400 hover:bg-blue-50'
+                    ? 'border-green-600 bg-green-50 text-green-700'
+                    : 'border-green-200 bg-white text-green-700 hover:border-green-400 hover:bg-green-50'
                   }`}
               >
                 <FileText className="w-10 h-10 mb-3" />
                 <span className="font-medium">Zahlungsanforderung</span>
-                <span className="text-xs mt-1 text-blue-600">ZIM Mittelabruf</span>
-                <span className={`text-xs mt-2 flex items-center gap-1 px-2 py-0.5 rounded ${showZAPanel ? 'bg-blue-200' : 'bg-blue-100'}`}>
+                <span className="text-xs mt-1 text-green-600">ZIM Mittelabruf</span>
+                <span className={`text-xs mt-2 flex items-center gap-1 px-2 py-0.5 rounded ${showZAPanel ? 'bg-green-200' : 'bg-green-100'}`}>
                   {showZAPanel ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                   {showZAPanel ? 'Schliessen' : 'Oeffnen'}
                 </span>
@@ -1511,10 +1643,12 @@ export default function BerichtePage() {
               if (!zaProject) return null;
               const isDS = zaProject.funding_format === 'ZIM_DS';
 
+              // Berechnungen fuer Deckblatt
               const vonStr = zaFormData.zeitraum_von;
               const bisStr = zaFormData.zeitraum_bis;
               const psData = (vonStr && bisStr) ? getZAPersonenstunden(zaProjectId, vonStr, bisStr) : [];
 
+              // Personalkosten T und NT
               const pkT = psData.reduce((sum, row) => {
                 const rate = getHourlyRate(row.empId, zaProjectId) || 0;
                 return sum + row.totalT * rate;
@@ -1554,11 +1688,11 @@ export default function BerichtePage() {
               };
 
               return (
-                <div className="mt-6 border border-blue-200 rounded-lg overflow-hidden">
+                <div className="mt-6 border border-green-200 rounded-lg overflow-hidden">
                   {/* Panel-Header */}
-                  <div className="bg-blue-50 px-4 py-3 border-b border-blue-200 flex items-center justify-between">
+                  <div className="bg-green-50 px-4 py-3 border-b border-green-200 flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <FileText className="w-5 h-5 text-blue-600" />
+                      <FileText className="w-5 h-5 text-green-600" />
                       <span className="font-medium text-gray-900">Zahlungsanforderung (ZIM)</span>
                       {projects.length > 1 && (
                         <select
@@ -1567,7 +1701,7 @@ export default function BerichtePage() {
                             setZAProjectId(e.target.value);
                             openZAPanel(e.target.value);
                           }}
-                          className="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-1 focus:ring-blue-500"
+                          className="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-1 focus:ring-green-500"
                         >
                           {projects.map(p => (
                             <option key={p.id} value={p.id}>{p.short_name || p.name}</option>
@@ -1576,20 +1710,29 @@ export default function BerichtePage() {
                       )}
                       {isDS && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">DS-Formular</span>}
                     </div>
+                    {/* Bestehende ZAs */}
                     {zaList.length > 0 && (
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-gray-500">Gespeicherte ZAs:</span>
                         {zaList.map(za => (
-                          <button key={za.id} onClick={() => loadZAIntoForm(za)}
+                          <button
+                            key={za.id}
+                            onClick={() => loadZAIntoForm(za)}
                             className={`text-xs px-2 py-1 rounded border transition-colors
                               ${zaSelectedId === za.id
-                                ? 'bg-blue-600 text-white border-blue-600'
-                                : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'}`}>
+                                ? 'bg-green-600 text-white border-green-600'
+                                : 'bg-white text-gray-700 border-gray-300 hover:border-green-400'}`}
+                          >
                             ZA {za.za_nummer}
                           </button>
                         ))}
-                        <button onClick={() => { setZASelectedId(null); openZAPanel(zaProjectId); }}
-                          className="text-xs px-2 py-1 rounded border border-dashed border-blue-400 text-blue-600 hover:bg-blue-50">
+                        <button
+                          onClick={() => {
+                            setZASelectedId(null);
+                            openZAPanel(zaProjectId);
+                          }}
+                          className="text-xs px-2 py-1 rounded border border-dashed border-green-400 text-green-600 hover:bg-green-50"
+                        >
                           + Neue ZA
                         </button>
                       </div>
@@ -1600,11 +1743,14 @@ export default function BerichtePage() {
                   <div className="flex items-center border-b border-gray-200 bg-white">
                     <div className="flex flex-1">
                       {(['deckblatt', 'anlage1a', 'anlage1b'] as const).map(tab => (
-                        <button key={tab} onClick={() => setZATab(tab)}
+                        <button
+                          key={tab}
+                          onClick={() => setZATab(tab)}
                           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors
                             ${zaTab === tab
-                              ? 'border-blue-600 text-blue-700'
-                              : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                              ? 'border-green-600 text-green-700'
+                              : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                        >
                           {tab === 'deckblatt' ? 'Deckblatt (Seite 5)' : tab === 'anlage1a' ? 'Anlage 1a - Personenstunden' : 'Anlage 1b - Personalkosten'}
                         </button>
                       ))}
@@ -1646,14 +1792,18 @@ export default function BerichtePage() {
                   ) : (
                     <div className="p-4 bg-white">
 
-                      {/* ---- TAB: DECKBLATT ---- */}
+                      {/* ---- TAB: DECKBLATT (Seite 5) - formulargetreu ---- */}
                       {zaTab === 'deckblatt' && (
                         <div className="space-y-4">
+
+                          {/* Formular-Header wie ZIM-PDF */}
                           <div id="za-print-area" className="border-2 border-gray-400 rounded bg-white p-4">
                             <div className="text-center text-xs text-gray-500 mb-3 font-medium uppercase tracking-wide">
                               Zentrales Innovationsprogramm Mittelstand (ZIM) &mdash; Zahlungsanforderung
                               {isDS ? ' fuer Durchfuehrbarkeitsstudien' : ''}
                             </div>
+
+                            {/* Kopfdaten-Zeile */}
                             <div className="grid grid-cols-4 gap-3 mb-4 pb-3 border-b border-gray-300">
                               <div>
                                 <div className="text-xs text-gray-500 mb-1">Foerderkennzeichen</div>
@@ -1665,27 +1815,31 @@ export default function BerichtePage() {
                                 <div className="text-xs text-gray-500 mb-1">Zahlungsanforderung Nr.</div>
                                 <input type="number" min="1" value={zaFormData.za_nummer}
                                   onChange={e => setZAFormData(prev => ({ ...prev, za_nummer: e.target.value }))}
-                                  className="w-full px-2 py-1 text-sm font-medium border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 bg-blue-50" />
+                                  className="w-full px-2 py-1 text-sm font-medium border border-gray-300 rounded focus:ring-1 focus:ring-green-500 bg-blue-50" />
                               </div>
                               <div>
                                 <div className="text-xs text-gray-500 mb-1">Abrechnungszeitraum von</div>
                                 <input type="date" value={zaFormData.zeitraum_von}
                                   onChange={e => setZAFormData(prev => ({ ...prev, zeitraum_von: e.target.value }))}
-                                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 bg-blue-50" />
+                                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500 bg-blue-50" />
                               </div>
                               <div>
                                 <div className="text-xs text-gray-500 mb-1">bis</div>
                                 <input type="date" value={zaFormData.zeitraum_bis}
                                   onChange={e => setZAFormData(prev => ({ ...prev, zeitraum_bis: e.target.value }))}
-                                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 bg-blue-50" />
+                                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500 bg-blue-50" />
                               </div>
                             </div>
+
+                            {/* Foerderparameter-Hinweis */}
                             {(!zaProject.foerdersatz || !zaProject.overhead_t) && (
                               <div className="bg-amber-50 border border-amber-300 rounded p-2 text-xs text-amber-700 mb-3">
                                 Foerderparameter (Foerdersatz, GKZ) sind noch nicht am Projekt hinterlegt.
                                 Bitte im Projekt bearbeiten (Tab Uebersicht &rsaquo; Bearbeiten).
                               </div>
                             )}
+
+                            {/* Kostentabelle - exakt wie Formblatt Seite 5 */}
                             <div className="text-xs font-medium text-gray-700 mb-1">
                               Zuwendungsfaehige Kosten im Abrechnungszeitraum und anteilige Zuwendung
                             </div>
@@ -1709,30 +1863,46 @@ export default function BerichtePage() {
                                 </tr>
                               </thead>
                               <tbody>
+                                {/* (1) Personal technisch */}
                                 <tr>
                                   <td className="px-2 py-1.5 border border-gray-300 text-center text-gray-500">(1)</td>
-                                  <td className="px-2 py-1.5 border border-gray-300">Personal {isDS ? 'technisch' : ''} (lt. Anlage 1b)</td>
+                                  <td className="px-2 py-1.5 border border-gray-300">
+                                    Personal {isDS ? 'technisch' : ''} (lt. Anlage 1b)
+                                  </td>
                                   {isDS ? (
-                                    <><td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-blue-50">{fmt(pkT)}</td>
-                                    <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-gray-50 text-gray-400">--</td></>
+                                    <>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-blue-50">{fmt(pkT)}</td>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-gray-50 text-gray-400">--</td>
+                                    </>
                                   ) : (
-                                    <><td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-blue-50">{fmt(pkGesamt)}</td>
-                                    <td className="px-2 py-1.5 border border-gray-300 text-center bg-gray-50 text-gray-400">--</td>
-                                    <td className="px-2 py-1.5 border border-gray-300 bg-gray-50"></td></>
+                                    <>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-blue-50">{fmt(pkGesamt)}</td>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-center bg-gray-50 text-gray-400">--</td>
+                                      <td className="px-2 py-1.5 border border-gray-300 bg-gray-50"></td>
+                                    </>
                                   )}
                                 </tr>
+                                {/* (2) Zuschlag T */}
                                 <tr>
                                   <td className="px-2 py-1.5 border border-gray-300 text-center text-gray-500">(2)</td>
-                                  <td className="px-2 py-1.5 border border-gray-300">Zuschlag fuer uebrige Kosten{isDS ? ' technisch' : ''}&nbsp;<span className="font-medium">{overheadT}%</span></td>
+                                  <td className="px-2 py-1.5 border border-gray-300">
+                                    Zuschlag fuer uebrige Kosten{isDS ? ' technisch' : ''}&nbsp;
+                                    <span className="font-medium">{overheadT}%</span>
+                                  </td>
                                   {isDS ? (
-                                    <><td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-blue-50">{fmt(gkT)}</td>
-                                    <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-gray-50 text-gray-400">--</td></>
+                                    <>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-blue-50">{fmt(gkT)}</td>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-gray-50 text-gray-400">--</td>
+                                    </>
                                   ) : (
-                                    <><td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-blue-50">{fmt(gkT)}</td>
-                                    <td className="px-2 py-1.5 border border-gray-300 text-center bg-gray-50 text-gray-400">--</td>
-                                    <td className="px-2 py-1.5 border border-gray-300 bg-gray-50"></td></>
+                                    <>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-blue-50">{fmt(gkT)}</td>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-center bg-gray-50 text-gray-400">--</td>
+                                      <td className="px-2 py-1.5 border border-gray-300 bg-gray-50"></td>
+                                    </>
                                   )}
                                 </tr>
+                                {/* (3) Personal nichttechnisch - nur DS */}
                                 {isDS && (
                                   <tr>
                                     <td className="px-2 py-1.5 border border-gray-300 text-center text-gray-500">(3)</td>
@@ -1741,34 +1911,48 @@ export default function BerichtePage() {
                                     <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-blue-50">{fmt(pkNT)}</td>
                                   </tr>
                                 )}
+                                {/* (4) Zuschlag NT - nur DS */}
                                 {isDS && (
                                   <tr>
                                     <td className="px-2 py-1.5 border border-gray-300 text-center text-gray-500">(4)</td>
-                                    <td className="px-2 py-1.5 border border-gray-300">Zuschlag fuer uebrige Kosten nichttechnisch&nbsp;<span className="font-medium">{overheadNT}%</span></td>
+                                    <td className="px-2 py-1.5 border border-gray-300">
+                                      Zuschlag fuer uebrige Kosten nichttechnisch&nbsp;
+                                      <span className="font-medium">{overheadNT}%</span>
+                                    </td>
                                     <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-gray-50 text-gray-400">--</td>
                                     <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-blue-50">{fmt(gkNT)}</td>
                                   </tr>
                                 )}
+                                {/* (5) Auftraege Dritte technisch */}
                                 <tr>
                                   <td className="px-2 py-1.5 border border-gray-300 text-center text-gray-500">{isDS ? '(5)' : '(3)'}</td>
-                                  <td className="px-2 py-1.5 border border-gray-300">Kosten der Auftraege an wiss. qual. Dritte{isDS ? ', technisch' : ''}</td>
+                                  <td className="px-2 py-1.5 border border-gray-300">
+                                    Kosten der Auftraege an wiss. qual. Dritte{isDS ? ', technisch' : ''}
+                                  </td>
                                   {isDS ? (
-                                    <><td className="px-2 py-1.5 border border-gray-300">
-                                      <input type="number" step="0.01" min="0" value={zaFormData.auftraege_dritte_t}
-                                        onChange={e => setZAFormData(prev => ({ ...prev, auftraege_dritte_t: e.target.value }))}
-                                        className="w-full px-1 py-0.5 text-right border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 bg-blue-50" placeholder="0,00" />
-                                    </td>
-                                    <td className="px-2 py-1.5 border border-gray-300 bg-gray-50 text-gray-400 text-right">--</td></>
+                                    <>
+                                      <td className="px-2 py-1.5 border border-gray-300">
+                                        <input type="number" step="0.01" min="0" value={zaFormData.auftraege_dritte_t}
+                                          onChange={e => setZAFormData(prev => ({ ...prev, auftraege_dritte_t: e.target.value }))}
+                                          className="w-full px-1 py-0.5 text-right border border-gray-300 rounded focus:ring-1 focus:ring-green-500 bg-blue-50"
+                                          placeholder="0,00" />
+                                      </td>
+                                      <td className="px-2 py-1.5 border border-gray-300 bg-gray-50 text-gray-400 text-right">--</td>
+                                    </>
                                   ) : (
-                                    <><td className="px-2 py-1.5 border border-gray-300">
-                                      <input type="number" step="0.01" min="0" value={zaFormData.auftraege_dritte_t}
-                                        onChange={e => setZAFormData(prev => ({ ...prev, auftraege_dritte_t: e.target.value }))}
-                                        className="w-full px-1 py-0.5 text-right border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 bg-blue-50" placeholder="0,00" />
-                                    </td>
-                                    <td className="px-2 py-1.5 border border-gray-300 text-center bg-gray-50 text-gray-400">--</td>
-                                    <td className="px-2 py-1.5 border border-gray-300 bg-gray-50"></td></>
+                                    <>
+                                      <td className="px-2 py-1.5 border border-gray-300">
+                                        <input type="number" step="0.01" min="0" value={zaFormData.auftraege_dritte_t}
+                                          onChange={e => setZAFormData(prev => ({ ...prev, auftraege_dritte_t: e.target.value }))}
+                                          className="w-full px-1 py-0.5 text-right border border-gray-300 rounded focus:ring-1 focus:ring-green-500 bg-blue-50"
+                                          placeholder="0,00" />
+                                      </td>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-center bg-gray-50 text-gray-400">--</td>
+                                      <td className="px-2 py-1.5 border border-gray-300 bg-gray-50"></td>
+                                    </>
                                   )}
                                 </tr>
+                                {/* (6) Auftraege Dritte nichttechnisch - nur DS */}
                                 {isDS && (
                                   <tr>
                                     <td className="px-2 py-1.5 border border-gray-300 text-center text-gray-500">(6)</td>
@@ -1777,10 +1961,12 @@ export default function BerichtePage() {
                                     <td className="px-2 py-1.5 border border-gray-300">
                                       <input type="number" step="0.01" min="0" value={zaFormData.auftraege_dritte_nt}
                                         onChange={e => setZAFormData(prev => ({ ...prev, auftraege_dritte_nt: e.target.value }))}
-                                        className="w-full px-1 py-0.5 text-right border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 bg-blue-50" placeholder="0,00" />
+                                        className="w-full px-1 py-0.5 text-right border border-gray-300 rounded focus:ring-1 focus:ring-green-500 bg-blue-50"
+                                        placeholder="0,00" />
                                     </td>
                                   </tr>
                                 )}
+                                {/* FuE-Unterauftrag - nur normales ZIM */}
                                 {!isDS && (
                                   <tr>
                                     <td className="px-2 py-1.5 border border-gray-300 text-center text-gray-500">(4)</td>
@@ -1788,12 +1974,14 @@ export default function BerichtePage() {
                                     <td className="px-2 py-1.5 border border-gray-300">
                                       <input type="number" step="0.01" min="0" value={zaFormData.fue_unterauftrag}
                                         onChange={e => setZAFormData(prev => ({ ...prev, fue_unterauftrag: e.target.value }))}
-                                        className="w-full px-1 py-0.5 text-right border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 bg-blue-50" placeholder="0,00" />
+                                        className="w-full px-1 py-0.5 text-right border border-gray-300 rounded focus:ring-1 focus:ring-green-500 bg-blue-50"
+                                        placeholder="0,00" />
                                     </td>
                                     <td className="px-2 py-1.5 border border-gray-300 text-center bg-gray-50 text-gray-400">--</td>
                                     <td className="px-2 py-1.5 border border-gray-300 bg-gray-50"></td>
                                   </tr>
                                 )}
+                                {/* Zeitw. Personalaufnahme - nur normales ZIM */}
                                 {!isDS && (
                                   <tr>
                                     <td className="px-2 py-1.5 border border-gray-300 text-center text-gray-500">(5)</td>
@@ -1801,24 +1989,31 @@ export default function BerichtePage() {
                                     <td className="px-2 py-1.5 border border-gray-300">
                                       <input type="number" step="0.01" min="0" value={zaFormData.zeitw_personalaufnahme}
                                         onChange={e => setZAFormData(prev => ({ ...prev, zeitw_personalaufnahme: e.target.value }))}
-                                        className="w-full px-1 py-0.5 text-right border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 bg-blue-50" placeholder="0,00" />
+                                        className="w-full px-1 py-0.5 text-right border border-gray-300 rounded focus:ring-1 focus:ring-green-500 bg-blue-50"
+                                        placeholder="0,00" />
                                     </td>
                                     <td className="px-2 py-1.5 border border-gray-300 text-center bg-gray-50 text-gray-400">--</td>
                                     <td className="px-2 py-1.5 border border-gray-300 bg-gray-50"></td>
                                   </tr>
                                 )}
+                                {/* Summe */}
                                 <tr className="bg-gray-100 font-semibold">
                                   <td className="px-2 py-1.5 border border-gray-300"></td>
                                   <td className="px-2 py-1.5 border border-gray-300">Summe</td>
                                   {isDS ? (
-                                    <><td className="px-2 py-1.5 border border-gray-300 text-right font-mono">{fmt(summeT)}</td>
-                                    <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">{fmt(summeNT)}</td></>
+                                    <>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">{fmt(summeT)}</td>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">{fmt(summeNT)}</td>
+                                    </>
                                   ) : (
-                                    <><td className="px-2 py-1.5 border border-gray-300 text-right font-mono">{fmt(summeGesamt)}</td>
-                                    <td className="px-2 py-1.5 border border-gray-300 text-center font-medium">{foerdersatz}%</td>
-                                    <td className="px-2 py-1.5 border border-gray-300 text-right font-mono text-blue-800">{fmt(antZuwendung)}</td></>
+                                    <>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">{fmt(summeGesamt)}</td>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-center font-medium">{foerdersatz}%</td>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-right font-mono text-green-800">{fmt(antZuwendung)}</td>
+                                    </>
                                   )}
                                 </tr>
+                                {/* Gesamt + Zuwendung bei DS */}
                                 {isDS && (
                                   <>
                                     <tr className="bg-gray-200 font-semibold">
@@ -1826,51 +2021,80 @@ export default function BerichtePage() {
                                       <td className="px-2 py-1.5 border border-gray-300">Summe gesamt (T + NT)</td>
                                       <td colSpan={2} className="px-2 py-1.5 border border-gray-300 text-right font-mono">{fmt(summeGesamt)}</td>
                                     </tr>
-                                    <tr className="bg-blue-50 font-semibold">
+                                    <tr className="bg-green-50 font-semibold">
                                       <td className="px-2 py-1.5 border border-gray-300"></td>
-                                      <td className="px-2 py-1.5 border border-gray-300 text-blue-800">Anteilige Zuwendung ({foerdersatz}% Foerdersatz)</td>
-                                      <td colSpan={2} className="px-2 py-1.5 border border-gray-300 text-right font-mono text-blue-800">{fmt(antZuwendung)}</td>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-green-800">Anteilige Zuwendung ({foerdersatz}% Foerdersatz)</td>
+                                      <td colSpan={2} className="px-2 py-1.5 border border-gray-300 text-right font-mono text-green-800">{fmt(antZuwendung)}</td>
                                     </tr>
                                   </>
                                 )}
                               </tbody>
                             </table>
+
+                            {/* Interne Notizen */}
                             <div className="mt-3">
                               <label className="block text-xs text-gray-500 mb-1">Interne Notizen (nicht im Formular)</label>
                               <textarea value={zaFormData.notizen}
                                 onChange={e => setZAFormData(prev => ({ ...prev, notizen: e.target.value }))}
                                 rows={2}
-                                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+                                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-green-500"
                                 placeholder="Optionale Notizen zur ZA" />
                             </div>
                           </div>
+
+                          {/* Speichern-Button */}
                           <div className="flex justify-end">
                             <button onClick={handleZASave}
                               disabled={zaSaving || !zaFormData.zeitraum_von || !zaFormData.zeitraum_bis}
-                              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 transition-colors text-sm">
+                              className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50 transition-colors text-sm">
                               {zaSaving ? 'Speichern...' : (zaSelectedId ? 'Aktualisieren' : 'ZA speichern')}
                             </button>
                           </div>
                         </div>
                       )}
 
-                      {/* ---- TAB: ANLAGE 1a ---- */}
+                      {/* ---- TAB: ANLAGE 1a (Seite 6) - formulargetreu ---- */}
                       {zaTab === 'anlage1a' && (
                         <div>
                           {(!zaFormData.zeitraum_von || !zaFormData.zeitraum_bis) ? (
-                            <div className="p-4 text-sm text-gray-500 text-center">Bitte zunaechst im Tab "Deckblatt" den Abrechnungszeitraum festlegen.</div>
+                            <div className="p-4 text-sm text-gray-500 text-center">
+                              Bitte zunaechst im Tab "Deckblatt" den Abrechnungszeitraum festlegen.
+                            </div>
                           ) : psData.length === 0 ? (
-                            <div className="p-4 text-sm text-gray-500 text-center">Keine Zeiterfassungsdaten im gewaehlten Zeitraum gefunden.</div>
+                            <div className="p-4 text-sm text-gray-500 text-center">
+                              Keine Zeiterfassungsdaten im gewaehlten Zeitraum gefunden.
+                            </div>
                           ) : (
                             <div id="za-print-area" className="border-2 border-gray-400 rounded bg-white p-4">
-                              <div className="text-center text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">Zentrales Innovationsprogramm Mittelstand (ZIM) &mdash; Anlage 1a</div>
-                              <div className="text-center text-base font-bold mb-3">Abrechnung der foerderbaren Personenstunden</div>
-                              <div className="grid grid-cols-4 gap-3 mb-4 pb-3 border-b border-gray-300 text-xs">
-                                <div><span className="text-gray-500">Foerderkennzeichen: </span><span className="font-medium">{zaProject.funding_reference || '--'}</span></div>
-                                <div><span className="text-gray-500">zu ZA-Nr.: </span><span className="font-medium">{zaFormData.za_nummer}</span></div>
-                                <div><span className="text-gray-500">Zeitraum von: </span><span className="font-medium">{fmtDate(zaFormData.zeitraum_von)}</span></div>
-                                <div><span className="text-gray-500">bis: </span><span className="font-medium">{fmtDate(zaFormData.zeitraum_bis)}</span></div>
+                              {/* Formular-Header Anlage 1a */}
+                              <div className="text-center text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">
+                                Zentrales Innovationsprogramm Mittelstand (ZIM) &mdash; Anlage 1a
                               </div>
+                              <div className="text-center text-base font-bold mb-3">
+                                Abrechnung der foerderbaren Personenstunden
+                              </div>
+
+                              {/* Kopfdaten */}
+                              <div className="grid grid-cols-4 gap-3 mb-4 pb-3 border-b border-gray-300 text-xs">
+                                <div>
+                                  <span className="text-gray-500">Foerderkennzeichen: </span>
+                                  <span className="font-medium">{zaProject.funding_reference || '--'}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500">zu ZA-Nr.: </span>
+                                  <span className="font-medium">{zaFormData.za_nummer}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500">Zeitraum von: </span>
+                                  <span className="font-medium">{fmtDate(zaFormData.zeitraum_von)}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500">bis: </span>
+                                  <span className="font-medium">{fmtDate(zaFormData.zeitraum_bis)}</span>
+                                </div>
+                              </div>
+
+                              {/* Tabelle Anlage 1a */}
                               <div className="overflow-x-auto">
                                 <table className="w-full text-xs border border-gray-400">
                                   <thead>
@@ -1894,164 +2118,199 @@ export default function BerichtePage() {
                                     </tr>
                                   </thead>
                                   <tbody>
-                                    {psData.map((row, idx) => (
-                                      <React.Fragment key={row.empId}>
-                                        {row.monthData.map((m, mIdx) => (
-                                          <tr key={`${row.empId}-${m.year}-${m.month}`} className={mIdx === 0 ? 'border-t-2 border-gray-400' : ''}>
-                                            {mIdx === 0 && (
-                                              <>
-                                                <td className="px-2 py-1.5 border border-gray-300 text-center align-top" rowSpan={row.monthData.length}>{idx + 1}</td>
-                                                <td className="px-2 py-1.5 border border-gray-300 font-medium align-top" rowSpan={row.monthData.length}>{row.empName}</td>
-                                              </>
-                                            )}
-                                            <td className="px-2 py-1.5 border border-gray-300 text-center whitespace-nowrap">{m.label}</td>
-                                            {isDS ? (
-                                              <>
-                                                <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">{m.hoursT > 0 ? m.hoursT.toFixed(2) : ''}</td>
-                                                <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">{m.hoursNT > 0 ? m.hoursNT.toFixed(2) : ''}</td>
-                                                {mIdx === 0 && (
-                                                  <>
-                                                    <td className="px-2 py-1.5 border border-gray-300 text-right font-mono font-semibold bg-blue-50 align-top" rowSpan={row.monthData.length}>{row.totalT > 0 ? row.totalT.toFixed(2) : '--'}</td>
-                                                    <td className="px-2 py-1.5 border border-gray-300 text-right font-mono font-semibold bg-blue-50 align-top" rowSpan={row.monthData.length}>{row.totalNT > 0 ? row.totalNT.toFixed(2) : '--'}</td>
-                                                  </>
-                                                )}
-                                              </>
-                                            ) : (
-                                              <>
-                                                <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">{m.hoursTotal > 0 ? m.hoursTotal.toFixed(2) : ''}</td>
-                                                {mIdx === 0 && (
-                                                  <td className="px-2 py-1.5 border border-gray-300 text-right font-mono font-semibold bg-blue-50 align-top" rowSpan={row.monthData.length}>{row.totalAll > 0 ? row.totalAll.toFixed(2) : '--'}</td>
-                                                )}
-                                              </>
-                                            )}
-                                          </tr>
-                                        ))}
-                                      </React.Fragment>
-                                    ))}
+                                    {psData.map((row, idx) => {
+                                      const firstMonth = row.monthData[0];
+                                      return (
+                                        <React.Fragment key={row.empId}>
+                                          {row.monthData.map((m, mIdx) => (
+                                            <tr key={`${row.empId}-${m.year}-${m.month}`}
+                                              className={mIdx === 0 ? 'border-t-2 border-gray-400' : ''}>
+                                              {mIdx === 0 && (
+                                                <>
+                                                  <td className="px-2 py-1.5 border border-gray-300 text-center align-top" rowSpan={row.monthData.length}>
+                                                    {idx + 1}
+                                                  </td>
+                                                  <td className="px-2 py-1.5 border border-gray-300 font-medium align-top" rowSpan={row.monthData.length}>
+                                                    {row.empName}
+                                                  </td>
+                                                </>
+                                              )}
+                                              <td className="px-2 py-1.5 border border-gray-300 text-center whitespace-nowrap">
+                                                {m.label}
+                                              </td>
+                                              {isDS ? (
+                                                <>
+                                                  <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">
+                                                    {m.hoursT > 0 ? m.hoursT.toFixed(2) : ''}
+                                                  </td>
+                                                  <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">
+                                                    {m.hoursNT > 0 ? m.hoursNT.toFixed(2) : ''}
+                                                  </td>
+                                                  {mIdx === 0 && (
+                                                    <>
+                                                      <td className="px-2 py-1.5 border border-gray-300 text-right font-mono font-semibold bg-blue-50 align-top" rowSpan={row.monthData.length}>
+                                                        {row.totalT > 0 ? row.totalT.toFixed(2) : '--'}
+                                                      </td>
+                                                      <td className="px-2 py-1.5 border border-gray-300 text-right font-mono font-semibold bg-blue-50 align-top" rowSpan={row.monthData.length}>
+                                                        {row.totalNT > 0 ? row.totalNT.toFixed(2) : '--'}
+                                                      </td>
+                                                    </>
+                                                  )}
+                                                </>
+                                              ) : (
+                                                <>
+                                                  <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">
+                                                    {m.hoursTotal > 0 ? m.hoursTotal.toFixed(2) : ''}
+                                                  </td>
+                                                  {mIdx === 0 && (
+                                                    <td className="px-2 py-1.5 border border-gray-300 text-right font-mono font-semibold bg-blue-50 align-top" rowSpan={row.monthData.length}>
+                                                      {row.totalAll > 0 ? row.totalAll.toFixed(2) : '--'}
+                                                    </td>
+                                                  )}
+                                                </>
+                                              )}
+                                            </tr>
+                                          ))}
+                                        </React.Fragment>
+                                      );
+                                    })}
                                   </tbody>
                                 </table>
                               </div>
-                              <p className="text-xs text-gray-400 mt-2">Foerderbare Personenstunden: geleistete Projektbearbeitungsstunden gemaess Stundennachweisen, jedoch nicht mehr als arbeitsvertraglich vereinbart.</p>
+                              <p className="text-xs text-gray-400 mt-2">
+                                Foerderbare Personenstunden: geleistete Projektbearbeitungsstunden gemaess Stundennachweisen,
+                                jedoch nicht mehr als arbeitsvertraglich vereinbart.
+                                Max. foerderbare Std. je Monat = Wochenarbeitszeit x 52 (Wochen) : 12 (Monate).
+                              </p>
                             </div>
                           )}
                         </div>
                       )}
 
-                      {/* ---- TAB: ANLAGE 1b ---- */}
+                      {/* ---- TAB: ANLAGE 1b (Seite 7) - formulargetreu ---- */}
                       {zaTab === 'anlage1b' && (
                         <div>
                           {(!zaFormData.zeitraum_von || !zaFormData.zeitraum_bis) ? (
-                            <div className="p-4 text-sm text-gray-500 text-center">Bitte zunaechst im Tab "Deckblatt" den Abrechnungszeitraum festlegen.</div>
+                            <div className="p-4 text-sm text-gray-500 text-center">
+                              Bitte zunaechst im Tab "Deckblatt" den Abrechnungszeitraum festlegen.
+                            </div>
                           ) : psData.length === 0 ? (
-                            <div className="p-4 text-sm text-gray-500 text-center">Keine Zeiterfassungsdaten im gewaehlten Zeitraum gefunden.</div>
+                            <div className="p-4 text-sm text-gray-500 text-center">
+                              Keine Zeiterfassungsdaten im gewaehlten Zeitraum gefunden.
+                            </div>
                           ) : (
                             <div id="za-print-area" className="border-2 border-gray-400 rounded bg-white p-4">
-                              <div className="text-center text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">Zentrales Innovationsprogramm Mittelstand (ZIM) &mdash; Anlage 1b</div>
-                              <div className="text-center text-base font-bold mb-3">Abrechnung der zuwendungsfaehigen Personalkosten</div>
-                              <div className="grid grid-cols-4 gap-3 mb-4 pb-3 border-b border-gray-300 text-xs">
-                                <div><span className="text-gray-500">Foerderkennzeichen: </span><span className="font-medium">{zaProject.funding_reference || '--'}</span></div>
-                                <div><span className="text-gray-500">zu ZA-Nr.: </span><span className="font-medium">{zaFormData.za_nummer}</span></div>
-                                <div><span className="text-gray-500">Zeitraum von: </span><span className="font-medium">{fmtDate(zaFormData.zeitraum_von)}</span></div>
-                                <div><span className="text-gray-500">bis: </span><span className="font-medium">{fmtDate(zaFormData.zeitraum_bis)}</span></div>
+                              {/* Formular-Header Anlage 1b */}
+                              <div className="text-center text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">
+                                Zentrales Innovationsprogramm Mittelstand (ZIM) &mdash; Anlage 1b
                               </div>
+                              <div className="text-center text-base font-bold mb-3">
+                                Abrechnung der zuwendungsfaehigen Personalkosten
+                              </div>
+
+                              {/* Kopfdaten */}
+                              <div className="grid grid-cols-4 gap-3 mb-4 pb-3 border-b border-gray-300 text-xs">
+                                <div>
+                                  <span className="text-gray-500">Foerderkennzeichen: </span>
+                                  <span className="font-medium">{zaProject.funding_reference || '--'}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500">zu ZA-Nr.: </span>
+                                  <span className="font-medium">{zaFormData.za_nummer}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500">Zeitraum von: </span>
+                                  <span className="font-medium">{fmtDate(zaFormData.zeitraum_von)}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500">bis: </span>
+                                  <span className="font-medium">{fmtDate(zaFormData.zeitraum_bis)}</span>
+                                </div>
+                              </div>
+
+                              {/* Tabelle Anlage 1b */}
                               <div className="overflow-x-auto">
                                 <table className="w-full text-xs border border-gray-400">
                                   <thead>
-                                    <tr>
+                                    <tr className="bg-gray-100">
                                       <th className="px-2 py-1.5 border border-gray-300 text-center w-8">lfd.<br />Nr.</th>
-                                      <th className="px-2 py-1.5 border border-gray-300 text-left">Name, Vorname</th>
-                                      <th className="px-2 py-1.5 border border-gray-300 text-center">Qualifikation</th>
-                                      <th className="px-2 py-1.5 border border-gray-300 text-center">Jahres-<br />gehalt<br />[EUR]</th>
-                                      <th className="px-2 py-1.5 border border-gray-300 text-center">pWAZ<br />[Std/W]</th>
-                                      <th className="px-2 py-1.5 border border-gray-300 text-center">Stunden-<br />satz<br />[EUR/h]</th>
+                                      <th className="px-2 py-1.5 border border-gray-300 text-left">Projektmitarbeiter(in)</th>
                                       {isDS ? (
                                         <>
-                                          <th className="px-2 py-1.5 border border-gray-300 text-center">Std. T<br />[(1)x(3)]</th>
-                                          <th className="px-2 py-1.5 border border-gray-300 text-center">PK T<br />[EUR]</th>
-                                          <th className="px-2 py-1.5 border border-gray-300 text-center">Std. NT<br />[(1)x(3)]</th>
-                                          <th className="px-2 py-1.5 border border-gray-300 text-center">PK NT<br />[EUR]</th>
+                                          <th className="px-2 py-1.5 border border-gray-300 text-right">foerderbare<br />Std. techn.<br />entspr. 1a (1)<br />[h]</th>
+                                          <th className="px-2 py-1.5 border border-gray-300 text-right">foerderbare<br />Std. nichttechn.<br />entspr. 1a (2)<br />[h]</th>
                                         </>
                                       ) : (
-                                        <>
-                                          <th className="px-2 py-1.5 border border-gray-300 text-center">foerd. Std.<br />[(1)x(3)]</th>
-                                          <th className="px-2 py-1.5 border border-gray-300 text-center">Personalkosten<br />[EUR]</th>
-                                        </>
+                                        <th className="px-2 py-1.5 border border-gray-300 text-right">foerderbare<br />Personenstunden<br />entspr. Anlage 1a<br />[h]</th>
                                       )}
-                                    </tr>
-                                    <tr className="bg-gray-100 text-gray-500">
-                                      <td className="px-2 py-1 border border-gray-300 text-center">&nbsp;</td>
-                                      <td className="px-2 py-1 border border-gray-300 text-center">(1)</td>
-                                      <td className="px-2 py-1 border border-gray-300 text-center">(2)</td>
-                                      <td className="px-2 py-1 border border-gray-300 text-center">(3)</td>
-                                      <td className="px-2 py-1 border border-gray-300 text-center">(4)</td>
-                                      <td className="px-2 py-1 border border-gray-300 text-center">(5)</td>
+                                      <th className="px-2 py-1.5 border border-gray-300 text-right">Stundensatz<br />[EUR, Cent/h]</th>
                                       {isDS ? (
                                         <>
-                                          <td className="px-2 py-1 border border-gray-300 text-center">(6)</td>
-                                          <td className="px-2 py-1 border border-gray-300 text-center">(7)</td>
-                                          <td className="px-2 py-1 border border-gray-300 text-center">(8)</td>
-                                          <td className="px-2 py-1 border border-gray-300 text-center">(9)</td>
+                                          <th className="px-2 py-1.5 border border-gray-300 text-right">entst. PK<br />technisch<br />(1) x (3)<br />[EUR, Cent]</th>
+                                          <th className="px-2 py-1.5 border border-gray-300 text-right">entst. PK<br />nichttechn.<br />(2) x (3)<br />[EUR, Cent]</th>
                                         </>
                                       ) : (
-                                        <>
-                                          <td className="px-2 py-1 border border-gray-300 text-center">(6)</td>
-                                          <td className="px-2 py-1 border border-gray-300 text-center">(7)</td>
-                                        </>
+                                        <th className="px-2 py-1.5 border border-gray-300 text-right">entstandene PK<br />Stunden x Satz<br />[EUR, Cent]</th>
                                       )}
                                     </tr>
                                   </thead>
                                   <tbody>
                                     {psData.map((row, idx) => {
-                                      const pa = projectAssignments.find(pa => pa.employee_id === row.empId && pa.project_id === zaProjectId);
-                                      const rate = pa?.hourly_rate || 0;
-                                      const pkTRow = row.totalT * rate;
-                                      const pkNTRow = row.totalNT * rate;
+                                      const rate = getHourlyRate(row.empId, zaProjectId) || 0;
+                                      const pkRowT = row.totalT * rate;
+                                      const pkRowNT = row.totalNT * rate;
                                       const pkRow = row.totalAll * rate;
                                       return (
-                                        <tr key={row.empId}>
-                                          <td className="px-2 py-1.5 border border-gray-300 text-center">{idx + 1}</td>
-                                          <td className="px-2 py-1.5 border border-gray-300 font-medium">{row.empName}</td>
-                                          <td className="px-2 py-1.5 border border-gray-300 text-center">{pa?.qualification || '--'}</td>
-                                          <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">{pa?.annual_salary ? pa.annual_salary.toLocaleString('de-DE') : '--'}</td>
-                                          <td className="px-2 py-1.5 border border-gray-300 text-center">{pa?.weekly_hours || '--'}</td>
-                                          <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">{rate > 0 ? rate.toFixed(2) : '--'}</td>
+                                        <tr key={row.empId} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                                          <td className="px-2 py-2 border border-gray-300 text-center">{idx + 1}</td>
+                                          <td className="px-2 py-2 border border-gray-300 font-medium">{row.empName}</td>
                                           {isDS ? (
                                             <>
-                                              <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">{row.totalT > 0 ? row.totalT.toFixed(2) : '--'}</td>
-                                              <td className="px-2 py-1.5 border border-gray-300 text-right font-mono font-semibold bg-blue-50">{rate > 0 ? fmt(pkTRow) : '--'}</td>
-                                              <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">{row.totalNT > 0 ? row.totalNT.toFixed(2) : '--'}</td>
-                                              <td className="px-2 py-1.5 border border-gray-300 text-right font-mono font-semibold bg-blue-50">{rate > 0 ? fmt(pkNTRow) : '--'}</td>
+                                              <td className="px-2 py-2 border border-gray-300 text-right font-mono">{row.totalT > 0 ? row.totalT.toFixed(2) : '--'}</td>
+                                              <td className="px-2 py-2 border border-gray-300 text-right font-mono">{row.totalNT > 0 ? row.totalNT.toFixed(2) : '--'}</td>
                                             </>
                                           ) : (
+                                            <td className="px-2 py-2 border border-gray-300 text-right font-mono">{row.totalAll > 0 ? row.totalAll.toFixed(2) : '--'}</td>
+                                          )}
+                                          <td className="px-2 py-2 border border-gray-300 text-right font-mono">
+                                            {rate > 0 ? rate.toFixed(2) : <span className="text-amber-500 font-normal">fehlt!</span>}
+                                          </td>
+                                          {isDS ? (
                                             <>
-                                              <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">{row.totalAll > 0 ? row.totalAll.toFixed(2) : '--'}</td>
-                                              <td className="px-2 py-1.5 border border-gray-300 text-right font-mono font-semibold bg-blue-50">{rate > 0 ? fmt(pkRow) : '--'}</td>
+                                              <td className="px-2 py-2 border border-gray-300 text-right font-mono font-semibold">{fmt(pkRowT)}</td>
+                                              <td className="px-2 py-2 border border-gray-300 text-right font-mono font-semibold">{fmt(pkRowNT)}</td>
                                             </>
+                                          ) : (
+                                            <td className="px-2 py-2 border border-gray-300 text-right font-mono font-semibold">{fmt(pkRow)}</td>
                                           )}
                                         </tr>
                                       );
                                     })}
+                                    {/* Summenzeile */}
                                     <tr className="bg-gray-100 font-semibold border-t-2 border-gray-400">
-                                      <td className="px-2 py-1.5 border border-gray-300"></td>
-                                      <td className="px-2 py-1.5 border border-gray-300">Summe</td>
-                                      <td colSpan={4} className="px-2 py-1.5 border border-gray-300"></td>
+                                      <td colSpan={2} className="px-2 py-2 border border-gray-300 text-right">Summe/Uebertrag:</td>
                                       {isDS ? (
                                         <>
-                                          <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">{psData.reduce((s, r) => s + r.totalT, 0).toFixed(2)}</td>
-                                          <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-blue-100">{fmt(pkT)}</td>
-                                          <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">{psData.reduce((s, r) => s + r.totalNT, 0).toFixed(2)}</td>
-                                          <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-blue-100">{fmt(pkNT)}</td>
+                                          <td className="px-2 py-2 border border-gray-300 text-right font-mono">{psData.reduce((s, r) => s + r.totalT, 0).toFixed(2)}</td>
+                                          <td className="px-2 py-2 border border-gray-300 text-right font-mono">{psData.reduce((s, r) => s + r.totalNT, 0).toFixed(2)}</td>
+                                          <td className="px-2 py-2 border border-gray-300"></td>
+                                          <td className="px-2 py-2 border border-gray-300 text-right font-mono">{fmt(pkT)}</td>
+                                          <td className="px-2 py-2 border border-gray-300 text-right font-mono">{fmt(pkNT)}</td>
                                         </>
                                       ) : (
                                         <>
-                                          <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">{psData.reduce((s, r) => s + r.totalAll, 0).toFixed(2)}</td>
-                                          <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-blue-100">{fmt(pkGesamt)}</td>
+                                          <td className="px-2 py-2 border border-gray-300 text-right font-mono">{psData.reduce((s, r) => s + r.totalAll, 0).toFixed(2)}</td>
+                                          <td className="px-2 py-2 border border-gray-300"></td>
+                                          <td className="px-2 py-2 border border-gray-300 text-right font-mono">{fmt(pkGesamt)}</td>
                                         </>
                                       )}
                                     </tr>
                                   </tbody>
                                 </table>
                               </div>
+                              <p className="text-xs text-gray-400 mt-2">
+                                Stundensatz = vom Zuwendungsgeber anerkannter personengebundener Stundensatz (aus Projektteam).
+                              </p>
                             </div>
                           )}
                         </div>
@@ -2067,16 +2326,16 @@ export default function BerichtePage() {
             {showMatrix && (
               <div className="mt-6 border border-gray-200 rounded-lg overflow-hidden">
 
-                {/* Matrix-Header mit Projekt-Auswahl */}
+                {/* Matrix-Header: Projekt-Auswahl (falls mehrere Projekte) */}
                 <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <Grid3x3 className="w-5 h-5 text-blue-600" />
+                    <Grid3x3 className="w-5 h-5 text-green-600" />
                     <span className="font-medium text-gray-900">Stundennachweis-Matrix</span>
                     {projects.length > 1 && (
                       <select
                         value={matrixProjectId || projects[0]?.id || ''}
                         onChange={e => setMatrixProjectId(e.target.value)}
-                        className="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-1 focus:ring-blue-500"
+                        className="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-1 focus:ring-green-500"
                       >
                         {projects.map(p => (
                           <option key={p.id} value={p.id}>
@@ -2121,6 +2380,7 @@ export default function BerichtePage() {
                   <div className="overflow-x-auto">
                     <table className="min-w-full text-xs">
                       <thead>
+                        {/* Jahres-Gruppen-Header */}
                         <tr className="bg-gray-100 border-b border-gray-200">
                           <th className="px-3 py-2 text-left font-semibold text-gray-600 w-40 sticky left-0 bg-gray-100 z-10">
                             Mitarbeiter
@@ -2138,6 +2398,7 @@ export default function BerichtePage() {
                             );
                           })}
                         </tr>
+                        {/* Monats-Header */}
                         <tr className="bg-gray-50 border-b border-gray-200">
                           <th className="px-3 py-2 sticky left-0 bg-gray-50 z-10"></th>
                           {matrixData.months.map(({ year, month, label }) => {
@@ -2147,7 +2408,7 @@ export default function BerichtePage() {
                               <th
                                 key={`${year}-${month}`}
                                 className={`px-1 py-2 text-center font-medium w-10 border-l border-gray-200 ${
-                                  isCurrent ? 'text-blue-700 bg-blue-50' : 'text-gray-500'
+                                  isCurrent ? 'text-green-700 bg-green-50' : 'text-gray-500'
                                 }`}
                               >
                                 {label}
@@ -2162,11 +2423,13 @@ export default function BerichtePage() {
                             key={emp.id}
                             className={empIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}
                           >
+                            {/* MA-Name sticky links */}
                             <td className={`px-3 py-2 font-medium text-gray-800 sticky left-0 z-10 ${
                               empIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'
                             }`}>
                               {emp.display_name}
                             </td>
+                            {/* Monatszellen */}
                             {matrixData.months.map(({ year, month }) => {
                               const cell = matrixData.cells.find(
                                 c => c.employeeId === emp.id && c.year === year && c.month === month
@@ -2174,6 +2437,7 @@ export default function BerichtePage() {
                               const status = cell?.status || 'future';
                               const hours = cell?.hoursRecorded || 0;
 
+                              // Farben pro Status
                               const colorMap: Record<string, string> = {
                                 complete: 'bg-green-500 hover:bg-green-600 cursor-pointer',
                                 partial:  'bg-orange-400 hover:bg-orange-500 cursor-pointer',
@@ -2184,6 +2448,7 @@ export default function BerichtePage() {
                               const colorClass = colorMap[status] || 'bg-gray-100';
                               const isClickable = status !== 'future' && status !== 'outside';
 
+                              // Tooltip-Text
                               const monthName = ['Januar','Februar','Maerz','April','Mai','Juni',
                                 'Juli','August','September','Oktober','November','Dezember'][month - 1];
                               const tooltip = status === 'future'
@@ -2204,11 +2469,10 @@ export default function BerichtePage() {
                                     className={`w-8 h-7 mx-auto rounded flex items-center justify-center text-white font-bold transition-colors ${colorClass}`}
                                     onClick={() => {
                                       if (!isClickable) return;
-                                      const returnUrl = encodeURIComponent(
-                                        `/v7/berater/foerderung/firma/${companyId}/berichte`
-                                      );
+                                      // Finde employee_id fuer URL-Parameter
+                                      const returnUrl = encodeURIComponent('/v7/firma/berichte');
                                       router.push(
-                                        `/v7/berater/foerderung/firma/${companyId}/zeiterfassung?employee=${emp.id}&year=${year}&month=${month}&returnUrl=${returnUrl}`
+                                        `/v7/firma/zeiterfassung?employee=${emp.id}&year=${year}&month=${month}&returnUrl=${returnUrl}`
                                       );
                                     }}
                                   >
@@ -2229,6 +2493,7 @@ export default function BerichtePage() {
                   </div>
                 )}
 
+                {/* Hinweis-Zeile */}
                 <div className="bg-gray-50 px-4 py-2 border-t border-gray-200 text-xs text-gray-500">
                   Klick auf eine Zelle oeffnet die Zeiterfassung des Mitarbeiters fuer den jeweiligen Monat.
                 </div>
@@ -2239,7 +2504,7 @@ export default function BerichtePage() {
       </main>
       
       <footer className="text-center py-4 text-sm text-gray-500 mt-8">
-        Projektzeiterfassung v7.4.4-2 - Berater-Portal - 2026
+        Projektzeiterfassung v7.4.3-18 - Firmen-Portal - 2026
       </footer>
     </div>
   );
