@@ -5,7 +5,7 @@
 // PZE V7 - Berater-Dashboard
 // ============================================================================
 // Datum: 11. Februar 2026
-// Version: 7.3.90-4
+// Version: 7.4.4-2
 //
 // Layout:
 //   1. Kundenliste (Tabelle mit Suchfunktion)
@@ -13,6 +13,8 @@
 //   2. Sonstiges (firmenuebergreifend)
 //      Netzwerk, Multiprojekt, FZul
 //
+// v7.4.4-2: Schnellzugriff-Buttons in Kundentabelle (Firma/Berichte/ZE/MA)
+//            /v7/berater/berichte Redirect auf Dashboard
 // v7.3.90-4: Kundenliste statt Kacheln (skaliert besser)
 //            Suchfunktion fuer Firmennamen
 //            ZIM-Import-Button entfernt (gehoert nicht aufs Dashboard)
@@ -42,6 +44,7 @@ import {
   Users,
   ChevronRight,
   Search,
+  FileText,
 } from 'lucide-react';
 
 import { V7UserRole } from '@/types/v7-types';
@@ -293,18 +296,21 @@ export default function BeraterDashboardPage() {
                     <th className="text-center text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
                       Mitarbeiter
                     </th>
-                    <th className="w-10"></th>
+                    <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3 hidden md:table-cell">Schnellzugriff</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {filteredCompanies.map((company) => (
                     <tr
                       key={company.id}
-                      onClick={() => router.push(`/v7/berater/foerderung/firma/${company.id}`)}
-                      className="hover:bg-sky-50 cursor-pointer transition-colors"
+                      className="hover:bg-sky-50 transition-colors"
                     >
-                      <td className="px-4 py-3">
-                        <div className="font-medium text-gray-900 text-sm">
+                      {/* Firmenname - klickbar zur Detailseite */}
+                      <td
+                        className="px-4 py-3 cursor-pointer"
+                        onClick={() => router.push(`/v7/berater/foerderung/firma/${company.id}`)}
+                      >
+                        <div className="font-medium text-gray-900 text-sm hover:text-sky-700 transition-colors">
                           {company.name}
                         </div>
                         {company.short_name && (
@@ -326,8 +332,34 @@ export default function BeraterDashboardPage() {
                           {company.employee_count}
                         </span>
                       </td>
-                      <td className="px-4 py-3">
-                        <ChevronRight size={16} className="text-gray-300" />
+                      {/* Schnellzugriff-Buttons */}
+                      <td className="px-4 py-3 hidden md:table-cell">
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => router.push(`/v7/berater/foerderung/firma/${company.id}`)}
+                            title="Firma / Projekte"
+                            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-sky-100 hover:text-sky-700 rounded transition-colors"
+                          >
+                            <FolderKanban size={12} />
+                            Projekte
+                          </button>
+                          <button
+                            onClick={() => router.push(`/v7/berater/foerderung/firma/${company.id}/berichte`)}
+                            title="Berichte & Controlling"
+                            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-green-100 hover:text-green-700 rounded transition-colors"
+                          >
+                            <BarChart3 size={12} />
+                            Berichte
+                          </button>
+                          <button
+                            onClick={() => router.push(`/v7/berater/foerderung/firma/${company.id}/zeiterfassung`)}
+                            title="Zeiterfassungen"
+                            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-purple-100 hover:text-purple-700 rounded transition-colors"
+                          >
+                            <Clock size={12} />
+                            Zeiten
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -422,7 +454,7 @@ export default function BeraterDashboardPage() {
       <footer className="bg-white border-t mt-8">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <p className="text-center text-xs text-gray-400">
-            PZE v7.3.90 &middot; {consultantCompanyName || 'PZE'}
+            PZE v7.4.4 &middot; {consultantCompanyName || 'PZE'}
           </p>
         </div>
       </footer>

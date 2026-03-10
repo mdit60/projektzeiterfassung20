@@ -2,9 +2,10 @@
 // ============================================================================
 // PZE V7 - Portal-Navigation
 // ============================================================================
-// Datum: 23. Februar 2026
-// Version: 7.4.0
+// Datum: 10. Maerz 2026
+// Version: 7.4.4-1
 //
+// v7.4.4-1: Kunden + Berichte aus Berater-Nav entfernt (Schnellzugriff im Dashboard)
 // v7.4.0: NAV_BERATER um 'Zeiterfassungen' (/v7/berater/timesheets) erweitert
 // v7.3.95-2: "Import" aus Berater-Navigation entfernt
 // v7.3.95: print:hidden hinzugefuegt
@@ -58,10 +59,10 @@ const PORTAL_COLORS = {
 // ============================================================================
 // BERATER-PORTAL NAVIGATION
 // ============================================================================
+// Kunden + Berichte entfernt: Schnellzugriff direkt im Dashboard pro Firma.
+// Nav zeigt nur noch firmenuebergreifende Funktionen.
 
 const NAV_BERATER: NavItem[] = [
-  { key: 'kunden',      label: 'Kunden',          href: '/v7/berater/foerderung',  icon: <Building2 size={18} /> },
-  { key: 'berichte',    label: 'Berichte',         href: '/v7/berater/berichte',    icon: <BarChart3 size={18} /> },
   { key: 'timesheets',  label: 'Zeiterfassungen',  href: '/v7/berater/timesheets',  icon: <Clock size={18} /> },
 ];
 
