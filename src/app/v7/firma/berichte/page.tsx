@@ -1679,6 +1679,11 @@ export default function BerichtePage() {
               const antZuwendung = Math.round(summeGesamt * foerdersatz / 100);
 
               const fmt = (v: number) => v.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+              const fmtDate = (s: string) => {
+                if (!s) return '';
+                const [y, m, d] = s.split('-');
+                return `${d}.${m}.${y}`;
+              };
 
               return (
                 <div className="mt-6 border border-green-200 rounded-lg overflow-hidden">
@@ -1753,202 +1758,268 @@ export default function BerichtePage() {
                   ) : (
                     <div className="p-4 bg-white">
 
-                      {/* ---- TAB: DECKBLATT ---- */}
+                      {/* ---- TAB: DECKBLATT (Seite 5) - formulargetreu ---- */}
                       {zaTab === 'deckblatt' && (
                         <div className="space-y-4">
-                          {/* Kopfdaten */}
-                          <div className="grid grid-cols-3 gap-4">
-                            <div>
-                              <label className="block text-xs font-medium text-gray-600 mb-1">ZA-Nummer</label>
-                              <input type="number" min="1" value={zaFormData.za_nummer}
-                                onChange={e => setZAFormData(prev => ({ ...prev, za_nummer: e.target.value }))}
-                                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500" />
-                            </div>
-                            <div>
-                              <label className="block text-xs font-medium text-gray-600 mb-1">Abrechnungszeitraum von</label>
-                              <input type="date" value={zaFormData.zeitraum_von}
-                                onChange={e => setZAFormData(prev => ({ ...prev, zeitraum_von: e.target.value }))}
-                                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500" />
-                            </div>
-                            <div>
-                              <label className="block text-xs font-medium text-gray-600 mb-1">bis</label>
-                              <input type="date" value={zaFormData.zeitraum_bis}
-                                onChange={e => setZAFormData(prev => ({ ...prev, zeitraum_bis: e.target.value }))}
-                                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500" />
-                            </div>
-                          </div>
 
-                          {/* Foerderparameter-Hinweis wenn nicht gepflegt */}
-                          {(!zaProject.foerdersatz || !zaProject.overhead_t) && (
-                            <div className="bg-amber-50 border border-amber-200 rounded p-3 text-sm text-amber-700">
-                              Foerderparameter (Foerdersatz, GKZ) sind noch nicht am Projekt hinterlegt.
-                              Bitte zunaechst im Projekt bearbeiten (Tab Uebersicht &rsaquo; Bearbeiten).
+                          {/* Formular-Header wie ZIM-PDF */}
+                          <div className="border-2 border-gray-400 rounded bg-white p-4">
+                            <div className="text-center text-xs text-gray-500 mb-3 font-medium uppercase tracking-wide">
+                              Zentrales Innovationsprogramm Mittelstand (ZIM) &mdash; Zahlungsanforderung
+                              {isDS ? ' fuer Durchfuehrbarkeitsstudien' : ''}
                             </div>
-                          )}
 
-                          {/* Kostentabelle */}
-                          <div className="border border-gray-200 rounded overflow-hidden">
-                            <table className="w-full text-sm">
-                              <thead className="bg-gray-50">
-                                <tr>
-                                  <th className="text-left px-3 py-2 font-medium text-gray-700">Kostenart</th>
+                            {/* Kopfdaten-Zeile */}
+                            <div className="grid grid-cols-4 gap-3 mb-4 pb-3 border-b border-gray-300">
+                              <div>
+                                <div className="text-xs text-gray-500 mb-1">Foerderkennzeichen</div>
+                                <div className="font-medium text-sm bg-yellow-50 border border-gray-300 rounded px-2 py-1 min-h-[28px]">
+                                  {zaProject.funding_reference || <span className="text-gray-400 italic">nicht hinterlegt</span>}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-xs text-gray-500 mb-1">Zahlungsanforderung Nr.</div>
+                                <input type="number" min="1" value={zaFormData.za_nummer}
+                                  onChange={e => setZAFormData(prev => ({ ...prev, za_nummer: e.target.value }))}
+                                  className="w-full px-2 py-1 text-sm font-medium border border-gray-300 rounded focus:ring-1 focus:ring-green-500 bg-blue-50" />
+                              </div>
+                              <div>
+                                <div className="text-xs text-gray-500 mb-1">Abrechnungszeitraum von</div>
+                                <input type="date" value={zaFormData.zeitraum_von}
+                                  onChange={e => setZAFormData(prev => ({ ...prev, zeitraum_von: e.target.value }))}
+                                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500 bg-blue-50" />
+                              </div>
+                              <div>
+                                <div className="text-xs text-gray-500 mb-1">bis</div>
+                                <input type="date" value={zaFormData.zeitraum_bis}
+                                  onChange={e => setZAFormData(prev => ({ ...prev, zeitraum_bis: e.target.value }))}
+                                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500 bg-blue-50" />
+                              </div>
+                            </div>
+
+                            {/* Foerderparameter-Hinweis */}
+                            {(!zaProject.foerdersatz || !zaProject.overhead_t) && (
+                              <div className="bg-amber-50 border border-amber-300 rounded p-2 text-xs text-amber-700 mb-3">
+                                Foerderparameter (Foerdersatz, GKZ) sind noch nicht am Projekt hinterlegt.
+                                Bitte im Projekt bearbeiten (Tab Uebersicht &rsaquo; Bearbeiten).
+                              </div>
+                            )}
+
+                            {/* Kostentabelle - exakt wie Formblatt Seite 5 */}
+                            <div className="text-xs font-medium text-gray-700 mb-1">
+                              Zuwendungsfaehige Kosten im Abrechnungszeitraum und anteilige Zuwendung
+                            </div>
+                            <table className="w-full text-xs border border-gray-400">
+                              <thead>
+                                <tr className="bg-gray-100">
+                                  <th className="text-left px-2 py-1.5 border border-gray-300 font-medium w-8">Nr.</th>
+                                  <th className="text-left px-2 py-1.5 border border-gray-300 font-medium">Kostenart</th>
                                   {isDS ? (
                                     <>
-                                      <th className="text-right px-3 py-2 font-medium text-gray-700">Technisch (EUR)</th>
-                                      <th className="text-right px-3 py-2 font-medium text-gray-700">Nichttechnisch (EUR)</th>
+                                      <th className="text-right px-2 py-1.5 border border-gray-300 font-medium w-32">entst. Kosten technisch<br />[EUR, Cent]</th>
+                                      <th className="text-right px-2 py-1.5 border border-gray-300 font-medium w-32">entst. Kosten nichttechn.<br />[EUR, Cent]</th>
                                     </>
                                   ) : (
-                                    <th className="text-right px-3 py-2 font-medium text-gray-700">Betrag (EUR)</th>
+                                    <>
+                                      <th className="text-right px-2 py-1.5 border border-gray-300 font-medium w-40">entstandene zuwendungs-<br />faehige Kosten [EUR, Cent]</th>
+                                      <th className="text-center px-2 py-1.5 border border-gray-300 font-medium w-24">Foerdersatz<br />[%]</th>
+                                      <th className="text-right px-2 py-1.5 border border-gray-300 font-medium w-40">anteilige Zuwendung<br />(Summe gerundet) [EUR, Cent]</th>
+                                    </>
                                   )}
                                 </tr>
                               </thead>
-                              <tbody className="divide-y divide-gray-100">
-                                {/* Personal */}
-                                <tr className="bg-blue-50">
-                                  <td className="px-3 py-2 text-gray-700">Personal (lt. Anlage 1b)</td>
-                                  {isDS ? (
-                                    <>
-                                      <td className="px-3 py-2 text-right font-mono">{fmt(pkT)}</td>
-                                      <td className="px-3 py-2 text-right font-mono">{fmt(pkNT)}</td>
-                                    </>
-                                  ) : (
-                                    <td className="px-3 py-2 text-right font-mono">{fmt(pkGesamt)}</td>
-                                  )}
-                                </tr>
-                                {/* GKZ */}
+                              <tbody>
+                                {/* (1) Personal technisch */}
                                 <tr>
-                                  <td className="px-3 py-2 text-gray-700">
-                                    Zuschlag uebrige Kosten
-                                    {isDS
-                                      ? ` (T: ${overheadT}% / NT: ${overheadNT}%)`
-                                      : ` (${overheadT}%)`}
+                                  <td className="px-2 py-1.5 border border-gray-300 text-center text-gray-500">(1)</td>
+                                  <td className="px-2 py-1.5 border border-gray-300">
+                                    Personal {isDS ? 'technisch' : ''} (lt. Anlage 1b)
                                   </td>
                                   {isDS ? (
                                     <>
-                                      <td className="px-3 py-2 text-right font-mono">{fmt(gkT)}</td>
-                                      <td className="px-3 py-2 text-right font-mono">{fmt(gkNT)}</td>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-blue-50">{fmt(pkT)}</td>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-gray-50 text-gray-400">--</td>
                                     </>
                                   ) : (
-                                    <td className="px-3 py-2 text-right font-mono">{fmt(gkT)}</td>
+                                    <>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-blue-50">{fmt(pkGesamt)}</td>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-center bg-gray-50 text-gray-400">--</td>
+                                      <td className="px-2 py-1.5 border border-gray-300 bg-gray-50"></td>
+                                    </>
                                   )}
                                 </tr>
-                                {/* Auftraege Dritte */}
+                                {/* (2) Zuschlag T */}
                                 <tr>
-                                  <td className="px-3 py-2 text-gray-700">
-                                    {isDS ? 'Kosten Auftraege wiss.qual. Dritte' : 'Auftraege an wiss.qual. Dritte'}
+                                  <td className="px-2 py-1.5 border border-gray-300 text-center text-gray-500">(2)</td>
+                                  <td className="px-2 py-1.5 border border-gray-300">
+                                    Zuschlag fuer uebrige Kosten{isDS ? ' technisch' : ''}&nbsp;
+                                    <span className="font-medium">{overheadT}%</span>
                                   </td>
                                   {isDS ? (
                                     <>
-                                      <td className="px-3 py-2">
-                                        <input type="number" step="0.01" min="0"
-                                          value={zaFormData.auftraege_dritte_t}
-                                          onChange={e => setZAFormData(prev => ({ ...prev, auftraege_dritte_t: e.target.value }))}
-                                          className="w-full px-2 py-1 text-right text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500"
-                                          placeholder="0,00" />
-                                      </td>
-                                      <td className="px-3 py-2">
-                                        <input type="number" step="0.01" min="0"
-                                          value={zaFormData.auftraege_dritte_nt}
-                                          onChange={e => setZAFormData(prev => ({ ...prev, auftraege_dritte_nt: e.target.value }))}
-                                          className="w-full px-2 py-1 text-right text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500"
-                                          placeholder="0,00" />
-                                      </td>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-blue-50">{fmt(gkT)}</td>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-gray-50 text-gray-400">--</td>
                                     </>
                                   ) : (
-                                    <td className="px-3 py-2">
-                                      <input type="number" step="0.01" min="0"
-                                        value={zaFormData.auftraege_dritte_t}
-                                        onChange={e => setZAFormData(prev => ({ ...prev, auftraege_dritte_t: e.target.value }))}
-                                        className="w-full px-2 py-1 text-right text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500"
-                                        placeholder="0,00" />
-                                    </td>
+                                    <>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-blue-50">{fmt(gkT)}</td>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-center bg-gray-50 text-gray-400">--</td>
+                                      <td className="px-2 py-1.5 border border-gray-300 bg-gray-50"></td>
+                                    </>
                                   )}
                                 </tr>
-                                {/* FuE-Unterauftrag - nur bei normalem ZIM */}
-                                {!isDS && (
+                                {/* (3) Personal nichttechnisch - nur DS */}
+                                {isDS && (
                                   <tr>
-                                    <td className="px-3 py-2 text-gray-700">FuE-Unterauftrag</td>
-                                    <td className="px-3 py-2">
-                                      <input type="number" step="0.01" min="0"
-                                        value={zaFormData.fue_unterauftrag}
-                                        onChange={e => setZAFormData(prev => ({ ...prev, fue_unterauftrag: e.target.value }))}
-                                        className="w-full px-2 py-1 text-right text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500"
+                                    <td className="px-2 py-1.5 border border-gray-300 text-center text-gray-500">(3)</td>
+                                    <td className="px-2 py-1.5 border border-gray-300">Personal nichttechnisch (lt. Anlage 1b)</td>
+                                    <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-gray-50 text-gray-400">--</td>
+                                    <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-blue-50">{fmt(pkNT)}</td>
+                                  </tr>
+                                )}
+                                {/* (4) Zuschlag NT - nur DS */}
+                                {isDS && (
+                                  <tr>
+                                    <td className="px-2 py-1.5 border border-gray-300 text-center text-gray-500">(4)</td>
+                                    <td className="px-2 py-1.5 border border-gray-300">
+                                      Zuschlag fuer uebrige Kosten nichttechnisch&nbsp;
+                                      <span className="font-medium">{overheadNT}%</span>
+                                    </td>
+                                    <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-gray-50 text-gray-400">--</td>
+                                    <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-blue-50">{fmt(gkNT)}</td>
+                                  </tr>
+                                )}
+                                {/* (5) Auftraege Dritte technisch */}
+                                <tr>
+                                  <td className="px-2 py-1.5 border border-gray-300 text-center text-gray-500">{isDS ? '(5)' : '(3)'}</td>
+                                  <td className="px-2 py-1.5 border border-gray-300">
+                                    Kosten der Auftraege an wiss. qual. Dritte{isDS ? ', technisch' : ''}
+                                  </td>
+                                  {isDS ? (
+                                    <>
+                                      <td className="px-2 py-1.5 border border-gray-300">
+                                        <input type="number" step="0.01" min="0" value={zaFormData.auftraege_dritte_t}
+                                          onChange={e => setZAFormData(prev => ({ ...prev, auftraege_dritte_t: e.target.value }))}
+                                          className="w-full px-1 py-0.5 text-right border border-gray-300 rounded focus:ring-1 focus:ring-green-500 bg-blue-50"
+                                          placeholder="0,00" />
+                                      </td>
+                                      <td className="px-2 py-1.5 border border-gray-300 bg-gray-50 text-gray-400 text-right">--</td>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <td className="px-2 py-1.5 border border-gray-300">
+                                        <input type="number" step="0.01" min="0" value={zaFormData.auftraege_dritte_t}
+                                          onChange={e => setZAFormData(prev => ({ ...prev, auftraege_dritte_t: e.target.value }))}
+                                          className="w-full px-1 py-0.5 text-right border border-gray-300 rounded focus:ring-1 focus:ring-green-500 bg-blue-50"
+                                          placeholder="0,00" />
+                                      </td>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-center bg-gray-50 text-gray-400">--</td>
+                                      <td className="px-2 py-1.5 border border-gray-300 bg-gray-50"></td>
+                                    </>
+                                  )}
+                                </tr>
+                                {/* (6) Auftraege Dritte nichttechnisch - nur DS */}
+                                {isDS && (
+                                  <tr>
+                                    <td className="px-2 py-1.5 border border-gray-300 text-center text-gray-500">(6)</td>
+                                    <td className="px-2 py-1.5 border border-gray-300">Kosten der Auftraege an wiss. qual. Dritte, nichttechnisch</td>
+                                    <td className="px-2 py-1.5 border border-gray-300 bg-gray-50 text-gray-400 text-right">--</td>
+                                    <td className="px-2 py-1.5 border border-gray-300">
+                                      <input type="number" step="0.01" min="0" value={zaFormData.auftraege_dritte_nt}
+                                        onChange={e => setZAFormData(prev => ({ ...prev, auftraege_dritte_nt: e.target.value }))}
+                                        className="w-full px-1 py-0.5 text-right border border-gray-300 rounded focus:ring-1 focus:ring-green-500 bg-blue-50"
                                         placeholder="0,00" />
                                     </td>
                                   </tr>
                                 )}
-                                {/* Zeitw. Personalaufnahme - nur bei normalem ZIM */}
+                                {/* FuE-Unterauftrag - nur normales ZIM */}
                                 {!isDS && (
                                   <tr>
-                                    <td className="px-3 py-2 text-gray-700">Zeitweilige Personalaufnahme</td>
-                                    <td className="px-3 py-2">
-                                      <input type="number" step="0.01" min="0"
-                                        value={zaFormData.zeitw_personalaufnahme}
-                                        onChange={e => setZAFormData(prev => ({ ...prev, zeitw_personalaufnahme: e.target.value }))}
-                                        className="w-full px-2 py-1 text-right text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500"
+                                    <td className="px-2 py-1.5 border border-gray-300 text-center text-gray-500">(4)</td>
+                                    <td className="px-2 py-1.5 border border-gray-300">FuE-Unterauftrag</td>
+                                    <td className="px-2 py-1.5 border border-gray-300">
+                                      <input type="number" step="0.01" min="0" value={zaFormData.fue_unterauftrag}
+                                        onChange={e => setZAFormData(prev => ({ ...prev, fue_unterauftrag: e.target.value }))}
+                                        className="w-full px-1 py-0.5 text-right border border-gray-300 rounded focus:ring-1 focus:ring-green-500 bg-blue-50"
                                         placeholder="0,00" />
                                     </td>
+                                    <td className="px-2 py-1.5 border border-gray-300 text-center bg-gray-50 text-gray-400">--</td>
+                                    <td className="px-2 py-1.5 border border-gray-300 bg-gray-50"></td>
+                                  </tr>
+                                )}
+                                {/* Zeitw. Personalaufnahme - nur normales ZIM */}
+                                {!isDS && (
+                                  <tr>
+                                    <td className="px-2 py-1.5 border border-gray-300 text-center text-gray-500">(5)</td>
+                                    <td className="px-2 py-1.5 border border-gray-300">Zeitweilige Personalaufnahme</td>
+                                    <td className="px-2 py-1.5 border border-gray-300">
+                                      <input type="number" step="0.01" min="0" value={zaFormData.zeitw_personalaufnahme}
+                                        onChange={e => setZAFormData(prev => ({ ...prev, zeitw_personalaufnahme: e.target.value }))}
+                                        className="w-full px-1 py-0.5 text-right border border-gray-300 rounded focus:ring-1 focus:ring-green-500 bg-blue-50"
+                                        placeholder="0,00" />
+                                    </td>
+                                    <td className="px-2 py-1.5 border border-gray-300 text-center bg-gray-50 text-gray-400">--</td>
+                                    <td className="px-2 py-1.5 border border-gray-300 bg-gray-50"></td>
                                   </tr>
                                 )}
                                 {/* Summe */}
-                                <tr className="bg-gray-50 font-medium">
-                                  <td className="px-3 py-2 text-gray-900">Summe zuwendungsfaehige Kosten</td>
+                                <tr className="bg-gray-100 font-semibold">
+                                  <td className="px-2 py-1.5 border border-gray-300"></td>
+                                  <td className="px-2 py-1.5 border border-gray-300">Summe</td>
                                   {isDS ? (
                                     <>
-                                      <td className="px-3 py-2 text-right font-mono">{fmt(summeT)}</td>
-                                      <td className="px-3 py-2 text-right font-mono">{fmt(summeNT)}</td>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">{fmt(summeT)}</td>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">{fmt(summeNT)}</td>
                                     </>
                                   ) : (
-                                    <td className="px-3 py-2 text-right font-mono">{fmt(summeGesamt)}</td>
+                                    <>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">{fmt(summeGesamt)}</td>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-center font-medium">{foerdersatz}%</td>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-right font-mono text-green-800">{fmt(antZuwendung)}</td>
+                                    </>
                                   )}
                                 </tr>
+                                {/* Gesamt + Zuwendung bei DS */}
                                 {isDS && (
-                                  <tr className="bg-gray-100 font-medium">
-                                    <td className="px-3 py-2 text-gray-900">Summe gesamt</td>
-                                    <td colSpan={2} className="px-3 py-2 text-right font-mono">{fmt(summeGesamt)}</td>
-                                  </tr>
+                                  <>
+                                    <tr className="bg-gray-200 font-semibold">
+                                      <td className="px-2 py-1.5 border border-gray-300"></td>
+                                      <td className="px-2 py-1.5 border border-gray-300">Summe gesamt (T + NT)</td>
+                                      <td colSpan={2} className="px-2 py-1.5 border border-gray-300 text-right font-mono">{fmt(summeGesamt)}</td>
+                                    </tr>
+                                    <tr className="bg-green-50 font-semibold">
+                                      <td className="px-2 py-1.5 border border-gray-300"></td>
+                                      <td className="px-2 py-1.5 border border-gray-300 text-green-800">Anteilige Zuwendung ({foerdersatz}% Foerdersatz)</td>
+                                      <td colSpan={2} className="px-2 py-1.5 border border-gray-300 text-right font-mono text-green-800">{fmt(antZuwendung)}</td>
+                                    </tr>
+                                  </>
                                 )}
-                                {/* Foerdersatz + Zuwendung */}
-                                <tr className="bg-green-50 font-semibold">
-                                  <td className="px-3 py-2 text-green-800">
-                                    Anteilige Zuwendung ({foerdersatz}% Foerdersatz)
-                                  </td>
-                                  {isDS ? (
-                                    <td colSpan={2} className="px-3 py-2 text-right font-mono text-green-800">{fmt(antZuwendung)}</td>
-                                  ) : (
-                                    <td className="px-3 py-2 text-right font-mono text-green-800">{fmt(antZuwendung)}</td>
-                                  )}
-                                </tr>
                               </tbody>
                             </table>
+
+                            {/* Interne Notizen */}
+                            <div className="mt-3">
+                              <label className="block text-xs text-gray-500 mb-1">Interne Notizen (nicht im Formular)</label>
+                              <textarea value={zaFormData.notizen}
+                                onChange={e => setZAFormData(prev => ({ ...prev, notizen: e.target.value }))}
+                                rows={2}
+                                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-green-500"
+                                placeholder="Optionale Notizen zur ZA" />
+                            </div>
                           </div>
 
-                          {/* Notizen */}
-                          <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">Interne Notizen</label>
-                            <textarea
-                              value={zaFormData.notizen}
-                              onChange={e => setZAFormData(prev => ({ ...prev, notizen: e.target.value }))}
-                              rows={2}
-                              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500"
-                              placeholder="Optionale Notizen zur ZA"
-                            />
-                          </div>
-
-                          {/* Speichern */}
+                          {/* Speichern-Button */}
                           <div className="flex justify-end">
-                            <button
-                              onClick={handleZASave}
+                            <button onClick={handleZASave}
                               disabled={zaSaving || !zaFormData.zeitraum_von || !zaFormData.zeitraum_bis}
-                              className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50 transition-colors text-sm"
-                            >
+                              className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50 transition-colors text-sm">
                               {zaSaving ? 'Speichern...' : (zaSelectedId ? 'Aktualisieren' : 'ZA speichern')}
                             </button>
                           </div>
                         </div>
                       )}
 
-                      {/* ---- TAB: ANLAGE 1a ---- */}
+                      {/* ---- TAB: ANLAGE 1a (Seite 6) - formulargetreu ---- */}
                       {zaTab === 'anlage1a' && (
                         <div>
                           {(!zaFormData.zeitraum_von || !zaFormData.zeitraum_bis) ? (
@@ -1960,59 +2031,129 @@ export default function BerichtePage() {
                               Keine Zeiterfassungsdaten im gewaehlten Zeitraum gefunden.
                             </div>
                           ) : (
-                            <div className="overflow-x-auto">
-                              <p className="text-xs text-gray-500 mb-2">
-                                Abrechnung der foerderbaren Personenstunden (Anlage 1a) &mdash;
-                                Zeitraum: {zaFormData.zeitraum_von} bis {zaFormData.zeitraum_bis}
-                              </p>
-                              <table className="w-full text-xs border border-gray-200">
-                                <thead>
-                                  <tr className="bg-gray-50">
-                                    <th className="px-2 py-1.5 text-left border-b border-gray-200">Nr.</th>
-                                    <th className="px-2 py-1.5 text-left border-b border-gray-200">Name, Vorname</th>
-                                    {psData[0]?.monthData.map(m => (
-                                      <th key={`${m.year}-${m.month}`} className="px-2 py-1.5 text-center border-b border-gray-200 whitespace-nowrap">
-                                        {m.label}
-                                        {isDS && <><br /><span className="font-normal text-gray-400">T / NT</span></>}
-                                      </th>
-                                    ))}
-                                    <th className="px-2 py-1.5 text-center border-b border-gray-200">
-                                      Summe [h]
-                                      {isDS && <><br /><span className="font-normal text-gray-400">T / NT</span></>}
-                                    </th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {psData.map((row, idx) => (
-                                    <tr key={row.empId} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                                      <td className="px-2 py-1.5 border-b border-gray-100 text-center">{idx + 1}</td>
-                                      <td className="px-2 py-1.5 border-b border-gray-100 font-medium">{row.empName}</td>
-                                      {row.monthData.map(m => (
-                                        <td key={`${m.year}-${m.month}`} className="px-2 py-1.5 border-b border-gray-100 text-center font-mono">
-                                          {isDS
-                                            ? `${m.hoursT > 0 ? m.hoursT.toFixed(1) : '-'} / ${m.hoursNT > 0 ? m.hoursNT.toFixed(1) : '-'}`
-                                            : (m.hoursTotal > 0 ? m.hoursTotal.toFixed(1) : '-')}
-                                        </td>
-                                      ))}
-                                      <td className="px-2 py-1.5 border-b border-gray-100 text-center font-mono font-semibold">
-                                        {isDS
-                                          ? `${row.totalT.toFixed(1)} / ${row.totalNT.toFixed(1)}`
-                                          : row.totalAll.toFixed(1)}
-                                      </td>
+                            <div className="border-2 border-gray-400 rounded bg-white p-4">
+                              {/* Formular-Header Anlage 1a */}
+                              <div className="text-center text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">
+                                Zentrales Innovationsprogramm Mittelstand (ZIM) &mdash; Anlage 1a
+                              </div>
+                              <div className="text-center text-base font-bold mb-3">
+                                Abrechnung der foerderbaren Personenstunden
+                              </div>
+
+                              {/* Kopfdaten */}
+                              <div className="grid grid-cols-4 gap-3 mb-4 pb-3 border-b border-gray-300 text-xs">
+                                <div>
+                                  <span className="text-gray-500">Foerderkennzeichen: </span>
+                                  <span className="font-medium">{zaProject.funding_reference || '--'}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500">zu ZA-Nr.: </span>
+                                  <span className="font-medium">{zaFormData.za_nummer}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500">Zeitraum von: </span>
+                                  <span className="font-medium">{fmtDate(zaFormData.zeitraum_von)}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500">bis: </span>
+                                  <span className="font-medium">{fmtDate(zaFormData.zeitraum_bis)}</span>
+                                </div>
+                              </div>
+
+                              {/* Tabelle Anlage 1a */}
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-xs border border-gray-400">
+                                  <thead>
+                                    <tr className="bg-gray-100">
+                                      <th className="px-2 py-1.5 border border-gray-300 text-center w-8">lfd.<br />Nr.</th>
+                                      <th className="px-2 py-1.5 border border-gray-300 text-left w-36">Projektmitarbeiter(in)<br />(Name, Vorname)</th>
+                                      <th className="px-2 py-1.5 border border-gray-300 text-center w-24">Monat</th>
+                                      {isDS ? (
+                                        <>
+                                          <th className="px-2 py-1.5 border border-gray-300 text-center">foerderbare<br />Std. je Monat<br />[h] techn.</th>
+                                          <th className="px-2 py-1.5 border border-gray-300 text-center">foerderbare<br />Std. je Monat<br />[h] nichttechn.</th>
+                                          <th className="px-2 py-1.5 border border-gray-300 text-center">Summe<br />[h] techn.</th>
+                                          <th className="px-2 py-1.5 border border-gray-300 text-center">Summe<br />[h] nichttechn.</th>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <th className="px-2 py-1.5 border border-gray-300 text-center">foerderbare Personenstunden<br />je Monat [h]</th>
+                                          <th className="px-2 py-1.5 border border-gray-300 text-center">Summe<br />[h]</th>
+                                        </>
+                                      )}
                                     </tr>
-                                  ))}
-                                </tbody>
-                              </table>
+                                  </thead>
+                                  <tbody>
+                                    {psData.map((row, idx) => {
+                                      const firstMonth = row.monthData[0];
+                                      return (
+                                        <React.Fragment key={row.empId}>
+                                          {row.monthData.map((m, mIdx) => (
+                                            <tr key={`${row.empId}-${m.year}-${m.month}`}
+                                              className={mIdx === 0 ? 'border-t-2 border-gray-400' : ''}>
+                                              {mIdx === 0 && (
+                                                <>
+                                                  <td className="px-2 py-1.5 border border-gray-300 text-center align-top" rowSpan={row.monthData.length}>
+                                                    {idx + 1}
+                                                  </td>
+                                                  <td className="px-2 py-1.5 border border-gray-300 font-medium align-top" rowSpan={row.monthData.length}>
+                                                    {row.empName}
+                                                  </td>
+                                                </>
+                                              )}
+                                              <td className="px-2 py-1.5 border border-gray-300 text-center whitespace-nowrap">
+                                                {m.label}
+                                              </td>
+                                              {isDS ? (
+                                                <>
+                                                  <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">
+                                                    {m.hoursT > 0 ? m.hoursT.toFixed(2) : ''}
+                                                  </td>
+                                                  <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">
+                                                    {m.hoursNT > 0 ? m.hoursNT.toFixed(2) : ''}
+                                                  </td>
+                                                  {mIdx === 0 && (
+                                                    <>
+                                                      <td className="px-2 py-1.5 border border-gray-300 text-right font-mono font-semibold bg-blue-50 align-top" rowSpan={row.monthData.length}>
+                                                        {row.totalT > 0 ? row.totalT.toFixed(2) : '--'}
+                                                      </td>
+                                                      <td className="px-2 py-1.5 border border-gray-300 text-right font-mono font-semibold bg-blue-50 align-top" rowSpan={row.monthData.length}>
+                                                        {row.totalNT > 0 ? row.totalNT.toFixed(2) : '--'}
+                                                      </td>
+                                                    </>
+                                                  )}
+                                                </>
+                                              ) : (
+                                                <>
+                                                  <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">
+                                                    {m.hoursTotal > 0 ? m.hoursTotal.toFixed(2) : ''}
+                                                  </td>
+                                                  {mIdx === 0 && (
+                                                    <td className="px-2 py-1.5 border border-gray-300 text-right font-mono font-semibold bg-blue-50 align-top" rowSpan={row.monthData.length}>
+                                                      {row.totalAll > 0 ? row.totalAll.toFixed(2) : '--'}
+                                                    </td>
+                                                  )}
+                                                </>
+                                              )}
+                                            </tr>
+                                          ))}
+                                        </React.Fragment>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
                               <p className="text-xs text-gray-400 mt-2">
-                                Foerderbare Personenstunden = im Abrechnungszeitraum geleistete Projektbearbeitungsstunden
-                                (foerderbar und aktiv). Max. foerderbar je Monat = Wochenarbeitszeit x 52 / 12.
+                                Foerderbare Personenstunden: geleistete Projektbearbeitungsstunden gemaess Stundennachweisen,
+                                jedoch nicht mehr als arbeitsvertraglich vereinbart.
+                                Max. foerderbare Std. je Monat = Wochenarbeitszeit x 52 (Wochen) : 12 (Monate).
                               </p>
                             </div>
                           )}
                         </div>
                       )}
 
-                      {/* ---- TAB: ANLAGE 1b ---- */}
+                      {/* ---- TAB: ANLAGE 1b (Seite 7) - formulargetreu ---- */}
                       {zaTab === 'anlage1b' && (
                         <div>
                           {(!zaFormData.zeitraum_von || !zaFormData.zeitraum_bis) ? (
@@ -2024,90 +2165,117 @@ export default function BerichtePage() {
                               Keine Zeiterfassungsdaten im gewaehlten Zeitraum gefunden.
                             </div>
                           ) : (
-                            <div className="overflow-x-auto">
-                              <p className="text-xs text-gray-500 mb-2">
-                                Abrechnung der zuwendungsfaehigen Personalkosten (Anlage 1b) &mdash;
-                                Zeitraum: {zaFormData.zeitraum_von} bis {zaFormData.zeitraum_bis}
-                              </p>
-                              <table className="w-full text-xs border border-gray-200">
-                                <thead>
-                                  <tr className="bg-gray-50">
-                                    <th className="px-2 py-1.5 text-left border-b border-gray-200">Nr.</th>
-                                    <th className="px-2 py-1.5 text-left border-b border-gray-200">Projektmitarbeiter(in)</th>
-                                    {isDS ? (
-                                      <>
-                                        <th className="px-2 py-1.5 text-right border-b border-gray-200">Std. T [h]</th>
-                                        <th className="px-2 py-1.5 text-right border-b border-gray-200">Std. NT [h]</th>
-                                      </>
-                                    ) : (
-                                      <th className="px-2 py-1.5 text-right border-b border-gray-200">Foerderb. Std. [h]</th>
-                                    )}
-                                    <th className="px-2 py-1.5 text-right border-b border-gray-200">Stundensatz [EUR/h]</th>
-                                    {isDS ? (
-                                      <>
-                                        <th className="px-2 py-1.5 text-right border-b border-gray-200">PK technisch [EUR]</th>
-                                        <th className="px-2 py-1.5 text-right border-b border-gray-200">PK nichttechn. [EUR]</th>
-                                      </>
-                                    ) : (
-                                      <th className="px-2 py-1.5 text-right border-b border-gray-200">Personalkosten [EUR]</th>
-                                    )}
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {psData.map((row, idx) => {
-                                    const rate = getHourlyRate(row.empId, zaProjectId) || 0;
-                                    const pkRowT = row.totalT * rate;
-                                    const pkRowNT = row.totalNT * rate;
-                                    const pkRow = row.totalAll * rate;
-                                    return (
-                                      <tr key={row.empId} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                                        <td className="px-2 py-1.5 border-b border-gray-100 text-center">{idx + 1}</td>
-                                        <td className="px-2 py-1.5 border-b border-gray-100 font-medium">{row.empName}</td>
-                                        {isDS ? (
-                                          <>
-                                            <td className="px-2 py-1.5 border-b border-gray-100 text-right font-mono">{row.totalT.toFixed(2)}</td>
-                                            <td className="px-2 py-1.5 border-b border-gray-100 text-right font-mono">{row.totalNT.toFixed(2)}</td>
-                                          </>
-                                        ) : (
-                                          <td className="px-2 py-1.5 border-b border-gray-100 text-right font-mono">{row.totalAll.toFixed(2)}</td>
-                                        )}
-                                        <td className="px-2 py-1.5 border-b border-gray-100 text-right font-mono">
-                                          {rate > 0 ? rate.toFixed(2) : <span className="text-amber-500">fehlt</span>}
-                                        </td>
-                                        {isDS ? (
-                                          <>
-                                            <td className="px-2 py-1.5 border-b border-gray-100 text-right font-mono">{fmt(pkRowT)}</td>
-                                            <td className="px-2 py-1.5 border-b border-gray-100 text-right font-mono">{fmt(pkRowNT)}</td>
-                                          </>
-                                        ) : (
-                                          <td className="px-2 py-1.5 border-b border-gray-100 text-right font-mono">{fmt(pkRow)}</td>
-                                        )}
-                                      </tr>
-                                    );
-                                  })}
-                                  {/* Summenzeile */}
-                                  <tr className="bg-gray-100 font-semibold">
-                                    <td colSpan={isDS ? 2 : 2} className="px-2 py-1.5 text-right">Summe/Uebertrag:</td>
-                                    {isDS ? (
-                                      <>
-                                        <td className="px-2 py-1.5 text-right font-mono">{psData.reduce((s, r) => s + r.totalT, 0).toFixed(2)}</td>
-                                        <td className="px-2 py-1.5 text-right font-mono">{psData.reduce((s, r) => s + r.totalNT, 0).toFixed(2)}</td>
-                                        <td className="px-2 py-1.5"></td>
-                                        <td className="px-2 py-1.5 text-right font-mono">{fmt(pkT)}</td>
-                                        <td className="px-2 py-1.5 text-right font-mono">{fmt(pkNT)}</td>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <td className="px-2 py-1.5 text-right font-mono">{psData.reduce((s, r) => s + r.totalAll, 0).toFixed(2)}</td>
-                                        <td className="px-2 py-1.5"></td>
-                                        <td className="px-2 py-1.5 text-right font-mono">{fmt(pkGesamt)}</td>
-                                      </>
-                                    )}
-                                  </tr>
-                                </tbody>
-                              </table>
+                            <div className="border-2 border-gray-400 rounded bg-white p-4">
+                              {/* Formular-Header Anlage 1b */}
+                              <div className="text-center text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">
+                                Zentrales Innovationsprogramm Mittelstand (ZIM) &mdash; Anlage 1b
+                              </div>
+                              <div className="text-center text-base font-bold mb-3">
+                                Abrechnung der zuwendungsfaehigen Personalkosten
+                              </div>
+
+                              {/* Kopfdaten */}
+                              <div className="grid grid-cols-4 gap-3 mb-4 pb-3 border-b border-gray-300 text-xs">
+                                <div>
+                                  <span className="text-gray-500">Foerderkennzeichen: </span>
+                                  <span className="font-medium">{zaProject.funding_reference || '--'}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500">zu ZA-Nr.: </span>
+                                  <span className="font-medium">{zaFormData.za_nummer}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500">Zeitraum von: </span>
+                                  <span className="font-medium">{fmtDate(zaFormData.zeitraum_von)}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500">bis: </span>
+                                  <span className="font-medium">{fmtDate(zaFormData.zeitraum_bis)}</span>
+                                </div>
+                              </div>
+
+                              {/* Tabelle Anlage 1b */}
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-xs border border-gray-400">
+                                  <thead>
+                                    <tr className="bg-gray-100">
+                                      <th className="px-2 py-1.5 border border-gray-300 text-center w-8">lfd.<br />Nr.</th>
+                                      <th className="px-2 py-1.5 border border-gray-300 text-left">Projektmitarbeiter(in)</th>
+                                      {isDS ? (
+                                        <>
+                                          <th className="px-2 py-1.5 border border-gray-300 text-right">foerderbare<br />Std. techn.<br />entspr. 1a (1)<br />[h]</th>
+                                          <th className="px-2 py-1.5 border border-gray-300 text-right">foerderbare<br />Std. nichttechn.<br />entspr. 1a (2)<br />[h]</th>
+                                        </>
+                                      ) : (
+                                        <th className="px-2 py-1.5 border border-gray-300 text-right">foerderbare<br />Personenstunden<br />entspr. Anlage 1a<br />[h]</th>
+                                      )}
+                                      <th className="px-2 py-1.5 border border-gray-300 text-right">Stundensatz<br />[EUR, Cent/h]</th>
+                                      {isDS ? (
+                                        <>
+                                          <th className="px-2 py-1.5 border border-gray-300 text-right">entst. PK<br />technisch<br />(1) x (3)<br />[EUR, Cent]</th>
+                                          <th className="px-2 py-1.5 border border-gray-300 text-right">entst. PK<br />nichttechn.<br />(2) x (3)<br />[EUR, Cent]</th>
+                                        </>
+                                      ) : (
+                                        <th className="px-2 py-1.5 border border-gray-300 text-right">entstandene PK<br />Stunden x Satz<br />[EUR, Cent]</th>
+                                      )}
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {psData.map((row, idx) => {
+                                      const rate = getHourlyRate(row.empId, zaProjectId) || 0;
+                                      const pkRowT = row.totalT * rate;
+                                      const pkRowNT = row.totalNT * rate;
+                                      const pkRow = row.totalAll * rate;
+                                      return (
+                                        <tr key={row.empId} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                                          <td className="px-2 py-2 border border-gray-300 text-center">{idx + 1}</td>
+                                          <td className="px-2 py-2 border border-gray-300 font-medium">{row.empName}</td>
+                                          {isDS ? (
+                                            <>
+                                              <td className="px-2 py-2 border border-gray-300 text-right font-mono">{row.totalT > 0 ? row.totalT.toFixed(2) : '--'}</td>
+                                              <td className="px-2 py-2 border border-gray-300 text-right font-mono">{row.totalNT > 0 ? row.totalNT.toFixed(2) : '--'}</td>
+                                            </>
+                                          ) : (
+                                            <td className="px-2 py-2 border border-gray-300 text-right font-mono">{row.totalAll > 0 ? row.totalAll.toFixed(2) : '--'}</td>
+                                          )}
+                                          <td className="px-2 py-2 border border-gray-300 text-right font-mono">
+                                            {rate > 0 ? rate.toFixed(2) : <span className="text-amber-500 font-normal">fehlt!</span>}
+                                          </td>
+                                          {isDS ? (
+                                            <>
+                                              <td className="px-2 py-2 border border-gray-300 text-right font-mono font-semibold">{fmt(pkRowT)}</td>
+                                              <td className="px-2 py-2 border border-gray-300 text-right font-mono font-semibold">{fmt(pkRowNT)}</td>
+                                            </>
+                                          ) : (
+                                            <td className="px-2 py-2 border border-gray-300 text-right font-mono font-semibold">{fmt(pkRow)}</td>
+                                          )}
+                                        </tr>
+                                      );
+                                    })}
+                                    {/* Summenzeile */}
+                                    <tr className="bg-gray-100 font-semibold border-t-2 border-gray-400">
+                                      <td colSpan={2} className="px-2 py-2 border border-gray-300 text-right">Summe/Uebertrag:</td>
+                                      {isDS ? (
+                                        <>
+                                          <td className="px-2 py-2 border border-gray-300 text-right font-mono">{psData.reduce((s, r) => s + r.totalT, 0).toFixed(2)}</td>
+                                          <td className="px-2 py-2 border border-gray-300 text-right font-mono">{psData.reduce((s, r) => s + r.totalNT, 0).toFixed(2)}</td>
+                                          <td className="px-2 py-2 border border-gray-300"></td>
+                                          <td className="px-2 py-2 border border-gray-300 text-right font-mono">{fmt(pkT)}</td>
+                                          <td className="px-2 py-2 border border-gray-300 text-right font-mono">{fmt(pkNT)}</td>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <td className="px-2 py-2 border border-gray-300 text-right font-mono">{psData.reduce((s, r) => s + r.totalAll, 0).toFixed(2)}</td>
+                                          <td className="px-2 py-2 border border-gray-300"></td>
+                                          <td className="px-2 py-2 border border-gray-300 text-right font-mono">{fmt(pkGesamt)}</td>
+                                        </>
+                                      )}
+                                    </tr>
+                                  </tbody>
+                                </table>
+                              </div>
                               <p className="text-xs text-gray-400 mt-2">
-                                Stundensatz = vom Zuwendungsgeber anerkannter personengebundener Stundensatz (aus Projektteam-Daten).
+                                Stundensatz = vom Zuwendungsgeber anerkannter personengebundener Stundensatz (aus Projektteam).
                               </p>
                             </div>
                           )}
