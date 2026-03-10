@@ -2,18 +2,13 @@
 // ============================================================================
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
-// Datum: 09. Maerz 2026
-// Version: 7.3.88-8
+// Datum: 05. Februar 2026
+// Version: 7.3.88-7
 //
 // Gemeinsame Projekt-Detailseite fuer beide Portale:
 // - Berater-Portal: /v7/berater/foerderung/firma/[firmaId]/projekt/[projektId]
 // - Firmen-Portal: /v7/firma/projekte/[id]
 //
-// v7.3.88-8: NEU: syncProjectDatesFromAPs()
-//            Nach jedem AP-Speichern/Loeschen/Import wird project.start_date
-//            automatisch auf das frueheste AP-Startdatum und project.end_date
-//            auf das spaeteste AP-Enddatum gesetzt.
-//            Verhindert falsche "Monate ohne Zeiterfassung"-Anzeige in Mein Status.
 // v7.3.88-7: FIX: projectTeam an WorkPackageTable uebergeben
 //            MA-Sortierung im Arbeitsplan nach employee_number (lfd. Nr.)
 // v7.3.87: NEU: Team-Tab mit ProjectTeamManager (MA vor APs zuordnen)
@@ -152,6 +147,11 @@ interface Project {
   notes: string | null;
   is_active: boolean;
   client_company_id: string;
+  foerdersatz: number | null;
+  overhead_t: number | null;
+  overhead_nt: number | null;
+  overhead_gleich: boolean | null;
+  workplan_locked: boolean | null;
 }
 
 interface TeamMember {
@@ -180,6 +180,10 @@ interface ProjectEditData {
   start_date: string;
   end_date: string;
   notes: string;
+  foerdersatz: string;
+  overhead_t: string;
+  overhead_nt: string;
+  overhead_gleich: boolean;
 }
 
 // Foerderprogramm-Optionen
@@ -268,6 +272,10 @@ export default function ProjectDetailPage({
     start_date: '',
     end_date: '',
     notes: '',
+    foerdersatz: '',
+    overhead_t: '',
+    overhead_nt: '',
+    overhead_gleich: false,
   });
   const [savingProject, setSavingProject] = useState(false);
   const [showProjectDeleteConfirm, setShowProjectDeleteConfirm] = useState(false);
@@ -642,55 +650,11 @@ export default function ProjectDetailPage({
 
       closeWPEditModal();
       await loadData();
-      // NEU v7.3.88-8: Projektdaten automatisch synchronisieren
-      await syncProjectDatesFromAPs();
 
     } catch (err: any) {
       setWpError(err.message);
     } finally {
       setSavingWP(false);
-    }
-  };
-
-  // NEU v7.3.88-8: Projektdaten aus APs synchronisieren
-  // Setzt project.start_date auf das frueheste AP-Startdatum
-  // und project.end_date auf das spaeteste AP-Enddatum.
-  // Wird nach jedem AP-Speichern, Loeschen und Import aufgerufen.
-  const syncProjectDatesFromAPs = async () => {
-    try {
-      const { data: aps } = await supabase
-        .from('v7_work_packages')
-        .select('start_date, end_date')
-        .eq('project_id', projectId)
-        .eq('is_active', true);
-
-      if (!aps || aps.length === 0) return;
-
-      const startDates = (aps || [])
-        .map((ap: any) => ap.start_date)
-        .filter((d: any) => !!d)
-        .sort();
-      const endDates = (aps || [])
-        .map((ap: any) => ap.end_date)
-        .filter((d: any) => !!d)
-        .sort();
-
-      if (startDates.length === 0 && endDates.length === 0) return;
-
-      const newStartDate = startDates.length > 0 ? startDates[0] : null;
-      const newEndDate = endDates.length > 0 ? endDates[endDates.length - 1] : null;
-
-      await supabase
-        .from('v7_projects')
-        .update({
-          start_date: newStartDate,
-          end_date: newEndDate,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', projectId);
-    } catch (err) {
-      // Nicht-kritischer Fehler - still ignorieren
-      console.warn('syncProjectDatesFromAPs fehlgeschlagen:', err);
     }
   };
 
@@ -719,8 +683,6 @@ export default function ProjectDetailPage({
 
       closeDeleteConfirmation();
       await loadData();
-      // NEU v7.3.88-8: Projektdaten synchronisieren
-      await syncProjectDatesFromAPs();
 
     } catch (err: any) {
       alert('Fehler beim Loeschen: ' + err.message);
@@ -980,6 +942,10 @@ export default function ProjectDetailPage({
       start_date: project.start_date || '',
       end_date: project.end_date || '',
       notes: project.notes || '',
+      foerdersatz: project.foerdersatz != null ? String(project.foerdersatz) : '',
+      overhead_t: project.overhead_t != null ? String(project.overhead_t) : '',
+      overhead_nt: project.overhead_nt != null ? String(project.overhead_nt) : '',
+      overhead_gleich: project.overhead_gleich || false,
     });
     setShowProjectEditModal(true);
   };
@@ -1003,6 +969,12 @@ export default function ProjectDetailPage({
           start_date: projectEditData.start_date || null,
           end_date: projectEditData.end_date || null,
           notes: projectEditData.notes.trim() || null,
+          foerdersatz: projectEditData.foerdersatz !== '' ? parseFloat(projectEditData.foerdersatz) : null,
+          overhead_t: projectEditData.overhead_t !== '' ? parseFloat(projectEditData.overhead_t) : null,
+          overhead_nt: projectEditData.overhead_gleich
+            ? (projectEditData.overhead_t !== '' ? parseFloat(projectEditData.overhead_t) : null)
+            : (projectEditData.overhead_nt !== '' ? parseFloat(projectEditData.overhead_nt) : null),
+          overhead_gleich: projectEditData.overhead_gleich,
           updated_at: new Date().toISOString(),
         })
         .eq('id', project.id);
@@ -1018,6 +990,12 @@ export default function ProjectDetailPage({
         start_date: projectEditData.start_date || null,
         end_date: projectEditData.end_date || null,
         notes: projectEditData.notes.trim() || null,
+        foerdersatz: projectEditData.foerdersatz !== '' ? parseFloat(projectEditData.foerdersatz) : null,
+        overhead_t: projectEditData.overhead_t !== '' ? parseFloat(projectEditData.overhead_t) : null,
+        overhead_nt: projectEditData.overhead_gleich
+          ? (projectEditData.overhead_t !== '' ? parseFloat(projectEditData.overhead_t) : null)
+          : (projectEditData.overhead_nt !== '' ? parseFloat(projectEditData.overhead_nt) : null),
+        overhead_gleich: projectEditData.overhead_gleich,
       } : null);
 
       closeProjectEditModal();
@@ -1277,6 +1255,33 @@ export default function ProjectDetailPage({
                   <div className="text-gray-900 whitespace-pre-wrap">{project.notes}</div>
                 </div>
               )}
+              {(project.foerdersatz != null || project.overhead_t != null) && (
+                <div className="mt-6 pt-6 border-t border-gray-200">
+                  <div className="text-sm font-medium text-gray-700 mb-3">Foerderparameter (ZIM)</div>
+                  <div className="grid grid-cols-2 gap-4">
+                    {project.foerdersatz != null && (
+                      <div>
+                        <div className="text-sm text-gray-500 mb-1">Foerdersatz</div>
+                        <div className="text-gray-900">{project.foerdersatz} %</div>
+                      </div>
+                    )}
+                    {project.overhead_t != null && (
+                      <div>
+                        <div className="text-sm text-gray-500 mb-1">
+                          {project.overhead_gleich ? 'Gemeinkostenzuschlag' : 'Gemeinkostenzuschlag (T)'}
+                        </div>
+                        <div className="text-gray-900">{project.overhead_t} %</div>
+                      </div>
+                    )}
+                    {!project.overhead_gleich && project.overhead_nt != null && (
+                      <div>
+                        <div className="text-sm text-gray-500 mb-1">Gemeinkostenzuschlag (NT)</div>
+                        <div className="text-gray-900">{project.overhead_nt} %</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1295,9 +1300,8 @@ export default function ProjectDetailPage({
                     hasTeam={teamMembers.length > 0}
                     teamCount={teamMembers.length}
                     onImportComplete={() => {
-                      // Nach Import: Daten neu laden + Projektdaten synchronisieren
+                      // Nach Import: Daten neu laden
                       loadData();
-                      syncProjectDatesFromAPs();
                     }}
                     portal={portal}
                   />
@@ -1729,6 +1733,83 @@ export default function ProjectDetailPage({
                   placeholder="Optionale Notizen zum Projekt"
                 />
               </div>
+
+              {/* Foerderparameter - nur fuer ZIM-Projekte */}
+              {(projectEditData.funding_format === 'ZIM' ||
+                projectEditData.funding_format === 'ZIM_DS' ||
+                projectEditData.funding_format === 'ZIM_KOOP' ||
+                projectEditData.funding_format === 'ZIM_NETZWERK') && (
+                <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                  <div className="text-sm font-medium text-gray-700 mb-3">Foerderparameter (ZIM)</div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Foerdersatz (%)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="100"
+                        value={projectEditData.foerdersatz}
+                        onChange={(e) => setProjectEditData(prev => ({ ...prev, foerdersatz: e.target.value }))}
+                        className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                        placeholder="z.B. 45.00"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        {projectEditData.overhead_gleich ? 'Gemeinkostenzuschlag (%)' : 'Gemeinkostenzuschlag T (%)'}
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={projectEditData.overhead_t}
+                        onChange={(e) => setProjectEditData(prev => ({
+                          ...prev,
+                          overhead_t: e.target.value,
+                          overhead_nt: prev.overhead_gleich ? e.target.value : prev.overhead_nt
+                        }))}
+                        className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                        placeholder="z.B. 28.42"
+                      />
+                    </div>
+                    {!projectEditData.overhead_gleich && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Gemeinkostenzuschlag NT (%)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={projectEditData.overhead_nt}
+                          onChange={(e) => setProjectEditData(prev => ({ ...prev, overhead_nt: e.target.value }))}
+                          className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                          placeholder="z.B. 29.88"
+                        />
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 pt-6">
+                      <input
+                        type="checkbox"
+                        id="overhead_gleich"
+                        checked={projectEditData.overhead_gleich}
+                        onChange={(e) => setProjectEditData(prev => ({
+                          ...prev,
+                          overhead_gleich: e.target.checked,
+                          overhead_nt: e.target.checked ? prev.overhead_t : prev.overhead_nt
+                        }))}
+                        className="w-4 h-4 rounded border-gray-300"
+                      />
+                      <label htmlFor="overhead_gleich" className="text-sm text-gray-700">
+                        T und NT gleich
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex justify-between gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-lg sticky bottom-0">
