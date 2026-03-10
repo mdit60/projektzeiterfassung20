@@ -104,6 +104,37 @@ interface Project {
   start_date: string | null;
   end_date: string | null;
   is_active: boolean;
+  foerdersatz: number | null;
+  overhead_t: number | null;
+  overhead_nt: number | null;
+  overhead_gleich: boolean | null;
+}
+
+// ZA-Eintrag aus der Datenbank
+interface ZahlungsanforderungDB {
+  id: string;
+  project_id: string;
+  za_nummer: number;
+  zeitraum_von: string;
+  zeitraum_bis: string;
+  auftraege_dritte_t: number | null;
+  auftraege_dritte_nt: number | null;
+  fue_unterauftrag: number | null;
+  zeitw_personalaufnahme: number | null;
+  status: string;
+  notizen: string | null;
+}
+
+// ZA-Formular-Zustand (Strings fuer Eingabefelder)
+interface ZAFormData {
+  za_nummer: string;
+  zeitraum_von: string;
+  zeitraum_bis: string;
+  auftraege_dritte_t: string;
+  auftraege_dritte_nt: string;
+  fue_unterauftrag: string;
+  zeitw_personalaufnahme: string;
+  notizen: string;
 }
 
 interface Employee {
@@ -294,6 +325,25 @@ export default function BerichtePage() {
   const [pkProjectId, setPKProjectId] = useState<string>('');
   const [pkVon, setPKVon] = useState<string>('');
   const [pkBis, setPKBis] = useState<string>('');
+
+  // ZA-Panel
+  const [showZAPanel, setShowZAPanel] = useState(false);
+  const [zaProjectId, setZAProjectId] = useState<string>('');
+  const [zaTab, setZATab] = useState<'deckblatt' | 'anlage1a' | 'anlage1b'>('deckblatt');
+  const [zaList, setZAList] = useState<ZahlungsanforderungDB[]>([]);
+  const [zaFormData, setZAFormData] = useState<ZAFormData>({
+    za_nummer: '1',
+    zeitraum_von: '',
+    zeitraum_bis: '',
+    auftraege_dritte_t: '',
+    auftraege_dritte_nt: '',
+    fue_unterauftrag: '',
+    zeitw_personalaufnahme: '',
+    notizen: '',
+  });
+  const [zaSelectedId, setZASelectedId] = useState<string | null>(null);
+  const [zaSaving, setZASaving] = useState(false);
+  const [zaLoading, setZALoading] = useState(false);
   
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -363,7 +413,7 @@ export default function BerichtePage() {
         // Projekte - KORREKTER FELDNAME: client_company_id
         const { data: projectsData, error: projectsError } = await supabase
           .from('v7_projects')
-          .select('id, name, short_name, funding_format, funding_reference, start_date, end_date, is_active')
+          .select('id, name, short_name, funding_format, funding_reference, start_date, end_date, is_active, foerdersatz, overhead_t, overhead_nt, overhead_gleich')
           .eq('client_company_id', companyId)
           .eq('is_active', true);
         
@@ -961,6 +1011,175 @@ export default function BerichtePage() {
     }
   };
 
+  // ============================================================================
+  // ZA-FUNKTIONEN
+  // ============================================================================
+
+  // ZA-Panel oeffnen: ZA-Liste fuer Projekt laden und Formular vorbelegen
+  const openZAPanel = async (projectId: string) => {
+    setZALoading(true);
+    setZASelectedId(null);
+    const project = projects.find(p => p.id === projectId);
+
+    // Naechste freie ZA-Nummer ermitteln
+    const { data: existingZAs } = await supabase
+      .from('v7_zahlungsanforderungen')
+      .select('id, project_id, za_nummer, zeitraum_von, zeitraum_bis, auftraege_dritte_t, auftraege_dritte_nt, fue_unterauftrag, zeitw_personalaufnahme, status, notizen')
+      .eq('project_id', projectId)
+      .order('za_nummer', { ascending: true });
+
+    const zaListLoaded: ZahlungsanforderungDB[] = existingZAs || [];
+    setZAList(zaListLoaded);
+
+    const nextNummer = zaListLoaded.length > 0
+      ? Math.max(...zaListLoaded.map(z => z.za_nummer)) + 1
+      : 1;
+
+    // Zeitraum: nach letzter ZA oder Projektstart
+    const lastZA = zaListLoaded.length > 0 ? zaListLoaded[zaListLoaded.length - 1] : null;
+    const vonDefault = lastZA
+      ? (() => {
+          const d = new Date(lastZA.zeitraum_bis);
+          d.setDate(d.getDate() + 1);
+          return d.toISOString().slice(0, 10);
+        })()
+      : (project?.start_date?.slice(0, 10) || new Date().toISOString().slice(0, 10));
+    const bisDefault = new Date().toISOString().slice(0, 10);
+
+    setZAFormData({
+      za_nummer: String(nextNummer),
+      zeitraum_von: vonDefault,
+      zeitraum_bis: bisDefault,
+      auftraege_dritte_t: '',
+      auftraege_dritte_nt: '',
+      fue_unterauftrag: '',
+      zeitw_personalaufnahme: '',
+      notizen: '',
+    });
+    setZALoading(false);
+  };
+
+  // Bestehende ZA in Formular laden
+  const loadZAIntoForm = (za: ZahlungsanforderungDB) => {
+    setZASelectedId(za.id);
+    setZAFormData({
+      za_nummer: String(za.za_nummer),
+      zeitraum_von: za.zeitraum_von,
+      zeitraum_bis: za.zeitraum_bis,
+      auftraege_dritte_t: za.auftraege_dritte_t != null ? String(za.auftraege_dritte_t) : '',
+      auftraege_dritte_nt: za.auftraege_dritte_nt != null ? String(za.auftraege_dritte_nt) : '',
+      fue_unterauftrag: za.fue_unterauftrag != null ? String(za.fue_unterauftrag) : '',
+      zeitw_personalaufnahme: za.zeitw_personalaufnahme != null ? String(za.zeitw_personalaufnahme) : '',
+      notizen: za.notizen || '',
+    });
+  };
+
+  // ZA speichern (neu oder update)
+  const handleZASave = async () => {
+    if (!zaProjectId) return;
+    setZASaving(true);
+    try {
+      const payload = {
+        project_id: zaProjectId,
+        za_nummer: parseInt(zaFormData.za_nummer) || 1,
+        zeitraum_von: zaFormData.zeitraum_von,
+        zeitraum_bis: zaFormData.zeitraum_bis,
+        auftraege_dritte_t: zaFormData.auftraege_dritte_t !== '' ? parseFloat(zaFormData.auftraege_dritte_t) : 0,
+        auftraege_dritte_nt: zaFormData.auftraege_dritte_nt !== '' ? parseFloat(zaFormData.auftraege_dritte_nt) : 0,
+        fue_unterauftrag: zaFormData.fue_unterauftrag !== '' ? parseFloat(zaFormData.fue_unterauftrag) : 0,
+        zeitw_personalaufnahme: zaFormData.zeitw_personalaufnahme !== '' ? parseFloat(zaFormData.zeitw_personalaufnahme) : 0,
+        notizen: zaFormData.notizen.trim() || null,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (zaSelectedId) {
+        await supabase.from('v7_zahlungsanforderungen').update(payload).eq('id', zaSelectedId);
+      } else {
+        const { data: newZA } = await supabase.from('v7_zahlungsanforderungen').insert(payload).select().single();
+        if (newZA) setZASelectedId(newZA.id);
+      }
+      // Liste neu laden
+      await openZAPanel(zaProjectId);
+      alert('ZA gespeichert.');
+    } catch (err: any) {
+      alert('Fehler beim Speichern: ' + err.message);
+    } finally {
+      setZASaving(false);
+    }
+  };
+
+  // Hilfsfunktion: Personenstunden je MA je Monat im ZA-Zeitraum
+  const getZAPersonenstunden = (projectId: string, vonStr: string, bisStr: string) => {
+    if (!vonStr || !bisStr) return [];
+    const project = projects.find(p => p.id === projectId);
+    if (!project) return [];
+    const isDS = project.funding_format === 'ZIM_DS';
+
+    // MA die dem Projekt zugeordnet sind (ueber WP-Assignments)
+    const projectWPs = workPackages.filter(wp => wp.project_id === projectId);
+    const projectWPIds = projectWPs.map(wp => wp.id);
+    const assignedEmployeeIds = [...new Set(
+      wpAssignments
+        .filter(wpa => projectWPIds.includes(wpa.work_package_id))
+        .map(wpa => wpa.employee_id)
+    )];
+
+    // Monate im Zeitraum bestimmen
+    const vonDate = new Date(vonStr);
+    const bisDate = new Date(bisStr);
+    const months: { year: number; month: number; label: string }[] = [];
+    const cur = new Date(vonDate.getFullYear(), vonDate.getMonth(), 1);
+    while (cur <= bisDate) {
+      months.push({
+        year: cur.getFullYear(),
+        month: cur.getMonth() + 1,
+        label: cur.toLocaleString('de-DE', { month: 'short', year: '2-digit' }),
+      });
+      cur.setMonth(cur.getMonth() + 1);
+    }
+
+    // Pro MA: Stunden je Monat
+    return assignedEmployeeIds.map(empId => {
+      const emp = employees.find(e => e.id === empId);
+      const empName = emp ? emp.display_name : empId;
+
+      // Technische AP-IDs fuer diesen MA
+      const technicalWPIds = isDS
+        ? projectWPs.filter(wp => (wp as any).is_technical === true).map(wp => wp.id)
+        : [];
+
+      const monthData = months.map(m => {
+        const monthEntries = timesheets.filter(ts =>
+          ts.project_id === projectId &&
+          ts.employee_id === empId &&
+          ts.is_active &&
+          ts.is_billable &&
+          (() => {
+            const d = new Date(ts.work_date);
+            return d.getFullYear() === m.year && (d.getMonth() + 1) === m.month;
+          })()
+        );
+        const hoursT = isDS
+          ? monthEntries.filter(ts => technicalWPIds.includes((ts as any).work_package_id || '')).reduce((s, ts) => s + ts.hours, 0)
+          : monthEntries.reduce((s, ts) => s + ts.hours, 0);
+        const hoursNT = isDS
+          ? monthEntries.filter(ts => !technicalWPIds.includes((ts as any).work_package_id || '')).reduce((s, ts) => s + ts.hours, 0)
+          : 0;
+        return { ...m, hoursT, hoursNT, hoursTotal: hoursT + hoursNT };
+      });
+
+      const totalT = monthData.reduce((s, m) => s + m.hoursT, 0);
+      const totalNT = monthData.reduce((s, m) => s + m.hoursNT, 0);
+      return { empId, empName, monthData, totalT, totalNT, totalAll: totalT + totalNT };
+    });
+  };
+
+  // Hilfsfunktion: Stundensatz fuer MA aus project_assignments
+  const getHourlyRate = (empId: string, projectId: string): number | null => {
+    const pa = projectAssignments.find(pa => pa.employee_id === empId && pa.project_id === projectId);
+    return pa?.hourly_rate || null;
+  };
+
   // RENDER
   // ============================================================================
 
@@ -1389,14 +1608,517 @@ export default function BerichtePage() {
                 <span className="text-xs mt-2 bg-gray-100 px-2 py-0.5 rounded">Demnaechst</span>
               </button>
 
-              {/* Kachel 4: Zahlungsanforderung - noch deaktiviert */}
-              <button disabled className="flex flex-col items-center p-6 border-2 border-dashed border-gray-300 rounded-lg text-gray-400 cursor-not-allowed">
-                <Download className="w-10 h-10 mb-3" />
+              {/* Kachel 4: Zahlungsanforderung - AKTIV */}
+              <button
+                onClick={() => {
+                  const newShow = !showZAPanel;
+                  setShowZAPanel(newShow);
+                  if (newShow) {
+                    const pid = zaProjectId || projects[0]?.id || '';
+                    setZAProjectId(pid);
+                    if (pid) openZAPanel(pid);
+                  }
+                }}
+                className={`flex flex-col items-center p-6 border-2 rounded-lg transition-colors
+                  ${showZAPanel
+                    ? 'border-green-600 bg-green-50 text-green-700'
+                    : 'border-green-200 bg-white text-green-700 hover:border-green-400 hover:bg-green-50'
+                  }`}
+              >
+                <FileText className="w-10 h-10 mb-3" />
                 <span className="font-medium">Zahlungsanforderung</span>
-                <span className="text-xs mt-1">Mittelabruf (Quartal)</span>
-                <span className="text-xs mt-2 bg-gray-100 px-2 py-0.5 rounded">Demnaechst</span>
+                <span className="text-xs mt-1 text-green-600">ZIM Mittelabruf</span>
+                <span className={`text-xs mt-2 flex items-center gap-1 px-2 py-0.5 rounded ${showZAPanel ? 'bg-green-200' : 'bg-green-100'}`}>
+                  {showZAPanel ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                  {showZAPanel ? 'Schliessen' : 'Oeffnen'}
+                </span>
               </button>
             </div>
+
+            {/* ZA-Panel (aufklappbar) */}
+            {showZAPanel && (() => {
+              const zaProject = projects.find(p => p.id === zaProjectId);
+              if (!zaProject) return null;
+              const isDS = zaProject.funding_format === 'ZIM_DS';
+
+              // Berechnungen fuer Deckblatt
+              const vonStr = zaFormData.zeitraum_von;
+              const bisStr = zaFormData.zeitraum_bis;
+              const psData = (vonStr && bisStr) ? getZAPersonenstunden(zaProjectId, vonStr, bisStr) : [];
+
+              // Personalkosten T und NT
+              const pkT = psData.reduce((sum, row) => {
+                const rate = getHourlyRate(row.empId, zaProjectId) || 0;
+                return sum + row.totalT * rate;
+              }, 0);
+              const pkNT = psData.reduce((sum, row) => {
+                const rate = getHourlyRate(row.empId, zaProjectId) || 0;
+                return sum + row.totalNT * rate;
+              }, 0);
+              const pkGesamt = isDS ? (pkT + pkNT) : psData.reduce((sum, row) => {
+                const rate = getHourlyRate(row.empId, zaProjectId) || 0;
+                return sum + row.totalAll * rate;
+              }, 0);
+
+              const foerdersatz = zaProject.foerdersatz || 0;
+              const overheadT = zaProject.overhead_t || 0;
+              const overheadNT = isDS ? (zaProject.overhead_nt || zaProject.overhead_t || 0) : (zaProject.overhead_t || 0);
+
+              const gkT = isDS ? pkT * overheadT / 100 : pkGesamt * overheadT / 100;
+              const gkNT = isDS ? pkNT * overheadNT / 100 : 0;
+              const auftraegeT = parseFloat(zaFormData.auftraege_dritte_t || '0') || 0;
+              const auftraegeNT = parseFloat(zaFormData.auftraege_dritte_nt || '0') || 0;
+              const fueUA = parseFloat(zaFormData.fue_unterauftrag || '0') || 0;
+              const zeitwPA = parseFloat(zaFormData.zeitw_personalaufnahme || '0') || 0;
+
+              const summeT = isDS ? (pkT + gkT + auftraegeT) : 0;
+              const summeNT = isDS ? (pkNT + gkNT + auftraegeNT) : 0;
+              const summeGesamt = isDS
+                ? (summeT + summeNT + fueUA + zeitwPA)
+                : (pkGesamt + gkT + auftraegeT + fueUA + zeitwPA);
+              const antZuwendung = Math.round(summeGesamt * foerdersatz / 100);
+
+              const fmt = (v: number) => v.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+              return (
+                <div className="mt-6 border border-green-200 rounded-lg overflow-hidden">
+                  {/* Panel-Header */}
+                  <div className="bg-green-50 px-4 py-3 border-b border-green-200 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <FileText className="w-5 h-5 text-green-600" />
+                      <span className="font-medium text-gray-900">Zahlungsanforderung (ZIM)</span>
+                      {projects.length > 1 && (
+                        <select
+                          value={zaProjectId}
+                          onChange={e => {
+                            setZAProjectId(e.target.value);
+                            openZAPanel(e.target.value);
+                          }}
+                          className="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-1 focus:ring-green-500"
+                        >
+                          {projects.map(p => (
+                            <option key={p.id} value={p.id}>{p.short_name || p.name}</option>
+                          ))}
+                        </select>
+                      )}
+                      {isDS && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">DS-Formular</span>}
+                    </div>
+                    {/* Bestehende ZAs */}
+                    {zaList.length > 0 && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500">Gespeicherte ZAs:</span>
+                        {zaList.map(za => (
+                          <button
+                            key={za.id}
+                            onClick={() => loadZAIntoForm(za)}
+                            className={`text-xs px-2 py-1 rounded border transition-colors
+                              ${zaSelectedId === za.id
+                                ? 'bg-green-600 text-white border-green-600'
+                                : 'bg-white text-gray-700 border-gray-300 hover:border-green-400'}`}
+                          >
+                            ZA {za.za_nummer}
+                          </button>
+                        ))}
+                        <button
+                          onClick={() => {
+                            setZASelectedId(null);
+                            openZAPanel(zaProjectId);
+                          }}
+                          className="text-xs px-2 py-1 rounded border border-dashed border-green-400 text-green-600 hover:bg-green-50"
+                        >
+                          + Neue ZA
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Tab-Navigation */}
+                  <div className="flex border-b border-gray-200 bg-white">
+                    {(['deckblatt', 'anlage1a', 'anlage1b'] as const).map(tab => (
+                      <button
+                        key={tab}
+                        onClick={() => setZATab(tab)}
+                        className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors
+                          ${zaTab === tab
+                            ? 'border-green-600 text-green-700'
+                            : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                      >
+                        {tab === 'deckblatt' ? 'Deckblatt (Seite 5)' : tab === 'anlage1a' ? 'Anlage 1a - Personenstunden' : 'Anlage 1b - Personalkosten'}
+                      </button>
+                    ))}
+                  </div>
+
+                  {zaLoading ? (
+                    <div className="p-8 text-center text-gray-500">Lade...</div>
+                  ) : (
+                    <div className="p-4 bg-white">
+
+                      {/* ---- TAB: DECKBLATT ---- */}
+                      {zaTab === 'deckblatt' && (
+                        <div className="space-y-4">
+                          {/* Kopfdaten */}
+                          <div className="grid grid-cols-3 gap-4">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">ZA-Nummer</label>
+                              <input type="number" min="1" value={zaFormData.za_nummer}
+                                onChange={e => setZAFormData(prev => ({ ...prev, za_nummer: e.target.value }))}
+                                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500" />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Abrechnungszeitraum von</label>
+                              <input type="date" value={zaFormData.zeitraum_von}
+                                onChange={e => setZAFormData(prev => ({ ...prev, zeitraum_von: e.target.value }))}
+                                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500" />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">bis</label>
+                              <input type="date" value={zaFormData.zeitraum_bis}
+                                onChange={e => setZAFormData(prev => ({ ...prev, zeitraum_bis: e.target.value }))}
+                                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500" />
+                            </div>
+                          </div>
+
+                          {/* Foerderparameter-Hinweis wenn nicht gepflegt */}
+                          {(!zaProject.foerdersatz || !zaProject.overhead_t) && (
+                            <div className="bg-amber-50 border border-amber-200 rounded p-3 text-sm text-amber-700">
+                              Foerderparameter (Foerdersatz, GKZ) sind noch nicht am Projekt hinterlegt.
+                              Bitte zunaechst im Projekt bearbeiten (Tab Uebersicht &rsaquo; Bearbeiten).
+                            </div>
+                          )}
+
+                          {/* Kostentabelle */}
+                          <div className="border border-gray-200 rounded overflow-hidden">
+                            <table className="w-full text-sm">
+                              <thead className="bg-gray-50">
+                                <tr>
+                                  <th className="text-left px-3 py-2 font-medium text-gray-700">Kostenart</th>
+                                  {isDS ? (
+                                    <>
+                                      <th className="text-right px-3 py-2 font-medium text-gray-700">Technisch (EUR)</th>
+                                      <th className="text-right px-3 py-2 font-medium text-gray-700">Nichttechnisch (EUR)</th>
+                                    </>
+                                  ) : (
+                                    <th className="text-right px-3 py-2 font-medium text-gray-700">Betrag (EUR)</th>
+                                  )}
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-100">
+                                {/* Personal */}
+                                <tr className="bg-blue-50">
+                                  <td className="px-3 py-2 text-gray-700">Personal (lt. Anlage 1b)</td>
+                                  {isDS ? (
+                                    <>
+                                      <td className="px-3 py-2 text-right font-mono">{fmt(pkT)}</td>
+                                      <td className="px-3 py-2 text-right font-mono">{fmt(pkNT)}</td>
+                                    </>
+                                  ) : (
+                                    <td className="px-3 py-2 text-right font-mono">{fmt(pkGesamt)}</td>
+                                  )}
+                                </tr>
+                                {/* GKZ */}
+                                <tr>
+                                  <td className="px-3 py-2 text-gray-700">
+                                    Zuschlag uebrige Kosten
+                                    {isDS
+                                      ? ` (T: ${overheadT}% / NT: ${overheadNT}%)`
+                                      : ` (${overheadT}%)`}
+                                  </td>
+                                  {isDS ? (
+                                    <>
+                                      <td className="px-3 py-2 text-right font-mono">{fmt(gkT)}</td>
+                                      <td className="px-3 py-2 text-right font-mono">{fmt(gkNT)}</td>
+                                    </>
+                                  ) : (
+                                    <td className="px-3 py-2 text-right font-mono">{fmt(gkT)}</td>
+                                  )}
+                                </tr>
+                                {/* Auftraege Dritte */}
+                                <tr>
+                                  <td className="px-3 py-2 text-gray-700">
+                                    {isDS ? 'Kosten Auftraege wiss.qual. Dritte' : 'Auftraege an wiss.qual. Dritte'}
+                                  </td>
+                                  {isDS ? (
+                                    <>
+                                      <td className="px-3 py-2">
+                                        <input type="number" step="0.01" min="0"
+                                          value={zaFormData.auftraege_dritte_t}
+                                          onChange={e => setZAFormData(prev => ({ ...prev, auftraege_dritte_t: e.target.value }))}
+                                          className="w-full px-2 py-1 text-right text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500"
+                                          placeholder="0,00" />
+                                      </td>
+                                      <td className="px-3 py-2">
+                                        <input type="number" step="0.01" min="0"
+                                          value={zaFormData.auftraege_dritte_nt}
+                                          onChange={e => setZAFormData(prev => ({ ...prev, auftraege_dritte_nt: e.target.value }))}
+                                          className="w-full px-2 py-1 text-right text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500"
+                                          placeholder="0,00" />
+                                      </td>
+                                    </>
+                                  ) : (
+                                    <td className="px-3 py-2">
+                                      <input type="number" step="0.01" min="0"
+                                        value={zaFormData.auftraege_dritte_t}
+                                        onChange={e => setZAFormData(prev => ({ ...prev, auftraege_dritte_t: e.target.value }))}
+                                        className="w-full px-2 py-1 text-right text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500"
+                                        placeholder="0,00" />
+                                    </td>
+                                  )}
+                                </tr>
+                                {/* FuE-Unterauftrag - nur bei normalem ZIM */}
+                                {!isDS && (
+                                  <tr>
+                                    <td className="px-3 py-2 text-gray-700">FuE-Unterauftrag</td>
+                                    <td className="px-3 py-2">
+                                      <input type="number" step="0.01" min="0"
+                                        value={zaFormData.fue_unterauftrag}
+                                        onChange={e => setZAFormData(prev => ({ ...prev, fue_unterauftrag: e.target.value }))}
+                                        className="w-full px-2 py-1 text-right text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500"
+                                        placeholder="0,00" />
+                                    </td>
+                                  </tr>
+                                )}
+                                {/* Zeitw. Personalaufnahme - nur bei normalem ZIM */}
+                                {!isDS && (
+                                  <tr>
+                                    <td className="px-3 py-2 text-gray-700">Zeitweilige Personalaufnahme</td>
+                                    <td className="px-3 py-2">
+                                      <input type="number" step="0.01" min="0"
+                                        value={zaFormData.zeitw_personalaufnahme}
+                                        onChange={e => setZAFormData(prev => ({ ...prev, zeitw_personalaufnahme: e.target.value }))}
+                                        className="w-full px-2 py-1 text-right text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500"
+                                        placeholder="0,00" />
+                                    </td>
+                                  </tr>
+                                )}
+                                {/* Summe */}
+                                <tr className="bg-gray-50 font-medium">
+                                  <td className="px-3 py-2 text-gray-900">Summe zuwendungsfaehige Kosten</td>
+                                  {isDS ? (
+                                    <>
+                                      <td className="px-3 py-2 text-right font-mono">{fmt(summeT)}</td>
+                                      <td className="px-3 py-2 text-right font-mono">{fmt(summeNT)}</td>
+                                    </>
+                                  ) : (
+                                    <td className="px-3 py-2 text-right font-mono">{fmt(summeGesamt)}</td>
+                                  )}
+                                </tr>
+                                {isDS && (
+                                  <tr className="bg-gray-100 font-medium">
+                                    <td className="px-3 py-2 text-gray-900">Summe gesamt</td>
+                                    <td colSpan={2} className="px-3 py-2 text-right font-mono">{fmt(summeGesamt)}</td>
+                                  </tr>
+                                )}
+                                {/* Foerdersatz + Zuwendung */}
+                                <tr className="bg-green-50 font-semibold">
+                                  <td className="px-3 py-2 text-green-800">
+                                    Anteilige Zuwendung ({foerdersatz}% Foerdersatz)
+                                  </td>
+                                  {isDS ? (
+                                    <td colSpan={2} className="px-3 py-2 text-right font-mono text-green-800">{fmt(antZuwendung)}</td>
+                                  ) : (
+                                    <td className="px-3 py-2 text-right font-mono text-green-800">{fmt(antZuwendung)}</td>
+                                  )}
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* Notizen */}
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Interne Notizen</label>
+                            <textarea
+                              value={zaFormData.notizen}
+                              onChange={e => setZAFormData(prev => ({ ...prev, notizen: e.target.value }))}
+                              rows={2}
+                              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500"
+                              placeholder="Optionale Notizen zur ZA"
+                            />
+                          </div>
+
+                          {/* Speichern */}
+                          <div className="flex justify-end">
+                            <button
+                              onClick={handleZASave}
+                              disabled={zaSaving || !zaFormData.zeitraum_von || !zaFormData.zeitraum_bis}
+                              className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50 transition-colors text-sm"
+                            >
+                              {zaSaving ? 'Speichern...' : (zaSelectedId ? 'Aktualisieren' : 'ZA speichern')}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ---- TAB: ANLAGE 1a ---- */}
+                      {zaTab === 'anlage1a' && (
+                        <div>
+                          {(!zaFormData.zeitraum_von || !zaFormData.zeitraum_bis) ? (
+                            <div className="p-4 text-sm text-gray-500 text-center">
+                              Bitte zunaechst im Tab "Deckblatt" den Abrechnungszeitraum festlegen.
+                            </div>
+                          ) : psData.length === 0 ? (
+                            <div className="p-4 text-sm text-gray-500 text-center">
+                              Keine Zeiterfassungsdaten im gewaehlten Zeitraum gefunden.
+                            </div>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <p className="text-xs text-gray-500 mb-2">
+                                Abrechnung der foerderbaren Personenstunden (Anlage 1a) &mdash;
+                                Zeitraum: {zaFormData.zeitraum_von} bis {zaFormData.zeitraum_bis}
+                              </p>
+                              <table className="w-full text-xs border border-gray-200">
+                                <thead>
+                                  <tr className="bg-gray-50">
+                                    <th className="px-2 py-1.5 text-left border-b border-gray-200">Nr.</th>
+                                    <th className="px-2 py-1.5 text-left border-b border-gray-200">Name, Vorname</th>
+                                    {psData[0]?.monthData.map(m => (
+                                      <th key={`${m.year}-${m.month}`} className="px-2 py-1.5 text-center border-b border-gray-200 whitespace-nowrap">
+                                        {m.label}
+                                        {isDS && <><br /><span className="font-normal text-gray-400">T / NT</span></>}
+                                      </th>
+                                    ))}
+                                    <th className="px-2 py-1.5 text-center border-b border-gray-200">
+                                      Summe [h]
+                                      {isDS && <><br /><span className="font-normal text-gray-400">T / NT</span></>}
+                                    </th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {psData.map((row, idx) => (
+                                    <tr key={row.empId} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                                      <td className="px-2 py-1.5 border-b border-gray-100 text-center">{idx + 1}</td>
+                                      <td className="px-2 py-1.5 border-b border-gray-100 font-medium">{row.empName}</td>
+                                      {row.monthData.map(m => (
+                                        <td key={`${m.year}-${m.month}`} className="px-2 py-1.5 border-b border-gray-100 text-center font-mono">
+                                          {isDS
+                                            ? `${m.hoursT > 0 ? m.hoursT.toFixed(1) : '-'} / ${m.hoursNT > 0 ? m.hoursNT.toFixed(1) : '-'}`
+                                            : (m.hoursTotal > 0 ? m.hoursTotal.toFixed(1) : '-')}
+                                        </td>
+                                      ))}
+                                      <td className="px-2 py-1.5 border-b border-gray-100 text-center font-mono font-semibold">
+                                        {isDS
+                                          ? `${row.totalT.toFixed(1)} / ${row.totalNT.toFixed(1)}`
+                                          : row.totalAll.toFixed(1)}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                              <p className="text-xs text-gray-400 mt-2">
+                                Foerderbare Personenstunden = im Abrechnungszeitraum geleistete Projektbearbeitungsstunden
+                                (foerderbar und aktiv). Max. foerderbar je Monat = Wochenarbeitszeit x 52 / 12.
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* ---- TAB: ANLAGE 1b ---- */}
+                      {zaTab === 'anlage1b' && (
+                        <div>
+                          {(!zaFormData.zeitraum_von || !zaFormData.zeitraum_bis) ? (
+                            <div className="p-4 text-sm text-gray-500 text-center">
+                              Bitte zunaechst im Tab "Deckblatt" den Abrechnungszeitraum festlegen.
+                            </div>
+                          ) : psData.length === 0 ? (
+                            <div className="p-4 text-sm text-gray-500 text-center">
+                              Keine Zeiterfassungsdaten im gewaehlten Zeitraum gefunden.
+                            </div>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <p className="text-xs text-gray-500 mb-2">
+                                Abrechnung der zuwendungsfaehigen Personalkosten (Anlage 1b) &mdash;
+                                Zeitraum: {zaFormData.zeitraum_von} bis {zaFormData.zeitraum_bis}
+                              </p>
+                              <table className="w-full text-xs border border-gray-200">
+                                <thead>
+                                  <tr className="bg-gray-50">
+                                    <th className="px-2 py-1.5 text-left border-b border-gray-200">Nr.</th>
+                                    <th className="px-2 py-1.5 text-left border-b border-gray-200">Projektmitarbeiter(in)</th>
+                                    {isDS ? (
+                                      <>
+                                        <th className="px-2 py-1.5 text-right border-b border-gray-200">Std. T [h]</th>
+                                        <th className="px-2 py-1.5 text-right border-b border-gray-200">Std. NT [h]</th>
+                                      </>
+                                    ) : (
+                                      <th className="px-2 py-1.5 text-right border-b border-gray-200">Foerderb. Std. [h]</th>
+                                    )}
+                                    <th className="px-2 py-1.5 text-right border-b border-gray-200">Stundensatz [EUR/h]</th>
+                                    {isDS ? (
+                                      <>
+                                        <th className="px-2 py-1.5 text-right border-b border-gray-200">PK technisch [EUR]</th>
+                                        <th className="px-2 py-1.5 text-right border-b border-gray-200">PK nichttechn. [EUR]</th>
+                                      </>
+                                    ) : (
+                                      <th className="px-2 py-1.5 text-right border-b border-gray-200">Personalkosten [EUR]</th>
+                                    )}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {psData.map((row, idx) => {
+                                    const rate = getHourlyRate(row.empId, zaProjectId) || 0;
+                                    const pkRowT = row.totalT * rate;
+                                    const pkRowNT = row.totalNT * rate;
+                                    const pkRow = row.totalAll * rate;
+                                    return (
+                                      <tr key={row.empId} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                                        <td className="px-2 py-1.5 border-b border-gray-100 text-center">{idx + 1}</td>
+                                        <td className="px-2 py-1.5 border-b border-gray-100 font-medium">{row.empName}</td>
+                                        {isDS ? (
+                                          <>
+                                            <td className="px-2 py-1.5 border-b border-gray-100 text-right font-mono">{row.totalT.toFixed(2)}</td>
+                                            <td className="px-2 py-1.5 border-b border-gray-100 text-right font-mono">{row.totalNT.toFixed(2)}</td>
+                                          </>
+                                        ) : (
+                                          <td className="px-2 py-1.5 border-b border-gray-100 text-right font-mono">{row.totalAll.toFixed(2)}</td>
+                                        )}
+                                        <td className="px-2 py-1.5 border-b border-gray-100 text-right font-mono">
+                                          {rate > 0 ? rate.toFixed(2) : <span className="text-amber-500">fehlt</span>}
+                                        </td>
+                                        {isDS ? (
+                                          <>
+                                            <td className="px-2 py-1.5 border-b border-gray-100 text-right font-mono">{fmt(pkRowT)}</td>
+                                            <td className="px-2 py-1.5 border-b border-gray-100 text-right font-mono">{fmt(pkRowNT)}</td>
+                                          </>
+                                        ) : (
+                                          <td className="px-2 py-1.5 border-b border-gray-100 text-right font-mono">{fmt(pkRow)}</td>
+                                        )}
+                                      </tr>
+                                    );
+                                  })}
+                                  {/* Summenzeile */}
+                                  <tr className="bg-gray-100 font-semibold">
+                                    <td colSpan={isDS ? 2 : 2} className="px-2 py-1.5 text-right">Summe/Uebertrag:</td>
+                                    {isDS ? (
+                                      <>
+                                        <td className="px-2 py-1.5 text-right font-mono">{psData.reduce((s, r) => s + r.totalT, 0).toFixed(2)}</td>
+                                        <td className="px-2 py-1.5 text-right font-mono">{psData.reduce((s, r) => s + r.totalNT, 0).toFixed(2)}</td>
+                                        <td className="px-2 py-1.5"></td>
+                                        <td className="px-2 py-1.5 text-right font-mono">{fmt(pkT)}</td>
+                                        <td className="px-2 py-1.5 text-right font-mono">{fmt(pkNT)}</td>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <td className="px-2 py-1.5 text-right font-mono">{psData.reduce((s, r) => s + r.totalAll, 0).toFixed(2)}</td>
+                                        <td className="px-2 py-1.5"></td>
+                                        <td className="px-2 py-1.5 text-right font-mono">{fmt(pkGesamt)}</td>
+                                      </>
+                                    )}
+                                  </tr>
+                                </tbody>
+                              </table>
+                              <p className="text-xs text-gray-400 mt-2">
+                                Stundensatz = vom Zuwendungsgeber anerkannter personengebundener Stundensatz (aus Projektteam-Daten).
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Stundennachweis-Matrix (aufklappbar) */}
             {showMatrix && (
