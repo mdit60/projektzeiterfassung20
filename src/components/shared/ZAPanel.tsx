@@ -220,6 +220,10 @@ interface ZAPanelProps {
   timesheets: ZATimesheetEntry[];
   projectAssignments: ZAProjectAssignment[];
   initialProjectId?: string;
+  // mode: 'button' = nur Kachel-Button (fuer das 4-Spalten-Grid)
+  //        'panel' = nur das aufgeklappte Panel (darunter, volle Breite)
+  //        'full'  = beides zusammen (Standard, Rueckwaertskompatibel)
+  mode?: 'button' | 'panel' | 'full';
 }
 
 // ============================================================================
@@ -235,6 +239,7 @@ export default function ZAPanel({
   timesheets,
   projectAssignments,
   initialProjectId,
+  mode = 'full',
 }: ZAPanelProps) {
   const supabase = createClient();
   const colors = PORTAL_COLORS[portal];
@@ -480,29 +485,42 @@ export default function ZAPanel({
 
   // ---- RENDER ----
 
+  // Kachel-Button JSX (wiederverwendet in 'button' und 'full' mode)
+  const kachelButton = (
+    <button
+      onClick={() => {
+        const newShow = !showPanel;
+        setShowPanel(newShow);
+        if (newShow && projectId) openPanel(projectId);
+      }}
+      className={`flex flex-col items-center p-6 border-2 rounded-lg transition-colors w-full
+        ${showPanel
+          ? `${colors.kachelBorderActive} ${colors.kachelBgActive} ${colors.kachelText}`
+          : `${colors.kachelBorder} ${colors.kachelBg} ${colors.kachelText}`
+        }`}
+    >
+      <FileText className={`w-10 h-10 mb-3 ${colors.icon}`} />
+      <span className="font-medium">Zahlungsanforderung</span>
+      <span className={`text-xs mt-1 ${colors.subText}`}>ZIM Mittelabruf</span>
+      <span className={`text-xs mt-2 flex items-center gap-1 px-2 py-0.5 rounded ${showPanel ? colors.kachelChevronBgActive : colors.kachelChevronBg}`}>
+        {showPanel ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+        {showPanel ? 'Schliessen' : 'Oeffnen'}
+      </span>
+    </button>
+  );
+
+  // mode='button': nur Kachel-Button (wird im 4-Spalten-Grid verwendet)
+  if (mode === 'button') return kachelButton;
+
+  // mode='panel': nur das Panel (wird nach dem Grid verwendet, nur wenn showPanel=true)
+  if (mode === 'panel') {
+    if (!showPanel) return null;
+  }
+
   return (
     <div id="za-kachel">
-      {/* Kachel-Button */}
-      <button
-        onClick={() => {
-          const newShow = !showPanel;
-          setShowPanel(newShow);
-          if (newShow && projectId) openPanel(projectId);
-        }}
-        className={`flex flex-col items-center p-6 border-2 rounded-lg transition-colors w-full
-          ${showPanel
-            ? `${colors.kachelBorderActive} ${colors.kachelBgActive} ${colors.kachelText}`
-            : `${colors.kachelBorder} ${colors.kachelBg} ${colors.kachelText} hover:${colors.kachelBorderActive} hover:${colors.kachelBgActive}`
-          }`}
-      >
-        <FileText className={`w-10 h-10 mb-3 ${colors.icon}`} />
-        <span className="font-medium">Zahlungsanforderung</span>
-        <span className={`text-xs mt-1 ${colors.subText}`}>ZIM Mittelabruf</span>
-        <span className={`text-xs mt-2 flex items-center gap-1 px-2 py-0.5 rounded ${showPanel ? colors.kachelChevronBgActive : colors.kachelChevronBg}`}>
-          {showPanel ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-          {showPanel ? 'Schliessen' : 'Oeffnen'}
-        </span>
-      </button>
+      {/* Kachel-Button - nur in 'full' mode */}
+      {mode === 'full' && kachelButton}
 
       {/* Panel */}
       {showPanel && (

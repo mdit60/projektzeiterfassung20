@@ -1289,10 +1289,23 @@ function BeratePageContent() {
                 <span className="text-xs mt-2 bg-gray-100 px-2 py-0.5 rounded">Demnaechst</span>
               </button>
 
+
+              {/* Kachel 4: Zahlungsanforderung - Button im Grid */}
+              <ZAPanel
+                mode="button"
+                portal="berater"
+                projects={projects}
+                workPackages={workPackages}
+                wpAssignments={wpAssignments}
+                employees={employees}
+                timesheets={timesheets}
+                projectAssignments={projectAssignments}
+              />
             </div>
 
-            {/* Kachel 4: Zahlungsanforderung - Shared Component ZAPanel */}
+            {/* ZA-Panel aufgeklappt - volle Breite unter dem Grid */}
             <ZAPanel
+              mode="panel"
               portal="berater"
               projects={projects}
               workPackages={workPackages}
