@@ -1,36 +1,30 @@
-// src/app/v7/firma/berichte/page.tsx
+// src/app/v7/berater/foerderung/firma/[id]/berichte/page.tsx
 // ============================================================================
-// PZE V7 - Berichte & Controlling (Firmen-Portal)
+// PZE V7 - Berichte & Controlling (Berater-Portal - Firmenansicht)
 // ============================================================================
-// Version: 7.4.3-18
-// Datum: 09. Maerz 2026
+// Version: 7.4.4-12
+// Datum: 11. Maerz 2026
 //
-// v7.4.3-18: Zeitraum-Filter fuer Personalkosten-Export
-//            - Kachel klappt Inline-Panel auf (wie Stundennachweis-Matrix)
-//            - Von/Bis-Datumsfelder (vorbelegt: Projektstart / heute)
-//            - Projekt-Dropdown falls mehrere Projekte vorhanden
-//            - Export-Button loest XLSX-Download aus
-//            - Timesheets werden nach work_date gefiltert (>= von, <= bis)
-//            - Neue State-Variablen: showPKPanel, pkProjectId,
-//              pkVon (string YYYY-MM-DD), pkBis (string YYYY-MM-DD)
-// v7.4.3-17: Echter XLSX Multi-Sheet Export (xlsx npm-Paket v0.18.5)
-//            - Kachel "Personalkosten" jetzt aktiv (gruen)
-//            - Excel-Download direkt aus dem Browser (SheetJS)
-//            - Tab 1 "Personalkosten": Pro MA: Lfd.Nr, Name, Qualifikation,
-//              Jahresgehalt, pWAZ, Stundensatz, Geplante PM, Erfasste h,
-//              Erfasste PM, Personalkosten bisher, Geplante Gesamtkosten
-//            - Tab 2 "Jahresscheiben": Anlage-5-Tabelle: MA x Projektjahre
-//              mit PM pro Jahr und Personalkosten gesamt
-//            - Dateiname: Personalkosten_[ProjektName]_[Datum].xlsx
-//            - Neuer State: projectAssignments (hourly_rate, employee_number,
-//              annual_salary, qualification aus v7_project_assignments + JOIN)
-// v7.4.3-12: Stundennachweis-Matrix aktiviert
+// v7.4.4-5: ZA-Logik in Shared Component ZAPanel ausgelagert (kein doppelter Code mehr)
+// v7.4.4-2: Personalkosten Excel-Export + ZA-Modul portiert aus Firmen-Portal
+// v7.4.3-12: NEU: Stundennachweis-Matrix unter Reports-Kachel
+//            - Kachel "Stundennachweis" oeffnet aufklappbare Matrix
+//            - Projekt-Auswahl Dropdown (Firma bereits aus URL-Parameter)
+//            - Zeilen: Projekt-MA (aus WP-Zuordnungen)
+//            - Spalten: alle Projektmonate gruppiert nach Jahr
+//            - Ampelfarben: gruen/orange/rot/grau (Zukunft)
+//            - Tooltip mit Stunden und Status bei Hover
+//            - Klick -> navigiert zu Berater-Zeiterfassung des MA/Monats
+//            - returnUrl zurueck zur Berichte-Seite
+// v7.4.3-8: KRITISCH: is_active Filter fuer Timesheets
+//           PM-Berechnung: nur is_billable=true Stunden zaehlen
+//           Zeiterfassungs-Status: komplett umgebaut
 // ============================================================================
 
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect, useMemo, Suspense } from 'react';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import * as XLSX from 'xlsx';
 import PortalHeader from '@/components/shared/PortalHeader';
@@ -77,7 +71,7 @@ interface UserProfile {
 interface MatrixMonth {
   year: number;
   month: number;
-  label: string; // "Jan", "Feb", ...
+  label: string;
 }
 
 interface MatrixCell {
@@ -86,7 +80,6 @@ interface MatrixCell {
   month: number;
   hoursRecorded: number;
   status: 'complete' | 'partial' | 'missing' | 'future' | 'outside';
-  // outside = Monat liegt ausserhalb der Projekt-Laufzeit fuer diesen MA
 }
 
 interface Company {
@@ -110,8 +103,6 @@ interface Project {
   overhead_gleich: boolean | null;
 }
 
-// ZA-Eintrag aus der Datenbank
-
 interface Employee {
   id: string;
   display_name: string;
@@ -126,8 +117,6 @@ interface WorkPackage {
   ap_code: string | null;
   name: string;
   total_person_months: number | null;
-  start_date: string | null;
-  end_date: string | null;
   is_technical: boolean | null;
 }
 
@@ -136,20 +125,6 @@ interface WorkPackageAssignment {
   work_package_id: string;
   employee_id: string;
   planned_person_months: number;
-}
-
-// Projekt-Zuordnung mit Gehalts- und Stundensatz-Daten (fuer Personalkosten-Export)
-interface ProjectAssignment {
-  id: string;
-  project_id: string;
-  employee_id: string;
-  employee_number: number | null;
-  hourly_rate: number | null;
-  role_in_project: string | null;
-  // Joined aus v7_employees:
-  annual_salary: number | null;
-  weekly_hours: number | null;
-  qualification: string | null;
 }
 
 interface TimesheetEntry {
@@ -162,6 +137,18 @@ interface TimesheetEntry {
   day_type: string | null;
   is_active: boolean;
   is_billable: boolean;
+}
+
+
+interface ProjectAssignment {
+  id: string;
+  project_id: string;
+  employee_id: string;
+  employee_number: number | null;
+  hourly_rate: number | null;
+  annual_salary: number | null;
+  weekly_hours: number | null;
+  qualification: string | null;
 }
 
 interface ProjectStats {
@@ -280,33 +267,36 @@ const getMonthName = (month: number): string => {
 // KOMPONENTE
 // ============================================================================
 
-export default function BerichtePage() {
+function BeratePageContent() {
   const router = useRouter();
+  const params = useParams();
+  const searchParams = useSearchParams();
+  const companyId = params?.id as string;
   const supabase = createClient();
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [portalRole, setPortalRole] = useState<string>('employee');
   const [company, setCompany] = useState<Company | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [workPackages, setWorkPackages] = useState<WorkPackage[]>([]);
   const [wpAssignments, setWpAssignments] = useState<WorkPackageAssignment[]>([]);
   const [timesheets, setTimesheets] = useState<TimesheetEntry[]>([]);
-  const [projectAssignments, setProjectAssignments] = useState<ProjectAssignment[]>([]);
-  const [exportLoading, setExportLoading] = useState(false);
-
-  // Personalkosten-Panel
+  
+  // Personalkosten-Export States
   const [showPKPanel, setShowPKPanel] = useState(false);
   const [pkProjectId, setPKProjectId] = useState<string>('');
-  const [pkVon, setPKVon] = useState<string>('');
-  const [pkBis, setPKBis] = useState<string>('');
+  const [pkVon, setPKVon] = useState('');
+  const [pkBis, setPKBis] = useState('');
+  const [exportLoading, setExportLoading] = useState(false);
+  const [projectAssignments, setProjectAssignments] = useState<ProjectAssignment[]>([]);
+
+  // ZA-Modul States
 
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [showMatrix, setShowMatrix] = useState(false);
-  const [showZA, setShowZA] = useState(false);
   const [matrixProjectId, setMatrixProjectId] = useState<string | null>(null);
   
   const holidays = useMemo(() => {
@@ -329,33 +319,21 @@ export default function BerichtePage() {
           return;
         }
         
-        // User-Profil
+        // User-Profil (Berater)
         const { data: profile, error: profileError } = await supabase
           .from('v7_user_profiles')
-          .select('id, email, display_name, role, client_company_id')
+          .select('id, email, display_name, role')
           .eq('email', user.email)
           .maybeSingle();
         
-        if (profileError) {
-          console.error('Profil-Fehler:', profileError);
-          setError('Fehler beim Laden des Benutzerprofils');
-          return;
-        }
-        
-        if (!profile) {
+        if (profileError || !profile) {
           setError('Kein Benutzerprofil gefunden');
           return;
         }
         
-        if (!profile.client_company_id) {
-          setError('Keine Firma zugeordnet. Bitte melden Sie sich mit einem Firmen-Account an.');
-          return;
-        }
-        
         setUserProfile(profile);
-        const companyId = profile.client_company_id;
         
-        // Company
+        // Company aus URL-Parameter
         const { data: companyData, error: companyError } = await supabase
           .from('v7_client_companies')
           .select('id, name, federal_state')
@@ -369,7 +347,7 @@ export default function BerichtePage() {
         }
         setCompany(companyData);
         
-        // Projekte - KORREKTER FELDNAME: client_company_id
+        // Projekte
         const { data: projectsData, error: projectsError } = await supabase
           .from('v7_projects')
           .select('id, name, short_name, funding_format, funding_reference, start_date, end_date, is_active, foerdersatz, overhead_t, overhead_nt, overhead_gleich')
@@ -379,50 +357,26 @@ export default function BerichtePage() {
         if (projectsError) {
           console.error('Projekte-Fehler:', projectsError);
         }
-        console.log('Projekte geladen:', projectsData?.length || 0);
         setProjects(projectsData || []);
-
-        // PK-Panel Standardwerte: erstes Projekt, Von=Projektstart, Bis=heute
-        if (projectsData && projectsData.length > 0) {
-          const firstProject = projectsData[0];
-          setPKProjectId(firstProject.id);
-          setPKVon(firstProject.start_date
-            ? firstProject.start_date.slice(0, 10)
-            : new Date().toISOString().slice(0, 10));
-          setPKBis(new Date().toISOString().slice(0, 10));
-        }
         
-        // Mitarbeiter - KORREKTER FELDNAME: client_company_id
+        // Mitarbeiter
         const { data: employeesData, error: employeesError } = await supabase
           .from('v7_employees')
-          .select('id, display_name, first_name, last_name, user_id, portal_role')
+          .select('id, display_name, first_name, last_name')
           .eq('client_company_id', companyId)
           .eq('is_active', true);
         
         if (employeesError) {
           console.error('MA-Fehler:', employeesError);
         }
-        console.log('Mitarbeiter geladen:', employeesData?.length || 0);
         setEmployees(employeesData || []);
-        
-        // Portal-Rolle des eingeloggten Users bestimmen
-        const myEmployee = (employeesData || []).find(
-          (emp: any) => emp.user_id === user.id
-        );
-        if (profile.role === 'client_admin') {
-          setPortalRole('client_admin');
-        } else if (myEmployee?.portal_role) {
-          setPortalRole(myEmployee.portal_role);
-        } else {
-          setPortalRole('employee');
-        }
         
         // Arbeitspakete
         const projectIds = (projectsData || []).map(p => p.id);
         if (projectIds.length > 0) {
           const { data: wpData, error: wpError } = await supabase
             .from('v7_work_packages')
-            .select('id, project_id, ap_number, ap_code, name, total_person_months, start_date, end_date, is_technical')
+            .select('id, project_id, ap_number, ap_code, name, total_person_months, is_technical')
             .in('project_id', projectIds)
             .eq('is_active', true);
           
@@ -464,14 +418,13 @@ export default function BerichtePage() {
           console.log('Zeiteintraege geladen:', timesheetData?.length || 0);
           setTimesheets(timesheetData || []);
         }
-
-        // Projekt-Zuordnungen mit Gehalts-Daten (fuer Personalkosten-Export)
+        
         // Project-Assignments: Shared loader aus ZAPanel (mit v7_employees JOIN)
         if (projectIds.length > 0) {
           const paFlat = await loadProjectAssignments(projectIds);
           setProjectAssignments(paFlat);
         }
-        
+
       } catch (err: any) {
         console.error('Allgemeiner Fehler:', err);
         setError(err.message);
@@ -481,7 +434,7 @@ export default function BerichtePage() {
     };
     
     loadData();
-  }, [router, supabase]);
+  }, [router, supabase, companyId]);
 
   // ============================================================================
   // BERECHNUNGEN
@@ -624,7 +577,6 @@ export default function BerichtePage() {
   // STUNDENNACHWEIS-MATRIX BERECHNUNG
   // ============================================================================
 
-  // Monatskuerzel
   const MONTH_SHORT = ['Jan','Feb','Mrz','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
 
   const matrixData = useMemo(() => {
@@ -638,7 +590,6 @@ export default function BerichtePage() {
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth() + 1;
 
-    // Alle Projektmonate berechnen
     const pStart = new Date(project.start_date);
     const pEnd = new Date(project.end_date);
     const startYear = pStart.getFullYear();
@@ -655,10 +606,8 @@ export default function BerichtePage() {
       }
     }
 
-    // Jahre fuer Gruppierung
     const years = [...new Set(months.map(m => m.year))];
 
-    // MA die im Projekt sind (ueber v7_project_assignments Logik: WP-Zuordnungen)
     const projectWPs = workPackages.filter(wp => wp.project_id === projectId);
     const projectWPIds = projectWPs.map(wp => wp.id);
     const assignedEmployeeIds = [...new Set(
@@ -666,16 +615,13 @@ export default function BerichtePage() {
         .filter(a => projectWPIds.includes(a.work_package_id))
         .map(a => a.employee_id)
     )];
-    const matrixEmployees = employees
-      .filter(e => assignedEmployeeIds.includes(e.id));
+    const matrixEmployees = employees.filter(e => assignedEmployeeIds.includes(e.id));
 
-    // Feiertage fuer relevante Jahre berechnen
     const holidaysByYear: Record<number, Map<string, string>> = {};
     years.forEach(y => {
       holidaysByYear[y] = getGermanHolidays(y, company?.federal_state || '');
     });
 
-    // Zellen berechnen
     const cells: MatrixCell[] = [];
     matrixEmployees.forEach(emp => {
       months.forEach(({ year, month }) => {
@@ -712,18 +658,9 @@ export default function BerichtePage() {
     return { project, months, years, employees: matrixEmployees, cells };
   }, [matrixProjectId, projects, workPackages, wpAssignments, employees, timesheets, company]);
 
-  // Wenn Projekt im Panel wechselt: Von auf Projektstart zuruecksetzen
-  const handlePkProjectChange = (newId: string) => {
-    setPKProjectId(newId);
-    const p = projects.find(pr => pr.id === newId);
-    if (p) {
-      setPKVon(p.start_date ? p.start_date.slice(0, 10) : '');
-      setPKBis(p.end_date ? p.end_date.slice(0, 10) : new Date().toISOString().slice(0, 10));
-    }
-  };
-
   // ============================================================================
-  // PERSONALKOSTEN EXCEL-EXPORT
+  // ============================================================================
+  // PERSONALKOSTEN-EXPORT
   // ============================================================================
 
   const handlePersonalkostenExport = (exportProjectId?: string, vonStr?: string, bisStr?: string) => {
@@ -762,11 +699,11 @@ export default function BerichtePage() {
         return nameA.localeCompare(nameB, 'de');
       });
 
-      const fmt = (v: number): number => Math.round(v * 100) / 100;
+      const fmt2 = (v: number): number => Math.round(v * 100) / 100;
 
       const getPMForYear = (empId: string, year: number): number => {
         let totalPM = 0;
-        projectWPs.forEach(wp => {
+        projectWPs.forEach((wp: any) => {
           if (!wp.start_date || !wp.end_date) return;
           const wpStart = new Date(wp.start_date);
           const wpEnd = new Date(wp.end_date);
@@ -789,14 +726,11 @@ export default function BerichtePage() {
       const vonLabel = new Date(vonDate).toLocaleDateString('de-DE');
       const bisLabel = new Date(bisDate).toLocaleDateString('de-DE');
 
-      // Timesheets auf Abrechnungszeitraum einschraenken
       const timesheetsInRange = timesheets.filter(t =>
         t.work_date >= vonDate && t.work_date <= bisDate
       );
 
-      // ----------------------------------------------------------------
       // Sheet 1: Personalkosten Uebersicht
-      // ----------------------------------------------------------------
       const ws1Data: any[][] = [];
       ws1Data.push([`Personalkosten - ${project.name}`]);
       ws1Data.push([`Foerderkennzeichen: ${project.funding_reference || '-'}`]);
@@ -833,25 +767,18 @@ export default function BerichtePage() {
         sumKostenGesamt += kostenGesamt;
 
         ws1Data.push([
-          pa.employee_number ?? (idx + 1),
-          empName,
-          pa.qualification || '-',
-          pa.annual_salary ?? null,
-          pa.weekly_hours ?? null,
+          pa.employee_number ?? (idx + 1), empName, pa.qualification || '-',
+          pa.annual_salary ?? null, pa.weekly_hours ?? null,
           stundensatz > 0 ? stundensatz : null,
-          fmt(geplantePM),
-          fmt(erfassteH),
-          fmt(erfasstePM),
-          fmt(kostenBisher),
-          fmt(kostenGesamt),
+          fmt2(geplantePM), fmt2(erfassteH), fmt2(erfasstePM),
+          fmt2(kostenBisher), fmt2(kostenGesamt),
         ]);
       });
 
       ws1Data.push([]);
-      ws1Data.push([
-        null, 'SUMME', null, null, null, null,
-        fmt(sumGeplantePM), fmt(sumErfassteH), fmt(sumErfasstePM),
-        fmt(sumKostenBisher), fmt(sumKostenGesamt),
+      ws1Data.push([null, 'SUMME', null, null, null, null,
+        fmt2(sumGeplantePM), fmt2(sumErfassteH), fmt2(sumErfasstePM),
+        fmt2(sumKostenBisher), fmt2(sumKostenGesamt),
       ]);
       ws1Data.push([]);
       ws1Data.push(['Hinweis: Personalkosten im Zeitraum = Erfasste Stunden (foerderbar) x Stundensatz']);
@@ -864,9 +791,7 @@ export default function BerichtePage() {
         { wch: 12 }, { wch: 28 }, { wch: 26 },
       ];
 
-      // ----------------------------------------------------------------
-      // Sheet 2: Jahresscheiben (Anlage 5)
-      // ----------------------------------------------------------------
+      // Sheet 2: Jahresscheiben
       const yearHeaders = projectYears.map((y, i) => `Jahr ${i + 1} (${y}) [PM]`);
       const ws2Data: any[][] = [];
       ws2Data.push([`Jahresscheiben (Anlage 5) - ${project.name}`]);
@@ -886,30 +811,23 @@ export default function BerichtePage() {
         const emp = employees.find(e => e.id === pa.employee_id);
         const empName = emp?.display_name || '-';
         const stundensatz = pa.hourly_rate || 0;
-        const yearPMs = projectYears.map(y => fmt(getPMForYear(pa.employee_id, y)));
-        const gesamtPM = fmt(yearPMs.reduce((s, v) => s + v, 0));
-        const gesamtKosten = fmt(gesamtPM * HOURS_PER_PM * stundensatz);
-
+        const yearPMs = projectYears.map(y => fmt2(getPMForYear(pa.employee_id, y)));
+        const gesamtPM = fmt2(yearPMs.reduce((s, v) => s + v, 0));
+        const gesamtKosten = fmt2(gesamtPM * HOURS_PER_PM * stundensatz);
         yearPMs.forEach((pm, i) => { sumJahresPMs[i] += pm; });
         sumGesamtPM2 += gesamtPM;
         sumGesamtKosten2 += gesamtKosten;
-
         ws2Data.push([
-          pa.employee_number ?? (idx + 1),
-          empName,
-          pa.qualification || '-',
+          pa.employee_number ?? (idx + 1), empName, pa.qualification || '-',
           stundensatz > 0 ? stundensatz : null,
-          ...yearPMs,
-          gesamtPM,
-          gesamtKosten,
+          ...yearPMs, gesamtPM, gesamtKosten,
         ]);
       });
 
       ws2Data.push([]);
-      ws2Data.push([
-        null, 'SUMME', null, null,
-        ...sumJahresPMs.map(v => fmt(v)),
-        fmt(sumGesamtPM2), fmt(sumGesamtKosten2),
+      ws2Data.push([null, 'SUMME', null, null,
+        ...sumJahresPMs.map(v => fmt2(v)),
+        fmt2(sumGesamtPM2), fmt2(sumGesamtKosten2),
       ]);
       ws2Data.push([]);
       ws2Data.push(['Hinweis: 1 PM = 173,33 Stunden (40h/Woche x 52 Wochen / 12 Monate)']);
@@ -922,9 +840,6 @@ export default function BerichtePage() {
         { wch: 14 }, { wch: 26 },
       ];
 
-      // ----------------------------------------------------------------
-      // Workbook herunterladen
-      // ----------------------------------------------------------------
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws1, 'Personalkosten');
       XLSX.utils.book_append_sheet(wb, ws2, 'Jahresscheiben (Anlage 5)');
@@ -953,12 +868,12 @@ export default function BerichtePage() {
     return (
       <div className="min-h-screen bg-gray-50">
         <PortalHeader 
-          portal="firma" 
+          portal="berater" 
           companyName="" 
           userName=""
-          userRole={portalRole === "client_admin" ? "client_admin" : "client_user"}
+          userRole="consultant"
         />
-        <PortalNav portal="firma" userRole={portalRole === "client_admin" ? "client_admin" : "client_user"} portalRole={portalRole} />
+        <PortalNav portal="berater" userRole="consultant" />
         <main className="max-w-7xl mx-auto px-4 py-8">
           <div className="flex items-center justify-center h-64">
             <div className="w-10 h-10 border-4 border-green-200 border-t-green-600 rounded-full animate-spin"></div>
@@ -972,12 +887,12 @@ export default function BerichtePage() {
     return (
       <div className="min-h-screen bg-gray-50">
         <PortalHeader 
-          portal="firma" 
+          portal="berater" 
           companyName="" 
           userName=""
-          userRole={portalRole === "client_admin" ? "client_admin" : "client_user"}
+          userRole="consultant"
         />
-        <PortalNav portal="firma" userRole={portalRole === "client_admin" ? "client_admin" : "client_user"} portalRole={portalRole} />
+        <PortalNav portal="berater" userRole="consultant" />
         <main className="max-w-7xl mx-auto px-4 py-8">
           <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
             <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
@@ -994,19 +909,27 @@ export default function BerichtePage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <PortalHeader 
-        portal="firma" 
+        portal="berater" 
         companyName={company?.name || ''} 
         userName={userProfile?.display_name || ''}
-        userRole={portalRole === "client_admin" ? "client_admin" : "client_user"}
-        portalRole={portalRole as any}
+        userRole="consultant"
+       
       />
-      <PortalNav portal="firma" userRole={portalRole === "client_admin" ? "client_admin" : "client_user"} portalRole={portalRole} />
+      <PortalNav portal="berater" userRole="consultant" />
       
       <main className="max-w-7xl mx-auto px-4 py-8">
+        {/* Zurueck-Link */}
+        <a 
+          href="/v7/berater/dashboard"
+          className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 mb-4 text-sm"
+        >
+          &larr; Zurueck zum Dashboard
+        </a>
+        
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-gray-900">Berichte & Controlling</h1>
-          <p className="text-gray-600 mt-1">Uebersicht ueber Projekte, Kosten und Zeiterfassung</p>
+          <p className="text-gray-600 mt-1">{company?.name} - Uebersicht ueber Projekte, Kosten und Zeiterfassung</p>
         </div>
 
         {/* Kennzahlen */}
@@ -1243,7 +1166,7 @@ export default function BerichtePage() {
                       <td className="px-6 py-4 text-center">
                         <button
                           onClick={() => {
-                            router.push(`/v7/firma/zeiterfassung?employee=${ets.employee.id}`);
+                            router.push(`/v7/berater/foerderung/firma/${companyId}/zeiterfassung?employee=${ets.employee.id}`);
                           }}
                           className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-green-700 bg-green-50 hover:bg-green-100 rounded-lg transition-colors"
                           title={`Zeiterfassung fuer ${ets.employee.display_name} oeffnen`}
@@ -1269,67 +1192,58 @@ export default function BerichtePage() {
           <div className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
 
-              {/* Kachel 1: Personalkosten - AKTIV mit aufklappbarem Panel */}
+              {/* Kachel 1: Personalkosten - AKTIV */}
               <div className="flex flex-col">
                 <button
-                  onClick={() => setShowPKPanel(prev => !prev)}
-                  disabled={projects.length === 0}
-                  className={`flex flex-col items-center p-6 border-2 rounded-lg transition-colors ${
-                    projects.length === 0
-                      ? 'border-dashed border-gray-300 text-gray-400 cursor-not-allowed'
-                      : showPKPanel
-                        ? 'border-green-600 text-green-800 bg-green-100 cursor-pointer'
-                        : 'border-green-400 text-green-700 bg-green-50 hover:bg-green-100 cursor-pointer'
-                  }`}
+                  onClick={() => {
+                    const newShow = !showPKPanel;
+                    setShowPKPanel(newShow);
+                    if (newShow && projects.length > 0 && !pkProjectId) {
+                      setPKProjectId(projects[0].id);
+                    }
+                  }}
+                  className={`flex flex-col items-center p-6 border-2 rounded-lg transition-colors
+                    ${showPKPanel
+                      ? 'border-blue-600 bg-blue-50 text-blue-700'
+                      : 'border-blue-200 bg-white text-blue-700 hover:border-blue-400 hover:bg-blue-50'
+                    }`}
                 >
                   <FileSpreadsheet className="w-10 h-10 mb-3" />
                   <span className="font-medium">Personalkosten</span>
-                  <span className="text-xs mt-1">Excel-Export</span>
-                  <span className="text-xs mt-2 bg-green-200 text-green-800 px-2 py-0.5 rounded flex items-center gap-1">
+                  <span className="text-xs mt-1 text-blue-600">Excel-Export</span>
+                  <span className={`text-xs mt-2 flex items-center gap-1 px-2 py-0.5 rounded ${showPKPanel ? 'bg-blue-200' : 'bg-blue-100'}`}>
                     {showPKPanel ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                    {showPKPanel ? 'Schliessen' : 'Zeitraum waehlen'}
+                    {showPKPanel ? 'Schliessen' : 'Oeffnen'}
                   </span>
                 </button>
-
-                {/* Aufklappbares Panel */}
                 {showPKPanel && (
-                  <div className="mt-2 p-4 bg-white border border-green-300 rounded-lg shadow-sm">
-                    {/* Projekt-Auswahl (nur wenn mehrere Projekte) */}
+                  <div className="mt-2 p-4 border border-blue-200 rounded-lg bg-blue-50 text-sm">
                     {projects.length > 1 && (
                       <div className="mb-3">
                         <label className="block text-xs font-medium text-gray-600 mb-1">Projekt</label>
                         <select
                           value={pkProjectId}
-                          onChange={e => handlePkProjectChange(e.target.value)}
-                          className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-green-500"
+                          onChange={e => setPKProjectId(e.target.value)}
+                          className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-blue-500"
                         >
                           {projects.map(p => (
-                            <option key={p.id} value={p.id}>
-                              {p.short_name || p.name}
-                            </option>
+                            <option key={p.id} value={p.id}>{p.short_name || p.name}</option>
                           ))}
                         </select>
                       </div>
                     )}
-                    {/* Von / Bis */}
                     <div className="grid grid-cols-2 gap-3 mb-4">
                       <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">Von</label>
-                        <input
-                          type="date"
-                          value={pkVon}
+                        <input type="date" value={pkVon}
                           onChange={e => setPKVon(e.target.value)}
-                          className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-green-500"
-                        />
+                          className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-blue-500" />
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">Bis</label>
-                        <input
-                          type="date"
-                          value={pkBis}
+                        <input type="date" value={pkBis}
                           onChange={e => setPKBis(e.target.value)}
-                          className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-green-500"
-                        />
+                          className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-blue-500" />
                       </div>
                     </div>
                     <button
@@ -1338,7 +1252,7 @@ export default function BerichtePage() {
                         setShowPKPanel(false);
                       }}
                       disabled={exportLoading || !pkVon || !pkBis}
-                      className="w-full py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white text-sm font-medium rounded transition-colors flex items-center justify-center gap-2"
+                      className="w-full py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white text-sm font-medium rounded transition-colors flex items-center justify-center gap-2"
                     >
                       <FileSpreadsheet className="w-4 h-4" />
                       {exportLoading ? 'Wird erstellt...' : 'Excel herunterladen'}
@@ -1355,12 +1269,12 @@ export default function BerichtePage() {
                   }
                   setShowMatrix(prev => !prev);
                 }}
-                className="flex flex-col items-center p-6 border-2 border-green-400 rounded-lg text-green-700 bg-green-50 hover:bg-green-100 transition-colors cursor-pointer"
+                className="flex flex-col items-center p-6 border-2 border-blue-400 rounded-lg text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors cursor-pointer"
               >
                 <Grid3x3 className="w-10 h-10 mb-3" />
                 <span className="font-medium">Stundennachweis</span>
                 <span className="text-xs mt-1">Matrix-Uebersicht</span>
-                <span className="text-xs mt-2 bg-green-200 text-green-800 px-2 py-0.5 rounded flex items-center gap-1">
+                <span className="text-xs mt-2 bg-blue-200 text-blue-800 px-2 py-0.5 rounded flex items-center gap-1">
                   {showMatrix ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
                   {showMatrix ? 'Schliessen' : 'Oeffnen'}
                 </span>
@@ -1375,30 +1289,13 @@ export default function BerichtePage() {
               </button>
 
 
-
-              {/* Kachel 4: Zahlungsanforderung */}
-              <button
-                onClick={() => setShowZA(prev => !prev)}
-                className={`flex flex-col items-center p-6 border-2 rounded-lg transition-colors cursor-pointer ${
-                  showZA
-                    ? 'border-green-600 text-green-800 bg-green-100'
-                    : 'border-green-400 text-green-700 bg-green-50 hover:bg-green-100'
-                }`}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10 mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-                <span className="font-medium">Zahlungsanforderung</span>
-                <span className="text-xs mt-1">ZIM Mittelabruf</span>
-                <span className={`text-xs mt-2 px-2 py-0.5 rounded flex items-center gap-1 ${showZA ? 'bg-green-200' : 'bg-green-100'}`}>
-                  {showZA ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                  {showZA ? 'Schliessen' : 'Oeffnen'}
-                </span>
-              </button>
             </div>
 
-            {/* ZA-Panel - volle Breite unter dem Grid */}
-            {showZA && (
+            {/* Kachel 4: Zahlungsanforderung - mode=full, Button auf 1/4 Breite begrenzt */}
+            <div className="w-1/4">
               <ZAPanel
-                portal="firma"
+                mode="full"
+                portal="berater"
                 projects={projects}
                 workPackages={workPackages}
                 wpAssignments={wpAssignments}
@@ -1406,22 +1303,22 @@ export default function BerichtePage() {
                 timesheets={timesheets}
                 projectAssignments={projectAssignments}
               />
-            )}
+            </div>
 
             {/* Stundennachweis-Matrix (aufklappbar) */}
             {showMatrix && (
               <div className="mt-6 border border-gray-200 rounded-lg overflow-hidden">
 
-                {/* Matrix-Header: Projekt-Auswahl (falls mehrere Projekte) */}
+                {/* Matrix-Header mit Projekt-Auswahl */}
                 <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <Grid3x3 className="w-5 h-5 text-green-600" />
+                    <Grid3x3 className="w-5 h-5 text-blue-600" />
                     <span className="font-medium text-gray-900">Stundennachweis-Matrix</span>
                     {projects.length > 1 && (
                       <select
                         value={matrixProjectId || projects[0]?.id || ''}
                         onChange={e => setMatrixProjectId(e.target.value)}
-                        className="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-1 focus:ring-green-500"
+                        className="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-1 focus:ring-blue-500"
                       >
                         {projects.map(p => (
                           <option key={p.id} value={p.id}>
@@ -1466,7 +1363,6 @@ export default function BerichtePage() {
                   <div className="overflow-x-auto">
                     <table className="min-w-full text-xs">
                       <thead>
-                        {/* Jahres-Gruppen-Header */}
                         <tr className="bg-gray-100 border-b border-gray-200">
                           <th className="px-3 py-2 text-left font-semibold text-gray-600 w-40 sticky left-0 bg-gray-100 z-10">
                             Mitarbeiter
@@ -1484,7 +1380,6 @@ export default function BerichtePage() {
                             );
                           })}
                         </tr>
-                        {/* Monats-Header */}
                         <tr className="bg-gray-50 border-b border-gray-200">
                           <th className="px-3 py-2 sticky left-0 bg-gray-50 z-10"></th>
                           {matrixData.months.map(({ year, month, label }) => {
@@ -1494,7 +1389,7 @@ export default function BerichtePage() {
                               <th
                                 key={`${year}-${month}`}
                                 className={`px-1 py-2 text-center font-medium w-10 border-l border-gray-200 ${
-                                  isCurrent ? 'text-green-700 bg-green-50' : 'text-gray-500'
+                                  isCurrent ? 'text-blue-700 bg-blue-50' : 'text-gray-500'
                                 }`}
                               >
                                 {label}
@@ -1509,13 +1404,11 @@ export default function BerichtePage() {
                             key={emp.id}
                             className={empIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}
                           >
-                            {/* MA-Name sticky links */}
                             <td className={`px-3 py-2 font-medium text-gray-800 sticky left-0 z-10 ${
                               empIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'
                             }`}>
                               {emp.display_name}
                             </td>
-                            {/* Monatszellen */}
                             {matrixData.months.map(({ year, month }) => {
                               const cell = matrixData.cells.find(
                                 c => c.employeeId === emp.id && c.year === year && c.month === month
@@ -1523,7 +1416,6 @@ export default function BerichtePage() {
                               const status = cell?.status || 'future';
                               const hours = cell?.hoursRecorded || 0;
 
-                              // Farben pro Status
                               const colorMap: Record<string, string> = {
                                 complete: 'bg-green-500 hover:bg-green-600 cursor-pointer',
                                 partial:  'bg-orange-400 hover:bg-orange-500 cursor-pointer',
@@ -1534,7 +1426,6 @@ export default function BerichtePage() {
                               const colorClass = colorMap[status] || 'bg-gray-100';
                               const isClickable = status !== 'future' && status !== 'outside';
 
-                              // Tooltip-Text
                               const monthName = ['Januar','Februar','Maerz','April','Mai','Juni',
                                 'Juli','August','September','Oktober','November','Dezember'][month - 1];
                               const tooltip = status === 'future'
@@ -1555,10 +1446,11 @@ export default function BerichtePage() {
                                     className={`w-8 h-7 mx-auto rounded flex items-center justify-center text-white font-bold transition-colors ${colorClass}`}
                                     onClick={() => {
                                       if (!isClickable) return;
-                                      // Finde employee_id fuer URL-Parameter
-                                      const returnUrl = encodeURIComponent('/v7/firma/berichte');
+                                      const returnUrl = encodeURIComponent(
+                                        `/v7/berater/foerderung/firma/${companyId}/berichte`
+                                      );
                                       router.push(
-                                        `/v7/firma/zeiterfassung?employee=${emp.id}&year=${year}&month=${month}&returnUrl=${returnUrl}`
+                                        `/v7/berater/foerderung/firma/${companyId}/zeiterfassung?employee=${emp.id}&year=${year}&month=${month}&returnUrl=${returnUrl}`
                                       );
                                     }}
                                   >
@@ -1579,7 +1471,6 @@ export default function BerichtePage() {
                   </div>
                 )}
 
-                {/* Hinweis-Zeile */}
                 <div className="bg-gray-50 px-4 py-2 border-t border-gray-200 text-xs text-gray-500">
                   Klick auf eine Zelle oeffnet die Zeiterfassung des Mitarbeiters fuer den jeweiligen Monat.
                 </div>
@@ -1590,8 +1481,25 @@ export default function BerichtePage() {
       </main>
       
       <footer className="text-center py-4 text-sm text-gray-500 mt-8">
-        Projektzeiterfassung v7.4.3-18 - Firmen-Portal - 2026
+        Projektzeiterfassung v7.4.4-2 - Berater-Portal - 2026
       </footer>
     </div>
+  );
+}
+
+
+// ============================================================================
+// SUSPENSE-WRAPPER (erforderlich fuer useSearchParams)
+// ============================================================================
+
+export default function BerichtePage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+      </div>
+    }>
+      <BeratePageContent />
+    </Suspense>
   );
 }
