@@ -1289,7 +1289,9 @@ function BeratePageContent() {
                 <span className="text-xs mt-2 bg-gray-100 px-2 py-0.5 rounded">Demnaechst</span>
               </button>
 
-                          {/* Kachel 4: Zahlungsanforderung - Shared Component ZAPanel */}
+            </div>
+
+            {/* Kachel 4: Zahlungsanforderung - Shared Component ZAPanel */}
             <ZAPanel
               portal="berater"
               projects={projects}
@@ -1300,7 +1302,7 @@ function BeratePageContent() {
               projectAssignments={projectAssignments}
             />
 
-                        {/* Stundennachweis-Matrix (aufklappbar) */}
+            {/* Stundennachweis-Matrix (aufklappbar) */}
             {showMatrix && (
               <div className="mt-6 border border-gray-200 rounded-lg overflow-hidden">
 
