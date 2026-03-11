@@ -1375,6 +1375,7 @@ export default function BerichtePage() {
               </button>
 
 
+            </div>
 
               {/* Kachel 4: Zahlungsanforderung */}
               <button
