@@ -491,10 +491,10 @@ export default function ZAPanel({
           setShowPanel(newShow);
           if (newShow && projectId) openPanel(projectId);
         }}
-        className={`flex flex-col items-center p-6 border-2 rounded-lg transition-colors w-full cursor-pointer hover:bg-gray-50
+        className={`flex flex-col items-center p-6 border-2 rounded-lg transition-colors w-full cursor-pointer
           ${showPanel
             ? `${colors.kachelBorderActive} ${colors.kachelBgActive} ${colors.kachelText}`
-            : `${colors.kachelBorder} ${colors.kachelBg} ${colors.kachelText}`
+            : `${colors.kachelBorder} ${colors.kachelBg} ${colors.kachelBgHover} ${colors.kachelText}`
           }`}
       >
         <FileText className={`w-10 h-10 mb-3 ${colors.icon}`} />
