@@ -2,7 +2,7 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-13
+// Version: 7.4.4-12
 // Datum: 11. Maerz 2026
 //
 // SHARED COMPONENT - wird von BEIDEN Portalen verwendet:
@@ -498,7 +498,7 @@ export default function ZAPanel({
     <button
       onClick={() => {
         const newShow = !showPanel;
-        togglePanel();
+        setShowPanel(newShow);
         if (newShow && projectId) openPanel(projectId);
       }}
       onMouseEnter={e => { if (!showPanel) (e.currentTarget as HTMLButtonElement).style.backgroundColor = portal === 'berater' ? '#eff6ff' : '#f0fdf4'; }}
