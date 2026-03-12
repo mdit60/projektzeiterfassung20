@@ -2,9 +2,11 @@
 // ============================================================================
 // PZE V7 - Berichte & Controlling (Berater-Portal - Firmenansicht)
 // ============================================================================
-// Version: 7.4.4-14
-// Datum: 11. Maerz 2026
+// Version: 7.4.4-15
+// Datum: 12. Maerz 2026
 //
+// v7.4.4-15: Kachel "Zahlungsanforderung" umbenannt in
+//            "Daten f. Zahlungsanforderung / Datengrundlage ZIM-Formular"
 // v7.4.4-5: ZA-Logik in Shared Component ZAPanel ausgelagert (kein doppelter Code mehr)
 // v7.4.4-2: Personalkosten Excel-Export + ZA-Modul portiert aus Firmen-Portal
 // v7.4.3-12: NEU: Stundennachweis-Matrix unter Reports-Kachel
@@ -1301,8 +1303,8 @@ function BeratePageContent() {
                 }`}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10 mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-                <span className="font-medium">Zahlungsanforderung</span>
-                <span className="text-xs mt-1">ZIM Mittelabruf</span>
+                <span className="font-medium">Daten f. Zahlungsanforderung</span>
+                <span className="text-xs mt-1">Datengrundlage ZIM-Formular</span>
                 <span className={`text-xs mt-2 px-2 py-0.5 rounded flex items-center gap-1 ${showZA ? 'bg-blue-200' : 'bg-blue-100'}`}>
                   {showZA ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                   {showZA ? 'Schliessen' : 'Oeffnen'}
