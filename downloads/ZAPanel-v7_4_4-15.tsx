@@ -2,10 +2,10 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-16
+// Version: 7.4.4-15
 // Datum: 12. Maerz 2026
 //
-// v7.4.4-16: Rechtlicher Hinweiskasten auf allen drei Tabs eingefuegt:
+// v7.4.4-15: Rechtlicher Hinweiskasten auf allen drei Tabs eingefuegt:
 //            "Fuer die Zahlungsanforderungen sind die vorgegebenen Formulare
 //            zu verwenden." (Originalzitat ZIM-Formular VDI/VDE-IT)
 //            Link zum ZIM-Foyer eingefuegt.
@@ -764,10 +764,17 @@ export default function ZAPanel({
                   <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
                 </svg>
                 <div>
-                  <div className="font-semibold mb-1">
-                    Hinweis: Fuer die Zahlungsanforderungen sind die vorgegebenen Formulare zu verwenden.
-                    Diese Daten sind deshalb in das offizielle ZIM-Formular zu uebertragen.
-                    Alle weiteren Informationen entnehmen Sie bitte den Hinweisen des ZIM-Formulars.
+                  <div className="font-semibold mb-1">Hinweis: Diese Daten sind in das offizielle ZIM-Formular zu uebertragen</div>
+                  <div className="text-amber-700 leading-relaxed">
+                    Originalzitat ZIM-Formular (VDI/VDE-IT): &bdquo;Fuer die Zahlungsanforderungen sind die vorgegebenen Formulare zu verwenden.
+                    Saemtliche Zahlungsanforderungen und Verwendungsnachweise sind rechtsverbindlich zu unterschreiben.&ldquo;
+                  </div>
+                  <div className="mt-1.5">
+                    Einreichung ueber:{' '}
+                    <a href="https://zim-foyer.vdivde-it.de" target="_blank" rel="noopener noreferrer"
+                      className="underline text-amber-800 hover:text-amber-900 font-medium">
+                      ZIM-Foyer (zim-foyer.vdivde-it.de)
+                    </a>
                   </div>
                 </div>
               </div>
@@ -877,10 +884,17 @@ export default function ZAPanel({
                     <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
                   </svg>
                   <div>
-                    <div className="font-semibold mb-1">
-                      Hinweis: Fuer die Zahlungsanforderungen sind die vorgegebenen Formulare zu verwenden.
-                      Diese Daten sind deshalb in das offizielle ZIM-Formular zu uebertragen.
-                      Alle weiteren Informationen entnehmen Sie bitte den Hinweisen des ZIM-Formulars.
+                    <div className="font-semibold mb-1">Hinweis: Diese Daten sind in das offizielle ZIM-Formular zu uebertragen</div>
+                    <div className="text-amber-700 leading-relaxed">
+                      Originalzitat ZIM-Formular (VDI/VDE-IT): &bdquo;Fuer die Zahlungsanforderungen sind die vorgegebenen Formulare zu verwenden.
+                      Saemtliche Zahlungsanforderungen und Verwendungsnachweise sind rechtsverbindlich zu unterschreiben.&ldquo;
+                    </div>
+                    <div className="mt-1.5">
+                      Einreichung ueber:{' '}
+                      <a href="https://zim-foyer.vdivde-it.de" target="_blank" rel="noopener noreferrer"
+                        className="underline text-amber-800 hover:text-amber-900 font-medium">
+                        ZIM-Foyer (zim-foyer.vdivde-it.de)
+                      </a>
                     </div>
                   </div>
                 </div>
@@ -997,10 +1011,17 @@ export default function ZAPanel({
                     <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
                   </svg>
                   <div>
-                    <div className="font-semibold mb-1">
-                      Hinweis: Fuer die Zahlungsanforderungen sind die vorgegebenen Formulare zu verwenden.
-                      Diese Daten sind deshalb in das offizielle ZIM-Formular zu uebertragen.
-                      Alle weiteren Informationen entnehmen Sie bitte den Hinweisen des ZIM-Formulars.
+                    <div className="font-semibold mb-1">Hinweis: Diese Daten sind in das offizielle ZIM-Formular zu uebertragen</div>
+                    <div className="text-amber-700 leading-relaxed">
+                      Originalzitat ZIM-Formular (VDI/VDE-IT): &bdquo;Fuer die Zahlungsanforderungen sind die vorgegebenen Formulare zu verwenden.
+                      Saemtliche Zahlungsanforderungen und Verwendungsnachweise sind rechtsverbindlich zu unterschreiben.&ldquo;
+                    </div>
+                    <div className="mt-1.5">
+                      Einreichung ueber:{' '}
+                      <a href="https://zim-foyer.vdivde-it.de" target="_blank" rel="noopener noreferrer"
+                        className="underline text-amber-800 hover:text-amber-900 font-medium">
+                        ZIM-Foyer (zim-foyer.vdivde-it.de)
+                      </a>
                     </div>
                   </div>
                 </div>
