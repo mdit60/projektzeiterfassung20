@@ -899,6 +899,8 @@ export default function ZAPanel({
                   </div>
                 </div>
               )}
+            </div>
+          )}
 
           {/* ====== TAB: ANLAGE 1b ====== */}
           {zaTab === 'anlage1b' && (
@@ -1024,6 +1026,8 @@ export default function ZAPanel({
                   </div>
                 </div>
               )}
+            </div>
+          )}
 
         </div>
       )}
