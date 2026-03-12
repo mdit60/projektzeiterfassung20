@@ -1482,6 +1482,7 @@ export default function ProjectDetailPage({
         {/* ================================================================ */}
         {activeTab === 'zahlungsanforderungen' && (
           <div>
+            {/* Header */}
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">Zahlungsanforderungen</h2>
@@ -1498,12 +1499,15 @@ export default function ProjectDetailPage({
               </button>
             </div>
 
-            {zaLoading ? (
+            {/* Inhalt: Loading */}
+            {zaLoading && (
               <div className="flex items-center justify-center py-16">
                 <div className={`w-8 h-8 border-4 ${spinnerColor} rounded-full animate-spin`}></div>
               </div>
-            ) : zaList.length === 0 ? (
-              /* Leerzustand */
+            )}
+
+            {/* Inhalt: Leer */}
+            {!zaLoading && zaList.length === 0 && (
               <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
                 <Receipt className={`w-16 h-16 mx-auto mb-4 ${portal === 'firma' ? 'text-green-300' : 'text-blue-300'}`} />
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">
@@ -1521,13 +1525,14 @@ export default function ProjectDetailPage({
                   Erste ZA erstellen
                 </button>
               </div>
-            ) : (
-              /* ZA-Liste */
+            )}
+
+            {/* Inhalt: Liste */}
+            {!zaLoading && zaList.length > 0 && (
               <div className="space-y-3">
                 {zaList.map((za) => {
                   const statusStyle = ZA_STATUS_STYLE[za.status] || ZA_STATUS_STYLE['entwurf'];
                   const isUpdating = zaStatusUpdating === za.id;
-
                   return (
                     <div
                       key={za.id}
@@ -1537,13 +1542,10 @@ export default function ProjectDetailPage({
 
                         {/* Links: ZA-Nummer + Zeitraum */}
                         <div className="flex items-center gap-4 flex-1 min-w-0">
-                          {/* ZA-Nummer Badge */}
                           <div className={`flex-shrink-0 w-12 h-12 rounded-lg ${portal === 'firma' ? 'bg-green-50 border border-green-200' : 'bg-blue-50 border border-blue-200'} flex flex-col items-center justify-center`}>
                             <span className={`text-xs font-medium ${portal === 'firma' ? 'text-green-600' : 'text-blue-600'}`}>ZA</span>
                             <span className={`text-lg font-bold leading-none ${portal === 'firma' ? 'text-green-700' : 'text-blue-700'}`}>{za.za_nummer}</span>
                           </div>
-
-                          {/* Zeitraum + Erstellt */}
                           <div className="min-w-0">
                             <div className="font-medium text-gray-900 text-sm">
                               {formatZeitraum(za.zeitraum_von, za.zeitraum_bis)}
@@ -1566,43 +1568,39 @@ export default function ProjectDetailPage({
                               value={za.status}
                               onChange={(e) => handleZAStatusChange(za.id, e.target.value)}
                               disabled={isUpdating}
-                              className={`
-                                appearance-none pl-8 pr-6 py-1.5 text-sm font-medium rounded-lg border
-                                cursor-pointer transition-colors disabled:opacity-60
-                                ${statusStyle.bg} ${statusStyle.text} ${statusStyle.border}
-                                focus:outline-none focus:ring-2 ${portal === 'firma' ? 'focus:ring-green-500' : 'focus:ring-blue-500'}
-                              `}
+                              className={[
+                                'appearance-none pl-8 pr-6 py-1.5 text-sm font-medium rounded-lg border',
+                                'cursor-pointer transition-colors disabled:opacity-60',
+                                'focus:outline-none focus:ring-2',
+                                statusStyle.bg, statusStyle.text, statusStyle.border,
+                                portal === 'firma' ? 'focus:ring-green-500' : 'focus:ring-blue-500',
+                              ].join(' ')}
                             >
                               {ZA_STATUS_OPTIONS.map(opt => (
                                 <option key={opt.value} value={opt.value}>{opt.label}</option>
                               ))}
                             </select>
-                            {/* Icon links im Dropdown */}
                             <div className={`absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none ${statusStyle.text}`}>
-                              {isUpdating ? (
-                                <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                              ) : (
-                                statusStyle.icon
-                              )}
+                              {isUpdating
+                                ? <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                                : statusStyle.icon
+                              }
                             </div>
                           </div>
                         </div>
 
-                        {/* Rechts: ZA oeffnen Button */}
+                        {/* Rechts: ZA oeffnen */}
                         <div className="flex-shrink-0">
                           <button
                             onClick={() => navigateToBerichteWithZA(za.id)}
-                            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border transition-colors
-                              ${portal === 'firma'
-                                ? 'text-green-700 border-green-300 hover:bg-green-50'
-                                : 'text-blue-700 border-blue-300 hover:bg-blue-50'
-                              }`}
+                            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border transition-colors ${portal === 'firma' ? 'text-green-700 border-green-300 hover:bg-green-50' : 'text-blue-700 border-blue-300 hover:bg-blue-50'}`}
                           >
                             <FileText size={15} />
                             <span>ZA oeffnen</span>
                             <ChevronRight size={14} />
                           </button>
                         </div>
+
                       </div>
                     </div>
                   );
@@ -1634,7 +1632,6 @@ export default function ProjectDetailPage({
               </div>
             )}
           </div>
-        </div>
         )}
 
       </main>
