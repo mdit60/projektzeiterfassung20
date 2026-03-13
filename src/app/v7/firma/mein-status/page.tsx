@@ -2,8 +2,13 @@
 // ============================================================================
 // PZE V7 - Mein Status (Firmen-Portal)
 // ============================================================================
-// Version: 7.4.4-4
+// Version: 7.4.4-5
 // Datum: 13. Maerz 2026
+//
+// v7.4.4-5: FIX: isAdminOrPL prueft userPortalRole statt profile.role
+//   - profile.role ist fuer alle Firmen-User 'client_user', nie 'client_admin'
+//   - client_admin-Rolle kommt aus v7_employees.portal_role -> userPortalRole
+//   - Dadurch wurde ZA-Abfrage nie ausgefuehrt -> Ampel zeigte altes Datum
 //
 // v7.4.4-4: ZA-Ampel: Faelligkeit aus echten ZA-Daten berechnen
 //   - Laedt v7_zahlungsanforderungen beim Start
@@ -399,7 +404,9 @@ export default function MeinStatusPage() {
         }
 
         // 8. ZA-Ampel: alle MA pro ZIM-Projekt laden (fuer client_admin + project_leader)
-        const isAdminOrPL = profile.role === 'client_admin' || userPortalRole === 'project_leader';
+        // WICHTIG: Rolle kommt aus userPortalRole (basiert auf v7_employees.portal_role)
+        // NICHT aus profile.role (das ist immer 'client_user' fuer Firmen-User)
+        const isAdminOrPL = userPortalRole === 'client_admin' || userPortalRole === 'project_leader';
         const zimProjectIds = loadedProjects
           .filter((p) => (p.funding_format || '').startsWith('ZIM'))
           .map((p) => p.id);
