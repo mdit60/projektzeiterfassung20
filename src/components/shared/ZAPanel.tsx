@@ -2,8 +2,17 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-16
-// Datum: 12. Maerz 2026
+// Version: 7.4.4-17
+// Datum: 13. Maerz 2026
+//
+// v7.4.4-17: Status-Workflow: Entwurf -> Eingereicht -> Bewilligt
+//   - Status-Badge bei jeder gespeicherten ZA in der ZA-Auswahlliste
+//   - Status-Steuerblock im Deckblatt-Tab (unterhalb Speichern-Button)
+//   - Buttons: "Als eingereicht markieren" / "Als bewilligt markieren" / "Zurueck zu Entwurf"
+//   - Status-Farben: Entwurf=grau, Eingereicht=blau, Bewilligt=gruen
+//   - Einreichdatum wird automatisch beim Status "Eingereicht" gesetzt
+//   - Bewilligungsdatum wird automatisch beim Status "Bewilligt" gesetzt
+//   - Statusaenderung direkt in DB (kein Reload noetig)
 //
 // v7.4.4-16: Rechtlicher Hinweiskasten auf allen drei Tabs eingefuegt:
 //            "Fuer die Zahlungsanforderungen sind die vorgegebenen Formulare
@@ -93,7 +102,19 @@ interface ZahlungsanforderungDB {
   zeitw_personalaufnahme: number | null;
   status: string | null;
   notizen: string | null;
+  eingereicht_am: string | null;
+  bewilligt_am: string | null;
 }
+
+// Status-Hilfsfunktionen
+const ZA_STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; border: string }> = {
+  entwurf:     { label: 'Entwurf',     bg: 'bg-gray-100',  text: 'text-gray-600',  border: 'border-gray-300' },
+  eingereicht: { label: 'Eingereicht', bg: 'bg-blue-100',  text: 'text-blue-700',  border: 'border-blue-300' },
+  bewilligt:   { label: 'Bewilligt',   bg: 'bg-green-100', text: 'text-green-700', border: 'border-green-300' },
+};
+
+const getStatusConfig = (status: string | null) =>
+  ZA_STATUS_CONFIG[status || 'entwurf'] || ZA_STATUS_CONFIG.entwurf;
 
 interface ZAFormData {
   za_nummer: string;
@@ -236,7 +257,7 @@ export default function ZAPanel({
 
     const { data: existingZAs } = await supabase
       .from('v7_zahlungsanforderungen')
-      .select('id, project_id, za_nummer, zeitraum_von, zeitraum_bis, auftraege_dritte_t, auftraege_dritte_nt, fue_unterauftrag, zeitw_personalaufnahme, status, notizen')
+      .select('id, project_id, za_nummer, zeitraum_von, zeitraum_bis, auftraege_dritte_t, auftraege_dritte_nt, fue_unterauftrag, zeitw_personalaufnahme, status, notizen, eingereicht_am, bewilligt_am')
       .eq('project_id', pid)
       .order('za_nummer', { ascending: true });
 
@@ -282,6 +303,37 @@ export default function ZAPanel({
       zeitw_personalaufnahme: za.zeitw_personalaufnahme != null ? String(za.zeitw_personalaufnahme) : '',
       notizen: za.notizen || '',
     });
+  };
+
+  const handleStatusChange = async (newStatus: 'entwurf' | 'eingereicht' | 'bewilligt') => {
+    if (!zaSelectedId) return;
+    setZASaving(true);
+    try {
+      const now = new Date().toISOString();
+      const patch: Record<string, string | null> = {
+        status: newStatus,
+        updated_at: now,
+      };
+      if (newStatus === 'eingereicht') patch.eingereicht_am = now;
+      if (newStatus === 'bewilligt')   patch.bewilligt_am = now;
+      if (newStatus === 'entwurf') {
+        patch.eingereicht_am = null;
+        patch.bewilligt_am = null;
+      }
+      await supabase.from('v7_zahlungsanforderungen').update(patch).eq('id', zaSelectedId);
+      // Lokale ZA-Liste sofort aktualisieren ohne vollstaendigen Reload
+      setZAList(prev => prev.map(z =>
+        z.id === zaSelectedId
+          ? { ...z, status: newStatus,
+              eingereicht_am: newStatus === 'eingereicht' ? now : (newStatus === 'entwurf' ? null : z.eingereicht_am),
+              bewilligt_am:   newStatus === 'bewilligt'   ? now : (newStatus === 'entwurf' ? null : z.bewilligt_am) }
+          : z
+      ));
+    } catch (err: any) {
+      alert('Fehler beim Statuswechsel: ' + err.message);
+    } finally {
+      setZASaving(false);
+    }
   };
 
   const handleSave = async () => {
@@ -471,17 +523,23 @@ export default function ZAPanel({
           {isDS && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">DS-Formular</span>}
         </div>
         {zaList.length > 0 && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs text-gray-500">Gespeicherte ZAs:</span>
-            {zaList.map(za => (
-              <button key={za.id} onClick={() => loadZAIntoForm(za)}
-                className={`text-xs px-2 py-1 rounded border transition-colors
-                  ${zaSelectedId === za.id
-                    ? colors.btnZaSelected
-                    : `bg-white text-gray-700 border-gray-300 ${colors.btnZaHover}`}`}>
-                ZA {za.za_nummer}
-              </button>
-            ))}
+            {zaList.map(za => {
+              const sc = getStatusConfig(za.status);
+              return (
+                <button key={za.id} onClick={() => loadZAIntoForm(za)}
+                  className={`text-xs px-2 py-1 rounded border transition-colors flex items-center gap-1.5
+                    ${zaSelectedId === za.id
+                      ? colors.btnZaSelected
+                      : `bg-white text-gray-700 border-gray-300 ${colors.btnZaHover}`}`}>
+                  ZA {za.za_nummer}
+                  <span className={`px-1.5 py-0.5 rounded-full text-xs font-medium border ${sc.bg} ${sc.text} ${sc.border}`}>
+                    {sc.label}
+                  </span>
+                </button>
+              );
+            })}
             <button
               onClick={() => { setZASelectedId(null); openPanel(projectId); }}
               className={`text-xs px-2 py-1 rounded border ${colors.btnNeueZA}`}>
@@ -780,6 +838,75 @@ export default function ZAPanel({
                   {zaSaving ? 'Speichern...' : (zaSelectedId ? 'Aktualisieren' : 'ZA speichern')}
                 </button>
               </div>
+
+              {/* Status-Workflow (nur bei gespeicherter ZA) */}
+              {zaSelectedId && (() => {
+                const currentZA = zaList.find(z => z.id === zaSelectedId);
+                const currentStatus = currentZA?.status || 'entwurf';
+                const sc = getStatusConfig(currentStatus);
+                return (
+                  <div className="border border-gray-200 rounded-lg p-3 bg-gray-50">
+                    <div className="flex items-center justify-between flex-wrap gap-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500 font-medium">Status:</span>
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border ${sc.bg} ${sc.text} ${sc.border}`}>
+                          {sc.label}
+                        </span>
+                        {currentZA?.eingereicht_am && (
+                          <span className="text-xs text-gray-400">
+                            Eingereicht: {new Date(currentZA.eingereicht_am).toLocaleDateString('de-DE')}
+                          </span>
+                        )}
+                        {currentZA?.bewilligt_am && (
+                          <span className="text-xs text-gray-400">
+                            Bewilligt: {new Date(currentZA.bewilligt_am).toLocaleDateString('de-DE')}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {currentStatus === 'entwurf' && (
+                          <button
+                            onClick={() => handleStatusChange('eingereicht')}
+                            disabled={zaSaving}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 transition-colors">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="22 2 11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                            </svg>
+                            Als eingereicht markieren
+                          </button>
+                        )}
+                        {currentStatus === 'eingereicht' && (
+                          <>
+                            <button
+                              onClick={() => handleStatusChange('bewilligt')}
+                              disabled={zaSaving}
+                              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50 transition-colors">
+                              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="20 6 9 17 4 12"/>
+                              </svg>
+                              Als bewilligt markieren
+                            </button>
+                            <button
+                              onClick={() => handleStatusChange('entwurf')}
+                              disabled={zaSaving}
+                              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-white hover:bg-gray-100 text-gray-600 border border-gray-300 rounded-lg disabled:opacity-50 transition-colors">
+                              Zurueck zu Entwurf
+                            </button>
+                          </>
+                        )}
+                        {currentStatus === 'bewilligt' && (
+                          <button
+                            onClick={() => handleStatusChange('entwurf')}
+                            disabled={zaSaving}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-white hover:bg-gray-100 text-gray-600 border border-gray-300 rounded-lg disabled:opacity-50 transition-colors">
+                            Zurueck zu Entwurf
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 
