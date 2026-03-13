@@ -2,8 +2,15 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-17
+// Version: 7.4.4-18
 // Datum: 13. Maerz 2026
+//
+// v7.4.4-18: NEU: Archiv-Tab mit Uebersicht aller ZAs
+//   - Neuer Tab "Archiv" neben Deckblatt / Anlage 1a / Anlage 1b
+//   - Tabelle: ZA-Nr / Zeitraum / Eingereicht am / Bewilligt am / Status / Foerderbetrag
+//   - Status-Badge farbig: grau=Entwurf, blau=Eingereicht, gruen=Bewilligt
+//   - Klick auf Zeile laedt ZA in Deckblatt-Tab
+//   - Fuer beide Portale (Firma + Berater)
 //
 // v7.4.4-17: Status-Workflow: Entwurf -> Eingereicht -> Bewilligt
 //   - Status-Badge bei jeder gespeicherten ZA in der ZA-Auswahlliste
@@ -233,7 +240,7 @@ export default function ZAPanel({
   const [projectId, setProjectId] = useState<string>(
     initialProjectId || zimProjects[0]?.id || ''
   );
-  const [zaTab, setZATab] = useState<'deckblatt' | 'anlage1a' | 'anlage1b'>('deckblatt');
+  const [zaTab, setZATab] = useState<'deckblatt' | 'anlage1a' | 'anlage1b' | 'archiv'>('deckblatt');
   const [zaList, setZAList] = useState<ZahlungsanforderungDB[]>([]);
   const [zaSelectedId, setZASelectedId] = useState<string | null>(null);
   const [zaLoading, setZALoading] = useState(false);
@@ -450,7 +457,7 @@ export default function ZAPanel({
     const styles = Array.from(document.styleSheets)
       .map(ss => { try { return Array.from(ss.cssRules).map(r => r.cssText).join('\n'); } catch { return ''; } })
       .join('\n');
-    const tabLabel = zaTab === 'deckblatt' ? 'Deckblatt' : zaTab === 'anlage1a' ? 'Anlage 1a' : 'Anlage 1b';
+    const tabLabel = zaTab === 'deckblatt' ? 'Deckblatt' : zaTab === 'anlage1a' ? 'Anlage 1a' : zaTab === 'anlage1b' ? 'Anlage 1b' : 'Archiv';
     printWin.document.write(
       '<html><head><title>ZA ' + zaFormData.za_nummer + ' - ' + tabLabel +
       '</title><style>' + styles +
@@ -552,11 +559,14 @@ export default function ZAPanel({
       {/* Tab-Navigation */}
       <div className="flex items-center border-b border-gray-200 bg-white">
         <div className="flex flex-1">
-          {(['deckblatt', 'anlage1a', 'anlage1b'] as const).map(tab => (
+          {(['deckblatt', 'anlage1a', 'anlage1b', 'archiv'] as const).map(tab => (
             <button key={tab} onClick={() => setZATab(tab)}
               className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors
                 ${zaTab === tab ? colors.tabActive : colors.tabInactive}`}>
-              {tab === 'deckblatt' ? 'Deckblatt (Seite 5)' : tab === 'anlage1a' ? 'Anlage 1a - Personenstunden' : 'Anlage 1b - Personalkosten'}
+              {tab === 'deckblatt' ? 'Deckblatt (Seite 5)'
+                : tab === 'anlage1a' ? 'Anlage 1a - Personenstunden'
+                : tab === 'anlage1b' ? 'Anlage 1b - Personalkosten'
+                : 'Archiv'}
             </button>
           ))}
         </div>
@@ -1132,6 +1142,87 @@ export default function ZAPanel({
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ====== TAB: ARCHIV ====== */}
+          {zaTab === 'archiv' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-gray-700">Alle Zahlungsanforderungen</h3>
+                <span className="text-xs text-gray-400">{zaList.length} ZA gespeichert</span>
+              </div>
+              {zaList.length === 0 ? (
+                <div className="text-center py-12 text-gray-400 text-sm">
+                  Noch keine Zahlungsanforderungen gespeichert.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200">
+                        <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">ZA Nr.</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Zeitraum</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Eingereicht</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Bewilligt</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Status</th>
+                        <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-600 uppercase tracking-wide">Foerderbetrag</th>
+                        <th className="px-4 py-2.5 text-center text-xs font-semibold text-gray-600 uppercase tracking-wide">Aktion</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {zaList.map((za) => {
+                        const statusCfg = getStatusConfig(za.status);
+                        const vonDate = za.zeitraum_von ? new Date(za.zeitraum_von).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '--';
+                        const bisDate = za.zeitraum_bis ? new Date(za.zeitraum_bis).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '--';
+                        const einDate = za.eingereicht_am ? new Date(za.eingereicht_am).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '--';
+                        const bewDate = za.bewilligt_am ? new Date(za.bewilligt_am).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '--';
+                        const isSelected = zaSelectedId === za.id;
+                        return (
+                          <tr key={za.id}
+                            className={`transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
+                            <td className="px-4 py-3 font-semibold text-gray-900">ZA {za.za_nummer}</td>
+                            <td className="px-4 py-3 text-gray-700 text-xs">
+                              {vonDate}<br/><span className="text-gray-400">bis</span> {bisDate}
+                            </td>
+                            <td className="px-4 py-3 text-gray-700 text-xs">{einDate}</td>
+                            <td className="px-4 py-3 text-gray-700 text-xs">{bewDate}</td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${statusCfg.bg} ${statusCfg.text} ${statusCfg.border}`}>
+                                {statusCfg.label}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-right font-mono text-gray-700 text-xs">
+                              {za.status === 'bewilligt' || za.status === 'eingereicht'
+                                ? <span className="text-gray-400">s. Deckblatt</span>
+                                : <span className="text-gray-300">--</span>}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <button
+                                onClick={() => { loadZAIntoForm(za); setZATab('deckblatt'); }}
+                                className={`text-xs px-3 py-1 rounded border transition-colors ${colors.btnZaHover} bg-white text-gray-600 border-gray-300`}>
+                                Oeffnen
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {/* Legende */}
+              <div className="flex items-center gap-4 pt-2 border-t border-gray-100">
+                <span className="text-xs text-gray-400 font-medium">Status:</span>
+                {(['entwurf', 'eingereicht', 'bewilligt'] as const).map(s => {
+                  const cfg = getStatusConfig(s);
+                  return (
+                    <span key={s} className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${cfg.bg} ${cfg.text} ${cfg.border}`}>
+                      {cfg.label}
+                    </span>
+                  );
+                })}
+              </div>
             </div>
           )}
 
