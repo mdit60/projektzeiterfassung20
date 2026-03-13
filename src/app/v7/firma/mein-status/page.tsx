@@ -2,14 +2,20 @@
 // ============================================================================
 // PZE V7 - Mein Status (Firmen-Portal)
 // ============================================================================
-// Version: 7.4.4-3
+// Version: 7.4.4-4
 // Datum: 13. Maerz 2026
+//
+// v7.4.4-4: ZA-Ampel: Faelligkeit aus echten ZA-Daten berechnen
+//   - Laedt v7_zahlungsanforderungen beim Start
+//   - Naechste Faelligkeit = zeitraum_bis der letzten ZA mit Status
+//     'eingereicht' oder 'bewilligt' + 3 Monate
+//   - Fallback-Kette: eingereichte ZA -> naechste_za_faellig (DB) -> start_date + 3 Monate
+//   - ZA-Ampel zeigt auch Status der letzten eingereichten ZA an
+//   - Keine manuelle Pflege von naechste_za_faellig mehr noetig
 //
 // v7.4.4-3: NEU: ZA-Ampel-Kachel fuer ZIM-Projekte (Step 5 ZA-Modul)
 //   - Neue Sektion "Naechste Zahlungsanforderung" nach den Projekt-Karten
 //   - Ampellogik: GRUEN (>30 Tage), GELB (<=30 Tage), ROT (<=14 Tage)
-//   - Berechnung naechste ZA-Faelligkeit aus naechste_za_faellig (DB-Feld)
-//   - Fallback: start_date + 3 Monate falls kein DB-Feld vorhanden
 //   - Nur fuer ZIM-Projekte (funding_format beginnt mit 'ZIM')
 //   - Spalten: Projekt / ZA faellig / Stunden vollstaendig / Status
 //   - Klick auf "Zur ZA" navigiert zu /v7/firma/berichte?panel=za
@@ -115,6 +121,14 @@ interface ProjectStatus {
 }
 
 // ZA-Ampel fuer ein Projekt
+interface ZARecord {
+  id: string;
+  project_id: string;
+  za_nummer: number;
+  zeitraum_bis: string;
+  status: string | null;
+}
+
 interface ZAStatus {
   project: Project;
   faelligDate: Date | null;
@@ -123,6 +137,7 @@ interface ZAStatus {
   totalEmployees: number;
   completeEmployees: number;
   ampel: 'gruen' | 'gelb' | 'rot';
+  letzteZA: ZARecord | null;
 }
 
 // ============================================================================
@@ -270,6 +285,8 @@ export default function MeinStatusPage() {
   const [timesheets, setTimesheets] = useState<TimesheetEntry[]>([]);
   // Fuer ZA-Ampel: alle MA der Firma + deren Projektbelegungen
   const [allProjectEmployees, setAllProjectEmployees] = useState<Record<string, string[]>>({});
+  // Fuer ZA-Ampel: eingereichte/bewilligte ZAs pro Projekt
+  const [zaRecords, setZARecords] = useState<ZARecord[]>([]);
 
   // ============================================================================
   // DATEN LADEN
@@ -403,6 +420,17 @@ export default function MeinStatusPage() {
             }
           });
           setAllProjectEmployees(empMap);
+
+          // 9. ZA-Daten laden fuer Faelligkeitsberechnung
+          // Nur ZAs mit Status eingereicht oder bewilligt
+          const { data: zaData } = await supabase
+            .from('v7_zahlungsanforderungen')
+            .select('id, project_id, za_nummer, zeitraum_bis, status')
+            .in('project_id', zimProjectIds)
+            .in('status', ['eingereicht', 'bewilligt'])
+            .order('za_nummer', { ascending: true });
+
+          setZARecords(zaData || []);
         }
 
       } catch (err: unknown) {
@@ -529,9 +557,21 @@ export default function MeinStatusPage() {
     const currentMonth = now.getMonth() + 1;
 
     return zimProjects.map((project) => {
-      // Faelligkeit: DB-Feld bevorzugt, sonst start_date + 3 Monate
+      // Letzte eingereichte oder bewilligte ZA fuer dieses Projekt
+      const projektZAs = (zaRecords || []).filter((z) => z.project_id === project.id);
+      const letzteZA = projektZAs.length > 0
+        ? projektZAs[projektZAs.length - 1]
+        : null;
+
+      // Faelligkeits-Berechnung (Prioritaet):
+      // 1. zeitraum_bis der letzten eingereichten/bewilligten ZA + 3 Monate
+      // 2. naechste_za_faellig aus v7_projects (manuell gesetzt)
+      // 3. start_date + 3 Monate (absoluter Fallback)
       let faelligDate: Date | null = null;
-      if (project.naechste_za_faellig) {
+      if (letzteZA) {
+        const bis = new Date(letzteZA.zeitraum_bis);
+        faelligDate = new Date(bis.getFullYear(), bis.getMonth() + 3, bis.getDate());
+      } else if (project.naechste_za_faellig) {
         faelligDate = new Date(project.naechste_za_faellig);
       } else if (project.start_date) {
         const sd = new Date(project.start_date);
@@ -544,8 +584,6 @@ export default function MeinStatusPage() {
       const projectEmps = allProjectEmployees[project.id] || [];
       const totalEmployees = projectEmps.length;
 
-      // Ein MA gilt als vollstaendig, wenn er im aktuellen Monat mind. 1 Eintrag hat
-      // (vereinfachte Pruefung - kein tagesgenaues Checking hier)
       const completeEmployees = projectEmps.filter((empId) => {
         return (timesheets || []).some((t) => {
           if (t.project_id !== project.id) return false;
@@ -569,9 +607,9 @@ export default function MeinStatusPage() {
         }
       }
 
-      return { project, faelligDate, daysUntilDue, allEmployeesComplete, totalEmployees, completeEmployees, ampel };
+      return { project, faelligDate, daysUntilDue, allEmployeesComplete, totalEmployees, completeEmployees, ampel, letzteZA };
     });
-  }, [projects, portalRole, allProjectEmployees, timesheets]);
+  }, [projects, portalRole, allProjectEmployees, timesheets, zaRecords]);
 
   // ============================================================================
   // NAVIGATION
@@ -1027,6 +1065,11 @@ export default function MeinStatusPage() {
                             {za.faelligDate ? formatDateDE(za.faelligDate.toISOString()) : '-'}
                           </div>
                           <div className="text-xs text-gray-500 mt-0.5">{daysText}</div>
+                          {za.letzteZA && (
+                            <div className="text-xs text-gray-400 mt-0.5">
+                              Basis: ZA {za.letzteZA.za_nummer} ({za.letzteZA.status})
+                            </div>
+                          )}
                         </td>
 
                         {/* Stunden-Status */}
