@@ -2,21 +2,23 @@
 // ============================================================================
 // PZE V7 - Mein Status (Firmen-Portal)
 // ============================================================================
-// Version: 7.4.4-2
-// Datum: 14. Maerz 2026
+// Version: 7.4.4-3
+// Datum: 13. Maerz 2026
 //
-// v7.4.4-2: ZA-Ampel-Kachel
-//   - 5. Kachel "Naechste ZA" (nur bei ZIM-Projekten sichtbar)
-//   - Ampelfarben: Grau >30 Tage, Gelb <=30 Tage, Rot <14 Tage / ueberfaellig
-//   - Zeigt letzten ZA-Status + Tage bis Faelligkeit
-//   - Klick navigiert direkt zum ZA-Tab des Projekts
-//   - Neuer State zaList + Query v7_zahlungsanforderungen
-//   - Project-Interface um naechste_za_faellig erweitert
+// v7.4.4-3: NEU: ZA-Ampel-Kachel fuer ZIM-Projekte (Step 5 ZA-Modul)
+//   - Neue Sektion "Naechste Zahlungsanforderung" nach den Projekt-Karten
+//   - Ampellogik: GRUEN (>30 Tage), GELB (<=30 Tage), ROT (<=14 Tage)
+//   - Berechnung naechste ZA-Faelligkeit aus naechste_za_faellig (DB-Feld)
+//   - Fallback: start_date + 3 Monate falls kein DB-Feld vorhanden
+//   - Nur fuer ZIM-Projekte (funding_format beginnt mit 'ZIM')
+//   - Spalten: Projekt / ZA faellig / Stunden vollstaendig / Status
+//   - Klick auf "Zur ZA" navigiert zu /v7/firma/berichte?panel=za
+//   - Nur sichtbar fuer client_admin und project_leader
 //
 // v7.3.95-5: FAQ Zeiterfassung als zweiter PDF-Download-Link
 // v7.3.95-4: FIX: Timesheet-Query mit is_active=true Filter
-// v7.3.95-3: Ampel-Logik korrigiert (100%-Regel, In Bearbeitung)
-// v7.3.91:   Initiale Version
+// v7.3.95-3: Ampel-Logik korrigiert
+// v7.3.91: Initiale Version
 // ============================================================================
 
 'use client';
@@ -27,10 +29,12 @@ import { createClient } from '@/lib/supabase/client';
 import PortalHeader from '@/components/shared/PortalHeader';
 import PortalNav from '@/components/shared/PortalNav';
 import {
+  BarChart3,
   FolderKanban,
   CheckCircle,
   AlertTriangle,
   XCircle,
+  Clock,
   Calendar,
   ChevronRight,
   AlertCircle,
@@ -86,11 +90,8 @@ interface ProjectAssignment {
   employee_id: string;
 }
 
-interface ZaEntry {
+interface Employee {
   id: string;
-  project_id: string;
-  za_nummer: number;
-  status: string;
 }
 
 type MonthStatus = 'complete' | 'partial' | 'missing' | 'future' | 'outside';
@@ -111,6 +112,17 @@ interface ProjectStatus {
   completeMonths: number;
   partialMonths: number;
   missingMonths: number;
+}
+
+// ZA-Ampel fuer ein Projekt
+interface ZAStatus {
+  project: Project;
+  faelligDate: Date | null;
+  daysUntilDue: number | null;
+  allEmployeesComplete: boolean;
+  totalEmployees: number;
+  completeEmployees: number;
+  ampel: 'gruen' | 'gelb' | 'rot';
 }
 
 // ============================================================================
@@ -184,7 +196,6 @@ const getGermanHolidays = (year: number, stateCode: string): Map<string, string>
 const getWorkingDaysInMonth = (year: number, month: number, holidays: Map<string, string>): number => {
   const daysInMonth = new Date(year, month, 0).getDate();
   let workingDays = 0;
-
   for (let day = 1; day <= daysInMonth; day++) {
     const date = new Date(year, month - 1, day);
     const dayOfWeek = date.getDay();
@@ -193,7 +204,6 @@ const getWorkingDaysInMonth = (year: number, month: number, holidays: Map<string
     if (holidays.has(dateStr)) continue;
     workingDays++;
   }
-
   return workingDays;
 };
 
@@ -207,18 +217,21 @@ const getMonthName = (month: number): string => {
 };
 
 const getMonthNameFull = (month: number): string => {
-  const months = ['Januar', 'Februar', 'Maerz', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+  const months = [
+    'Januar', 'Februar', 'Maerz', 'April', 'Mai', 'Juni',
+    'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember',
+  ];
   return months[month - 1] || '';
 };
 
 const getFundingBadge = (format: string | null): { label: string; color: string } => {
   switch (format) {
-    case 'ZIM_EINZEL': return { label: 'ZIM Einzel', color: 'bg-blue-100 text-blue-700' };
-    case 'ZIM_KOOP': return { label: 'ZIM Kooperation', color: 'bg-blue-100 text-blue-700' };
-    case 'ZIM_NETZWERK': return { label: 'ZIM Netzwerk', color: 'bg-purple-100 text-purple-700' };
+    case 'ZIM_EINZEL':      return { label: 'ZIM Einzel',        color: 'bg-blue-100 text-blue-700' };
+    case 'ZIM_KOOP':        return { label: 'ZIM Kooperation',   color: 'bg-blue-100 text-blue-700' };
+    case 'ZIM_NETZWERK':    return { label: 'ZIM Netzwerk',      color: 'bg-purple-100 text-purple-700' };
     case 'ZIM_DURCHFUEHRBARKEIT': return { label: 'ZIM Durchf.studie', color: 'bg-indigo-100 text-indigo-700' };
-    case 'BMBF_KMU': return { label: 'BMBF/KMU-innovativ', color: 'bg-teal-100 text-teal-700' };
-    default: return { label: format || 'Sonstiges', color: 'bg-gray-100 text-gray-700' };
+    case 'BMBF_KMU':        return { label: 'BMBF/KMU-innovativ', color: 'bg-teal-100 text-teal-700' };
+    default:                return { label: format || 'Sonstiges', color: 'bg-gray-100 text-gray-700' };
   }
 };
 
@@ -226,6 +239,15 @@ const formatDateDE = (dateStr: string | null): string => {
   if (!dateStr) return '-';
   const d = new Date(dateStr);
   return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
+};
+
+// Tage zwischen heute und einem Datum (positiv = in der Zukunft)
+const daysDiff = (date: Date): number => {
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return Math.round((d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 };
 
 // ============================================================================
@@ -236,6 +258,7 @@ export default function MeinStatusPage() {
   const router = useRouter();
   const supabase = createClient();
 
+  // State
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -245,7 +268,8 @@ export default function MeinStatusPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [assignments, setAssignments] = useState<ProjectAssignment[]>([]);
   const [timesheets, setTimesheets] = useState<TimesheetEntry[]>([]);
-  const [zaList, setZaList] = useState<ZaEntry[]>([]);
+  // Fuer ZA-Ampel: alle MA der Firma + deren Projektbelegungen
+  const [allProjectEmployees, setAllProjectEmployees] = useState<Record<string, string[]>>({});
 
   // ============================================================================
   // DATEN LADEN
@@ -296,7 +320,7 @@ export default function MeinStatusPage() {
         }
         setCompany(companyData);
 
-        // 4. Portal-Rolle
+        // 4. Portal-Rolle ermitteln
         const { data: employeeRecord } = await supabase
           .from('v7_employees')
           .select('id, user_id, portal_role')
@@ -330,9 +354,9 @@ export default function MeinStatusPage() {
         const loadedProjects = (projectsData || []) as Project[];
         setProjects(loadedProjects);
 
-        // 6. Projekt-Zuordnungen des Users
         const projectIds = loadedProjects.map((p) => p.id);
 
+        // 6. Eigene Projekt-Zuordnungen
         if (projectIds.length > 0 && userEmployeeId) {
           const { data: assignmentData } = await supabase
             .from('v7_project_assignments')
@@ -343,7 +367,7 @@ export default function MeinStatusPage() {
 
           setAssignments(assignmentData || []);
 
-          // 7. Zeiterfassungen des Users
+          // 7. Eigene Zeiterfassungen
           const { data: timesheetData } = await supabase
             .from('v7_timesheets')
             .select('id, project_id, employee_id, work_date, hours, day_type')
@@ -352,25 +376,33 @@ export default function MeinStatusPage() {
             .in('project_id', projectIds);
 
           setTimesheets(timesheetData || []);
-
         } else if (userPortalRole === 'client_admin' && !userEmployeeId) {
           setAssignments([]);
           setTimesheets([]);
         }
 
-        // 8. ZA-Eintraege laden (nur ZIM-Projekte)
-        const zimIds = loadedProjects
+        // 8. ZA-Ampel: alle MA pro ZIM-Projekt laden (fuer client_admin + project_leader)
+        const isAdminOrPL = profile.role === 'client_admin' || userPortalRole === 'project_leader';
+        const zimProjectIds = loadedProjects
           .filter((p) => (p.funding_format || '').startsWith('ZIM'))
           .map((p) => p.id);
 
-        if (zimIds.length > 0) {
-          const { data: zaData } = await supabase
-            .from('v7_zahlungsanforderungen')
-            .select('id, project_id, za_nummer, status')
-            .in('project_id', zimIds)
-            .order('za_nummer', { ascending: false });
+        if (isAdminOrPL && zimProjectIds.length > 0) {
+          const { data: allAssignments } = await supabase
+            .from('v7_project_assignments')
+            .select('project_id, employee_id')
+            .in('project_id', zimProjectIds)
+            .eq('is_active', true);
 
-          setZaList(zaData || []);
+          // Map: project_id -> employee_id[]
+          const empMap: Record<string, string[]> = {};
+          (allAssignments || []).forEach((a) => {
+            if (!empMap[a.project_id]) empMap[a.project_id] = [];
+            if (!empMap[a.project_id].includes(a.employee_id)) {
+              empMap[a.project_id].push(a.employee_id);
+            }
+          });
+          setAllProjectEmployees(empMap);
         }
 
       } catch (err: unknown) {
@@ -386,7 +418,7 @@ export default function MeinStatusPage() {
   }, [router, supabase]);
 
   // ============================================================================
-  // PROJEKT-STATUS BERECHNEN
+  // PROJEKT-STATUS BERECHNEN (Zeiterfassung-Ampel)
   // ============================================================================
 
   const projectStatuses: ProjectStatus[] = useMemo(() => {
@@ -396,10 +428,7 @@ export default function MeinStatusPage() {
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth() + 1;
 
-    const assignedProjectIds = new Set(
-      (assignments || []).map((a) => a.project_id)
-    );
-
+    const assignedProjectIds = new Set((assignments || []).map((a) => a.project_id));
     const relevantProjects = currentEmployeeId
       ? (projects || []).filter((p) => assignedProjectIds.has(p.id))
       : [];
@@ -435,9 +464,7 @@ export default function MeinStatusPage() {
 
           const hoursRecorded = monthTimesheets.reduce((sum, t) => sum + (t.hours || 0), 0);
           const daysRecorded = new Set(
-            monthTimesheets
-              .filter((t) => (t.hours || 0) > 0)
-              .map((t) => t.work_date)
+            monthTimesheets.filter((t) => (t.hours || 0) > 0).map((t) => t.work_date)
           ).size;
 
           let status: MonthStatus = 'missing';
@@ -476,18 +503,13 @@ export default function MeinStatusPage() {
   // ============================================================================
 
   const totalStats = useMemo(() => {
-    let total = 0;
-    let complete = 0;
-    let partial = 0;
-    let missing = 0;
-
+    let total = 0; let complete = 0; let partial = 0; let missing = 0;
     (projectStatuses || []).forEach((ps) => {
       total += ps.totalMonths;
       complete += ps.completeMonths;
       partial += ps.partialMonths;
       missing += ps.missingMonths;
     });
-
     return { total, complete, partial, missing };
   }, [projectStatuses]);
 
@@ -495,59 +517,61 @@ export default function MeinStatusPage() {
   // ZA-AMPEL BERECHNEN
   // ============================================================================
 
-  const zaAmpel = useMemo(() => {
-    const zimProjekt = (projects || []).find((p) => (p.funding_format || '').startsWith('ZIM'));
+  const zaStatuses: ZAStatus[] = useMemo(() => {
+    const isAdminOrPL = portalRole === 'client_admin' || portalRole === 'project_leader';
+    if (!isAdminOrPL) return [];
 
-    if (!zimProjekt) {
-      return { show: false, color: 'grau' as const, tage: null as number | null, faelligDatum: null as string | null, letzteZaNr: null as number | null, letzteZaStatus: null as string | null, projektId: null as string | null };
-    }
+    const zimProjects = (projects || []).filter((p) => (p.funding_format || '').startsWith('ZIM'));
+    if (zimProjects.length === 0) return [];
 
-    // Faelligkeit bestimmen
-    let faelligDatum: string | null = zimProjekt.naechste_za_faellig || null;
-    if (!faelligDatum && zimProjekt.start_date) {
-      const start = new Date(zimProjekt.start_date);
-      const now = new Date();
-      const naechste = new Date(start);
-      naechste.setMonth(naechste.getMonth() + 3);
-      while (naechste < now) {
-        naechste.setMonth(naechste.getMonth() + 3);
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+
+    return zimProjects.map((project) => {
+      // Faelligkeit: DB-Feld bevorzugt, sonst start_date + 3 Monate
+      let faelligDate: Date | null = null;
+      if (project.naechste_za_faellig) {
+        faelligDate = new Date(project.naechste_za_faellig);
+      } else if (project.start_date) {
+        const sd = new Date(project.start_date);
+        faelligDate = new Date(sd.getFullYear(), sd.getMonth() + 3, sd.getDate());
       }
-      faelligDatum = naechste.toISOString().split('T')[0];
-    }
 
-    // Tage berechnen
-    let tage: number | null = null;
-    if (faelligDatum) {
-      const heute = new Date();
-      heute.setHours(0, 0, 0, 0);
-      const faellig = new Date(faelligDatum);
-      faellig.setHours(0, 0, 0, 0);
-      tage = Math.round((faellig.getTime() - heute.getTime()) / (1000 * 60 * 60 * 24));
-    }
+      const daysUntilDue = faelligDate ? daysDiff(faelligDate) : null;
 
-    // Ampelfarbe
-    let color: 'grau' | 'gelb' | 'rot' = 'grau';
-    if (tage !== null) {
-      if (tage < 14) color = 'rot';
-      else if (tage <= 30) color = 'gelb';
-    }
+      // Stunden-Vollstaendigkeit: alle MA des Projekts im aktuellen Monat
+      const projectEmps = allProjectEmployees[project.id] || [];
+      const totalEmployees = projectEmps.length;
 
-    // Letzte ZA
-    const projektZas = (zaList || [])
-      .filter((z) => z.project_id === zimProjekt.id)
-      .sort((a, b) => b.za_nummer - a.za_nummer);
-    const letzteZa = projektZas[0] || null;
+      // Ein MA gilt als vollstaendig, wenn er im aktuellen Monat mind. 1 Eintrag hat
+      // (vereinfachte Pruefung - kein tagesgenaues Checking hier)
+      const completeEmployees = projectEmps.filter((empId) => {
+        return (timesheets || []).some((t) => {
+          if (t.project_id !== project.id) return false;
+          if (t.employee_id !== empId) return false;
+          const d = new Date(t.work_date);
+          return d.getFullYear() === currentYear && d.getMonth() + 1 === currentMonth;
+        });
+      }).length;
 
-    return {
-      show: true,
-      color,
-      tage,
-      faelligDatum,
-      letzteZaNr: letzteZa ? letzteZa.za_nummer : null,
-      letzteZaStatus: letzteZa ? letzteZa.status : null,
-      projektId: zimProjekt.id,
-    };
-  }, [projects, zaList]);
+      const allEmployeesComplete = totalEmployees > 0 && completeEmployees >= totalEmployees;
+
+      // Ampellogik
+      let ampel: 'gruen' | 'gelb' | 'rot' = 'gruen';
+      if (daysUntilDue !== null) {
+        if (daysUntilDue <= 14 || (!allEmployeesComplete && daysUntilDue <= 30)) {
+          ampel = 'rot';
+        } else if (daysUntilDue <= 30 || !allEmployeesComplete) {
+          ampel = 'gelb';
+        } else {
+          ampel = 'gruen';
+        }
+      }
+
+      return { project, faelligDate, daysUntilDue, allEmployeesComplete, totalEmployees, completeEmployees, ampel };
+    });
+  }, [projects, portalRole, allProjectEmployees, timesheets]);
 
   // ============================================================================
   // NAVIGATION
@@ -560,6 +584,10 @@ export default function MeinStatusPage() {
     params.set('month', String(month));
     params.set('returnUrl', '/v7/firma/mein-status');
     router.push(`/v7/firma/zeiterfassung?${params.toString()}`);
+  };
+
+  const navigateToZA = () => {
+    router.push('/v7/firma/berichte?panel=za');
   };
 
   // ============================================================================
@@ -605,20 +633,7 @@ export default function MeinStatusPage() {
 
   const assignedProjectCount = (projectStatuses || []).length;
   const hasProjects = assignedProjectCount > 0;
-
-  const zaStatusLabel: Record<string, string> = {
-    entwurf: 'Entwurf',
-    eingereicht: 'Eingereicht',
-    bewilligt: 'Bewilligt',
-  };
-
-  const zaColors = {
-    grau: { kachel: 'bg-white', border: 'border-gray-200', icon: 'bg-gray-100 text-gray-400', label: 'text-gray-500', value: 'text-gray-700', sub: 'text-gray-400', link: 'text-gray-500' },
-    gelb: { kachel: 'bg-yellow-50', border: 'border-yellow-300', icon: 'bg-yellow-100 text-yellow-600', label: 'text-yellow-700', value: 'text-yellow-800', sub: 'text-yellow-600', link: 'text-yellow-700' },
-    rot:  { kachel: 'bg-red-50',    border: 'border-red-300',    icon: 'bg-red-100 text-red-600',       label: 'text-red-700',    value: 'text-red-800',    sub: 'text-red-600',    link: 'text-red-700' },
-  };
-
-  const zac = zaColors[zaAmpel.color];
+  const showZASection = zaStatuses.length > 0 && (portalRole === 'client_admin' || portalRole === 'project_leader');
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -636,18 +651,33 @@ export default function MeinStatusPage() {
 
       <main className="max-w-7xl mx-auto px-4 py-8">
 
-        {/* KOPFBEREICH */}
+        {/* ================================================================ */}
+        {/* KOPFBEREICH                                                      */}
+        {/* ================================================================ */}
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-gray-900">Mein Status</h1>
-          <p className="text-gray-600 mt-1">Uebersicht Ihrer Zeiterfassung nach Projekten und Monaten</p>
+          <p className="text-gray-600 mt-1">
+            Uebersicht Ihrer Zeiterfassung nach Projekten und Monaten
+          </p>
         </div>
 
-        {/* DOWNLOADS */}
+        {/* ================================================================ */}
+        {/* BENUTZERHANDBUCH DOWNLOAD                                        */}
+        {/* ================================================================ */}
         {(() => {
           const manualMap: Record<string, { file: string; label: string }> = {
-            client_admin: { file: '/manuals/PZE_Schnellstart_Firmen-Administrator.pdf', label: 'Schnellstart-Anleitung Firmen-Administrator' },
-            project_leader: { file: '/manuals/PZE_Kurzanleitung_Projektleiter.pdf', label: 'Kurzanleitung Projektleiter' },
-            employee: { file: '/manuals/PZE_Kurzanleitung_Mitarbeiter.pdf', label: 'Kurzanleitung Mitarbeiter' },
+            client_admin: {
+              file: '/manuals/PZE_Schnellstart_Firmen-Administrator.pdf',
+              label: 'Schnellstart-Anleitung Firmen-Administrator',
+            },
+            project_leader: {
+              file: '/manuals/PZE_Kurzanleitung_Projektleiter.pdf',
+              label: 'Kurzanleitung Projektleiter',
+            },
+            employee: {
+              file: '/manuals/PZE_Kurzanleitung_Mitarbeiter.pdf',
+              label: 'Kurzanleitung Mitarbeiter',
+            },
           };
           const manual = manualMap[portalRole] || manualMap.employee;
           return (
@@ -674,11 +704,11 @@ export default function MeinStatusPage() {
           );
         })()}
 
-        {/* KACHELN */}
+        {/* ================================================================ */}
+        {/* ZUSAMMENFASSUNG (Kennzahlen-Kacheln)                             */}
+        {/* ================================================================ */}
         {hasProjects && (
-          <div className={`grid gap-4 mb-8 ${zaAmpel.show ? 'grid-cols-1 md:grid-cols-5' : 'grid-cols-1 md:grid-cols-4'}`}>
-
-            {/* Kachel 1: Meine Projekte */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
             <div className="bg-white rounded-lg shadow p-5">
               <div className="flex items-center justify-between">
                 <div>
@@ -690,8 +720,6 @@ export default function MeinStatusPage() {
                 </div>
               </div>
             </div>
-
-            {/* Kachel 2: Vollstaendig */}
             <div className="bg-white rounded-lg shadow p-5">
               <div className="flex items-center justify-between">
                 <div>
@@ -704,8 +732,6 @@ export default function MeinStatusPage() {
                 </div>
               </div>
             </div>
-
-            {/* Kachel 3: In Bearbeitung */}
             <div className="bg-white rounded-lg shadow p-5">
               <div className="flex items-center justify-between">
                 <div>
@@ -718,8 +744,6 @@ export default function MeinStatusPage() {
                 </div>
               </div>
             </div>
-
-            {/* Kachel 4: Nicht erfasst */}
             <div className="bg-white rounded-lg shadow p-5">
               <div className="flex items-center justify-between">
                 <div>
@@ -732,47 +756,12 @@ export default function MeinStatusPage() {
                 </div>
               </div>
             </div>
-
-            {/* Kachel 5: ZA-Ampel (nur bei ZIM-Projekt) */}
-            {zaAmpel.show && (
-              <button
-                onClick={() => zaAmpel.projektId && router.push(`/v7/firma/projekte/${zaAmpel.projektId}?tab=zahlungsanforderungen`)}
-                className={`rounded-lg shadow p-5 border text-left transition-opacity hover:opacity-90 ${zac.kachel} ${zac.border}`}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1 min-w-0 pr-3">
-                    <p className={`text-sm font-medium ${zac.label}`}>Naechste ZA</p>
-                    <p className={`text-2xl font-bold mt-1 leading-tight ${zac.value}`}>
-                      {zaAmpel.tage === null && 'Kein Termin'}
-                      {zaAmpel.tage !== null && zaAmpel.tage < 0 && `${Math.abs(zaAmpel.tage)}d ueberfaellig`}
-                      {zaAmpel.tage !== null && zaAmpel.tage === 0 && 'Heute faellig'}
-                      {zaAmpel.tage !== null && zaAmpel.tage > 0 && `${zaAmpel.tage} Tage`}
-                    </p>
-                    <p className={`text-xs mt-1 ${zac.sub}`}>
-                      {zaAmpel.faelligDatum && `Faellig: ${formatDateDE(zaAmpel.faelligDatum)}`}
-                    </p>
-                    <p className={`text-xs mt-0.5 ${zac.sub}`}>
-                      {zaAmpel.letzteZaStatus
-                        ? `ZA ${zaAmpel.letzteZaNr}: ${zaStatusLabel[zaAmpel.letzteZaStatus] || zaAmpel.letzteZaStatus}`
-                        : 'Noch keine ZA erstellt'
-                      }
-                    </p>
-                  </div>
-                  <div className={`w-11 h-11 rounded-lg flex items-center justify-center flex-shrink-0 ${zac.icon}`}>
-                    <Receipt className="w-6 h-6" />
-                  </div>
-                </div>
-                <div className={`flex items-center gap-1 mt-3 text-xs ${zac.link}`}>
-                  <span>ZA-Uebersicht oeffnen</span>
-                  <ChevronRight className="w-3 h-3" />
-                </div>
-              </button>
-            )}
-
           </div>
         )}
 
-        {/* PROJEKT-KARTEN */}
+        {/* ================================================================ */}
+        {/* PROJEKT-KARTEN (Zeiterfassung-Ampel)                             */}
+        {/* ================================================================ */}
         {!hasProjects ? (
           <div className="bg-white rounded-lg shadow p-12 text-center">
             <FolderKanban className="w-16 h-16 text-gray-300 mx-auto mb-4" />
@@ -790,7 +779,6 @@ export default function MeinStatusPage() {
 
               return (
                 <div key={ps.project.id} className="bg-white rounded-lg shadow">
-
                   {/* Projekt-Header */}
                   <div className="px-6 py-4 border-b border-gray-100">
                     <div className="flex items-start justify-between">
@@ -814,6 +802,7 @@ export default function MeinStatusPage() {
                           )}
                         </p>
                       </div>
+                      {/* Fortschritt */}
                       <div className="text-right">
                         <div className="flex items-center gap-2">
                           <TrendingUp className="w-4 h-4 text-gray-400" />
@@ -823,7 +812,13 @@ export default function MeinStatusPage() {
                         </div>
                         <div className="w-32 bg-gray-200 rounded-full h-2 mt-2">
                           <div
-                            className={`h-2 rounded-full transition-all ${progressPercent >= 80 ? 'bg-green-500' : progressPercent >= 50 ? 'bg-orange-400' : 'bg-red-400'}`}
+                            className={`h-2 rounded-full transition-all ${
+                              progressPercent >= 80
+                                ? 'bg-green-500'
+                                : progressPercent >= 50
+                                ? 'bg-orange-400'
+                                : 'bg-red-400'
+                            }`}
                             style={{ width: `${progressPercent}%` }}
                           />
                         </div>
@@ -879,7 +874,13 @@ export default function MeinStatusPage() {
                                     onClick={() => isClickable && navigateToTimesheet(md.year, md.month)}
                                     disabled={!isClickable}
                                     title={title}
-                                    className={`w-12 h-10 rounded-md text-xs font-medium flex flex-col items-center justify-center transition-colors ${bgColor} ${borderStyle} ${isClickable ? 'cursor-pointer' : 'cursor-default opacity-60'}`}
+                                    className={`
+                                      w-12 h-10 rounded-md text-xs font-medium
+                                      flex flex-col items-center justify-center
+                                      transition-colors
+                                      ${bgColor} ${borderStyle}
+                                      ${isClickable ? 'cursor-pointer' : 'cursor-default opacity-60'}
+                                    `}
                                   >
                                     <span className="leading-none">{getMonthName(md.month)}</span>
                                     {md.status === 'complete' && <CheckCircle className="w-3 h-3 mt-0.5" />}
@@ -895,7 +896,7 @@ export default function MeinStatusPage() {
                     })()}
                   </div>
 
-                  {/* Status-Zeile unten */}
+                  {/* Statuszeile unten */}
                   {ps.missingMonths > 0 && (
                     <div className="px-6 py-3 bg-red-50 border-t border-red-100 rounded-b-lg">
                       <div className="flex items-center gap-2 text-sm text-red-700">
@@ -929,17 +930,184 @@ export default function MeinStatusPage() {
                       </div>
                     </div>
                   )}
-
                 </div>
               );
             })}
           </div>
         )}
 
-        {/* LEGENDE */}
+        {/* ================================================================ */}
+        {/* ZA-AMPEL-SEKTION (nur fuer client_admin + project_leader)        */}
+        {/* ================================================================ */}
+        {showZASection && (
+          <div className="mt-8 bg-white rounded-lg shadow">
+            {/* Abschnitts-Header */}
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+              <div className="w-9 h-9 bg-orange-50 rounded-lg flex items-center justify-center">
+                <Receipt className="w-5 h-5 text-orange-600" />
+              </div>
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">Naechste Zahlungsanforderung</h2>
+                <p className="text-xs text-gray-500 mt-0.5">Faelligkeiten und Stunden-Status fuer ZIM-Projekte</p>
+              </div>
+            </div>
+
+            {/* Tabelle */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-100">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Projekt</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">ZA faellig</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Stunden MA (akt. Monat)</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Status</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wide"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {(zaStatuses || []).map((za) => {
+                    const badge = getFundingBadge(za.project.funding_format);
+
+                    // Ampel-Farben
+                    let ampelBg = 'bg-green-100';
+                    let ampelText = 'text-green-700';
+                    let ampelBorder = 'border-green-300';
+                    let ampelLabel = 'OK';
+                    let ampelIcon = <CheckCircle className="w-3.5 h-3.5" />;
+                    let rowBg = '';
+
+                    if (za.ampel === 'rot') {
+                      ampelBg = 'bg-red-100';
+                      ampelText = 'text-red-700';
+                      ampelBorder = 'border-red-300';
+                      ampelLabel = 'Dringend';
+                      ampelIcon = <XCircle className="w-3.5 h-3.5" />;
+                      rowBg = 'bg-red-50';
+                    } else if (za.ampel === 'gelb') {
+                      ampelBg = 'bg-orange-100';
+                      ampelText = 'text-orange-700';
+                      ampelBorder = 'border-orange-300';
+                      ampelLabel = 'Bald faellig';
+                      ampelIcon = <AlertTriangle className="w-3.5 h-3.5" />;
+                      rowBg = 'bg-orange-50';
+                    }
+
+                    // Tage-Text
+                    let daysText = '-';
+                    if (za.daysUntilDue !== null) {
+                      if (za.daysUntilDue < 0) {
+                        daysText = `${Math.abs(za.daysUntilDue)} Tage ueberfaellig`;
+                      } else if (za.daysUntilDue === 0) {
+                        daysText = 'Heute faellig';
+                      } else {
+                        daysText = `in ${za.daysUntilDue} Tagen`;
+                      }
+                    }
+
+                    return (
+                      <tr key={za.project.id} className={rowBg}>
+                        {/* Projekt */}
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-gray-900">
+                              {za.project.short_name || za.project.name}
+                            </span>
+                            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${badge.color}`}>
+                              {badge.label}
+                            </span>
+                          </div>
+                          {za.project.funding_reference && (
+                            <p className="text-xs text-gray-400 mt-0.5">FKZ: {za.project.funding_reference}</p>
+                          )}
+                        </td>
+
+                        {/* ZA faellig */}
+                        <td className="px-6 py-4">
+                          <div className="font-medium text-gray-900">
+                            {za.faelligDate ? formatDateDE(za.faelligDate.toISOString()) : '-'}
+                          </div>
+                          <div className="text-xs text-gray-500 mt-0.5">{daysText}</div>
+                        </td>
+
+                        {/* Stunden-Status */}
+                        <td className="px-6 py-4">
+                          {za.totalEmployees === 0 ? (
+                            <span className="text-xs text-gray-400">Keine MA zugeordnet</span>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 max-w-24 bg-gray-200 rounded-full h-1.5">
+                                <div
+                                  className={`h-1.5 rounded-full ${za.allEmployeesComplete ? 'bg-green-500' : 'bg-orange-400'}`}
+                                  style={{ width: `${za.totalEmployees > 0 ? Math.round((za.completeEmployees / za.totalEmployees) * 100) : 0}%` }}
+                                />
+                              </div>
+                              <span className="text-xs text-gray-600 whitespace-nowrap">
+                                {za.completeEmployees}/{za.totalEmployees} MA
+                              </span>
+                            </div>
+                          )}
+                          <div className="text-xs text-gray-400 mt-1">
+                            {za.allEmployeesComplete ? 'Vollstaendig' : 'Nicht vollstaendig'}
+                          </div>
+                        </td>
+
+                        {/* Ampel */}
+                        <td className="px-6 py-4">
+                          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${ampelBg} ${ampelText} ${ampelBorder}`}>
+                            {ampelIcon}
+                            {ampelLabel}
+                          </span>
+                        </td>
+
+                        {/* Action */}
+                        <td className="px-6 py-4 text-right">
+                          <button
+                            onClick={navigateToZA}
+                            className="inline-flex items-center gap-1 text-xs font-medium text-green-700 hover:text-green-900 hover:underline"
+                          >
+                            Zur ZA
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Legende */}
+            <div className="px-6 py-3 bg-gray-50 border-t border-gray-100 rounded-b-lg">
+              <div className="flex flex-wrap gap-4 text-xs text-gray-500">
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-300 font-medium">
+                    <CheckCircle className="w-3 h-3" /> OK
+                  </span>
+                  <span>Frist &gt; 30 Tage und Stunden vollstaendig</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 border border-orange-300 font-medium">
+                    <AlertTriangle className="w-3 h-3" /> Bald faellig
+                  </span>
+                  <span>Frist &lt;= 30 Tage oder Stunden unvollstaendig</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-300 font-medium">
+                    <XCircle className="w-3 h-3" /> Dringend
+                  </span>
+                  <span>Frist &lt;= 14 Tage oder Stunden fehlen bei Frist &lt;= 30 Tage</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ================================================================ */}
+        {/* LEGENDE (Zeiterfassung-Ampel)                                    */}
+        {/* ================================================================ */}
         {hasProjects && (
           <div className="mt-8 bg-white rounded-lg shadow p-5">
-            <p className="text-sm font-medium text-gray-700 mb-3">Legende</p>
+            <p className="text-sm font-medium text-gray-700 mb-3">Legende Zeiterfassung</p>
             <div className="flex flex-wrap gap-4 text-sm">
               <div className="flex items-center gap-2">
                 <div className="w-5 h-5 rounded bg-green-100 border border-green-300 flex items-center justify-center">
