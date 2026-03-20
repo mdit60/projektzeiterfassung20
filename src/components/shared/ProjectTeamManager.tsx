@@ -2,8 +2,8 @@
 // ============================================================================
 // PZE V7 - Projekt-Team Management
 // ============================================================================
-// Datum: 09. Maerz 2026
-// Version: 7.3.95-4
+// Datum: 20. Maerz 2026
+// Version: 7.4.4-2
 //
 // Verwaltet das Projektteam:
 // - MA aus Firmenstamm zum Projekt hinzufuegen
@@ -11,28 +11,14 @@
 // - Anlage 6.1 Felder: Jahresgehalt, Betriebl. Wochenstunden -> Stundensatz
 // - MA wird nie geloescht, nur Zeitraum beendet
 //
-// AENDERUNGEN v7.3.95-4:
-// - DB-Migration: monthly_gross + additional_salary_components neu in v7_employees
-// - Employee-Interface: monthly_gross + additional_salary_components ergaenzt
-// - useEffect: Laedt monthly_gross + additional_salary_components direkt aus DB
-//   (kein Rueckrechnen aus annual_salary mehr noetig)
-// - handleEditMember: Speichert alle 3 Felder: monthly_gross, additional_salary_components,
-//   annual_salary (berechnet) in v7_employees
-// - Datenmigration in SQL: bestehende annual_salary Werte werden aufgeteilt
-//
-// AENDERUNGEN v7.3.95-3:
-// - EditMemberDialog: Gehaltsberechnung erweitert wie in Prod-Version:
-//   * Fix-Monatsbruttolohn (EUR) - wird x12 gerechnet
-//   * Weitere fixe Gehaltsbestandteile (EUR/Jahr) - z.B. Weihnachtsgeld
-//   * = Jahresbrutto: Anzeige als berechneter Summenwert
-//   * annualSalary wird aus monthlyGross + additionalComponents berechnet
-//   * Speichern speichert weiterhin annualSalary als Gesamtwert
-//
-// AENDERUNGEN v7.3.95-2:
-// - EditMemberDialog: 2-Spalten-Layout (max-w-2xl statt max-w-md)
-//   Linke Spalte: Lfd. Nr. + Anlage 6.1 Stundensatzberechnung
-//   Rechte Spalte: Rolle + Zeitraum (seit/bis) + berechnete Werte
-//   Speichern-Button immer sichtbar ohne Scrollen
+// AENDERUNGEN v7.4.4-1:
+// - Anlage 6.1 Felder projektbezogen (in v7_project_assignments statt v7_employees)
+//   * monthly_gross_salary: Fix-Monatsbruttolohn
+//   * additional_salary_components: Weitere fixe Gehaltsbestandteile
+//   * personal_weekly_hours: pWAZ lt. Arbeitsvertrag
+//   * company_weekly_hours: bWAZ betriebsueblich
+// - Stundensatz = (Monatslohn x 12 + weitere Fixbestandteile) / (pWAZ x 52)
+// - NEU: hourly_rate_approved (bewilligter Stundensatz lt. Bescheid)
 //
 // AENDERUNGEN v7.3.95-1:
 // - Anlage 6.1 Felder im Bearbeiten-Dialog:
@@ -87,8 +73,6 @@ interface Employee {
   qualification: string | null;
   weekly_hours: number | null;
   annual_salary: number | null;
-  monthly_gross: number | null;
-  additional_salary_components: number | null;
   company_weekly_hours: number | null;
   hourly_rate: number | null;
   is_active: boolean;
@@ -100,6 +84,11 @@ interface ProjectTeamMember {
   employee_id: string;
   employee_number: number | null;
   hourly_rate: number | null;
+  hourly_rate_approved: number | null;
+  monthly_gross_salary: number | null;
+  additional_salary_components: number | null;
+  personal_weekly_hours: number | null;
+  company_weekly_hours: number | null;
   role_in_project: string | null;
   assignment_start: string | null;
   assignment_end: string | null;
@@ -162,6 +151,10 @@ interface AddMemberDialogProps {
     employeeId: string;
     employeeNumber: number;
     hourlyRate: number | null;
+    monthlyGrossSalary: number | null;
+    additionalSalaryComponents: number | null;
+    personalWeeklyHours: number | null;
+    companyWeeklyHours: number | null;
     roleInProject: string | null;
     assignmentStart: string | null;
   }) => Promise<void>;
@@ -181,18 +174,51 @@ function AddMemberDialog({
   const colors = PORTAL_COLORS[portal];
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
   const [employeeNumber, setEmployeeNumber] = useState<string>('');
+  const [monthlyGrossSalary, setMonthlyGrossSalary] = useState<string>('');
+  const [additionalSalaryComponents, setAdditionalSalaryComponents] = useState<string>('0');
+  const [personalWeeklyHours, setPersonalWeeklyHours] = useState<string>('40');
+  const [companyWeeklyHours, setCompanyWeeklyHours] = useState<string>('40');
   const [hourlyRate, setHourlyRate] = useState<string>('');
+  const [hourlyRateManual, setHourlyRateManual] = useState(false);
   const [roleInProject, setRoleInProject] = useState<string>('');
   const [assignmentStart, setAssignmentStart] = useState<string>('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Teilzeitfaktor
+  const teilzeitfaktor = (() => {
+    const pWAZ = parseFloat(personalWeeklyHours);
+    const bWAZ = parseFloat(companyWeeklyHours);
+    if (pWAZ > 0 && bWAZ > 0) return pWAZ / bWAZ;
+    return null;
+  })();
+
+  // Nominale Jahresarbeitsstunden
+  const yearlyHours = (() => {
+    const pWAZ = parseFloat(personalWeeklyHours);
+    if (pWAZ > 0) return pWAZ * 52;
+    return null;
+  })();
+
+  // Jahresbrutto
+  const jahresbrutto = (() => {
+    const monthly = parseFloat(monthlyGrossSalary);
+    const additional = parseFloat(additionalSalaryComponents) || 0;
+    if (monthly > 0) return monthly * 12 + additional;
+    return null;
+  })();
 
   // Reset beim Oeffnen
   useEffect(() => {
     if (isOpen) {
       setSelectedEmployeeId('');
       setEmployeeNumber('');
+      setMonthlyGrossSalary('');
+      setAdditionalSalaryComponents('0');
+      setPersonalWeeklyHours('40');
+      setCompanyWeeklyHours('40');
       setHourlyRate('');
+      setHourlyRateManual(false);
       setRoleInProject('');
       setAssignmentStart('');
       setError(null);
@@ -205,32 +231,78 @@ function AddMemberDialog({
     return Math.max(...existingNumbers) + 1;
   }, [existingNumbers]);
 
+  // Auto-Berechnung Stundensatz
+  const calculateRate = (monthly: string, additional: string, pWAZ: string) => {
+    const monthlyNum = parseFloat(monthly);
+    const additionalNum = parseFloat(additional) || 0;
+    const hoursNum = parseFloat(pWAZ);
+    if (monthlyNum > 0 && hoursNum > 0) {
+      const jahresb = monthlyNum * 12 + additionalNum;
+      return (jahresb / (hoursNum * 52)).toFixed(2).replace('.', ',');
+    }
+    return '';
+  };
+
+  const handleMonthlyChange = (value: string) => {
+    setMonthlyGrossSalary(value);
+    if (!hourlyRateManual) {
+      const calc = calculateRate(value, additionalSalaryComponents, personalWeeklyHours);
+      if (calc) setHourlyRate(calc);
+    }
+  };
+
+  const handleAdditionalChange = (value: string) => {
+    setAdditionalSalaryComponents(value);
+    if (!hourlyRateManual) {
+      const calc = calculateRate(monthlyGrossSalary, value, personalWeeklyHours);
+      if (calc) setHourlyRate(calc);
+    }
+  };
+
+  const handlePersonalHoursChange = (value: string) => {
+    setPersonalWeeklyHours(value);
+    if (!hourlyRateManual) {
+      const calc = calculateRate(monthlyGrossSalary, additionalSalaryComponents, value);
+      if (calc) setHourlyRate(calc);
+    }
+  };
+
+  const handleHourlyRateChange = (value: string) => {
+    setHourlyRate(value);
+    setHourlyRateManual(true);
+  };
+
+  const handleResetRate = () => {
+    setHourlyRateManual(false);
+    const calc = calculateRate(monthlyGrossSalary, additionalSalaryComponents, personalWeeklyHours);
+    if (calc) setHourlyRate(calc);
+  };
+
   const handleSave = async () => {
-    // Validierung
     if (!selectedEmployeeId) {
       setError('Bitte Mitarbeiter auswaehlen');
       return;
     }
-    
     const numValue = parseInt(employeeNumber);
     if (!employeeNumber || isNaN(numValue) || numValue < 1) {
       setError('Bitte gueltige lfd. Nr. eingeben (mind. 1)');
       return;
     }
-    
     if (existingNumbers.includes(numValue)) {
       setError(`Lfd. Nr. ${numValue} ist bereits vergeben`);
       return;
     }
-
     setSaving(true);
     setError(null);
-    
     try {
       await onSave({
         employeeId: selectedEmployeeId,
         employeeNumber: numValue,
         hourlyRate: hourlyRate ? parseFloat(hourlyRate.replace(',', '.')) : null,
+        monthlyGrossSalary: monthlyGrossSalary ? parseFloat(monthlyGrossSalary) : null,
+        additionalSalaryComponents: additionalSalaryComponents ? parseFloat(additionalSalaryComponents) : null,
+        personalWeeklyHours: personalWeeklyHours ? parseFloat(personalWeeklyHours) : null,
+        companyWeeklyHours: companyWeeklyHours ? parseFloat(companyWeeklyHours) : null,
         roleInProject: roleInProject || null,
         assignmentStart: assignmentStart || null,
       });
@@ -245,8 +317,8 @@ function AddMemberDialog({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 my-6">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <h3 className="text-lg font-semibold text-gray-900">
@@ -258,7 +330,7 @@ function AddMemberDialog({
         </div>
 
         {/* Content */}
-        <div className="px-6 py-4 space-y-4">
+        <div className="px-6 py-4 space-y-4 max-h-[75vh] overflow-y-auto">
           {/* Fehler */}
           {error && (
             <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
@@ -273,10 +345,10 @@ function AddMemberDialog({
               <Users className="mx-auto h-12 w-12 text-gray-300 mb-3" />
               <p className="text-gray-600 mb-2">Keine Mitarbeiter verfuegbar</p>
               <p className="text-sm text-gray-500">
-                Alle Mitarbeiter der Firma sind bereits im Projektteam, 
+                Alle Mitarbeiter der Firma sind bereits im Projektteam,
                 oder es wurden noch keine Mitarbeiter angelegt.
               </p>
-              <a 
+              <a
                 href={portal === 'berater' ? '#' : '/v7/firma/mitarbeiter'}
                 className="inline-flex items-center gap-1 mt-4 text-sm text-blue-600 hover:underline"
               >
@@ -285,91 +357,237 @@ function AddMemberDialog({
               </a>
             </div>
           ) : (
-            <>
-              {/* MA Auswahl */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Mitarbeiter *
-                </label>
-                <select
-                  value={selectedEmployeeId}
-                  onChange={(e) => setSelectedEmployeeId(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="">-- Bitte auswaehlen --</option>
-                  {availableEmployees.map((emp) => (
-                    <option key={emp.id} value={emp.id}>
-                      {emp.display_name} {emp.qualification ? `(${emp.qualification})` : ''}
-                    </option>
-                  ))}
-                </select>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+              {/* LINKE SPALTE: MA + Lfd.Nr. + Anlage 6.1 */}
+              <div className="space-y-4">
+
+                {/* MA Auswahl */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Mitarbeiter *
+                  </label>
+                  <select
+                    value={selectedEmployeeId}
+                    onChange={(e) => setSelectedEmployeeId(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">-- Bitte auswaehlen --</option>
+                    {availableEmployees.map((emp) => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.display_name} {emp.qualification ? `(${emp.qualification})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Lfd. Nr. */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Lfd. Nr. gemaess Anlage 6.1 *
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={employeeNumber}
+                    onChange={(e) => setEmployeeNumber(e.target.value)}
+                    placeholder={`Vorschlag: ${suggestedNumber}`}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Diese Nummer muss mit der Anlage 6.1 des Antrags uebereinstimmen
+                  </p>
+                </div>
+
+                {/* Anlage 6.1 Block */}
+                <div className="border border-gray-200 rounded-lg p-3 space-y-3">
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    Anlage 6.1 - Stundensatzberechnung
+                  </div>
+
+                  {/* Monatsbrutto */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Fix-Monatsbruttolohn (EUR)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={monthlyGrossSalary}
+                      onChange={(e) => handleMonthlyChange(e.target.value)}
+                      placeholder="z.B. 4500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Fix-Monatsbruttolohn lt. Arbeitsvertrag
+                    </p>
+                  </div>
+
+                  {/* Fixbestandteile */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Weitere fixe Gehaltsbestandteile (EUR/Jahr)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={additionalSalaryComponents}
+                      onChange={(e) => handleAdditionalChange(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Anlage 6.1a: Weihnachtsgeld, Urlaubsgeld etc. (oft 0)
+                    </p>
+                  </div>
+
+                  {/* Jahresbrutto */}
+                  {jahresbrutto && (
+                    <div className="px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm">
+                      <span className="text-gray-600">= Jahresbrutto: </span>
+                      <span className="font-semibold text-gray-900">
+                        {jahresbrutto.toLocaleString('de-DE', { minimumFractionDigits: 2 })} EUR
+                      </span>
+                    </div>
+                  )}
+
+                  {/* pWAZ + bWAZ */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        pWAZ (Std.)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        min="0"
+                        max="60"
+                        value={personalWeeklyHours}
+                        onChange={(e) => handlePersonalHoursChange(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">lt. Arbeitsvertrag</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        bWAZ (Std.)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        min="0"
+                        max="60"
+                        value={companyWeeklyHours}
+                        onChange={(e) => setCompanyWeeklyHours(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Betriebsueblich (Vollzeit)</p>
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              {/* Lfd. Nr. */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Lfd. Nr. gemaess Anlage 6.1 *
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  value={employeeNumber}
-                  onChange={(e) => setEmployeeNumber(e.target.value)}
-                  placeholder={`Vorschlag: ${suggestedNumber}`}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Diese Nummer muss mit der Anlage 6.1 des Antrags uebereinstimmen
-                </p>
+              {/* RECHTE SPALTE: Berechnete Werte + Stundensatz + Rolle + Datum */}
+              <div className="space-y-4">
+
+                {/* Berechnete Werte */}
+                {monthlyGrossSalary && personalWeeklyHours && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
+                    <div className="text-xs font-semibold text-blue-700 uppercase tracking-wider mb-2">
+                      Berechnete Werte
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="text-gray-600">Jahresarbeitsstd. (pWAZ x 52):</div>
+                      <div className="font-medium text-right">
+                        {yearlyHours ? yearlyHours.toLocaleString('de-DE') + ' h' : '-'}
+                      </div>
+                      <div className="text-gray-600">Teilzeitfaktor (pWAZ / bWAZ):</div>
+                      <div className="font-medium text-right">
+                        {teilzeitfaktor ? teilzeitfaktor.toFixed(3).replace('.', ',') : '-'}
+                      </div>
+                      {hourlyRate && !hourlyRateManual && (
+                        <>
+                          <div className="text-gray-600 font-medium">Stundensatz (berechnet):</div>
+                          <div className="font-bold text-blue-700 text-right">
+                            {hourlyRate} EUR/h
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Stundensatz */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Stundensatz (EUR/h)
+                    </label>
+                    {hourlyRateManual && monthlyGrossSalary && personalWeeklyHours && (
+                      <button
+                        type="button"
+                        onClick={handleResetRate}
+                        className="text-xs text-blue-600 hover:text-blue-800 hover:underline"
+                      >
+                        Neu berechnen
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    type="text"
+                    value={hourlyRate}
+                    onChange={(e) => handleHourlyRateChange(e.target.value)}
+                    placeholder="z.B. 30,00"
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                      hourlyRateManual ? 'border-amber-300 bg-amber-50' : 'border-gray-300'
+                    }`}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    {hourlyRateManual
+                      ? 'Manuell eingegeben (ueberschreibt Berechnung)'
+                      : monthlyGrossSalary && personalWeeklyHours
+                        ? 'Spalte 3: Jahresbrutto / (pWAZ x 52)'
+                        : 'Wird aus Jahresbrutto und pWAZ berechnet'
+                    }
+                  </p>
+                </div>
+
+                {/* Rolle */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Rolle im Projekt
+                  </label>
+                  <select
+                    value={roleInProject}
+                    onChange={(e) => setRoleInProject(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">-- Optional --</option>
+                    {ROLE_OPTIONS.map((role) => (
+                      <option key={role} value={role}>{role}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Startdatum */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Im Projekt seit
+                  </label>
+                  <input
+                    type="date"
+                    value={assignmentStart}
+                    onChange={(e) => setAssignmentStart(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Leer lassen = ab Projektstart
+                  </p>
+                </div>
               </div>
 
-              {/* Stundensatz */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Stundensatz (EUR/h)
-                </label>
-                <input
-                  type="text"
-                  value={hourlyRate}
-                  onChange={(e) => setHourlyRate(e.target.value)}
-                  placeholder="z.B. 45,00"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-
-              {/* Rolle */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Rolle im Projekt
-                </label>
-                <select
-                  value={roleInProject}
-                  onChange={(e) => setRoleInProject(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="">-- Optional --</option>
-                  {ROLE_OPTIONS.map((role) => (
-                    <option key={role} value={role}>{role}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Startdatum */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Im Projekt seit
-                </label>
-                <input
-                  type="date"
-                  value={assignmentStart}
-                  onChange={(e) => setAssignmentStart(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Leer lassen = ab Projektstart
-                </p>
-              </div>
-            </>
+            </div>
           )}
         </div>
 
@@ -406,8 +624,8 @@ interface EditMemberDialogProps {
   onSave: (data: {
     employeeNumber: number;
     hourlyRate: number | null;
-    annualSalary: number | null;
-    monthlyGross: number | null;
+    hourlyRateApproved: number | null;
+    monthlyGrossSalary: number | null;
     additionalSalaryComponents: number | null;
     personalWeeklyHours: number | null;
     companyWeeklyHours: number | null;
@@ -430,27 +648,18 @@ function EditMemberDialog({
 }: EditMemberDialogProps) {
   const colors = PORTAL_COLORS[portal];
   const [employeeNumber, setEmployeeNumber] = useState<string>('');
-  // Gehaltsberechnung: Monatsbrutto + Zusatzkomponenten = Jahresbrutto
-  const [monthlyGross, setMonthlyGross] = useState<string>('');
-  const [additionalComponents, setAdditionalComponents] = useState<string>('0');
+  const [monthlyGrossSalary, setMonthlyGrossSalary] = useState<string>('');
+  const [additionalSalaryComponents, setAdditionalSalaryComponents] = useState<string>('');
   const [personalWeeklyHours, setPersonalWeeklyHours] = useState<string>('');
   const [companyWeeklyHours, setCompanyWeeklyHours] = useState<string>('');
   const [hourlyRate, setHourlyRate] = useState<string>('');
+  const [hourlyRateApproved, setHourlyRateApproved] = useState<string>('');
   const [hourlyRateManual, setHourlyRateManual] = useState(false);
-  const [approvedRate, setApprovedRate] = useState<string>('');
   const [roleInProject, setRoleInProject] = useState<string>('');
   const [assignmentStart, setAssignmentStart] = useState<string>('');
   const [assignmentEnd, setAssignmentEnd] = useState<string>('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Jahresbrutto = Monatsbrutto x 12 + Zusatzkomponenten
-  const annualSalary = (() => {
-    const monthly = parseFloat(monthlyGross);
-    const additional = parseFloat(additionalComponents) || 0;
-    if (monthly > 0) return monthly * 12 + additional;
-    return null;
-  })();
 
   // Teilzeitfaktor berechnen
   const teilzeitfaktor = (() => {
@@ -471,39 +680,25 @@ function EditMemberDialog({
   useEffect(() => {
     if (isOpen && member) {
       setEmployeeNumber(member.employee_number?.toString() || '');
-      const emp = member.employee;
-
-      // Anlage 6.1: Gehaltsdetails direkt aus neuen DB-Feldern laden
-      if (emp?.monthly_gross) {
-        // Neue DB-Felder vorhanden - direkt laden
-        setMonthlyGross(emp.monthly_gross.toString());
-        setAdditionalComponents((emp.additional_salary_components ?? 0).toString());
-      } else if (emp?.annual_salary) {
-        // Fallback: annual_salary / 12 als Naeherung (alte Datensaetze vor Migration)
-        setMonthlyGross((emp.annual_salary / 12).toFixed(2));
-        setAdditionalComponents('0');
-      } else {
-        setMonthlyGross('');
-        setAdditionalComponents('0');
-      }
-
-      setPersonalWeeklyHours(emp?.weekly_hours?.toString() || '40');
-      setCompanyWeeklyHours(emp?.company_weekly_hours?.toString() || '40');
+      // Anlage 6.1 Felder aus Project Assignment laden (projektbezogen!)
+      setMonthlyGrossSalary(member.monthly_gross_salary?.toString() || '');
+      setAdditionalSalaryComponents(member.additional_salary_components?.toString() || '0');
+      // pWAZ = persoenliche Wochenarbeitszeit lt. Antrag
+      setPersonalWeeklyHours(member.personal_weekly_hours?.toString() || member.employee?.weekly_hours?.toString() || '40');
+      // bWAZ = betriebsuebliche Arbeitszeit (i.d.R. 40h)
+      setCompanyWeeklyHours(member.company_weekly_hours?.toString() || '40');
       setHourlyRate(member.hourly_rate?.toString().replace('.', ',') || '');
-      setApprovedRate('');
-
+      setHourlyRateApproved(member.hourly_rate_approved?.toString().replace('.', ',') || '');
       // Pruefen ob Stundensatz manuell gesetzt wurde (nicht berechnet)
-      const effectiveAnnual = emp?.monthly_gross
-        ? emp.monthly_gross * 12 + (emp.additional_salary_components ?? 0)
-        : (emp?.annual_salary ?? null);
-      if (effectiveAnnual && emp?.weekly_hours) {
-        const calcRate = effectiveAnnual / (emp.weekly_hours * 52);
+      if (member.monthly_gross_salary && member.personal_weekly_hours) {
+        const jahresbrutto = member.monthly_gross_salary * 12 + (member.additional_salary_components || 0);
+        const calcRate = jahresbrutto / (member.personal_weekly_hours * 52);
         const currentRate = member.hourly_rate || 0;
+        // Wenn Differenz > 1 Cent: manuell gesetzt
         setHourlyRateManual(Math.abs(calcRate - currentRate) > 0.01);
       } else {
         setHourlyRateManual(member.hourly_rate !== null && member.hourly_rate > 0);
       }
-
       setRoleInProject(member.role_in_project || '');
       setAssignmentStart(member.assignment_start || '');
       setAssignmentEnd(member.assignment_end || '');
@@ -511,34 +706,39 @@ function EditMemberDialog({
     }
   }, [isOpen, member]);
 
-  // Auto-Berechnung: Stundensatz = Jahresbrutto / (pWAZ * 52)
-  const calculateRate = (salary: number | null, pWAZ: string) => {
+  // Auto-Berechnung: Stundensatz = (Monatslohn x 12 + Fixbestandteile) / (pWAZ x 52)
+  const calculateRate = (monthlySalary: string, additionalComp: string, pWAZ: string) => {
+    const monthlyNum = parseFloat(monthlySalary);
+    const additionalNum = parseFloat(additionalComp) || 0;
     const hoursNum = parseFloat(pWAZ);
-    if (salary && salary > 0 && hoursNum > 0) {
-      const rate = salary / (hoursNum * 52);
+    if (monthlyNum > 0 && hoursNum > 0) {
+      const jahresbrutto = monthlyNum * 12 + additionalNum;
+      const rate = jahresbrutto / (hoursNum * 52);
       return rate.toFixed(2).replace('.', ',');
     }
     return '';
   };
 
-  const handleMonthlyGrossChange = (value: string) => {
-    setMonthlyGross(value);
+  // Jahresbrutto berechnet
+  const jahresbrutto = (() => {
+    const monthly = parseFloat(monthlyGrossSalary);
+    const additional = parseFloat(additionalSalaryComponents) || 0;
+    if (monthly > 0) return monthly * 12 + additional;
+    return null;
+  })();
+
+  const handleMonthlyChange = (value: string) => {
+    setMonthlyGrossSalary(value);
     if (!hourlyRateManual) {
-      const monthly = parseFloat(value);
-      const additional = parseFloat(additionalComponents) || 0;
-      const annual = monthly > 0 ? monthly * 12 + additional : null;
-      const calc = calculateRate(annual, personalWeeklyHours);
+      const calc = calculateRate(value, additionalSalaryComponents, personalWeeklyHours);
       if (calc) setHourlyRate(calc);
     }
   };
 
   const handleAdditionalChange = (value: string) => {
-    setAdditionalComponents(value);
+    setAdditionalSalaryComponents(value);
     if (!hourlyRateManual) {
-      const monthly = parseFloat(monthlyGross);
-      const additional = parseFloat(value) || 0;
-      const annual = monthly > 0 ? monthly * 12 + additional : null;
-      const calc = calculateRate(annual, personalWeeklyHours);
+      const calc = calculateRate(monthlyGrossSalary, value, personalWeeklyHours);
       if (calc) setHourlyRate(calc);
     }
   };
@@ -546,7 +746,7 @@ function EditMemberDialog({
   const handlePersonalHoursChange = (value: string) => {
     setPersonalWeeklyHours(value);
     if (!hourlyRateManual) {
-      const calc = calculateRate(annualSalary, value);
+      const calc = calculateRate(monthlyGrossSalary, additionalSalaryComponents, value);
       if (calc) setHourlyRate(calc);
     }
   };
@@ -558,7 +758,7 @@ function EditMemberDialog({
 
   const handleResetRate = () => {
     setHourlyRateManual(false);
-    const calc = calculateRate(annualSalary, personalWeeklyHours);
+    const calc = calculateRate(monthlyGrossSalary, additionalSalaryComponents, personalWeeklyHours);
     if (calc) setHourlyRate(calc);
   };
 
@@ -584,9 +784,9 @@ function EditMemberDialog({
       await onSave({
         employeeNumber: numValue,
         hourlyRate: hourlyRate ? parseFloat(hourlyRate.replace(',', '.')) : null,
-        annualSalary: annualSalary,
-        monthlyGross: monthlyGross ? parseFloat(monthlyGross) : null,
-        additionalSalaryComponents: additionalComponents ? parseFloat(additionalComponents) : 0,
+        hourlyRateApproved: hourlyRateApproved ? parseFloat(hourlyRateApproved.replace(',', '.')) : null,
+        monthlyGrossSalary: monthlyGrossSalary ? parseFloat(monthlyGrossSalary) : null,
+        additionalSalaryComponents: additionalSalaryComponents ? parseFloat(additionalSalaryComponents) : null,
         personalWeeklyHours: personalWeeklyHours ? parseFloat(personalWeeklyHours) : null,
         companyWeeklyHours: companyWeeklyHours ? parseFloat(companyWeeklyHours) : null,
         roleInProject: roleInProject || null,
@@ -606,8 +806,8 @@ function EditMemberDialog({
   const employeeName = member.employee?.display_name || 'Mitarbeiter';
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-auto">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <div>
@@ -623,271 +823,245 @@ function EditMemberDialog({
           </button>
         </div>
 
-        {/* Content: 2-Spalten-Layout */}
-        <div className="px-6 py-4">
-          {/* Fehler - volle Breite */}
+        {/* Content */}
+        <div className="px-6 py-4 space-y-4">
+          {/* Fehler */}
           {error && (
-            <div className="flex items-center gap-2 p-3 mb-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+            <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
               <AlertCircle size={16} />
               {error}
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-6">
-            {/* === LINKE SPALTE: Lfd. Nr. + Anlage 6.1 === */}
-            <div className="space-y-4">
+          {/* Lfd. Nr. - JETZT AENDERBAR */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Lfd. Nr. gemaess Anlage 6.1 *
+            </label>
+            <input
+              type="number"
+              min="1"
+              value={employeeNumber}
+              onChange={(e) => setEmployeeNumber(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Muss mit der Anlage 6.1 des Antrags uebereinstimmen
+            </p>
+          </div>
 
-              {/* Lfd. Nr. */}
+          {/* === Anlage 6.1: Gehaltsberechnung === */}
+          <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+            <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">
+              Anlage 6.1 - Stundensatzberechnung
+            </p>
+
+            {/* Jahresgehalt */}
+            <div className="mb-3">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Fix-Monatsbruttolohn (EUR)
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={monthlyGrossSalary}
+                onChange={(e) => handleMonthlyChange(e.target.value)}
+                placeholder="z.B. 5200"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Fix-Monatsbruttolohn lt. Arbeitsvertrag
+              </p>
+            </div>
+
+            {/* Weitere fixe Gehaltsbestandteile (Anlage 6.1a) */}
+            <div className="mb-3">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Weitere fixe Gehaltsbestandteile (EUR/Jahr)
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={additionalSalaryComponents}
+                onChange={(e) => handleAdditionalChange(e.target.value)}
+                placeholder="0"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Anlage 6.1a: Weihnachtsgeld, Urlaubsgeld etc. (oft 0)
+              </p>
+            </div>
+
+            {/* Jahresbrutto berechnet */}
+            {jahresbrutto && (
+              <div className="mb-3 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm">
+                <span className="text-gray-600">= Jahresbrutto: </span>
+                <span className="font-semibold text-gray-900">
+                  {jahresbrutto.toLocaleString('de-DE', { minimumFractionDigits: 2 })} EUR
+                </span>
+              </div>
+            )}
+
+            {/* pWAZ + bWAZ nebeneinander */}
+            <div className="grid grid-cols-2 gap-3 mb-3">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Lfd. Nr. gemaess Anlage 6.1 *
+                  pWAZ (Std.)
                 </label>
                 <input
                   type="number"
-                  min="1"
-                  value={employeeNumber}
-                  onChange={(e) => setEmployeeNumber(e.target.value)}
+                  step="0.5"
+                  min="0"
+                  max="60"
+                  value={personalWeeklyHours}
+                  onChange={(e) => handlePersonalHoursChange(e.target.value)}
+                  placeholder="40"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Muss mit der Anlage 6.1 des Antrags uebereinstimmen
+                  lt. Arbeitsvertrag
                 </p>
               </div>
-
-              {/* === Anlage 6.1: Gehaltsberechnung === */}
-              <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
-                <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">
-                  Anlage 6.1 - Stundensatzberechnung
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  bWAZ (Std.)
+                </label>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  max="60"
+                  value={companyWeeklyHours}
+                  onChange={(e) => setCompanyWeeklyHours(e.target.value)}
+                  placeholder="40"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Betriebsueblich (Vollzeit)
                 </p>
-
-                {/* Fix-Monatsbruttolohn */}
-                <div className="mb-3">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Fix-Monatsbruttolohn (EUR)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={monthlyGross}
-                    onChange={(e) => handleMonthlyGrossChange(e.target.value)}
-                    placeholder="z.B. 5200,00"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Fix-Monatsbruttolohn lt. Arbeitsvertrag
-                  </p>
-                </div>
-
-                {/* Weitere fixe Gehaltsbestandteile */}
-                <div className="mb-3">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Weitere fixe Gehaltsbestandteile (EUR/Jahr)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={additionalComponents}
-                    onChange={(e) => handleAdditionalChange(e.target.value)}
-                    placeholder="0"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Anlage 6.1a: Weihnachtsgeld, Urlaubsgeld etc. (oft 0)
-                  </p>
-                </div>
-
-                {/* = Jahresbrutto Anzeige */}
-                {annualSalary !== null && (
-                  <div className="bg-white border border-blue-200 rounded-lg px-3 py-2 mb-3">
-                    <span className="text-sm font-semibold text-gray-700">= Jahresbrutto: </span>
-                    <span className="text-sm font-bold text-blue-800">
-                      {annualSalary.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} EUR
-                    </span>
-                  </div>
-                )}
-
-                {/* pWAZ + bWAZ nebeneinander */}
-                <div className="grid grid-cols-2 gap-3 mb-3">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      pWAZ (Std.)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      min="0"
-                      max="60"
-                      value={personalWeeklyHours}
-                      onChange={(e) => handlePersonalHoursChange(e.target.value)}
-                      placeholder="40"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      lt. Arbeitsvertrag
-                    </p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      bWAZ (Std.)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      min="0"
-                      max="60"
-                      value={companyWeeklyHours}
-                      onChange={(e) => setCompanyWeeklyHours(e.target.value)}
-                      placeholder="40"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Betriebsueblich (Vollzeit)
-                    </p>
-                  </div>
-                </div>
-
-                {/* Stundensatz */}
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-sm font-medium text-gray-700">
-                      Stundensatz (EUR/h)
-                    </label>
-                    {hourlyRateManual && annualSalary && personalWeeklyHours && (
-                      <button
-                        type="button"
-                        onClick={handleResetRate}
-                        className="text-xs text-blue-600 hover:text-blue-800 hover:underline"
-                      >
-                        Neu berechnen
-                      </button>
-                    )}
-                  </div>
-                  <input
-                    type="text"
-                    value={hourlyRate}
-                    onChange={(e) => handleHourlyRateChange(e.target.value)}
-                    placeholder="z.B. 30,00"
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                      hourlyRateManual ? 'border-amber-300 bg-amber-50' : 'border-gray-300'
-                    }`}
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    {hourlyRateManual
-                      ? 'Manuell eingegeben (ueberschreibt Berechnung)'
-                      : annualSalary && personalWeeklyHours
-                        ? 'Spalte 3: Jahresbrutto / (pWAZ x 52)'
-                        : 'Wird aus Jahresbrutto und pWAZ berechnet'
-                    }
-                  </p>
-                </div>
-
-                {/* Bewilligter Stundensatz lt. Bescheid */}
-                <div className="mt-3 pt-3 border-t border-gray-200">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Bewilligter Stundensatz lt. Bescheid (EUR/h)
-                  </label>
-                  <input
-                    type="text"
-                    value={approvedRate}
-                    onChange={(e) => setApprovedRate(e.target.value)}
-                    placeholder="z.B. 57,69"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Falls abweichend vom kalkulatorischen Satz (Punkt 1.2.2 im Bescheid)
-                  </p>
-                </div>
               </div>
             </div>
 
-            {/* === RECHTE SPALTE: Berechnete Werte + Rolle + Zeitraum === */}
-            <div className="space-y-4">
-
-              {/* Berechnete Werte (nur wenn Daten vorhanden) */}
-              <div className="border border-gray-200 rounded-lg p-4 bg-blue-50">
-                <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">
-                  Berechnete Werte
-                </p>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Jahresarbeitsstd. (pWAZ x 52):</span>
-                    <span className="font-medium">
-                      {yearlyHours ? yearlyHours.toLocaleString('de-DE') + ' h' : '-'}
-                    </span>
+            {/* Berechnete Werte */}
+            {monthlyGrossSalary && personalWeeklyHours && (
+              <div className="bg-white border border-gray-200 rounded-lg p-3 mb-3 text-sm">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="text-gray-600">Jahresarbeitsstd. (pWAZ x 52):</div>
+                  <div className="font-medium text-right">
+                    {yearlyHours ? yearlyHours.toLocaleString('de-DE') : '-'}
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Teilzeitfaktor (pWAZ / bWAZ):</span>
-                    <span className="font-medium">
-                      {teilzeitfaktor ? teilzeitfaktor.toFixed(3).replace('.', ',') : '-'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between border-t border-blue-200 pt-2 mt-2">
-                    <span className="text-gray-700 font-medium">Stundensatz (berechnet):</span>
-                    <span className="font-semibold text-blue-800">
-                      {annualSalary && personalWeeklyHours
-                        ? (annualSalary / (parseFloat(personalWeeklyHours) * 52))
-                            .toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' EUR/h'
-                        : '-'
-                      }
-                    </span>
+                  <div className="text-gray-600">Teilzeitfaktor (pWAZ/bWAZ):</div>
+                  <div className="font-medium text-right">
+                    {teilzeitfaktor ? teilzeitfaktor.toFixed(3).replace('.', ',') : '-'}
                   </div>
                 </div>
               </div>
+            )}
 
-              {/* Rolle */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Rolle im Projekt
+            {/* Stundensatz - berechnet oder manuell */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-sm font-medium text-gray-700">
+                  Stundensatz (EUR/h)
                 </label>
-                <select
-                  value={roleInProject}
-                  onChange={(e) => setRoleInProject(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="">-- Optional --</option>
-                  {ROLE_OPTIONS.map((role) => (
-                    <option key={role} value={role}>{role}</option>
-                  ))}
-                </select>
+                {hourlyRateManual && monthlyGrossSalary && personalWeeklyHours && (
+                  <button
+                    type="button"
+                    onClick={handleResetRate}
+                    className="text-xs text-blue-600 hover:text-blue-800 hover:underline"
+                  >
+                    Neu berechnen
+                  </button>
+                )}
               </div>
+              <input
+                type="text"
+                value={hourlyRate}
+                onChange={(e) => handleHourlyRateChange(e.target.value)}
+                placeholder="z.B. 30,00"
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                  hourlyRateManual ? 'border-amber-300 bg-amber-50' : 'border-gray-300'
+                }`}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                {hourlyRateManual
+                  ? 'Manuell eingegeben (ueberschreibt Berechnung)'
+                  : monthlyGrossSalary && personalWeeklyHours
+                    ? 'Spalte 3: (Monatslohn x 12 + Fixbestandteile) / (pWAZ x 52)'
+                    : 'Wird aus Jahresbrutto und pWAZ berechnet'
+                }
+              </p>
+            </div>
 
-              {/* Zeitraum: Im Projekt seit */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Im Projekt seit
-                </label>
-                <input
-                  type="date"
-                  value={assignmentStart}
-                  onChange={(e) => setAssignmentStart(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
+            {/* Bewilligter Stundensatz lt. Bescheid */}
+            <div className="mt-3 pt-3 border-t border-gray-200">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Bewilligter Stundensatz lt. Bescheid (EUR/h)
+              </label>
+              <input
+                type="text"
+                value={hourlyRateApproved}
+                onChange={(e) => setHourlyRateApproved(e.target.value)}
+                placeholder="z.B. 57,69"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Falls abweichend vom kalkulatorischen Satz (Punkt 1.2.2 im Bescheid)
+              </p>
+            </div>
+          </div>
 
-              {/* Zeitraum: Im Projekt bis */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Im Projekt bis
-                </label>
-                <input
-                  type="date"
-                  value={assignmentEnd}
-                  onChange={(e) => setAssignmentEnd(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Leer lassen = Mitarbeiter noch aktiv im Projekt
-                </p>
-              </div>
+          {/* Rolle */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Rolle im Projekt
+            </label>
+            <select
+              value={roleInProject}
+              onChange={(e) => setRoleInProject(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="">-- Optional --</option>
+              {ROLE_OPTIONS.map((role) => (
+                <option key={role} value={role}>{role}</option>
+              ))}
+            </select>
+          </div>
 
+          {/* Zeitraum */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Im Projekt seit
+              </label>
+              <input
+                type="date"
+                value={assignmentStart}
+                onChange={(e) => setAssignmentStart(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Im Projekt bis
+              </label>
+              <input
+                type="date"
+                value={assignmentEnd}
+                onChange={(e) => setAssignmentEnd(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Leer = noch aktiv
+              </p>
             </div>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-lg">
+        <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50">
           <button
             onClick={onClose}
             className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
@@ -1003,6 +1177,10 @@ export default function ProjectTeamManager({
     employeeId: string;
     employeeNumber: number;
     hourlyRate: number | null;
+    monthlyGrossSalary: number | null;
+    additionalSalaryComponents: number | null;
+    personalWeeklyHours: number | null;
+    companyWeeklyHours: number | null;
     roleInProject: string | null;
     assignmentStart: string | null;
   }) => {
@@ -1013,13 +1191,17 @@ export default function ProjectTeamManager({
         employee_id: data.employeeId,
         employee_number: data.employeeNumber,
         hourly_rate: data.hourlyRate,
+        monthly_gross_salary: data.monthlyGrossSalary,
+        additional_salary_components: data.additionalSalaryComponents,
+        personal_weekly_hours: data.personalWeeklyHours,
+        company_weekly_hours: data.companyWeeklyHours,
         role_in_project: data.roleInProject,
         assignment_start: data.assignmentStart,
         is_active: true,
       });
 
     if (error) throw error;
-    
+
     await loadData();
     onTeamChange?.();
   };
@@ -1028,8 +1210,8 @@ export default function ProjectTeamManager({
   const handleEditMember = async (data: {
     employeeNumber: number;
     hourlyRate: number | null;
-    annualSalary: number | null;
-    monthlyGross: number | null;
+    hourlyRateApproved: number | null;
+    monthlyGrossSalary: number | null;
     additionalSalaryComponents: number | null;
     personalWeeklyHours: number | null;
     companyWeeklyHours: number | null;
@@ -1039,12 +1221,17 @@ export default function ProjectTeamManager({
   }) => {
     if (!editingMember) return;
 
-    // 1. Project Assignment aktualisieren (Stundensatz, Rolle, Zeitraum)
+    // Alles in v7_project_assignments speichern (projektbezogen!)
     const { error: assignError } = await supabase
       .from('v7_project_assignments')
       .update({
         employee_number: data.employeeNumber,
         hourly_rate: data.hourlyRate,
+        hourly_rate_approved: data.hourlyRateApproved,
+        monthly_gross_salary: data.monthlyGrossSalary,
+        additional_salary_components: data.additionalSalaryComponents,
+        personal_weekly_hours: data.personalWeeklyHours,
+        company_weekly_hours: data.companyWeeklyHours,
         role_in_project: data.roleInProject,
         assignment_start: data.assignmentStart,
         assignment_end: data.assignmentEnd,
@@ -1053,27 +1240,6 @@ export default function ProjectTeamManager({
       .eq('id', editingMember.id);
 
     if (assignError) throw assignError;
-
-    // 2. Anlage 6.1 Felder im Employee-Stamm speichern (inkl. neue Felder)
-    const empUpdate: Record<string, any> = {};
-    if (data.monthlyGross !== null)              empUpdate.monthly_gross = data.monthlyGross;
-    if (data.additionalSalaryComponents !== null) empUpdate.additional_salary_components = data.additionalSalaryComponents;
-    if (data.annualSalary !== null)              empUpdate.annual_salary = data.annualSalary;
-    if (data.personalWeeklyHours !== null)       empUpdate.weekly_hours = data.personalWeeklyHours;
-    if (data.companyWeeklyHours !== null)        empUpdate.company_weekly_hours = data.companyWeeklyHours;
-    if (data.hourlyRate !== null)                empUpdate.hourly_rate = data.hourlyRate;
-
-    if (Object.keys(empUpdate).length > 0) {
-      const { error: empError } = await supabase
-        .from('v7_employees')
-        .update(empUpdate)
-        .eq('id', editingMember.employee_id);
-
-      if (empError) {
-        console.error('Fehler beim Speichern der Anlage 6.1 Daten:', empError);
-        // Kein throw - Assignment wurde schon gespeichert
-      }
-    }
     
     await loadData();
     onTeamChange?.();
