@@ -4,8 +4,8 @@
 // ============================================================================
 // PZE V7 - Berater-Dashboard
 // ============================================================================
-// Datum: 11. Februar 2026
-// Version: 7.4.4-2
+// Datum: 19. Maerz 2026
+// Version: 7.4.4-6
 //
 // Layout:
 //   1. Kundenliste (Tabelle mit Suchfunktion)
@@ -13,6 +13,11 @@
 //   2. Sonstiges (firmenuebergreifend)
 //      Netzwerk, Multiprojekt, FZul
 //
+// v7.4.4-6: "+ Neue Firma"-Button + Modal zum Anlegen neuer Kundenfirmen
+//            Pflichtfelder: Firmenname, Bundesland
+//            Optional: Kurzname, Stadt
+//            Nach Speichern: Firmenliste wird sofort aktualisiert
+//            consultantCompanyId als State gespeichert (fuer INSERT benoetigt)
 // v7.4.4-5: ZA-Button im Schnellzugriff -> /berichte?panel=za
 // v7.4.4-4: Projekte/MA-Spalten klickbar; Projekte-Button aus Schnellzugriff entfernt
 // v7.4.4-3: Schnellzugriff-Buttons in Kundentabelle (Firma/Berichte/ZE/MA)
@@ -44,17 +49,40 @@ import {
   Loader2,
   Building2,
   Users,
-  ChevronRight,
   Search,
-  FileText,
+  Plus,
+  X,
+  AlertCircle,
 } from 'lucide-react';
 
 import { V7UserRole } from '@/types/v7-types';
 import { PORTAL_COLORS } from '@/lib/v7-constants';
 import {
   getBeraterWerkzeuge,
-  V7ModuleDefinition,
 } from '@/lib/v7-module-config';
+
+// ============================================================================
+// KONSTANTEN
+// ============================================================================
+
+const BUNDESLAENDER = [
+  'Baden-Wuerttemberg',
+  'Bayern',
+  'Berlin',
+  'Brandenburg',
+  'Bremen',
+  'Hamburg',
+  'Hessen',
+  'Mecklenburg-Vorpommern',
+  'Niedersachsen',
+  'Nordrhein-Westfalen',
+  'Rheinland-Pfalz',
+  'Saarland',
+  'Sachsen',
+  'Sachsen-Anhalt',
+  'Schleswig-Holstein',
+  'Thueringen',
+];
 
 // ============================================================================
 // ICON-MAPPING
@@ -84,6 +112,20 @@ interface ClientCompanyRow {
   is_active: boolean;
 }
 
+interface NeuerFirmaForm {
+  name: string;
+  short_name: string;
+  city: string;
+  federal_state: string;
+}
+
+const EMPTY_FORM: NeuerFirmaForm = {
+  name: '',
+  short_name: '',
+  city: '',
+  federal_state: '',
+};
+
 // ============================================================================
 // KOMPONENTE
 // ============================================================================
@@ -92,16 +134,62 @@ export default function BeraterDashboardPage() {
   const router = useRouter();
   const supabase = createClient();
 
+  // Basis-State
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState('');
   const [userFirstName, setUserFirstName] = useState('');
   const [userEmail, setUserEmail] = useState('');
   const [userRole, setUserRole] = useState<V7UserRole>('consultant');
   const [consultantCompanyName, setConsultantCompanyName] = useState('');
+  const [consultantCompanyId, setConsultantCompanyId] = useState<string | null>(null);
   const [companies, setCompanies] = useState<ClientCompanyRow[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
 
+  // Modal-State
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState<NeuerFirmaForm>(EMPTY_FORM);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
   const colors = PORTAL_COLORS.berater;
+
+  // ==========================================================================
+  // FIRMENLISTE LADEN (wiederverwendbar fuer Refresh nach Neuanlage)
+  // ==========================================================================
+
+  async function loadCompanies() {
+    const { data: clientCompanies } = await supabase
+      .from('v7_client_companies')
+      .select('id, name, short_name, city, federal_state, is_active')
+      .eq('is_active', true)
+      .order('name');
+
+    if (clientCompanies && clientCompanies.length > 0) {
+      const companiesWithStats: ClientCompanyRow[] = await Promise.all(
+        clientCompanies.map(async (company) => {
+          const { count: pCount } = await supabase
+            .from('v7_projects')
+            .select('*', { count: 'exact', head: true })
+            .eq('client_company_id', company.id);
+
+          const { count: eCount } = await supabase
+            .from('v7_employees')
+            .select('*', { count: 'exact', head: true })
+            .eq('client_company_id', company.id)
+            .eq('is_active', true);
+
+          return {
+            ...company,
+            project_count: pCount || 0,
+            employee_count: eCount || 0,
+          };
+        })
+      );
+      setCompanies(companiesWithStats);
+    } else {
+      setCompanies([]);
+    }
+  }
 
   // ==========================================================================
   // DATEN LADEN
@@ -130,7 +218,6 @@ export default function BeraterDashboardPage() {
             || '';
           setUserName(name);
 
-          // Vorname fuer Begruessung
           if (profile.first_name) {
             setUserFirstName(profile.first_name);
           } else if (profile.display_name && profile.display_name.includes(',')) {
@@ -141,6 +228,7 @@ export default function BeraterDashboardPage() {
           setUserRole((profile.role as V7UserRole) || 'consultant');
 
           if (profile.consultant_company_id) {
+            setConsultantCompanyId(profile.consultant_company_id);
             const { data: cc } = await supabase
               .from('v7_consultant_companies')
               .select('name')
@@ -151,36 +239,7 @@ export default function BeraterDashboardPage() {
         }
         setUserEmail(user.email || '');
 
-        // Kundenfirmen laden
-        const { data: clientCompanies } = await supabase
-          .from('v7_client_companies')
-          .select('id, name, short_name, city, federal_state, is_active')
-          .eq('is_active', true)
-          .order('name');
-
-        if (clientCompanies && clientCompanies.length > 0) {
-          const companiesWithStats: ClientCompanyRow[] = await Promise.all(
-            clientCompanies.map(async (company) => {
-              const { count: pCount } = await supabase
-                .from('v7_projects')
-                .select('*', { count: 'exact', head: true })
-                .eq('client_company_id', company.id);
-
-              const { count: eCount } = await supabase
-                .from('v7_employees')
-                .select('*', { count: 'exact', head: true })
-                .eq('client_company_id', company.id)
-                .eq('is_active', true);
-
-              return {
-                ...company,
-                project_count: pCount || 0,
-                employee_count: eCount || 0,
-              };
-            })
-          );
-          setCompanies(companiesWithStats);
-        }
+        await loadCompanies();
       } catch (err) {
         console.error('Dashboard-Fehler:', err);
       } finally {
@@ -189,6 +248,69 @@ export default function BeraterDashboardPage() {
     }
     loadData();
   }, []);
+
+  // ==========================================================================
+  // NEUE FIRMA SPEICHERN
+  // ==========================================================================
+
+  async function handleSaveFirma() {
+    setSaveError(null);
+
+    // Validierung
+    if (!form.name.trim()) {
+      setSaveError('Firmenname ist ein Pflichtfeld.');
+      return;
+    }
+    if (!form.federal_state) {
+      setSaveError('Bitte Bundesland auswaehlen.');
+      return;
+    }
+    if (!consultantCompanyId) {
+      setSaveError('Beraterfirma konnte nicht ermittelt werden. Bitte neu einloggen.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('v7_client_companies')
+        .insert({
+          consultant_company_id: consultantCompanyId,
+          name: form.name.trim(),
+          short_name: form.short_name.trim() || null,
+          city: form.city.trim() || null,
+          federal_state: form.federal_state,
+          is_active: true,
+        });
+
+      if (error) {
+        setSaveError('Fehler beim Speichern: ' + error.message);
+        return;
+      }
+
+      // Erfolg: Modal schliessen, Formular zuruecksetzen, Liste neu laden
+      setShowModal(false);
+      setForm(EMPTY_FORM);
+      await loadCompanies();
+    } catch (err) {
+      setSaveError('Unerwarteter Fehler. Bitte erneut versuchen.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleOpenModal() {
+    setForm(EMPTY_FORM);
+    setSaveError(null);
+    setShowModal(true);
+  }
+
+  function handleCloseModal() {
+    if (saving) return;
+    setShowModal(false);
+    setForm(EMPTY_FORM);
+    setSaveError(null);
+  }
 
   // ==========================================================================
   // FILTER + WERKZEUGE
@@ -258,6 +380,15 @@ export default function BeraterDashboardPage() {
                 Kundenuebersicht
               </h2>
             </div>
+            {/* NEUE FIRMA BUTTON */}
+            <button
+              onClick={handleOpenModal}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors"
+              style={{ backgroundColor: colors.primary }}
+            >
+              <Plus size={16} />
+              Neue Firma
+            </button>
           </div>
 
           {/* Suchfeld */}
@@ -468,6 +599,160 @@ export default function BeraterDashboardPage() {
           </p>
         </div>
       </footer>
+
+      {/* ================================================================== */}
+      {/* MODAL: NEUE FIRMA ANLEGEN                                          */}
+      {/* ================================================================== */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={handleCloseModal}
+          />
+
+          {/* Modal-Box */}
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6">
+
+            {/* Header */}
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center"
+                  style={{ backgroundColor: colors.primary }}>
+                  <Building2 size={18} className="text-white" />
+                </div>
+                <h2 className="text-lg font-semibold text-gray-900">Neue Firma anlegen</h2>
+              </div>
+              <button
+                onClick={handleCloseModal}
+                disabled={saving}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Fehlermeldung */}
+            {saveError && (
+              <div className="flex items-start gap-2 mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                <AlertCircle size={16} className="mt-0.5 shrink-0" />
+                {saveError}
+              </div>
+            )}
+
+            {/* Formular */}
+            <div className="space-y-4">
+
+              {/* Firmenname - Pflicht */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Firmenname <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  placeholder="z.B. Mustermann GmbH"
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg
+                             focus:outline-none focus:ring-2 focus:ring-sky-400 focus:border-transparent"
+                  disabled={saving}
+                  autoFocus
+                />
+              </div>
+
+              {/* Kurzname - Optional */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Kurzname <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={form.short_name}
+                  onChange={(e) => setForm({ ...form, short_name: e.target.value })}
+                  placeholder="z.B. Mustermann"
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg
+                             focus:outline-none focus:ring-2 focus:ring-sky-400 focus:border-transparent"
+                  disabled={saving}
+                />
+              </div>
+
+              {/* Stadt - Optional */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Stadt <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={form.city}
+                  onChange={(e) => setForm({ ...form, city: e.target.value })}
+                  placeholder="z.B. Berlin"
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg
+                             focus:outline-none focus:ring-2 focus:ring-sky-400 focus:border-transparent"
+                  disabled={saving}
+                />
+              </div>
+
+              {/* Bundesland - Pflicht */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Bundesland <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={form.federal_state}
+                  onChange={(e) => setForm({ ...form, federal_state: e.target.value })}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg
+                             focus:outline-none focus:ring-2 focus:ring-sky-400 focus:border-transparent
+                             bg-white"
+                  disabled={saving}
+                >
+                  <option value="">-- Bitte auswaehlen --</option>
+                  {BUNDESLAENDER.map((bl) => (
+                    <option key={bl} value={bl}>{bl}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Hinweis */}
+            <p className="mt-4 text-xs text-gray-400">
+              Weitere Details (Adresse, Ansprechpartner, Kontakt) koennen nach der Anlage
+              unter Firmendaten ergaenzt werden.
+            </p>
+
+            {/* Buttons */}
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={handleCloseModal}
+                disabled={saving}
+                className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100
+                           hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={handleSaveFirma}
+                disabled={saving}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white
+                           rounded-lg transition-colors disabled:opacity-60"
+                style={{ backgroundColor: colors.primary }}
+              >
+                {saving ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    Speichern...
+                  </>
+                ) : (
+                  <>
+                    <Plus size={14} />
+                    Firma anlegen
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
