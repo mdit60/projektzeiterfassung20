@@ -3,7 +3,7 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 12. Maerz 2026
-// Version: 7.4.4-5
+// Version: 7.4.4-6
 //
 // Gemeinsame Projekt-Detailseite fuer beide Portale:
 // - Berater-Portal: /v7/berater/foerderung/firma/[firmaId]/projekt/[projektId]
@@ -1420,9 +1420,9 @@ export default function ProjectDetailPage({
             <ProjectTeamManager
               portal={portal}
               projectId={projectId}
-              companyId={companyId || project.client_company_id}
-              onTeamChanged={loadData}
-              isAdmin={adminUser}
+              clientCompanyId={companyId || project.client_company_id}
+              onTeamChange={loadData}
+              canEdit={adminUser}
             />
           </div>
         )}
