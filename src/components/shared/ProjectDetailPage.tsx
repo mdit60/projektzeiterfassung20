@@ -3,7 +3,7 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 12. Maerz 2026
-// Version: 7.4.4-7
+// Version: 7.4.4-8
 //
 // Gemeinsame Projekt-Detailseite fuer beide Portale:
 // - Berater-Portal: /v7/berater/foerderung/firma/[firmaId]/projekt/[projektId]
@@ -1401,15 +1401,15 @@ export default function ProjectDetailPage({
 
             <WorkPackageTable
               portal={portal}
-              workPackages={workPackages as any}
-              projectTeam={teamMembers}
-              assignments={wpAssignments}
-              onEdit={adminUser ? openEditWPModal as any : undefined}
-              onDelete={adminUser ? openDeleteConfirmation as any : undefined}
-              onAssign={adminUser ? openWPAssignModal as any : undefined}
-              onAssignmentChange={handleTableAssignmentChange}
               projectId={projectId}
-              isAdmin={adminUser}
+              workPackages={workPackages as any}
+              employees={allEmployees as any}
+              assignments={wpAssignments}
+              projectTeam={teamMembers}
+              canEdit={adminUser}
+              onAssignmentChange={handleTableAssignmentChange}
+              onEditAP={adminUser ? openEditWPModal as any : undefined}
+              onDeleteAP={adminUser ? openDeleteConfirmation as any : undefined}
             />
           </div>
         )}
