@@ -3,7 +3,7 @@
 // PZE V7 - Projekt-Team Management
 // ============================================================================
 // Datum: 20. Maerz 2026
-// Version: 7.4.4-2
+// Version: 7.4.4-3
 //
 // Verwaltet das Projektteam:
 // - MA aus Firmenstamm zum Projekt hinzufuegen
@@ -806,8 +806,8 @@ function EditMemberDialog({
   const employeeName = member.employee?.display_name || 'Mitarbeiter';
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 my-6">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <div>
@@ -823,155 +823,152 @@ function EditMemberDialog({
           </button>
         </div>
 
-        {/* Content */}
-        <div className="px-6 py-4 space-y-4">
-          {/* Fehler */}
+        {/* Content - zweispaltig */}
+        <div className="px-6 py-4 max-h-[75vh] overflow-y-auto">
+          {/* Fehler oben ueber beide Spalten */}
           {error && (
-            <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+            <div className="flex items-center gap-2 p-3 mb-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
               <AlertCircle size={16} />
               {error}
             </div>
           )}
+          {/* LINKE SPALTE: Lfd.Nr. + Anlage 6.1 */}
+          <div className="space-y-4">
 
-          {/* Lfd. Nr. - JETZT AENDERBAR */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Lfd. Nr. gemaess Anlage 6.1 *
-            </label>
-            <input
-              type="number"
-              min="1"
-              value={employeeNumber}
-              onChange={(e) => setEmployeeNumber(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              Muss mit der Anlage 6.1 des Antrags uebereinstimmen
-            </p>
+            {/* Lfd. Nr. */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Lfd. Nr. gemaess Anlage 6.1 *
+              </label>
+              <input
+                type="number"
+                min="1"
+                value={employeeNumber}
+                onChange={(e) => setEmployeeNumber(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Muss mit der Anlage 6.1 des Antrags uebereinstimmen
+              </p>
+            </div>
+
+            {/* Anlage 6.1 Block */}
+            <div className="border border-gray-200 rounded-lg p-3 space-y-3">
+              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                Anlage 6.1 - Stundensatzberechnung
+              </div>
+
+              {/* Monatsbrutto */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Fix-Monatsbruttolohn (EUR)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={monthlyGrossSalary}
+                  onChange={(e) => handleMonthlyChange(e.target.value)}
+                  placeholder="z.B. 5200"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">Fix-Monatsbruttolohn lt. Arbeitsvertrag</p>
+              </div>
+
+              {/* Fixbestandteile */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Weitere fixe Gehaltsbestandteile (EUR/Jahr)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={additionalSalaryComponents}
+                  onChange={(e) => handleAdditionalChange(e.target.value)}
+                  placeholder="0"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">Anlage 6.1a: Weihnachtsgeld, Urlaubsgeld etc. (oft 0)</p>
+              </div>
+
+              {/* Jahresbrutto */}
+              {jahresbrutto && (
+                <div className="px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm">
+                  <span className="text-gray-600">= Jahresbrutto: </span>
+                  <span className="font-semibold text-gray-900">
+                    {jahresbrutto.toLocaleString('de-DE', { minimumFractionDigits: 2 })} EUR
+                  </span>
+                </div>
+              )}
+
+              {/* pWAZ + bWAZ */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">pWAZ (Std.)</label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="0"
+                    max="60"
+                    value={personalWeeklyHours}
+                    onChange={(e) => handlePersonalHoursChange(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">lt. Arbeitsvertrag</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">bWAZ (Std.)</label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="0"
+                    max="60"
+                    value={companyWeeklyHours}
+                    onChange={(e) => setCompanyWeeklyHours(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Betriebsueblich (Vollzeit)</p>
+                </div>
+              </div>
+            </div>
           </div>
 
-          {/* === Anlage 6.1: Gehaltsberechnung === */}
-          <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
-            <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">
-              Anlage 6.1 - Stundensatzberechnung
-            </p>
-
-            {/* Jahresgehalt */}
-            <div className="mb-3">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Fix-Monatsbruttolohn (EUR)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={monthlyGrossSalary}
-                onChange={(e) => handleMonthlyChange(e.target.value)}
-                placeholder="z.B. 5200"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Fix-Monatsbruttolohn lt. Arbeitsvertrag
-              </p>
-            </div>
-
-            {/* Weitere fixe Gehaltsbestandteile (Anlage 6.1a) */}
-            <div className="mb-3">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Weitere fixe Gehaltsbestandteile (EUR/Jahr)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={additionalSalaryComponents}
-                onChange={(e) => handleAdditionalChange(e.target.value)}
-                placeholder="0"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Anlage 6.1a: Weihnachtsgeld, Urlaubsgeld etc. (oft 0)
-              </p>
-            </div>
-
-            {/* Jahresbrutto berechnet */}
-            {jahresbrutto && (
-              <div className="mb-3 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm">
-                <span className="text-gray-600">= Jahresbrutto: </span>
-                <span className="font-semibold text-gray-900">
-                  {jahresbrutto.toLocaleString('de-DE', { minimumFractionDigits: 2 })} EUR
-                </span>
-              </div>
-            )}
-
-            {/* pWAZ + bWAZ nebeneinander */}
-            <div className="grid grid-cols-2 gap-3 mb-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  pWAZ (Std.)
-                </label>
-                <input
-                  type="number"
-                  step="0.5"
-                  min="0"
-                  max="60"
-                  value={personalWeeklyHours}
-                  onChange={(e) => handlePersonalHoursChange(e.target.value)}
-                  placeholder="40"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  lt. Arbeitsvertrag
-                </p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  bWAZ (Std.)
-                </label>
-                <input
-                  type="number"
-                  step="0.5"
-                  min="0"
-                  max="60"
-                  value={companyWeeklyHours}
-                  onChange={(e) => setCompanyWeeklyHours(e.target.value)}
-                  placeholder="40"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Betriebsueblich (Vollzeit)
-                </p>
-              </div>
-            </div>
+          {/* RECHTE SPALTE: Berechnete Werte + Stundensatz + Rolle + Zeitraum */}
+          <div className="space-y-4">
 
             {/* Berechnete Werte */}
             {monthlyGrossSalary && personalWeeklyHours && (
-              <div className="bg-white border border-gray-200 rounded-lg p-3 mb-3 text-sm">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
+                <div className="text-xs font-semibold text-blue-700 uppercase tracking-wider mb-2">
+                  Berechnete Werte
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="text-gray-600">Jahresarbeitsstd. (pWAZ x 52):</div>
                   <div className="font-medium text-right">
-                    {yearlyHours ? yearlyHours.toLocaleString('de-DE') : '-'}
+                    {yearlyHours ? yearlyHours.toLocaleString('de-DE') + ' h' : '-'}
                   </div>
-                  <div className="text-gray-600">Teilzeitfaktor (pWAZ/bWAZ):</div>
+                  <div className="text-gray-600">Teilzeitfaktor (pWAZ / bWAZ):</div>
                   <div className="font-medium text-right">
                     {teilzeitfaktor ? teilzeitfaktor.toFixed(3).replace('.', ',') : '-'}
                   </div>
+                  {hourlyRate && !hourlyRateManual && (
+                    <>
+                      <div className="text-gray-600 font-medium">Stundensatz (berechnet):</div>
+                      <div className="font-bold text-blue-700 text-right">{hourlyRate} EUR/h</div>
+                    </>
+                  )}
                 </div>
               </div>
             )}
 
-            {/* Stundensatz - berechnet oder manuell */}
+            {/* Stundensatz */}
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="block text-sm font-medium text-gray-700">
-                  Stundensatz (EUR/h)
-                </label>
+                <label className="block text-sm font-medium text-gray-700">Stundensatz (EUR/h)</label>
                 {hourlyRateManual && monthlyGrossSalary && personalWeeklyHours && (
-                  <button
-                    type="button"
-                    onClick={handleResetRate}
-                    className="text-xs text-blue-600 hover:text-blue-800 hover:underline"
-                  >
+                  <button type="button" onClick={handleResetRate}
+                    className="text-xs text-blue-600 hover:text-blue-800 hover:underline">
                     Neu berechnen
                   </button>
                 )}
@@ -986,17 +983,15 @@ function EditMemberDialog({
                 }`}
               />
               <p className="text-xs text-gray-500 mt-1">
-                {hourlyRateManual
-                  ? 'Manuell eingegeben (ueberschreibt Berechnung)'
+                {hourlyRateManual ? 'Manuell (ueberschreibt Berechnung)'
                   : monthlyGrossSalary && personalWeeklyHours
-                    ? 'Spalte 3: (Monatslohn x 12 + Fixbestandteile) / (pWAZ x 52)'
-                    : 'Wird aus Jahresbrutto und pWAZ berechnet'
-                }
+                    ? 'Spalte 3: Jahresbrutto / (pWAZ x 52)'
+                    : 'Wird aus Jahresbrutto und pWAZ berechnet'}
               </p>
             </div>
 
-            {/* Bewilligter Stundensatz lt. Bescheid */}
-            <div className="mt-3 pt-3 border-t border-gray-200">
+            {/* Bewilligter Stundensatz */}
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Bewilligter Stundensatz lt. Bescheid (EUR/h)
               </label>
@@ -1011,68 +1006,57 @@ function EditMemberDialog({
                 Falls abweichend vom kalkulatorischen Satz (Punkt 1.2.2 im Bescheid)
               </p>
             </div>
-          </div>
 
-          {/* Rolle */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Rolle im Projekt
-            </label>
-            <select
-              value={roleInProject}
-              onChange={(e) => setRoleInProject(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="">-- Optional --</option>
-              {ROLE_OPTIONS.map((role) => (
-                <option key={role} value={role}>{role}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Zeitraum */}
-          <div className="grid grid-cols-2 gap-4">
+            {/* Rolle */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Im Projekt seit
-              </label>
-              <input
-                type="date"
-                value={assignmentStart}
-                onChange={(e) => setAssignmentStart(e.target.value)}
+              <label className="block text-sm font-medium text-gray-700 mb-1">Rolle im Projekt</label>
+              <select
+                value={roleInProject}
+                onChange={(e) => setRoleInProject(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
+              >
+                <option value="">-- Optional --</option>
+                {ROLE_OPTIONS.map((role) => (
+                  <option key={role} value={role}>{role}</option>
+                ))}
+              </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Im Projekt bis
-              </label>
-              <input
-                type="date"
-                value={assignmentEnd}
-                onChange={(e) => setAssignmentEnd(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Leer = noch aktiv
-              </p>
+
+            {/* Zeitraum */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Im Projekt seit</label>
+                <input
+                  type="date"
+                  value={assignmentStart}
+                  onChange={(e) => setAssignmentStart(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Im Projekt bis</label>
+                <input
+                  type="date"
+                  value={assignmentEnd}
+                  onChange={(e) => setAssignmentEnd(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">Leer = noch aktiv</p>
+              </div>
             </div>
           </div>
+
+          </div>{/* Ende grid */}
         </div>
 
         {/* Footer */}
         <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-          >
+          <button onClick={onClose}
+            className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
             Abbrechen
           </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className={`px-4 py-2 text-white rounded-lg transition-colors ${colors.buttonBg} disabled:opacity-50`}
-          >
+          <button onClick={handleSave} disabled={saving}
+            className={`px-4 py-2 text-white rounded-lg transition-colors ${colors.buttonBg} disabled:opacity-50`}>
             {saving ? 'Speichern...' : 'Speichern'}
           </button>
         </div>
