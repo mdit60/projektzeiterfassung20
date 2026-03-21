@@ -3,7 +3,7 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 12. Maerz 2026
-// Version: 7.4.4-8
+// Version: 7.4.4-9
 //
 // Gemeinsame Projekt-Detailseite fuer beide Portale:
 // - Berater-Portal: /v7/berater/foerderung/firma/[firmaId]/projekt/[projektId]
@@ -461,7 +461,7 @@ export default function ProjectDetailPage({
           v7_employees!inner(display_name, weekly_hours)
         `)
         .eq('project_id', projectId)
-        .eq('is_active', true);
+        .neq('is_active', false);
 
       if (assignmentData) {
         setProjectEmployeeIds(assignmentData.map((a: any) => a.employee_id));
