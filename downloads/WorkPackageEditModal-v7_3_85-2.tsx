@@ -156,7 +156,7 @@ export default function WorkPackageEditModal({
         end_date: workPackage.end_date || '',
         total_person_months: workPackage.total_person_months?.toString() || '',
         total_costs: workPackage.total_costs?.toString() || '',
-        is_technical: workPackage.is_technical ae true,
+        is_technical: workPackage.is_technical ?? true,
       });
     } else {
       // Create-Mode: Leeres Formular mit Defaults
