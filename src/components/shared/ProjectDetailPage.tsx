@@ -3,7 +3,7 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 12. Maerz 2026
-// Version: 7.4.4-13
+// Version: 7.4.4-14
 //
 // Gemeinsame Projekt-Detailseite fuer beide Portale:
 // - Berater-Portal: /v7/berater/foerderung/firma/[firmaId]/projekt/[projektId]
@@ -449,7 +449,7 @@ export default function ProjectDetailPage({
         if (wpaData) setWpAssignments(wpaData);
       }
 
-      const { data: assignmentData } = await supabase
+      const { data: assignmentData, error: assignError } = await supabase
         .from('v7_project_assignments')
         .select(`
           id,
@@ -462,6 +462,8 @@ export default function ProjectDetailPage({
         `)
         .eq('project_id', projectId)
         .eq('is_active', true);
+
+      console.log('[PZE-DEBUG] assignmentData:', assignmentData?.length, 'assignError:', assignError?.message);
 
       if (assignmentData) {
         setProjectEmployeeIds(assignmentData.map((a: any) => a.employee_id));
