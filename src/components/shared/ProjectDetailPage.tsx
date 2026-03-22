@@ -3,7 +3,7 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 12. Maerz 2026
-// Version: 7.4.4-20
+// Version: 7.4.4-27
 //
 // Gemeinsame Projekt-Detailseite fuer beide Portale:
 // - Berater-Portal: /v7/berater/foerderung/firma/[firmaId]/projekt/[projektId]
@@ -360,8 +360,7 @@ export default function ProjectDetailPage({
           return;
         }
         if (!companyId) {
-          // companyId noch nicht verfuegbar - warten
-          return;
+          return; // companyId noch nicht verfuegbar - warten
         }
         targetCompanyId = companyId;
       } else {
@@ -1380,28 +1379,28 @@ export default function ProjectDetailPage({
 
             {teamMembers.length === 0 && (
               <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg flex items-start gap-2">
-                <AlertCircle size={16} className="text-yellow-600 mt-0.5 flex-shrink-0" />
+                <AlertCircle size={16} className="text-yellow-600 mt-0.5 shrink-0" />
                 <p className="text-sm text-yellow-800">
                   Bitte zuerst im Tab &quot;Team&quot; Mitarbeiter hinzufuegen, um die Excel-Vorlage nutzen zu koennen.
                 </p>
               </div>
             )}
 
-            <ArbeitsplanImport
-              portal={portal}
-              projectId={projectId}
-              projectName={project.name}
-              teamMembers={teamMembers}
-              onImportSuccess={loadData}
-            />
+            {(ArbeitsplanImport as any)({
+              portal,
+              projectId,
+              projectName: project.name,
+              teamMembers,
+              onImportSuccess: loadData,
+            })}
 
             <WorkPackageTable
               portal={portal}
               projectId={projectId}
               workPackages={workPackages as any}
               employees={allEmployees as any}
-              assignments={wpAssignments}
-              projectTeam={teamMembers}
+              assignments={wpAssignments as any}
+              projectTeam={teamMembers as any}
               canEdit={adminUser}
               onAssignmentChange={handleTableAssignmentChange}
               onEditAP={adminUser ? openEditWPModal as any : undefined}
@@ -1538,7 +1537,7 @@ export default function ProjectDetailPage({
 
                         {/* Links: ZA-Nummer + Zeitraum */}
                         <div className="flex items-center gap-4 flex-1 min-w-0">
-                          <div className={`flex-shrink-0 w-12 h-12 rounded-lg ${portal === 'firma' ? 'bg-green-50 border border-green-200' : 'bg-blue-50 border border-blue-200'} flex flex-col items-center justify-center`}>
+                          <div className={`shrink-0 w-12 h-12 rounded-lg ${portal === 'firma' ? 'bg-green-50 border border-green-200' : 'bg-blue-50 border border-blue-200'} flex flex-col items-center justify-center`}>
                             <span className={`text-xs font-medium ${portal === 'firma' ? 'text-green-600' : 'text-blue-600'}`}>ZA</span>
                             <span className={`text-lg font-bold leading-none ${portal === 'firma' ? 'text-green-700' : 'text-blue-700'}`}>{za.za_nummer}</span>
                           </div>
@@ -1558,7 +1557,7 @@ export default function ProjectDetailPage({
                         </div>
 
                         {/* Mitte: Status-Dropdown */}
-                        <div className="flex-shrink-0">
+                        <div className="shrink-0">
                           <div className="relative">
                             <select
                               value={za.status}
@@ -1586,7 +1585,7 @@ export default function ProjectDetailPage({
                         </div>
 
                         {/* Rechts: ZA oeffnen */}
-                        <div className="flex-shrink-0">
+                        <div className="shrink-0">
                           <button
                             onClick={() => navigateToBerichteWithZA(za.id)}
                             className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border transition-colors ${portal === 'firma' ? 'text-green-700 border-green-300 hover:bg-green-50' : 'text-blue-700 border-blue-300 hover:bg-blue-50'}`}
@@ -1643,7 +1642,7 @@ export default function ProjectDetailPage({
         onClose={closeWPEditModal}
         onSave={handleSaveWP}
         mode={wpEditMode}
-        workPackage={editingWP}
+        workPackage={editingWP as any}
         projects={wpProjects}
         defaultProjectId={projectId}
         getNextAPNumber={getNextAPNumber}
