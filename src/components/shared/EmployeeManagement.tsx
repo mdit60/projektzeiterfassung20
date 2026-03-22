@@ -2,8 +2,8 @@
 // ============================================================================
 // PZE V7 - Shared Employee Management Component
 // ============================================================================
-// Datum: 26. Februar 2026
-// Version: 7.4.2-4
+// Datum: 18. Februar 2026
+// Version: 7.3.95-1
 //
 // Wird von beiden Portalen genutzt:
 // - Firmen-Portal: /v7/firma/mitarbeiter
@@ -16,14 +16,6 @@
 // - Deaktivieren/Reaktivieren
 // - Portal-Rolle zuweisen (employee/project_leader/client_admin)
 // - Login erstellen (NEU: Erkennt bereits registrierte Benutzer)
-//
-// AENDERUNGEN v7.4.2-4:
-// - FIX: createUserProfile verwendet jetzt UPSERT statt INSERT
-//   Grund: DB-Trigger erstellt leeres Profil bei auth.users INSERT.
-//   Danach scheiterte der INSERT in createUserProfile mit Duplikat (23505),
-//   der stillschweigend ignoriert wurde -> Profil blieb ohne client_company_id
-//   -> Login-Redirect-Loop weil Dashboard kein Profil findet.
-//   Loesung: .upsert() mit onConflict: 'id' aktualisiert das leere Trigger-Profil.
 //
 // AENDERUNGEN v7.3.95:
 // - ENTFERNT: Gesamter "Persoenliche Daten (Anlage 6.1)" Bereich aus Formular
@@ -355,7 +347,7 @@ export default function EmployeeManagement({
         email: formData.email.trim() || null,
         position_title: formData.position_title.trim() || null,
         qualification: formData.qualification || null,
-        weekly_hours: formData.weekly_hours ? parseFloat(formData.weekly_hours) : null,
+        weekly_hours: formData.weekly_hours ? parseFloat(formData.weekly_hours.replace(',', '.')) : null,
         employment_start: formData.employment_start || null,
         employment_end: formData.employment_end || null,
         portal_role: formData.portal_role || 'employee',
@@ -672,11 +664,9 @@ export default function EmployeeManagement({
   };
 
   const createUserProfile = async (userId: string, emp: Employee) => {
-    // UPSERT statt INSERT: DB-Trigger erstellt ggf. leeres Profil bei auth.users INSERT.
-    // Dieses muss mit den korrekten Daten aktualisiert werden.
     const { error } = await supabase
       .from('v7_user_profiles')
-      .upsert({
+      .insert({
         id: userId,
         email: emp.email,
         role: emp.portal_role === 'client_admin' ? 'client_admin' : 'employee',
@@ -684,10 +674,9 @@ export default function EmployeeManagement({
         first_name: emp.first_name,
         last_name: emp.last_name,
         client_company_id: companyId,
-      }, { onConflict: 'id' });
+      });
 
-    if (error) {
-      console.error('Fehler beim Erstellen/Aktualisieren des User-Profils:', error);
+    if (error && error.code !== '23505') {
       throw error;
     }
   };
