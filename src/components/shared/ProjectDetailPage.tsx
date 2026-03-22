@@ -3,7 +3,7 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 12. Maerz 2026
-// Version: 7.4.4-14
+// Version: 7.4.4-15
 //
 // Gemeinsame Projekt-Detailseite fuer beide Portale:
 // - Berater-Portal: /v7/berater/foerderung/firma/[firmaId]/projekt/[projektId]
@@ -449,7 +449,7 @@ export default function ProjectDetailPage({
         if (wpaData) setWpAssignments(wpaData);
       }
 
-      const { data: assignmentData, error: assignError } = await supabase
+      const { data: assignmentData } = await supabase
         .from('v7_project_assignments')
         .select(`
           id,
@@ -458,27 +458,23 @@ export default function ProjectDetailPage({
           is_project_leader,
           hourly_rate,
           employee_number,
-          v7_employees!inner(display_name, weekly_hours)
+          v7_employees(display_name, weekly_hours)
         `)
         .eq('project_id', projectId)
         .eq('is_active', true);
 
-      console.log('[PZE-DEBUG] assignmentData:', assignmentData?.length, 'assignError:', assignError?.message);
-
       if (assignmentData) {
         setProjectEmployeeIds(assignmentData.map((a: any) => a.employee_id));
 
-        const { data: wpAssignmentsData } = await supabase
-          .from('v7_work_package_assignments')
-          .select(`
-            employee_id,
-            planned_person_months,
-            hourly_rate,
-            work_package_id,
-            v7_work_packages!inner(project_id)
-          `)
-          .eq('v7_work_packages.project_id', projectId)
-          .eq('is_active', true);
+        // Erst WP-IDs fuer dieses Projekt laden, dann Assignments filtern
+        const wpIds = workPackages.map((wp: any) => wp.id);
+        const { data: wpAssignmentsData } = wpIds.length > 0
+          ? await supabase
+              .from('v7_work_package_assignments')
+              .select('employee_id, planned_person_months, hourly_rate, work_package_id')
+              .in('work_package_id', wpIds)
+              .eq('is_active', true)
+          : { data: [] };
 
         const team = assignmentData.map((a: any) => {
           const maWpAssignments = wpAssignmentsData?.filter(
