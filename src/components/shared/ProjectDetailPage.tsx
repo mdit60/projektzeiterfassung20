@@ -3,7 +3,7 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 12. Maerz 2026
-// Version: 7.4.4-17
+// Version: 7.4.4-18
 //
 // Gemeinsame Projekt-Detailseite fuer beide Portale:
 // - Berater-Portal: /v7/berater/foerderung/firma/[firmaId]/projekt/[projektId]
@@ -330,7 +330,6 @@ export default function ProjectDetailPage({
   }, [projectId, companyId]);
 
   const loadData = async () => {
-    console.log('[PZE-DEBUG-17] loadData START - projectId:', projectId, 'companyId:', companyId);
     try {
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       if (authError || !user) {
@@ -341,7 +340,7 @@ export default function ProjectDetailPage({
       const { data: profile } = await supabase
         .from('v7_user_profiles')
         .select('*')
-        .eq('email', user.email)
+        .eq('id', user.id)
         .maybeSingle();
 
       if (!profile) {
@@ -467,8 +466,7 @@ export default function ProjectDetailPage({
       if (assignmentData) {
         setProjectEmployeeIds(assignmentData.map((a: any) => a.employee_id));
 
-        // Erst WP-IDs fuer dieses Projekt laden, dann Assignments filtern
-        const wpIds = workPackages.map((wp: any) => wp.id);
+        const wpIds = (workPackages || []).map((wp: any) => wp.id);
         const { data: wpAssignmentsData } = wpIds.length > 0
           ? await supabase
               .from('v7_work_package_assignments')
