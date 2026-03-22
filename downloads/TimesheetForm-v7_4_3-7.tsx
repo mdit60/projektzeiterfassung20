@@ -334,10 +334,8 @@ export default function TimesheetForm({
   // Hilfsfunktion: Prueft ob AP technisch ist (robust gegen verschiedene DB-Datentypen)
   const isTechnicalAP = (wp: WorkPackage | undefined | null): boolean => {
     if (!wp) return false;
-    const val = wp.is_technical;
-    if (val === true) return true;
-    if (val === 'true' || val === 'TRUE' || val === '1') return true;
-    if (val === 1) return true;
+    const val = wp.is_technical as unknown;
+    if (val === true || val === 'true' || val === 'TRUE' || val === '1' || val === 1) return true;
     return false;
   };
 
