@@ -722,6 +722,15 @@ export default function TimesheetForm({
     loadTimeEntries();
   }, [selectedEmployeeId, selectedProjectId, selectedYear, selectedMonth, workPackages, supabase, assignedWPIds, plannedHoursPerWP, totalBookedPerWP]);
 
+  // NEU v7.4.3-9: Completion-Status bei Monat/MA/Projekt-Wechsel laden
+  useEffect(() => {
+    if (selectedEmployeeId && selectedProjectId) {
+      loadCompletionStatus(selectedEmployeeId, selectedProjectId, selectedYear, selectedMonth);
+    } else {
+      setIsCompleted(false);
+    }
+  }, [selectedEmployeeId, selectedProjectId, selectedYear, selectedMonth]);
+
   // ============================================================================
   // EVENT HANDLERS
   // ============================================================================
