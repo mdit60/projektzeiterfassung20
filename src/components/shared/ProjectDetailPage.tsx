@@ -3,7 +3,7 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 12. Maerz 2026
-// Version: 7.4.4-27
+// Version: 7.4.4-29
 //
 // Gemeinsame Projekt-Detailseite fuer beide Portale:
 // - Berater-Portal: /v7/berater/foerderung/firma/[firmaId]/projekt/[projektId]
@@ -70,7 +70,8 @@ import WorkPackageAssignmentModal, {
   WorkPackageAssignment as WPModalAssignment,
 } from '@/components/shared/WorkPackageAssignmentModal';
 import ProjectTeamManager from '@/components/shared/ProjectTeamManager';
-import ArbeitsplanImport from '@/components/shared/ArbeitsplanImport';
+import ArbeitsplanImportBase from '@/components/shared/ArbeitsplanImport';
+const ArbeitsplanImport = ArbeitsplanImportBase as any;
 
 // Types
 import { V7UserRole, V7EmployeePortalRole, V7Employee, V7ClientCompany } from '@/types/v7-types';
@@ -1386,13 +1387,13 @@ export default function ProjectDetailPage({
               </div>
             )}
 
-            {(ArbeitsplanImport as any)({
-              portal,
-              projectId,
-              projectName: project.name,
-              teamMembers,
-              onImportSuccess: loadData,
-            })}
+            <ArbeitsplanImport
+              portal={portal}
+              projectId={projectId}
+              projectName={project.name}
+              teamMembers={teamMembers}
+              onImportSuccess={loadData}
+            />
 
             <WorkPackageTable
               portal={portal}
