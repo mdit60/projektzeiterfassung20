@@ -3,7 +3,7 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 12. Maerz 2026
-// Version: 7.4.4-18
+// Version: 7.4.4-19
 //
 // Gemeinsame Projekt-Detailseite fuer beide Portale:
 // - Berater-Portal: /v7/berater/foerderung/firma/[firmaId]/projekt/[projektId]
@@ -327,7 +327,7 @@ export default function ProjectDetailPage({
 
   useEffect(() => {
     loadData();
-  }, [projectId, companyId]);
+  }, [projectId]);
 
   const loadData = async () => {
     try {
