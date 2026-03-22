@@ -3,7 +3,7 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 12. Maerz 2026
-// Version: 7.4.4-10
+// Version: 7.4.4-12
 //
 // Gemeinsame Projekt-Detailseite fuer beide Portale:
 // - Berater-Portal: /v7/berater/foerderung/firma/[firmaId]/projekt/[projektId]
@@ -455,12 +455,13 @@ export default function ProjectDetailPage({
           id,
           employee_id,
           role_in_project,
+          is_project_leader,
           hourly_rate,
           employee_number,
           v7_employees!inner(display_name, weekly_hours)
         `)
         .eq('project_id', projectId)
-        .neq('is_active', false);
+        .eq('is_active', true);
 
       if (assignmentData) {
         setProjectEmployeeIds(assignmentData.map((a: any) => a.employee_id));
@@ -495,7 +496,7 @@ export default function ProjectDetailPage({
             employee_name: a.v7_employees?.display_name || 'Unbekannt',
             weekly_hours: a.v7_employees?.weekly_hours || 40,
             role_in_project: a.role_in_project,
-            is_project_leader: false,
+            is_project_leader: a.is_project_leader || false,
             planned_pm: totalPM > 0 ? totalPM : null,
             hourly_rate: hourlyRate,
             employee_number: a.employee_number || null,
@@ -1400,15 +1401,15 @@ export default function ProjectDetailPage({
 
             <WorkPackageTable
               portal={portal}
-              projectId={projectId}
               workPackages={workPackages as any}
-              employees={allEmployees as any}
-              assignments={wpAssignments}
               projectTeam={teamMembers}
-              canEdit={adminUser}
+              wpAssignments={wpAssignments}
+              onEdit={adminUser ? openEditWPModal as any : undefined}
+              onDelete={adminUser ? openDeleteConfirmation as any : undefined}
+              onAssign={adminUser ? openWPAssignModal as any : undefined}
               onAssignmentChange={handleTableAssignmentChange}
-              onEditAP={adminUser ? openEditWPModal as any : undefined}
-              onDeleteAP={adminUser ? openDeleteConfirmation as any : undefined}
+              projectId={projectId}
+              isAdmin={adminUser}
             />
           </div>
         )}
