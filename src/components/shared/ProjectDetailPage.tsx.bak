@@ -2,23 +2,32 @@
 // ============================================================================
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
-// Datum: 22. Maerz 2026
-// Version: 7.4.4-31
-//
-// KOMPLETTER NEUAUFBAU (Session 6) - Revision 1
-// Kein Patchen - von Grund auf korrekt implementiert:
-// - Profil-Query via .eq('email', user.email) - korrekte Lookup-Methode
-// - wpAssignments-Query ohne !inner - verhindert silent exception
-// - ArbeitsplanImport Props exakt nach Interface (hasTeam, teamCount, onImportComplete)
-// - WorkPackageTable Props exakt nach Interface (assignments.planned_pm, projectTeam-Felder)
-// - WPEmployee mit position_title + weekly_hours (laut WPModalEmployee-Interface)
-// - onAddAssignment/onUpdateAssignment/onRemoveAssignment mit 2-Param-Signatur (laut Modal)
-// - WorkPackage-Mapping fuer WPT: ap_code string (nicht nullable) + nur WPT-Felder
-// - Durchgehend typsicher - kein 'as any'
+// Datum: 12. Maerz 2026
+// Version: 7.4.4-27
 //
 // Gemeinsame Projekt-Detailseite fuer beide Portale:
 // - Berater-Portal: /v7/berater/foerderung/firma/[firmaId]/projekt/[projektId]
 // - Firmen-Portal: /v7/firma/projekte/[id]
+//
+// v7.4.4-3: NEU: Tab "Zahlungsanforderungen" (ZA-Archiv)
+//           - Anzeige aller ZAs des Projekts mit Status, Zeitraum
+//           - Status-Aenderung direkt per Dropdown (Entwurf/Eingereicht/Bewilligt)
+//           - Button "ZA oeffnen" -> navigiert zu Berichte mit vorgewaehlter ZA
+//           - Button "+ Neue ZA" -> navigiert zu Berichte (neues ZA-Formular)
+//           - Tab nur sichtbar bei ZIM-Projekten (funding_format startsWith 'ZIM')
+//           - Beide Portale (Berater + Firma)
+// v7.3.88-7: FIX: projectTeam an WorkPackageTable uebergeben
+//            MA-Sortierung im Arbeitsplan nach employee_number (lfd. Nr.)
+// v7.3.87: NEU: Team-Tab mit ProjectTeamManager (MA vor APs zuordnen)
+//          NEU: ArbeitsplanImport fuer Excel Download/Upload im AP-Tab
+// v7.3.86: TypeScript Typ-Korrekturen
+// v7.3.84: Zeiterfassungs-Tab mit Link zur Zeiterfassungsseite
+//
+// Props:
+// - portal: 'berater' | 'firma' (steuert Farben)
+// - projectId: string
+// - companyId?: string (nur Berater - fuer Zurueck-Navigation)
+// - backUrl?: string (optional - wohin Zurueck fuehrt)
 //
 // Tabs: Uebersicht | Arbeitspakete | Team | Zeiterfassung | Zahlungsanforderungen (ZIM)
 // ============================================================================
@@ -47,17 +56,15 @@ import {
   Send,
 } from 'lucide-react';
 
+// Shared Components
 import PortalHeader from '@/components/shared/PortalHeader';
 import WorkPackageTable from '@/components/shared/WorkPackageTable';
-import {
-  WorkPackage as WPListWorkPackage,
-  sortWorkPackages,
-  formatAPCode,
+import { 
+  WorkPackage as WPListWorkPackage, 
+  sortWorkPackages, 
+  formatAPCode 
 } from '@/components/shared/WorkPackageList';
-import WorkPackageEditModal, {
-  WorkPackageFormData,
-  Project as WPProject,
-} from '@/components/shared/WorkPackageEditModal';
+import WorkPackageEditModal, { WorkPackageFormData, Project as WPProject } from '@/components/shared/WorkPackageEditModal';
 import WorkPackageAssignmentModal, {
   Employee as WPModalEmployee,
   WorkPackageAssignment as WPModalAssignment,
@@ -65,12 +72,8 @@ import WorkPackageAssignmentModal, {
 import ProjectTeamManager from '@/components/shared/ProjectTeamManager';
 import ArbeitsplanImport from '@/components/shared/ArbeitsplanImport';
 
-import {
-  V7UserRole,
-  V7EmployeePortalRole,
-  V7Employee,
-  V7ClientCompany,
-} from '@/types/v7-types';
+// Types
+import { V7UserRole, V7EmployeePortalRole, V7Employee, V7ClientCompany } from '@/types/v7-types';
 import { HOURS_PER_PM, PORTAL_COLORS } from '@/lib/v7-constants';
 
 // ============================================================================
@@ -79,7 +82,7 @@ import { HOURS_PER_PM, PORTAL_COLORS } from '@/lib/v7-constants';
 
 export type PortalType = 'berater' | 'firma';
 
-// WorkPackage - kompatibel mit WorkPackageTable und WorkPackageEditModal
+// Lokale Typen die mit allen Shared Components kompatibel sind
 interface WorkPackage {
   id: string;
   project_id: string;
@@ -95,16 +98,18 @@ interface WorkPackage {
   total_person_months: number | null;
   total_costs: number | null;
   is_active: boolean;
-  is_technical: boolean | null;
-  planned_pm: number | null;
+  is_technical?: boolean | null;
+  planned_pm?: number | null;
 }
 
-// Assignment - exakt wie WorkPackageTable erwartet
-interface WPAssignment {
+interface WorkPackageAssignment {
   id: string;
   work_package_id: string;
   employee_id: string;
-  planned_pm: number;
+  planned_person_months: number | null;
+  planned_hours: number | null;
+  role_description: string | null;
+  is_active: boolean;
 }
 
 // Employee fuer WorkPackageTable
@@ -115,29 +120,6 @@ interface WPEmployee {
   last_name: string | null;
   position_title: string | null;
   weekly_hours: number | null;
-  employee_number: number | null;
-}
-
-// ProjectTeamMember - exakt wie WorkPackageTable erwartet
-interface WPProjectTeamMember {
-  id: string;
-  project_id: string;
-  employee_id: string;
-  employee_number: number | null;
-  role_in_project: string | null;
-  hourly_rate_override: number | null;
-}
-
-// TeamMember intern (fuer Anzeige im Team-Tab und Zeiterfassungs-Tab)
-interface TeamMember {
-  id: string;
-  employee_id: string;
-  employee_name: string;
-  weekly_hours: number | null;
-  role_in_project: string | null;
-  is_project_leader: boolean;
-  planned_pm: number | null;
-  hourly_rate: number | null;
   employee_number: number | null;
 }
 
@@ -176,6 +158,18 @@ interface Project {
   workplan_locked: boolean | null;
 }
 
+interface TeamMember {
+  id: string;
+  employee_id: string;
+  employee_name: string;
+  weekly_hours: number | null;
+  role_in_project: string | null;
+  is_project_leader: boolean;
+  planned_pm: number | null;
+  hourly_rate: number | null;
+  employee_number: number | null;
+}
+
 interface TeamEditData {
   role_in_project: string;
   hourly_rate: string;
@@ -196,6 +190,7 @@ interface ProjectEditData {
   overhead_gleich: boolean;
 }
 
+// NEU v7.4.4-3: Zahlungsanforderung-Typ
 interface Zahlungsanforderung {
   id: string;
   project_id: string;
@@ -212,10 +207,7 @@ interface Zahlungsanforderung {
   updated_at: string;
 }
 
-// ============================================================================
-// KONSTANTEN
-// ============================================================================
-
+// Foerderprogramm-Optionen
 const FUNDING_FORMATS = [
   { value: '', label: '-- Bitte waehlen --' },
   { value: 'ZIM', label: 'ZIM Einzelprojekt' },
@@ -226,21 +218,17 @@ const FUNDING_FORMATS = [
   { value: 'BMBF_DS', label: 'BMBF Durchfuehrbarkeitsstudie' },
 ];
 
+// NEU v7.4.4-3: ZA-Status-Konfiguration
 const ZA_STATUS_OPTIONS = [
   { value: 'entwurf', label: 'Entwurf' },
   { value: 'eingereicht', label: 'Eingereicht' },
   { value: 'bewilligt', label: 'Bewilligt' },
 ];
 
-const ZA_STATUS_STYLE: Record<string, {
-  bg: string;
-  text: string;
-  border: string;
-  icon: React.ReactNode;
-}> = {
-  entwurf:     { bg: 'bg-gray-100',   text: 'text-gray-700',   border: 'border-gray-300',   icon: <FileText size={14} /> },
-  eingereicht: { bg: 'bg-yellow-100', text: 'text-yellow-800', border: 'border-yellow-300', icon: <Send size={14} /> },
-  bewilligt:   { bg: 'bg-green-100',  text: 'text-green-800',  border: 'border-green-300',  icon: <CheckCircle size={14} /> },
+const ZA_STATUS_STYLE: Record<string, { bg: string; text: string; border: string; icon: React.ReactNode }> = {
+  entwurf:      { bg: 'bg-gray-100',   text: 'text-gray-700',  border: 'border-gray-300',  icon: <FileText size={14} /> },
+  eingereicht:  { bg: 'bg-yellow-100', text: 'text-yellow-800', border: 'border-yellow-300', icon: <Send size={14} /> },
+  bewilligt:    { bg: 'bg-green-100',  text: 'text-green-800',  border: 'border-green-300',  icon: <CheckCircle size={14} /> },
 };
 
 type TabKey = 'uebersicht' | 'arbeitspakete' | 'team' | 'zeiterfassung' | 'zahlungsanforderungen';
@@ -249,32 +237,24 @@ type TabKey = 'uebersicht' | 'arbeitspakete' | 'team' | 'zeiterfassung' | 'zahlu
 // KOMPONENTE
 // ============================================================================
 
-export default function ProjectDetailPage({
-  portal,
-  projectId,
+export default function ProjectDetailPage({ 
+  portal, 
+  projectId, 
   companyId,
-  backUrl,
+  backUrl 
 }: ProjectDetailPageProps) {
   const router = useRouter();
   const supabase = createClient();
 
-  const buttonBg = portal === 'firma'
-    ? 'bg-green-600 hover:bg-green-700'
-    : 'bg-blue-600 hover:bg-blue-700';
-  const buttonBgLight = portal === 'firma'
-    ? 'bg-green-100 text-green-700'
-    : 'bg-blue-100 text-blue-700';
-  const focusRing = portal === 'firma'
-    ? 'focus:ring-green-500 focus:border-green-500'
-    : 'focus:ring-blue-500 focus:border-blue-500';
-  const borderActive = portal === 'firma'
-    ? 'border-green-600 text-green-600'
-    : 'border-blue-600 text-blue-600';
-  const spinnerColor = portal === 'firma'
-    ? 'border-green-200 border-t-green-600'
-    : 'border-blue-200 border-t-blue-600';
+  // Portal-spezifische Farben
+  const colors = PORTAL_COLORS[portal];
+  const buttonBg = portal === 'firma' ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700';
+  const buttonBgLight = portal === 'firma' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700';
+  const focusRing = portal === 'firma' ? 'focus:ring-green-500 focus:border-green-500' : 'focus:ring-blue-500 focus:border-blue-500';
+  const borderActive = portal === 'firma' ? 'border-green-600 text-green-600' : 'border-blue-600 text-blue-600';
+  const spinnerColor = portal === 'firma' ? 'border-green-200 border-t-green-600' : 'border-blue-200 border-t-blue-600';
 
-  // State Basis
+  // State - Basis
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -283,34 +263,31 @@ export default function ProjectDetailPage({
   const [project, setProject] = useState<Project | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>('uebersicht');
 
-  // State Arbeitspakete
+  // State - Arbeitspakete
   const [workPackages, setWorkPackages] = useState<WorkPackage[]>([]);
-  const [wpAssignments, setWpAssignments] = useState<WPAssignment[]>([]);
+  const [wpAssignments, setWpAssignments] = useState<WorkPackageAssignment[]>([]);
   const [allEmployees, setAllEmployees] = useState<WPEmployee[]>([]);
   const [projectEmployeeIds, setProjectEmployeeIds] = useState<string[]>([]);
 
-  // State fuer WorkPackageTable: projectTeam im richtigen Format
-  const [wpProjectTeam, setWpProjectTeam] = useState<WPProjectTeamMember[]>([]);
-
-  // State fuer interne Anzeige (Team-Tab, Zeiterfassungs-Tab)
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
-
-  // State WorkPackage Modals
+  // State - WorkPackage Modals
   const [showWPEditModal, setShowWPEditModal] = useState(false);
   const [wpEditMode, setWpEditMode] = useState<'create' | 'edit'>('create');
   const [editingWP, setEditingWP] = useState<WorkPackage | null>(null);
   const [wpError, setWpError] = useState<string | null>(null);
   const [savingWP, setSavingWP] = useState(false);
 
+  // State - WorkPackage Assignment Modal
   const [showWPAssignModal, setShowWPAssignModal] = useState(false);
   const [assignmentWP, setAssignmentWP] = useState<WorkPackage | null>(null);
   const [savingAssignment, setSavingAssignment] = useState(false);
 
+  // State - Delete Confirmation
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [wpToDelete, setWpToDelete] = useState<WorkPackage | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  // State Team Edit
+  // State - Team
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
   const [teamEditData, setTeamEditData] = useState<TeamEditData>({
     role_in_project: '',
@@ -319,7 +296,7 @@ export default function ProjectDetailPage({
   });
   const [savingTeam, setSavingTeam] = useState(false);
 
-  // State Projekt-Bearbeitung
+  // State - Projekt-Bearbeitung
   const [showProjectEditModal, setShowProjectEditModal] = useState(false);
   const [projectEditData, setProjectEditData] = useState<ProjectEditData>({
     name: '',
@@ -339,29 +316,31 @@ export default function ProjectDetailPage({
   const [projectDeleteConfirmText, setProjectDeleteConfirmText] = useState('');
   const [deletingProject, setDeletingProject] = useState(false);
 
-  // State Zahlungsanforderungen
+  // NEU v7.4.4-3: State - Zahlungsanforderungen
   const [zaList, setZaList] = useState<Zahlungsanforderung[]>([]);
   const [zaLoading, setZaLoading] = useState(false);
-  const [zaStatusUpdating, setZaStatusUpdating] = useState<string | null>(null);
+  const [zaStatusUpdating, setZaStatusUpdating] = useState<string | null>(null); // ZA-ID die gerade gespeichert wird
 
   // ============================================================================
   // DATEN LADEN
   // ============================================================================
 
-  const loadData = useCallback(async () => {
+  useEffect(() => {
+    loadData();
+  }, [projectId, companyId]);
+
+  const loadData = async () => {
     try {
-      // Auth
       const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user || !user.email) {
+      if (authError || !user) {
         router.push('/login');
         return;
       }
 
-      // KORREKT: Profil-Lookup via email, nicht via id
       const { data: profile } = await supabase
         .from('v7_user_profiles')
         .select('*')
-        .eq('email', user.email)
+        .eq('id', user.id)
         .maybeSingle();
 
       if (!profile) {
@@ -373,14 +352,16 @@ export default function ProjectDetailPage({
       setUserProfile(profile);
 
       let targetCompanyId: string;
-
+      
       if (portal === 'berater') {
         if (!['system_admin', 'consultant'].includes(profile.role)) {
           setError('Keine Berater-Berechtigung');
           setLoading(false);
           return;
         }
-        if (!companyId) return;
+        if (!companyId) {
+          return; // companyId noch nicht verfuegbar - warten
+        }
         targetCompanyId = companyId;
       } else {
         if (!profile.client_company_id) {
@@ -391,15 +372,14 @@ export default function ProjectDetailPage({
         targetCompanyId = profile.client_company_id;
       }
 
-      // Firma laden
       const { data: companyData } = await supabase
         .from('v7_client_companies')
         .select('*')
         .eq('id', targetCompanyId)
         .single();
+
       if (companyData) setCompany(companyData);
 
-      // MA-Profil fuer Firmen-Portal
       if (portal === 'firma') {
         const { data: employeeData } = await supabase
           .from('v7_employees')
@@ -407,10 +387,10 @@ export default function ProjectDetailPage({
           .eq('client_company_id', targetCompanyId)
           .eq('email', user.email)
           .maybeSingle();
+
         if (employeeData) setEmployee(employeeData);
       }
 
-      // Projekt laden
       const { data: projectData, error: projectError } = await supabase
         .from('v7_projects')
         .select('*')
@@ -423,28 +403,29 @@ export default function ProjectDetailPage({
         setLoading(false);
         return;
       }
+
       setProject(projectData);
 
-      // Alle aktiven MAs der Firma (fuer WorkPackageTable Spalten-Header)
       const { data: allEmpsData } = await supabase
         .from('v7_employees')
-        .select('id, display_name, first_name, last_name, position_title, weekly_hours, employee_number')
+        .select('id, display_name, first_name, last_name, position_title, weekly_hours')
         .eq('client_company_id', targetCompanyId)
         .eq('is_active', true)
         .order('display_name');
 
-      const mappedAllEmps: WPEmployee[] = (allEmpsData || []).map(emp => ({
-        id: emp.id,
-        display_name: emp.display_name,
-        first_name: emp.first_name || null,
-        last_name: emp.last_name || null,
-        position_title: emp.position_title || null,
-        weekly_hours: emp.weekly_hours || null,
-        employee_number: emp.employee_number || null,
-      }));
-      setAllEmployees(mappedAllEmps);
+      if (allEmpsData) {
+        const mappedEmployees: WPEmployee[] = allEmpsData.map(emp => ({
+          id: emp.id,
+          display_name: emp.display_name,
+          first_name: emp.first_name || null,
+          last_name: emp.last_name || null,
+          position_title: emp.position_title || null,
+          weekly_hours: emp.weekly_hours || null,
+          employee_number: null,
+        }));
+        setAllEmployees(mappedEmployees);
+      }
 
-      // Arbeitspakete laden
       const { data: wpData } = await supabase
         .from('v7_work_packages')
         .select('*')
@@ -453,34 +434,19 @@ export default function ProjectDetailPage({
         .order('ap_number')
         .order('ap_sub_number');
 
-      const loadedWPs: WorkPackage[] = (wpData || []).map(wp => ({
-        ...wp,
-        planned_pm: wp.total_person_months || null,
-      }));
-      setWorkPackages(loadedWPs);
+      if (wpData) setWorkPackages(wpData);
 
-      // WP-Assignments laden - OHNE !inner um silent exception zu vermeiden
-      if (loadedWPs.length > 0) {
-        const wpIds = loadedWPs.map(wp => wp.id);
+      if (wpData && wpData.length > 0) {
+        const wpIds = wpData.map(wp => wp.id);
         const { data: wpaData } = await supabase
           .from('v7_work_package_assignments')
-          .select('id, work_package_id, employee_id, planned_person_months')
+          .select('*')
           .in('work_package_id', wpIds)
           .eq('is_active', true);
 
-        // Mapping auf exaktes WPAssignment-Interface
-        const mappedAssignments: WPAssignment[] = (wpaData || []).map(a => ({
-          id: a.id,
-          work_package_id: a.work_package_id,
-          employee_id: a.employee_id,
-          planned_pm: a.planned_person_months || 0,
-        }));
-        setWpAssignments(mappedAssignments);
-      } else {
-        setWpAssignments([]);
+        if (wpaData) setWpAssignments(wpaData);
       }
 
-      // Projekt-Assignments (Team) laden
       const { data: assignmentData } = await supabase
         .from('v7_project_assignments')
         .select(`
@@ -490,47 +456,48 @@ export default function ProjectDetailPage({
           is_project_leader,
           hourly_rate,
           employee_number,
-          v7_employees (
-            id,
-            display_name,
-            weekly_hours
-          )
+          v7_employees(display_name, weekly_hours)
         `)
         .eq('project_id', projectId)
         .eq('is_active', true);
 
-      if (assignmentData && assignmentData.length > 0) {
-        setProjectEmployeeIds(assignmentData.map(a => a.employee_id));
+      if (assignmentData) {
+        setProjectEmployeeIds(assignmentData.map((a: any) => a.employee_id));
 
-        // WP-PM pro Mitarbeiter aggregieren (fuer planned_pm in TeamMember)
-        const wpIds = loadedWPs.map(wp => wp.id);
-        const { data: wpAmtData } = wpIds.length > 0
+        const wpIds = (workPackages || []).map((wp: any) => wp.id);
+        const { data: wpAssignmentsData } = wpIds.length > 0
           ? await supabase
               .from('v7_work_package_assignments')
-              .select('employee_id, planned_person_months')
+              .select('employee_id, planned_person_months, hourly_rate, work_package_id')
               .in('work_package_id', wpIds)
               .eq('is_active', true)
           : { data: [] };
 
-        // TeamMember fuer interne Anzeige aufbauen
-        const team: TeamMember[] = assignmentData.map(a => {
-          const emp = a.v7_employees as unknown as { id: string; display_name: string; weekly_hours: number | null } | null;
-          const maWpa = (wpAmtData || []).filter(w => w.employee_id === a.employee_id);
-          const totalPM = maWpa.reduce((sum, w) => sum + (w.planned_person_months || 0), 0);
+        const team = assignmentData.map((a: any) => {
+          const maWpAssignments = wpAssignmentsData?.filter(
+            (wpa: any) => wpa.employee_id === a.employee_id
+          ) || [];
+
+          const totalPM = maWpAssignments.reduce(
+            (sum: number, wpa: any) => sum + (wpa.planned_person_months || 0), 0
+          );
+
+          const hourlyRate = a.hourly_rate ||
+            (maWpAssignments.length > 0 ? maWpAssignments[0].hourly_rate : null);
+
           return {
             id: a.id,
             employee_id: a.employee_id,
-            employee_name: emp?.display_name || 'Unbekannt',
-            weekly_hours: emp?.weekly_hours || 40,
-            role_in_project: a.role_in_project || null,
+            employee_name: a.v7_employees?.display_name || 'Unbekannt',
+            weekly_hours: a.v7_employees?.weekly_hours || 40,
+            role_in_project: a.role_in_project,
             is_project_leader: a.is_project_leader || false,
             planned_pm: totalPM > 0 ? totalPM : null,
-            hourly_rate: a.hourly_rate || null,
+            hourly_rate: hourlyRate,
             employee_number: a.employee_number || null,
           };
         });
 
-        // Sortierung nach employee_number, dann Name
         team.sort((a, b) => {
           if (a.employee_number !== null && b.employee_number !== null) {
             return a.employee_number - b.employee_number;
@@ -540,38 +507,16 @@ export default function ProjectDetailPage({
           return a.employee_name.localeCompare(b.employee_name, 'de');
         });
         setTeamMembers(team);
-
-        // WPProjectTeamMember fuer WorkPackageTable aufbauen
-        // Exakt nach Interface: id, project_id, employee_id, employee_number, role_in_project, hourly_rate_override
-        const wpTeam: WPProjectTeamMember[] = assignmentData.map(a => ({
-          id: a.id,
-          project_id: projectId,
-          employee_id: a.employee_id,
-          employee_number: a.employee_number || null,
-          role_in_project: a.role_in_project || null,
-          hourly_rate_override: a.hourly_rate || null,
-        }));
-        setWpProjectTeam(wpTeam);
-
-      } else {
-        setTeamMembers([]);
-        setWpProjectTeam([]);
-        setProjectEmployeeIds([]);
       }
 
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Unbekannter Fehler';
-      setError(msg);
+    } catch (err: any) {
+      setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [projectId, companyId, portal]);
+  };
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
-
-  // ZA-Liste laden
+  // NEU v7.4.4-3: ZA-Liste laden (wird aufgerufen wenn Tab aktiv wird)
   const loadZaList = useCallback(async () => {
     if (!projectId) return;
     setZaLoading(true);
@@ -581,16 +526,17 @@ export default function ProjectDetailPage({
         .select('*')
         .eq('project_id', projectId)
         .order('za_nummer', { ascending: true });
+
       if (zaError) throw zaError;
       setZaList(data || []);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Fehler';
-      console.error('Fehler beim Laden der ZA-Liste:', msg);
+    } catch (err: any) {
+      console.error('Fehler beim Laden der ZA-Liste:', err.message);
     } finally {
       setZaLoading(false);
     }
   }, [projectId]);
 
+  // ZA-Liste laden wenn Tab gewechselt wird
   useEffect(() => {
     if (activeTab === 'zahlungsanforderungen') {
       loadZaList();
@@ -610,12 +556,14 @@ export default function ProjectDetailPage({
   };
 
   const getPortalRole = (): V7EmployeePortalRole | V7UserRole => {
-    if (portal === 'berater') return userProfile?.role || 'consultant';
+    if (portal === 'berater') {
+      return userProfile?.role || 'consultant';
+    }
     if (userProfile?.role === 'client_admin') return 'client_admin';
     if (employee?.portal_role) return employee.portal_role;
     return 'employee';
   };
-
+  
   const getUserRole = (): V7UserRole => {
     return userProfile?.role || 'client_user';
   };
@@ -634,6 +582,17 @@ export default function ProjectDetailPage({
 
   const getTotalPM = (): number => {
     return workPackages.reduce((sum, wp) => sum + (wp.total_person_months || 0), 0);
+  };
+
+  const getMonthlyHours = (weeklyHours: number | null): number => {
+    const hours = weeklyHours || 40;
+    return Math.round((hours * 52 / 12) * 100) / 100;
+  };
+
+  const calcPlannedHours = (pm: number | null, weeklyHours: number | null): number => {
+    if (!pm) return 0;
+    const monthlyHours = getMonthlyHours(weeklyHours);
+    return Math.round(pm * monthlyHours);
   };
 
   const getNextAPNumber = (pId: string): number => {
@@ -655,31 +614,33 @@ export default function ProjectDetailPage({
     return 'Projekte';
   };
 
+  // Prueft ob Projekt ein ZIM-Projekt ist (fuer ZA-Tab)
   const isZimProject = (): boolean => {
     return (project?.funding_format || '').startsWith('ZIM');
   };
 
+  // NEU v7.4.4-3: Zeitraum formatiert anzeigen
   const formatZeitraum = (von: string, bis: string): string => {
     const vd = new Date(von);
     const bd = new Date(bis);
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mai', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
-    return `${monthNames[vd.getMonth()]} ${vd.getFullYear()} \u2013 ${monthNames[bd.getMonth()]} ${bd.getFullYear()}`;
+                        'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
+    return `${monthNames[vd.getMonth()]} ${vd.getFullYear()} - ${monthNames[bd.getMonth()]} ${bd.getFullYear()}`;
   };
 
+  // NEU v7.4.4-3: Navigation zur Berichte-Seite mit ZA-Kontext
   const navigateToBerichteWithZA = (zaId?: string) => {
     const baseUrl = portal === 'berater'
       ? `/v7/berater/foerderung/firma/${companyId || project?.client_company_id}/berichte`
       : `/v7/firma/berichte`;
+
     let params = `panel=za&projekt=${projectId}`;
     if (zaId) params += `&za_id=${zaId}`;
+
     router.push(`${baseUrl}?${params}`);
   };
 
-  // ============================================================================
-  // ZA STATUS
-  // ============================================================================
-
+  // NEU v7.4.4-3: ZA-Status aendern
   const handleZAStatusChange = async (zaId: string, newStatus: string) => {
     setZaStatusUpdating(zaId);
     try {
@@ -687,13 +648,15 @@ export default function ProjectDetailPage({
         .from('v7_zahlungsanforderungen')
         .update({ status: newStatus, updated_at: new Date().toISOString() })
         .eq('id', zaId);
+
       if (updateError) throw updateError;
+
+      // Optimistisches Update in der lokalen Liste
       setZaList(prev => prev.map(za =>
         za.id === zaId ? { ...za, status: newStatus } : za
       ));
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Fehler';
-      alert('Fehler beim Speichern des Status: ' + msg);
+    } catch (err: any) {
+      alert('Fehler beim Speichern des Status: ' + err.message);
     } finally {
       setZaStatusUpdating(null);
     }
@@ -726,6 +689,7 @@ export default function ProjectDetailPage({
   const handleSaveWP = async (formData: WorkPackageFormData) => {
     setSavingWP(true);
     setWpError(null);
+
     try {
       const wpData = {
         project_id: formData.project_id || projectId,
@@ -736,31 +700,44 @@ export default function ProjectDetailPage({
         description: formData.description.trim() || null,
         start_date: formData.start_date || null,
         end_date: formData.end_date || null,
-        total_person_months: formData.total_person_months
-          ? parseFloat(formData.total_person_months)
-          : null,
-        is_technical: formData.is_technical ?? null,
-        is_active: true,
+        start_month: null,
+        end_month: null,
+        total_person_months: formData.total_person_months ? parseFloat(formData.total_person_months) : null,
+        total_costs: formData.total_costs ? parseFloat(formData.total_costs) : null,
+        is_technical: formData.is_technical || false,
+        updated_at: new Date().toISOString(),
       };
 
       if (wpEditMode === 'create') {
         const { error: insertError } = await supabase
           .from('v7_work_packages')
-          .insert(wpData);
-        if (insertError) throw insertError;
-      } else if (editingWP) {
+          .insert({ ...wpData, is_active: true });
+
+        if (insertError) {
+          if (insertError.code === '23505') {
+            setWpError('Ein Arbeitspaket mit dieser Nummer existiert bereits');
+          } else {
+            setWpError(insertError.message);
+          }
+          return;
+        }
+      } else if (wpEditMode === 'edit' && editingWP) {
         const { error: updateError } = await supabase
           .from('v7_work_packages')
-          .update({ ...wpData, updated_at: new Date().toISOString() })
+          .update(wpData)
           .eq('id', editingWP.id);
-        if (updateError) throw updateError;
+
+        if (updateError) {
+          setWpError(updateError.message);
+          return;
+        }
       }
 
-      await loadData();
       closeWPEditModal();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Fehler beim Speichern';
-      setWpError(msg);
+      await loadData();
+
+    } catch (err: any) {
+      setWpError(err.message);
     } finally {
       setSavingWP(false);
     }
@@ -772,28 +749,35 @@ export default function ProjectDetailPage({
   };
 
   const closeDeleteConfirmation = () => {
-    setShowDeleteConfirm(false);
     setWpToDelete(null);
+    setShowDeleteConfirm(false);
   };
 
   const handleDeleteWP = async () => {
     if (!wpToDelete) return;
+
     setDeleting(true);
     try {
       const { error: deleteError } = await supabase
         .from('v7_work_packages')
         .update({ is_active: false, updated_at: new Date().toISOString() })
         .eq('id', wpToDelete.id);
+
       if (deleteError) throw deleteError;
-      await loadData();
+
       closeDeleteConfirmation();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Fehler';
-      alert('Fehler beim Loeschen: ' + msg);
+      await loadData();
+
+    } catch (err: any) {
+      alert('Fehler beim Loeschen: ' + err.message);
     } finally {
       setDeleting(false);
     }
   };
+
+  // ============================================================================
+  // WORKPACKAGE ASSIGNMENT
+  // ============================================================================
 
   const openWPAssignModal = (wp: WorkPackage) => {
     setAssignmentWP(wp);
@@ -801,20 +785,17 @@ export default function ProjectDetailPage({
   };
 
   const closeWPAssignModal = () => {
-    setShowWPAssignModal(false);
     setAssignmentWP(null);
+    setShowWPAssignModal(false);
   };
 
-  // ============================================================================
-  // WP ASSIGNMENT (via WorkPackageAssignmentModal)
-  // ============================================================================
-
-  // Signatur: (employeeId, pm) - nutzt assignmentWP aus State fuer work_package_id
   const handleAddWPAssignment = async (employeeId: string, pm: number | null) => {
     if (!assignmentWP) return;
+
     setSavingAssignment(true);
     try {
       const hours = pm ? Math.round(pm * HOURS_PER_PM * 100) / 100 : null;
+
       const { error: insertError } = await supabase
         .from('v7_work_package_assignments')
         .insert({
@@ -824,6 +805,7 @@ export default function ProjectDetailPage({
           planned_hours: hours,
           is_active: true,
         });
+
       if (insertError) {
         if (insertError.code === '23505') {
           await supabase
@@ -840,21 +822,23 @@ export default function ProjectDetailPage({
           throw insertError;
         }
       }
+
       await loadData();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Fehler';
-      alert('Fehler: ' + msg);
+
+    } catch (err: any) {
+      alert('Fehler: ' + err.message);
     } finally {
       setSavingAssignment(false);
     }
   };
 
-  // Signatur: (employeeId, pm) - nutzt assignmentWP aus State
   const handleUpdateWPAssignment = async (employeeId: string, pm: number | null) => {
     if (!assignmentWP) return;
+
     setSavingAssignment(true);
     try {
       const hours = pm ? Math.round(pm * HOURS_PER_PM * 100) / 100 : null;
+
       const { error: updateError } = await supabase
         .from('v7_work_package_assignments')
         .update({
@@ -864,19 +848,21 @@ export default function ProjectDetailPage({
         })
         .eq('work_package_id', assignmentWP.id)
         .eq('employee_id', employeeId);
+
       if (updateError) throw updateError;
+
       await loadData();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Fehler';
-      alert('Fehler: ' + msg);
+
+    } catch (err: any) {
+      alert('Fehler: ' + err.message);
     } finally {
       setSavingAssignment(false);
     }
   };
 
-  // Signatur: (employeeId) - nutzt assignmentWP aus State
   const handleRemoveWPAssignment = async (employeeId: string) => {
     if (!assignmentWP) return;
+
     setSavingAssignment(true);
     try {
       const { error: updateError } = await supabase
@@ -884,33 +870,32 @@ export default function ProjectDetailPage({
         .update({ is_active: false, updated_at: new Date().toISOString() })
         .eq('work_package_id', assignmentWP.id)
         .eq('employee_id', employeeId);
+
       if (updateError) throw updateError;
+
       await loadData();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Fehler';
-      alert('Fehler: ' + msg);
+
+    } catch (err: any) {
+      alert('Fehler: ' + err.message);
     } finally {
       setSavingAssignment(false);
     }
   };
 
-  // ============================================================================
-  // WP ASSIGNMENT via WorkPackageTable (inline)
-  // ============================================================================
-
   const handleTableAssignmentChange = async (
-    workPackageId: string,
-    employeeId: string,
+    workPackageId: string, 
+    employeeId: string, 
     plannedPm: number | null
-  ) => {
+  ): Promise<void> => {
     try {
-      const hours = plannedPm ? Math.round(plannedPm * HOURS_PER_PM) : 0;
+      const hours = plannedPm ? Math.round(plannedPm * HOURS_PER_PM * 100) / 100 : null;
+
       const existing = wpAssignments.find(
         a => a.work_package_id === workPackageId && a.employee_id === employeeId
       );
 
       if (existing) {
-        if (!plannedPm || plannedPm <= 0) {
+        if (plannedPm === null || plannedPm === 0) {
           await supabase
             .from('v7_work_package_assignments')
             .update({ is_active: false, updated_at: new Date().toISOString() })
@@ -938,14 +923,14 @@ export default function ProjectDetailPage({
       }
 
       await loadData();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Fehler';
-      alert('Fehler beim Speichern: ' + msg);
+    } catch (err: any) {
+      console.error('Assignment update error:', err);
+      alert('Fehler beim Speichern: ' + err.message);
     }
   };
 
   // ============================================================================
-  // TEAM EDIT
+  // TEAM-BEARBEITUNG
   // ============================================================================
 
   const openTeamEditModal = (member: TeamMember) => {
@@ -959,11 +944,16 @@ export default function ProjectDetailPage({
 
   const closeTeamEditModal = () => {
     setEditingMember(null);
-    setTeamEditData({ role_in_project: '', hourly_rate: '', is_project_leader: false });
+    setTeamEditData({
+      role_in_project: '',
+      hourly_rate: '',
+      is_project_leader: false,
+    });
   };
 
   const handleTeamSave = async () => {
     if (!editingMember) return;
+
     setSavingTeam(true);
     try {
       const hourlyRate = teamEditData.hourly_rate
@@ -979,6 +969,7 @@ export default function ProjectDetailPage({
           updated_at: new Date().toISOString(),
         })
         .eq('id', editingMember.id);
+
       if (paError) throw paError;
 
       if (hourlyRate !== null) {
@@ -986,7 +977,10 @@ export default function ProjectDetailPage({
         if (wpIds.length > 0) {
           await supabase
             .from('v7_work_package_assignments')
-            .update({ hourly_rate: hourlyRate, updated_at: new Date().toISOString() })
+            .update({
+              hourly_rate: hourlyRate,
+              updated_at: new Date().toISOString(),
+            })
             .eq('employee_id', editingMember.employee_id)
             .in('work_package_id', wpIds);
         }
@@ -995,24 +989,24 @@ export default function ProjectDetailPage({
       setTeamMembers(prev => prev.map(m =>
         m.id === editingMember.id
           ? {
-              ...m,
-              role_in_project: teamEditData.role_in_project || null,
-              hourly_rate: hourlyRate,
-              is_project_leader: teamEditData.is_project_leader,
-            }
+            ...m,
+            role_in_project: teamEditData.role_in_project || null,
+            hourly_rate: hourlyRate,
+            is_project_leader: teamEditData.is_project_leader,
+          }
           : m
       ));
+
       closeTeamEditModal();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Fehler';
-      alert('Fehler beim Speichern: ' + msg);
+    } catch (err: any) {
+      alert('Fehler beim Speichern: ' + err.message);
     } finally {
       setSavingTeam(false);
     }
   };
 
   // ============================================================================
-  // PROJEKT EDIT
+  // PROJEKT-BEARBEITUNG
   // ============================================================================
 
   const openProjectEditModal = () => {
@@ -1033,16 +1027,15 @@ export default function ProjectDetailPage({
     setShowProjectEditModal(true);
   };
 
-  const closeProjectEditModal = () => setShowProjectEditModal(false);
+  const closeProjectEditModal = () => {
+    setShowProjectEditModal(false);
+  };
 
   const handleProjectSave = async () => {
     if (!project) return;
+
     setSavingProject(true);
     try {
-      const overhead_nt_val = projectEditData.overhead_gleich
-        ? (projectEditData.overhead_t !== '' ? parseFloat(projectEditData.overhead_t) : null)
-        : (projectEditData.overhead_nt !== '' ? parseFloat(projectEditData.overhead_nt) : null);
-
       const { error: updateError } = await supabase
         .from('v7_projects')
         .update({
@@ -1055,18 +1048,36 @@ export default function ProjectDetailPage({
           notes: projectEditData.notes.trim() || null,
           foerdersatz: projectEditData.foerdersatz !== '' ? parseFloat(projectEditData.foerdersatz) : null,
           overhead_t: projectEditData.overhead_t !== '' ? parseFloat(projectEditData.overhead_t) : null,
-          overhead_nt: overhead_nt_val,
+          overhead_nt: projectEditData.overhead_gleich
+            ? (projectEditData.overhead_t !== '' ? parseFloat(projectEditData.overhead_t) : null)
+            : (projectEditData.overhead_nt !== '' ? parseFloat(projectEditData.overhead_nt) : null),
           overhead_gleich: projectEditData.overhead_gleich,
           updated_at: new Date().toISOString(),
         })
         .eq('id', project.id);
 
       if (updateError) throw updateError;
-      await loadData();
+
+      setProject(prev => prev ? {
+        ...prev,
+        name: projectEditData.name.trim() || '',
+        short_name: projectEditData.short_name.trim() || null,
+        funding_format: projectEditData.funding_format || null,
+        funding_reference: projectEditData.funding_reference.trim() || null,
+        start_date: projectEditData.start_date || null,
+        end_date: projectEditData.end_date || null,
+        notes: projectEditData.notes.trim() || null,
+        foerdersatz: projectEditData.foerdersatz !== '' ? parseFloat(projectEditData.foerdersatz) : null,
+        overhead_t: projectEditData.overhead_t !== '' ? parseFloat(projectEditData.overhead_t) : null,
+        overhead_nt: projectEditData.overhead_gleich
+          ? (projectEditData.overhead_t !== '' ? parseFloat(projectEditData.overhead_t) : null)
+          : (projectEditData.overhead_nt !== '' ? parseFloat(projectEditData.overhead_nt) : null),
+        overhead_gleich: projectEditData.overhead_gleich,
+      } : null);
+
       closeProjectEditModal();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Fehler';
-      alert('Fehler beim Speichern: ' + msg);
+    } catch (err: any) {
+      alert('Fehler beim Speichern: ' + err.message);
     } finally {
       setSavingProject(false);
     }
@@ -1074,18 +1085,20 @@ export default function ProjectDetailPage({
 
   const handleProjectDelete = async () => {
     if (!project) return;
+    
     const expectedName = project.short_name || project.name;
     if (projectDeleteConfirmText !== expectedName) {
       alert(`Bitte geben Sie "${expectedName}" ein, um das Loeschen zu bestaetigen.`);
       return;
     }
+
     setDeletingProject(true);
     try {
       const { data: wpData } = await supabase
         .from('v7_work_packages')
         .select('id')
         .eq('project_id', project.id);
-
+      
       if (wpData && wpData.length > 0) {
         const wpIds = wpData.map(wp => wp.id);
         await supabase
@@ -1094,20 +1107,31 @@ export default function ProjectDetailPage({
           .in('work_package_id', wpIds);
       }
 
-      await supabase.from('v7_work_packages').delete().eq('project_id', project.id);
-      await supabase.from('v7_project_assignments').delete().eq('project_id', project.id);
-      await supabase.from('v7_timesheets').delete().eq('project_id', project.id);
+      await supabase
+        .from('v7_work_packages')
+        .delete()
+        .eq('project_id', project.id);
+
+      await supabase
+        .from('v7_project_assignments')
+        .delete()
+        .eq('project_id', project.id);
+
+      await supabase
+        .from('v7_timesheets')
+        .delete()
+        .eq('project_id', project.id);
 
       const { error: deleteError } = await supabase
         .from('v7_projects')
         .delete()
         .eq('id', project.id);
+
       if (deleteError) throw deleteError;
 
       router.push(getBackUrl());
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Fehler';
-      alert('Fehler beim Loeschen: ' + msg);
+    } catch (err: any) {
+      alert('Fehler beim Loeschen: ' + err.message);
     } finally {
       setDeletingProject(false);
       setShowProjectDeleteConfirm(false);
@@ -1119,18 +1143,14 @@ export default function ProjectDetailPage({
   // TABS
   // ============================================================================
 
-  const buildTabs = (): { key: TabKey; label: string; icon: React.ReactNode }[] => {
-    const baseTabs: { key: TabKey; label: string; icon: React.ReactNode }[] = [
-      { key: 'uebersicht',    label: 'Uebersicht',   icon: <FolderKanban size={18} /> },
-      { key: 'arbeitspakete', label: 'Arbeitspakete', icon: <Package size={18} /> },
-      { key: 'team',          label: 'Team',          icon: <Users size={18} /> },
-      { key: 'zeiterfassung', label: 'Zeiterfassung', icon: <Clock size={18} /> },
-    ];
-    if (isZimProject()) {
-      baseTabs.push({ key: 'zahlungsanforderungen', label: 'Zahlungsanforderungen', icon: <Receipt size={18} /> });
-    }
-    return baseTabs;
-  };
+  const tabs: { key: TabKey; label: string; icon: React.ReactNode }[] = [
+    { key: 'uebersicht', label: 'Uebersicht', icon: <FolderKanban size={18} /> },
+    { key: 'arbeitspakete', label: 'Arbeitspakete', icon: <Package size={18} /> },
+    { key: 'team', label: 'Team', icon: <Users size={18} /> },
+    { key: 'zeiterfassung', label: 'Zeiterfassung', icon: <Clock size={18} /> },
+    // ZA-Tab nur bei ZIM-Projekten - wird dynamisch berechnet nach Projektladung
+    ...(isZimProject() ? [{ key: 'zahlungsanforderungen' as TabKey, label: 'Zahlungsanforderungen', icon: <Receipt size={18} /> }] : []),
+  ];
 
   // ============================================================================
   // RENDER
@@ -1164,29 +1184,27 @@ export default function ProjectDetailPage({
   const userName = getUserName();
   const portalRole = getPortalRole();
   const adminUser = isAdmin();
-  const tabs = buildTabs();
 
-  const wpProjects: WPProject[] = [{
+  const wpProjects: WPProject[] = project ? [{
     id: project.id,
     name: project.name,
     funding_reference: project.funding_reference,
     funding_format: project.funding_format,
-  }];
+  }] : [];
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-
       {/* Header */}
       <PortalHeader
         portal={portal}
         userName={userName}
         userRole={getUserRole()}
-        portalRole={portal === 'firma' ? (portalRole as V7EmployeePortalRole) : undefined}
+        portalRole={portal === 'firma' ? (getPortalRole() as V7EmployeePortalRole) : undefined}
         companyName={company?.name || 'Firma'}
         hideNavigation={true}
       />
 
-      {/* Projekt-Titelzeile */}
+      {/* Projekt-Header mit Zurueck-Button */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
@@ -1213,10 +1231,12 @@ export default function ProjectDetailPage({
                 </div>
               </div>
             </div>
+
             {adminUser && (
               <button
                 onClick={openProjectEditModal}
-                className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+                className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-gray-900 
+                           hover:bg-gray-100 rounded-lg transition-colors"
               >
                 <Pencil size={18} />
                 <span className="hidden sm:inline text-sm">Bearbeiten</span>
@@ -1226,7 +1246,7 @@ export default function ProjectDetailPage({
         </div>
       </div>
 
-      {/* Tab-Leiste */}
+      {/* Projekt-Tabs */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center space-x-1 overflow-x-auto -mb-px">
@@ -1234,13 +1254,14 @@ export default function ProjectDetailPage({
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
-                className={[
-                  'flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2',
-                  'transition-colors whitespace-nowrap',
-                  activeTab === tab.key
+                className={`
+                  flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 
+                  transition-colors whitespace-nowrap
+                  ${activeTab === tab.key
                     ? borderActive
-                    : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300',
-                ].join(' ')}
+                    : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+                  }
+                `}
               >
                 {tab.icon}
                 <span>{tab.label}</span>
@@ -1265,12 +1286,10 @@ export default function ProjectDetailPage({
         </div>
       </div>
 
-      {/* Inhalt */}
+      {/* Content */}
       <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
 
-        {/* ------------------------------------------------------------------ */}
-        {/* Tab: Uebersicht                                                     */}
-        {/* ------------------------------------------------------------------ */}
+        {/* Tab: Uebersicht */}
         {activeTab === 'uebersicht' && (
           <div className="space-y-6">
             <div className="bg-white rounded-lg border border-gray-200 p-6">
@@ -1340,9 +1359,7 @@ export default function ProjectDetailPage({
           </div>
         )}
 
-        {/* ------------------------------------------------------------------ */}
-        {/* Tab: Arbeitspakete                                                  */}
-        {/* ------------------------------------------------------------------ */}
+        {/* Tab: Arbeitspakete */}
         {activeTab === 'arbeitspakete' && (
           <div>
             <div className="flex items-center justify-between mb-4">
@@ -1364,58 +1381,35 @@ export default function ProjectDetailPage({
               <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg flex items-start gap-2">
                 <AlertCircle size={16} className="text-yellow-600 mt-0.5 shrink-0" />
                 <p className="text-sm text-yellow-800">
-                  Bitte zuerst im Tab &quot;Team&quot; Mitarbeiter hinzufuegen,
-                  um die Excel-Vorlage nutzen zu koennen.
+                  Bitte zuerst im Tab &quot;Team&quot; Mitarbeiter hinzufuegen, um die Excel-Vorlage nutzen zu koennen.
                 </p>
               </div>
             )}
 
-            {/* ArbeitsplanImport - exakt nach Interface */}
-            <ArbeitsplanImport
-              projectId={projectId}
-              hasTeam={teamMembers.length > 0}
-              teamCount={teamMembers.length}
-              onImportComplete={loadData}
-              portal={portal}
-            />
+            {(ArbeitsplanImport as any)({
+              portal,
+              projectId,
+              projectName: project.name,
+              teamMembers,
+              onImportSuccess: loadData,
+            })}
 
-            {/* WorkPackageTable - Props auf WPT-eigenes Interface gemappt */}
             <WorkPackageTable
               portal={portal}
               projectId={projectId}
-              workPackages={workPackages.map(wp => ({
-                id: wp.id,
-                ap_code: wp.ap_code ?? `AP${wp.ap_number}`,
-                ap_number: wp.ap_number,
-                ap_sub_number: wp.ap_sub_number,
-                name: wp.name,
-                description: wp.description,
-                start_date: wp.start_date,
-                end_date: wp.end_date,
-                planned_pm: wp.planned_pm,
-                is_technical: wp.is_technical,
-              }))}
-              employees={allEmployees}
-              assignments={wpAssignments}
-              projectTeam={wpProjectTeam}
+              workPackages={workPackages as any}
+              employees={allEmployees as any}
+              assignments={wpAssignments as any}
+              projectTeam={teamMembers as any}
               canEdit={adminUser}
               onAssignmentChange={handleTableAssignmentChange}
-              onEditAP={adminUser ? (wp) => {
-                const full = workPackages.find(w => w.id === wp.id);
-                if (full) openEditWPModal(full);
-              } : undefined}
-              onDeleteAP={adminUser ? (wp) => {
-                const full = workPackages.find(w => w.id === wp.id);
-                if (full) openDeleteConfirmation(full);
-              } : undefined}
-              fundingFormat={project.funding_format}
+              onEditAP={adminUser ? openEditWPModal as any : undefined}
+              onDeleteAP={adminUser ? openDeleteConfirmation as any : undefined}
             />
           </div>
         )}
 
-        {/* ------------------------------------------------------------------ */}
-        {/* Tab: Team                                                           */}
-        {/* ------------------------------------------------------------------ */}
+        {/* Tab: Team */}
         {activeTab === 'team' && (
           <div>
             <ProjectTeamManager
@@ -1428,37 +1422,37 @@ export default function ProjectDetailPage({
           </div>
         )}
 
-        {/* ------------------------------------------------------------------ */}
-        {/* Tab: Zeiterfassung                                                  */}
-        {/* ------------------------------------------------------------------ */}
+        {/* Tab: Zeiterfassung */}
         {activeTab === 'zeiterfassung' && (
           <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900">Zeiterfassung</h2>
+            </div>
+
             <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
               <Clock className={`w-16 h-16 mx-auto mb-4 ${portal === 'firma' ? 'text-green-500' : 'text-blue-500'}`} />
               <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                Stundennachweise fuer {project.short_name || project.name}
+                Stundennachweise fuer {project?.short_name || project?.name}
               </h3>
               <p className="text-gray-600 mb-6">
                 Erfassen und verwalten Sie die Projektstunden fuer alle Team-Mitglieder.
               </p>
               <button
                 onClick={() => {
-                  const url = portal === 'berater'
-                    ? `/v7/berater/foerderung/firma/${companyId || project.client_company_id}/zeiterfassung?projekt=${projectId}`
+                  const zeiterfassungUrl = portal === 'berater'
+                    ? `/v7/berater/foerderung/firma/${companyId || project?.client_company_id}/zeiterfassung?projekt=${projectId}`
                     : `/v7/firma/zeiterfassung?projekt=${projectId}`;
-                  router.push(url);
+                  router.push(zeiterfassungUrl);
                 }}
                 className={`inline-flex items-center gap-2 px-6 py-3 ${buttonBg} text-white font-medium rounded-lg transition-colors`}
               >
                 <Clock size={20} />
                 Zeiterfassung oeffnen
               </button>
-
+              
               {teamMembers.length > 0 && (
                 <div className="mt-8 pt-6 border-t border-gray-200">
-                  <h4 className="text-sm font-medium text-gray-700 mb-3">
-                    Team-Mitglieder ({teamMembers.length})
-                  </h4>
+                  <h4 className="text-sm font-medium text-gray-700 mb-3">Team-Mitglieder ({teamMembers.length})</h4>
                   <div className="flex flex-wrap justify-center gap-2">
                     {teamMembers.map((member) => (
                       <span
@@ -1478,11 +1472,12 @@ export default function ProjectDetailPage({
           </div>
         )}
 
-        {/* ------------------------------------------------------------------ */}
-        {/* Tab: Zahlungsanforderungen (nur ZIM-Projekte)                       */}
-        {/* ------------------------------------------------------------------ */}
+        {/* ================================================================ */}
+        {/* NEU v7.4.4-3: Tab: Zahlungsanforderungen (nur ZIM-Projekte)     */}
+        {/* ================================================================ */}
         {activeTab === 'zahlungsanforderungen' && (
           <div>
+            {/* Header */}
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">Zahlungsanforderungen</h2>
@@ -1499,12 +1494,14 @@ export default function ProjectDetailPage({
               </button>
             </div>
 
+            {/* Inhalt: Loading */}
             {zaLoading && (
               <div className="flex items-center justify-center py-16">
                 <div className={`w-8 h-8 border-4 ${spinnerColor} rounded-full animate-spin`}></div>
               </div>
             )}
 
+            {/* Inhalt: Leer */}
             {!zaLoading && zaList.length === 0 && (
               <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
                 <Receipt className={`w-16 h-16 mx-auto mb-4 ${portal === 'firma' ? 'text-green-300' : 'text-blue-300'}`} />
@@ -1525,6 +1522,7 @@ export default function ProjectDetailPage({
               </div>
             )}
 
+            {/* Inhalt: Liste */}
             {!zaLoading && zaList.length > 0 && (
               <div className="space-y-3">
                 {zaList.map((za) => {
@@ -1537,29 +1535,18 @@ export default function ProjectDetailPage({
                     >
                       <div className="flex items-center justify-between gap-4">
 
-                        {/* ZA-Nummer + Zeitraum */}
+                        {/* Links: ZA-Nummer + Zeitraum */}
                         <div className="flex items-center gap-4 flex-1 min-w-0">
-                          <div className={[
-                            'shrink-0 w-12 h-12 rounded-lg flex flex-col items-center justify-center',
-                            portal === 'firma'
-                              ? 'bg-green-50 border border-green-200'
-                              : 'bg-blue-50 border border-blue-200',
-                          ].join(' ')}>
-                            <span className={`text-xs font-medium ${portal === 'firma' ? 'text-green-600' : 'text-blue-600'}`}>
-                              ZA
-                            </span>
-                            <span className={`text-lg font-bold leading-none ${portal === 'firma' ? 'text-green-700' : 'text-blue-700'}`}>
-                              {za.za_nummer}
-                            </span>
+                          <div className={`shrink-0 w-12 h-12 rounded-lg ${portal === 'firma' ? 'bg-green-50 border border-green-200' : 'bg-blue-50 border border-blue-200'} flex flex-col items-center justify-center`}>
+                            <span className={`text-xs font-medium ${portal === 'firma' ? 'text-green-600' : 'text-blue-600'}`}>ZA</span>
+                            <span className={`text-lg font-bold leading-none ${portal === 'firma' ? 'text-green-700' : 'text-blue-700'}`}>{za.za_nummer}</span>
                           </div>
                           <div className="min-w-0">
                             <div className="font-medium text-gray-900 text-sm">
                               {formatZeitraum(za.zeitraum_von, za.zeitraum_bis)}
                             </div>
                             <div className="text-xs text-gray-400 mt-0.5">
-                              {new Date(za.zeitraum_von).toLocaleDateString('de-DE')}
-                              {' '}&ndash;{' '}
-                              {new Date(za.zeitraum_bis).toLocaleDateString('de-DE')}
+                              {new Date(za.zeitraum_von).toLocaleDateString('de-DE')} &ndash; {new Date(za.zeitraum_bis).toLocaleDateString('de-DE')}
                             </div>
                             {za.notizen && (
                               <div className="text-xs text-gray-500 mt-1 truncate max-w-xs">
@@ -1569,7 +1556,7 @@ export default function ProjectDetailPage({
                           </div>
                         </div>
 
-                        {/* Status-Dropdown */}
+                        {/* Mitte: Status-Dropdown */}
                         <div className="shrink-0">
                           <div className="relative">
                             <select
@@ -1580,9 +1567,7 @@ export default function ProjectDetailPage({
                                 'appearance-none pl-8 pr-6 py-1.5 text-sm font-medium rounded-lg border',
                                 'cursor-pointer transition-colors disabled:opacity-60',
                                 'focus:outline-none focus:ring-2',
-                                statusStyle.bg,
-                                statusStyle.text,
-                                statusStyle.border,
+                                statusStyle.bg, statusStyle.text, statusStyle.border,
                                 portal === 'firma' ? 'focus:ring-green-500' : 'focus:ring-blue-500',
                               ].join(' ')}
                             >
@@ -1599,16 +1584,11 @@ export default function ProjectDetailPage({
                           </div>
                         </div>
 
-                        {/* ZA oeffnen */}
+                        {/* Rechts: ZA oeffnen */}
                         <div className="shrink-0">
                           <button
                             onClick={() => navigateToBerichteWithZA(za.id)}
-                            className={[
-                              'flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border transition-colors',
-                              portal === 'firma'
-                                ? 'text-green-700 border-green-300 hover:bg-green-50'
-                                : 'text-blue-700 border-blue-300 hover:bg-blue-50',
-                            ].join(' ')}
+                            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border transition-colors ${portal === 'firma' ? 'text-green-700 border-green-300 hover:bg-green-50' : 'text-blue-700 border-blue-300 hover:bg-blue-50'}`}
                           >
                             <FileText size={15} />
                             <span>ZA oeffnen</span>
@@ -1651,18 +1631,18 @@ export default function ProjectDetailPage({
 
       </main>
 
-      {/* ================================================================== */}
-      {/* MODALS                                                               */}
-      {/* ================================================================== */}
+      {/* ============================================ */}
+      {/* MODALS                                       */}
+      {/* ============================================ */}
 
-      {/* Modal: WorkPackage anlegen / bearbeiten */}
+      {/* Modal: WorkPackage bearbeiten/anlegen */}
       <WorkPackageEditModal
         portal={portal}
         isOpen={showWPEditModal}
         onClose={closeWPEditModal}
         onSave={handleSaveWP}
         mode={wpEditMode}
-        workPackage={editingWP}
+        workPackage={editingWP as any}
         projects={wpProjects}
         defaultProjectId={projectId}
         getNextAPNumber={getNextAPNumber}
@@ -1670,22 +1650,22 @@ export default function ProjectDetailPage({
         error={wpError}
       />
 
-      {/* Modal: MA einem AP zuordnen */}
+      {/* Modal: WorkPackage MA zuordnen */}
       <WorkPackageAssignmentModal
         portal={portal}
         isOpen={showWPAssignModal}
         onClose={closeWPAssignModal}
         workPackage={assignmentWP}
-        allEmployees={allEmployees as WPModalEmployee[]}
+        allEmployees={allEmployees}
         projectEmployeeIds={projectEmployeeIds}
-        assignments={wpAssignments as unknown as WPModalAssignment[]}
+        assignments={wpAssignments}
         onAddAssignment={handleAddWPAssignment}
         onUpdateAssignment={handleUpdateWPAssignment}
         onRemoveAssignment={handleRemoveWPAssignment}
         saving={savingAssignment}
       />
 
-      {/* Modal: AP loeschen bestaetigen */}
+      {/* Modal: Loeschen bestaetigen */}
       {showDeleteConfirm && wpToDelete && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
@@ -1697,11 +1677,7 @@ export default function ProjectDetailPage({
                 Arbeitspaket loeschen?
               </h3>
               <p className="text-gray-600 mb-4">
-                Moechten Sie{' '}
-                <strong>
-                  {wpToDelete.ap_code || formatAPCode(wpToDelete.ap_number, wpToDelete.ap_sub_number)}: {wpToDelete.name}
-                </strong>{' '}
-                wirklich loeschen?
+                Moechten Sie <strong>{wpToDelete.ap_code || formatAPCode(wpToDelete.ap_number, wpToDelete.ap_sub_number)}: {wpToDelete.name}</strong> wirklich loeschen?
               </p>
               <p className="text-sm text-gray-500">
                 Das Arbeitspaket wird deaktiviert und kann spaeter wiederhergestellt werden.
@@ -1727,97 +1703,22 @@ export default function ProjectDetailPage({
         </div>
       )}
 
-      {/* Modal: Team-Mitglied bearbeiten */}
-      {editingMember && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900">
-                {editingMember.employee_name}
-              </h3>
-              <button onClick={closeTeamEditModal} className="text-gray-400 hover:text-gray-600">
-                <X size={20} />
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Rolle im Projekt
-                </label>
-                <input
-                  type="text"
-                  value={teamEditData.role_in_project}
-                  onChange={(e) => setTeamEditData(prev => ({ ...prev, role_in_project: e.target.value }))}
-                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
-                  placeholder="z.B. Teilprojektleiter"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Stundensatz (EUR/h)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={teamEditData.hourly_rate}
-                  onChange={(e) => setTeamEditData(prev => ({ ...prev, hourly_rate: e.target.value }))}
-                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
-                  placeholder="z.B. 25.00"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="is_project_leader"
-                  checked={teamEditData.is_project_leader}
-                  onChange={(e) => setTeamEditData(prev => ({ ...prev, is_project_leader: e.target.checked }))}
-                  className="w-4 h-4 rounded border-gray-300"
-                />
-                <label htmlFor="is_project_leader" className="text-sm text-gray-700">
-                  Projektleiter
-                </label>
-              </div>
-            </div>
-            <div className="flex gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-lg">
-              <button
-                onClick={closeTeamEditModal}
-                className="flex-1 px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-              >
-                Abbrechen
-              </button>
-              <button
-                onClick={handleTeamSave}
-                disabled={savingTeam}
-                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 ${buttonBg} text-white rounded-lg disabled:opacity-50`}
-              >
-                {savingTeam ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                    Speichern...
-                  </>
-                ) : (
-                  <>
-                    <Save size={16} />
-                    Speichern
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Modal: Projekt bearbeiten */}
       {showProjectEditModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 sticky top-0 bg-white">
-              <h3 className="text-lg font-semibold text-gray-900">Projekt bearbeiten</h3>
-              <button onClick={closeProjectEditModal} className="text-gray-400 hover:text-gray-600">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Projekt bearbeiten
+              </h3>
+              <button
+                onClick={closeProjectEditModal}
+                className="p-1 text-gray-400 hover:text-gray-600 rounded"
+              >
                 <X size={20} />
               </button>
             </div>
+
             <div className="p-6 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1828,8 +1729,10 @@ export default function ProjectDetailPage({
                   value={projectEditData.name}
                   onChange={(e) => setProjectEditData(prev => ({ ...prev, name: e.target.value }))}
                   className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                  placeholder="z.B. DigiTrans"
                 />
               </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Kurzbezeichnung
@@ -1839,8 +1742,10 @@ export default function ProjectDetailPage({
                   value={projectEditData.short_name}
                   onChange={(e) => setProjectEditData(prev => ({ ...prev, short_name: e.target.value }))}
                   className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                  placeholder="z.B. DT"
                 />
               </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Foerderprogramm
@@ -1855,17 +1760,20 @@ export default function ProjectDetailPage({
                   ))}
                 </select>
               </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Foerderkennzeichen
+                  Foerderkennzeichen (FKZ)
                 </label>
                 <input
                   type="text"
                   value={projectEditData.funding_reference}
                   onChange={(e) => setProjectEditData(prev => ({ ...prev, funding_reference: e.target.value }))}
                   className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                  placeholder="z.B. 16KN087502"
                 />
               </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1890,111 +1798,126 @@ export default function ProjectDetailPage({
                   />
                 </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Foerdersatz (%)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  max="100"
-                  value={projectEditData.foerdersatz}
-                  onChange={(e) => setProjectEditData(prev => ({ ...prev, foerdersatz: e.target.value }))}
-                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
-                  placeholder="z.B. 45.00"
-                />
-              </div>
-
-              {projectEditData.funding_format === 'ZIM_DS' ? (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Gemeinkostenzuschlag T (%)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={projectEditData.overhead_t}
-                      onChange={(e) => setProjectEditData(prev => ({
-                        ...prev,
-                        overhead_t: e.target.value,
-                        overhead_nt: prev.overhead_gleich ? e.target.value : prev.overhead_nt,
-                      }))}
-                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
-                      placeholder="z.B. 28.42"
-                    />
-                  </div>
-                  {!projectEditData.overhead_gleich && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Gemeinkostenzuschlag NT (%)
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={projectEditData.overhead_nt}
-                        onChange={(e) => setProjectEditData(prev => ({ ...prev, overhead_nt: e.target.value }))}
-                        className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
-                        placeholder="z.B. 29.88"
-                      />
-                    </div>
-                  )}
-                  <div className="flex items-center gap-2 pt-2">
-                    <input
-                      type="checkbox"
-                      id="overhead_gleich"
-                      checked={projectEditData.overhead_gleich}
-                      onChange={(e) => setProjectEditData(prev => ({
-                        ...prev,
-                        overhead_gleich: e.target.checked,
-                        overhead_nt: e.target.checked ? prev.overhead_t : prev.overhead_nt,
-                      }))}
-                      className="w-4 h-4 rounded border-gray-300"
-                    />
-                    <label htmlFor="overhead_gleich" className="text-sm text-gray-700">
-                      T und NT gleich
-                    </label>
-                  </div>
-                </>
-              ) : (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Gemeinkostenzuschlag (%)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={projectEditData.overhead_t}
-                    onChange={(e) => setProjectEditData(prev => ({
-                      ...prev,
-                      overhead_t: e.target.value,
-                      overhead_nt: e.target.value,
-                    }))}
-                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
-                    placeholder="z.B. 28.42"
-                  />
-                </div>
-              )}
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Notizen
                 </label>
                 <textarea
-                  rows={3}
                   value={projectEditData.notes}
                   onChange={(e) => setProjectEditData(prev => ({ ...prev, notes: e.target.value }))}
                   className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                  rows={3}
+                  placeholder="Optionale Notizen zum Projekt"
                 />
               </div>
+
+              {/* Foerderparameter - nur fuer ZIM-Projekte */}
+              {(projectEditData.funding_format === 'ZIM' ||
+                projectEditData.funding_format === 'ZIM_DS' ||
+                projectEditData.funding_format === 'ZIM_KOOP' ||
+                projectEditData.funding_format === 'ZIM_NETZWERK') && (
+                <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                  <div className="text-sm font-medium text-gray-700 mb-3">Foerderparameter (ZIM)</div>
+                  <div className="grid grid-cols-2 gap-4">
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Foerdersatz (%)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="100"
+                        value={projectEditData.foerdersatz}
+                        onChange={(e) => setProjectEditData(prev => ({ ...prev, foerdersatz: e.target.value }))}
+                        className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                        placeholder="z.B. 45.00"
+                      />
+                    </div>
+
+                    {projectEditData.funding_format === 'ZIM_DS' ? (
+                      <>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Gemeinkostenzuschlag T (%)
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={projectEditData.overhead_t}
+                            onChange={(e) => setProjectEditData(prev => ({
+                              ...prev,
+                              overhead_t: e.target.value,
+                              overhead_nt: prev.overhead_gleich ? e.target.value : prev.overhead_nt,
+                            }))}
+                            className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                            placeholder="z.B. 28.42"
+                          />
+                        </div>
+                        {!projectEditData.overhead_gleich && (
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              Gemeinkostenzuschlag NT (%)
+                            </label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={projectEditData.overhead_nt}
+                              onChange={(e) => setProjectEditData(prev => ({ ...prev, overhead_nt: e.target.value }))}
+                              className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                              placeholder="z.B. 29.88"
+                            />
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2 pt-2">
+                          <input
+                            type="checkbox"
+                            id="overhead_gleich"
+                            checked={projectEditData.overhead_gleich}
+                            onChange={(e) => setProjectEditData(prev => ({
+                              ...prev,
+                              overhead_gleich: e.target.checked,
+                              overhead_nt: e.target.checked ? prev.overhead_t : prev.overhead_nt
+                            }))}
+                            className="w-4 h-4 rounded border-gray-300"
+                          />
+                          <label htmlFor="overhead_gleich" className="text-sm text-gray-700">
+                            T und NT gleich
+                          </label>
+                        </div>
+                      </>
+                    ) : (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Gemeinkostenzuschlag (%)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={projectEditData.overhead_t}
+                          onChange={(e) => setProjectEditData(prev => ({
+                            ...prev,
+                            overhead_t: e.target.value,
+                            overhead_nt: e.target.value
+                          }))}
+                          className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                          placeholder="z.B. 28.42"
+                        />
+                      </div>
+                    )}
+
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex justify-between gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-lg sticky bottom-0">
-              {portal === 'berater' ? (
+              {portal === 'berater' && (
                 <button
                   onClick={() => setShowProjectDeleteConfirm(true)}
                   className="flex items-center gap-2 px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
@@ -2002,9 +1925,9 @@ export default function ProjectDetailPage({
                   <Trash2 size={16} />
                   Loeschen
                 </button>
-              ) : (
-                <div></div>
               )}
+              {portal !== 'berater' && <div></div>}
+              
               <div className="flex gap-3">
                 <button
                   onClick={closeProjectEditModal}
@@ -2015,7 +1938,8 @@ export default function ProjectDetailPage({
                 <button
                   onClick={handleProjectSave}
                   disabled={savingProject || !projectEditData.name.trim()}
-                  className={`flex items-center gap-2 px-4 py-2 ${buttonBg} text-white rounded-lg disabled:opacity-50 transition-colors`}
+                  className={`flex items-center gap-2 px-4 py-2 ${buttonBg} text-white rounded-lg 
+                             disabled:opacity-50 transition-colors`}
                 >
                   {savingProject ? (
                     <>
@@ -2035,7 +1959,7 @@ export default function ProjectDetailPage({
         </div>
       )}
 
-      {/* Modal: Projekt loeschen bestaetigen */}
+      {/* Loeschen-Bestaetigungs-Modal */}
       {showProjectDeleteConfirm && project && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
@@ -2043,8 +1967,11 @@ export default function ProjectDetailPage({
               <div className="p-2 bg-red-100 rounded-full">
                 <AlertCircle className="text-red-600" size={24} />
               </div>
-              <h3 className="text-lg font-semibold text-red-900">Projekt loeschen</h3>
+              <h3 className="text-lg font-semibold text-red-900">
+                Projekt loeschen
+              </h3>
             </div>
+
             <div className="p-6 space-y-4">
               <p className="text-gray-700">
                 Sind Sie sicher, dass Sie das Projekt <strong>{project.name}</strong> loeschen moechten?
@@ -2070,6 +1997,7 @@ export default function ProjectDetailPage({
                 />
               </div>
             </div>
+
             <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-lg">
               <button
                 onClick={() => {
@@ -2083,7 +2011,8 @@ export default function ProjectDetailPage({
               <button
                 onClick={handleProjectDelete}
                 disabled={deletingProject || projectDeleteConfirmText !== (project.short_name || project.name)}
-                className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg 
+                           disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {deletingProject ? (
                   <>
@@ -2110,7 +2039,6 @@ export default function ProjectDetailPage({
           </p>
         </div>
       </footer>
-
     </div>
   );
 }
