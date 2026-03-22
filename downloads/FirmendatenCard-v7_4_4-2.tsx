@@ -368,7 +368,6 @@ export default function FirmendatenCard({
                 <div className="text-gray-900">-</div>
               )}
             </div>
-          </div>
 
             <div>
               <div className="text-sm text-gray-500 mb-1">Regelarbeitszeit</div>
