@@ -901,7 +901,7 @@ export default function TimesheetForm({
   const calculateRowSum = (row: APRow): number => {
     return Object.values(row.entries).reduce((sum, entry) => {
       if (entry.value && !isAbsenceCode(entry.value)) {
-        return sum + parseFloat(entry.value);
+        return sum + parseHours(entry.value);
       }
       return sum;
     }, 0);
@@ -921,7 +921,7 @@ export default function TimesheetForm({
     return apRows.reduce((sum, row) => {
       const entry = row.entries[day];
       if (entry?.value && !isAbsenceCode(entry.value)) {
-        return sum + parseFloat(entry.value);
+        return sum + parseHours(entry.value);
       }
       return sum;
     }, 0);
@@ -940,7 +940,7 @@ export default function TimesheetForm({
       if (isTech !== technical) return sum;
       const entry = row.entries[day];
       if (entry?.value && !isAbsenceCode(entry.value)) {
-        return sum + parseFloat(entry.value);
+        return sum + parseHours(entry.value);
       }
       return sum;
     }, 0);
@@ -959,7 +959,7 @@ export default function TimesheetForm({
   const calculateNonBillableSum = (): number => {
     return Object.values(nonBillableEntries).reduce((sum, entry) => {
       if (entry.value) {
-        return sum + parseFloat(entry.value);
+        return sum + parseHours(entry.value);
       }
       return sum;
     }, 0);
