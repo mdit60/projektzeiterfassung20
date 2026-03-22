@@ -3,16 +3,18 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 02. Maerz 2026
-// Version: 7.4.3-7
+// Version: 7.4.3-6
 //
 // Wird von beiden Portalen genutzt:
 // - Firmen-Portal: /v7/firma/zeiterfassung
 // - Berater-Portal: /v7/berater/foerderung/firma/[id]/zeiterfassung
 //
-// v7.4.3-7: FIX: Mariae Himmelfahrt fuer Bayern (DE-BY)
-//            FIX: Bundesland-Normalisierung (DB: "Bayern" -> "DE-BY")
-//            FIX: Feiertagsstunden aus standard_weekly_hours (Unternehmen)
-//            FIX: Komma als Dezimaltrennzeichen durchgaengig
+// v7.4.3-6: FIX: Feiertage - Mariae Himmelfahrt fuer Bayern (DE-BY) ergaenzt
+//            FIX: federal_state Normalisierung (DB: "Bayern" -> Code: "DE-BY")
+//            FIX: Feiertagsstunden aus Unternehmens-Wochenstunden (standard_weekly_hours)
+//                 statt hartem Wert 8h - bei 38h/Woche = 7.6h/Tag
+// v7.4.3-5: FIX: Komma als Dezimaltrennzeichen wird korrekt summiert
+//            parseFloat("7,6") ergab 7 statt 7.6 - Komma wird vor parseFloat ersetzt
 // v7.4.3-4: FIX: Vorbelegung wartet auf geladene Arbeitsplan-Daten
 //            Verhindert dass APs mit offen=0 oder negativ vorbelegt werden
 // v7.4.3-3: Vorbelegung + Dropdown nur APs mit offenen Stunden
@@ -86,7 +88,28 @@ const MONTH_NAMES = [
 ];
 
 const ABSENCE_CODES = ['U', 'K', 'S', 'F'];
-const DAILY_HOURS = 8;
+const DAILY_HOURS = 8; // Fallback fuer Abwaertskompatibilitaet
+
+// FIX v7.4.3-6: DB speichert Bundesland als Langname ODER als DE-XX Code
+const normalizeStateCode = (state: string | null | undefined): string => {
+  if (!state) return '';
+  if (state.startsWith('DE-')) return state;
+  const map: Record<string, string> = {
+    'Baden-Wuerttemberg': 'DE-BW', 'Baden-Wuerttemberg': 'DE-BW',
+    'Bayern': 'DE-BY', 'Bavaria': 'DE-BY',
+    'Berlin': 'DE-BE', 'Brandenburg': 'DE-BB',
+    'Bremen': 'DE-HB', 'Hamburg': 'DE-HH',
+    'Hessen': 'DE-HE', 'Hesse': 'DE-HE',
+    'Mecklenburg-Vorpommern': 'DE-MV',
+    'Niedersachsen': 'DE-NI', 'Lower Saxony': 'DE-NI',
+    'Nordrhein-Westfalen': 'DE-NW', 'North Rhine-Westphalia': 'DE-NW',
+    'Rheinland-Pfalz': 'DE-RP', 'Rhineland-Palatinate': 'DE-RP',
+    'Saarland': 'DE-SL', 'Sachsen': 'DE-SN', 'Saxony': 'DE-SN',
+    'Sachsen-Anhalt': 'DE-ST', 'Schleswig-Holstein': 'DE-SH',
+    'Thueringen': 'DE-TH', 'Thueringen': 'DE-TH', 'Thuringia': 'DE-TH',
+  };
+  return map[state] || state;
+};
 
 // ============================================================================
 // TYPEN
@@ -112,10 +135,10 @@ interface WorkPackage {
   id: string;
   project_id: string;
   ap_number: number;
-  ap_sub_number?: number;
+  ap_sub_number: number;
   ap_code: string | null;
   name: string;
-  is_technical?: boolean | null;  // NEU: Technisches AP (fuer ZIM_DS)
+  is_technical: boolean | null;  // NEU: Technisches AP (fuer ZIM_DS)
 }
 
 interface ClientCompany {
@@ -126,7 +149,7 @@ interface ClientCompany {
 }
 
 interface CalendarEntry {
-  id?: string;
+  id: string;
   value: string;
 }
 
@@ -146,10 +169,10 @@ interface TimesheetFormProps {
   currentUserDisplayName: string;
   isAdmin: boolean;
   onBack: () => void;
-  initialEmployeeId?: string;
-  initialProjectId?: string;
-  initialYear?: number;
-  initialMonth?: number;
+  initialEmployeeId: string;
+  initialProjectId: string;
+  initialYear: number;
+  initialMonth: number;
 }
 
 // ============================================================================
@@ -172,27 +195,6 @@ const getEasterSunday = (year: number): Date => {
   const month = Math.floor((h + l - 7 * m + 114) / 31) - 1;
   const day = ((h + l - 7 * m + 114) % 31) + 1;
   return new Date(year, month, day);
-};
-
-// FIX v7.4.3-7: Bundesland-Langname zu DE-XX Code normalisieren
-const normalizeStateCode = (state: string | null | undefined): string => {
-  if (!state) return '';
-  if (state.startsWith('DE-')) return state;
-  const map: Record<string, string> = {
-    'Baden-Wuerttemberg': 'DE-BW', 'Baden-Württemberg': 'DE-BW',
-    'Bayern': 'DE-BY', 'Bavaria': 'DE-BY',
-    'Berlin': 'DE-BE', 'Brandenburg': 'DE-BB',
-    'Bremen': 'DE-HB', 'Hamburg': 'DE-HH',
-    'Hessen': 'DE-HE', 'Hesse': 'DE-HE',
-    'Mecklenburg-Vorpommern': 'DE-MV',
-    'Niedersachsen': 'DE-NI', 'Lower Saxony': 'DE-NI',
-    'Nordrhein-Westfalen': 'DE-NW', 'North Rhine-Westphalia': 'DE-NW',
-    'Rheinland-Pfalz': 'DE-RP', 'Rhineland-Palatinate': 'DE-RP',
-    'Saarland': 'DE-SL', 'Sachsen': 'DE-SN', 'Saxony': 'DE-SN',
-    'Sachsen-Anhalt': 'DE-ST', 'Schleswig-Holstein': 'DE-SH',
-    'Thueringen': 'DE-TH', 'Thüringen': 'DE-TH', 'Thuringia': 'DE-TH',
-  };
-  return map[state] || state;
 };
 
 const getGermanHolidays = (year: number, stateCode: string): Map<string, string> => {
@@ -233,7 +235,7 @@ const getGermanHolidays = (year: number, stateCode: string): Map<string, string>
   if (['DE-BW', 'DE-BY', 'DE-HE', 'DE-NW', 'DE-RP', 'DE-SL'].includes(stateCode)) {
     holidays.set(formatDate(addDays(easter, 60)), 'Fronleichnam');
   }
-  // Bayern pauschal (83% kath. Gemeinden) + Saarland
+  // Bayern: pauschal fuer alle BY-Gemeinden (83% sind kath. gepraegt), Saarland komplett
   if (['DE-BY', 'DE-SL'].includes(stateCode)) {
     holidays.set(`${year}-08-15`, 'Mariae Himmelfahrt');
   }
@@ -251,7 +253,7 @@ const getGermanHolidays = (year: number, stateCode: string): Map<string, string>
     const dayOfWeek = nov23.getDay();
     const daysBack = (dayOfWeek + 7 - 3) % 7;
     const bussUndBettag = new Date(nov23);
-    bussUndBettag.setDate(nov23.getDate() - (daysBack === 0 ? 7 : daysBack));
+    bussUndBettag.setDate(nov23.getDate() - (daysBack === 0  7 : daysBack));
     holidays.set(formatDate(bussUndBettag), 'Buss- u. Bettag');
   }
 
@@ -294,8 +296,8 @@ export default function TimesheetForm({
   const [hasChanges, setHasChanges] = useState(false);
 
   // Ausgewaehlte Werte
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>(initialEmployeeId || safeEmployees[0]?.id || '');
-  const [selectedProjectId, setSelectedProjectId] = useState<string>(initialProjectId || safeProjects[0]?.id || '');
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>(initialEmployeeId || safeEmployees[0].id || '');
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(initialProjectId || safeProjects[0].id || '');
   const [selectedYear, setSelectedYear] = useState<number>(initialYear || new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState<number>(initialMonth || new Date().getMonth() + 1);
 
@@ -329,7 +331,7 @@ export default function TimesheetForm({
   const selectedProject = safeProjects.find(p => p.id === selectedProjectId);
   const availableWorkPackages = safeWorkPackages.filter(wp => wp.project_id === selectedProjectId);
   const selectedEmployee = safeEmployees.find(e => e.id === selectedEmployeeId);
-  const isDurchfuehrbarkeitsstudie = selectedProject?.funding_format?.includes('DS') || false;
+  const isDurchfuehrbarkeitsstudie = selectedProject.funding_format.includes('DS') || false;
 
   // Hilfsfunktion: Prueft ob AP technisch ist (robust gegen verschiedene DB-Datentypen)
   const isTechnicalAP = (wp: WorkPackage | undefined | null): boolean => {
@@ -378,14 +380,14 @@ export default function TimesheetForm({
     return ABSENCE_CODES.includes(value.toUpperCase());
   };
 
-  // FIX v7.4.3-5: Komma als Dezimaltrennzeichen
+  // FIX v7.4.3-5: Komma als Dezimaltrennzeichen korrekt parsen
   const parseHours = (value: string): number => {
     return parseFloat(value.replace(',', '.')) || 0;
   };
 
-  // FIX v7.4.3-7: Feiertagsstunden aus Unternehmens-Wochenstunden
-  // 38h/Woche -> 7,6h/Tag | 40h/Woche -> 8h/Tag
-  const companyDailyHours = Math.round(((company?.standard_weekly_hours || 40) / 5) * 100) / 100;
+  // FIX v7.4.3-6: Taegl. Stunden aus Unternehmens-Wochenstunden
+  // 38h/Woche -> 7.6h/Tag, 40h/Woche -> 8h/Tag
+  const companyDailyHours = Math.round(((company.standard_weekly_hours || 40) / 5) * 100) / 100;
 
   const formatWorkDate = (day: number): string => {
     return `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -411,10 +413,10 @@ export default function TimesheetForm({
 
   // Feiertage berechnen
   useEffect(() => {
-    if (company?.federal_state) {
+    if (company.federal_state) {
       setHolidays(getGermanHolidays(selectedYear, normalizeStateCode(company.federal_state)));
     }
-  }, [selectedYear, company?.federal_state]);
+  }, [selectedYear, company.federal_state]);
 
   // Unterschriftsdatum
   useEffect(() => {
@@ -564,7 +566,7 @@ export default function TimesheetForm({
         console.error('[TimesheetForm] DB-Fehler beim Laden:', loadError);
       }
       
-      console.log('[TimesheetForm] Geladene DB-Eintraege:', entries?.length || 0);
+      console.log('[TimesheetForm] Geladene DB-Eintraege:', entries.length || 0);
       if (entries && entries.length > 0) {
         console.log('[TimesheetForm] Erste Eintraege:', entries.slice(0, 5).map(e => ({
           id: e.id,
@@ -588,7 +590,7 @@ export default function TimesheetForm({
       // Map fuer Fehlzeiten (ohne work_package_id, aber mit absence_code)
       const absenceEntries = new Map<number, { id: string; value: string }>();
 
-      entries?.forEach(entry => {
+      entries.forEach(entry => {
         const day = parseInt(entry.work_date.split('-')[2]);
 
         if (entry.work_package_id && wpIds.includes(entry.work_package_id)) {
@@ -596,7 +598,7 @@ export default function TimesheetForm({
           if (!wpEntryMap.has(entry.work_package_id)) {
             wpEntryMap.set(entry.work_package_id, new Map());
           }
-          const value = entry.hours > 0 ? entry.hours.toString() : '';
+          const value = entry.hours > 0  entry.hours.toString() : '';
           wpEntryMap.get(entry.work_package_id)!.set(day, { id: entry.id, value });
           console.log('[TimesheetForm] AP-Eintrag gefunden:', { wp_id: entry.work_package_id, day, value });
         } else if (entry.absence_code && !entry.work_package_id) {
@@ -605,12 +607,12 @@ export default function TimesheetForm({
           console.log('[TimesheetForm] Fehlzeit-Eintrag gefunden:', { day, absence_code: entry.absence_code });
         } else if (!entry.is_billable && !entry.work_package_id && !entry.absence_code) {
           // Sonstige nicht zuschussfaehige Arbeiten (ohne absence_code)
-          newNonBillable[day] = { id: entry.id, value: entry.hours > 0 ? entry.hours.toString() : '' };
+          newNonBillable[day] = { id: entry.id, value: entry.hours > 0  entry.hours.toString() : '' };
           console.log('[TimesheetForm] Sonstige-Eintrag gefunden:', { day, hours: entry.hours });
         } else {
           console.log('[TimesheetForm] Eintrag NICHT zugeordnet:', { 
             wp_id: entry.work_package_id, 
-            in_wpIds: entry.work_package_id ? wpIds.includes(entry.work_package_id) : 'null',
+            in_wpIds: entry.work_package_id  wpIds.includes(entry.work_package_id) : 'null',
             is_billable: entry.is_billable,
             absence_code: entry.absence_code
           });
@@ -757,7 +759,7 @@ export default function TimesheetForm({
     const canEdit = (r: number, d: number, type: 'ap' | 'nonbillable'): boolean => {
       if (isWeekend(selectedYear, selectedMonth, d)) return false;
       if (isHoliday(selectedYear, selectedMonth, d)) return false;
-      if (type === 'ap' && !apRows[r]?.workPackageId) return false;
+      if (type === 'ap' && !apRows[r].workPackageId) return false;
       return true;
     };
 
@@ -765,8 +767,8 @@ export default function TimesheetForm({
       const input = document.querySelector(
         `input[data-row="${r}"][data-day="${d}"][data-type="${type}"]`
       ) as HTMLInputElement;
-      input?.focus();
-      input?.select();
+      input.focus();
+      input.select();
     };
 
     switch (e.key) {
@@ -884,8 +886,8 @@ export default function TimesheetForm({
         for (let d = day + 1; d <= days; d++) {
           if (canEdit(rowIndex, d, rowType)) {
             const hasValue = rowType === 'ap'
-              ? apRows[rowIndex]?.entries[d]?.value
-              : nonBillableEntries[d]?.value;
+               apRows[rowIndex].entries[d].value
+              : nonBillableEntries[d].value;
             if (!hasValue) {
               focusCell(rowIndex, d, rowType);
               return;
@@ -903,7 +905,7 @@ export default function TimesheetForm({
   const calculateRowSum = (row: APRow): number => {
     return Object.values(row.entries).reduce((sum, entry) => {
       if (entry.value && !isAbsenceCode(entry.value)) {
-        return sum + parseFloat(entry.value);
+        return sum + parseHours(entry.value);
       }
       return sum;
     }, 0);
@@ -922,8 +924,8 @@ export default function TimesheetForm({
   const calculateDaySum = (day: number): number => {
     return apRows.reduce((sum, row) => {
       const entry = row.entries[day];
-      if (entry?.value && !isAbsenceCode(entry.value)) {
-        return sum + parseFloat(entry.value);
+      if (entry.value && !isAbsenceCode(entry.value)) {
+        return sum + parseHours(entry.value);
       }
       return sum;
     }, 0);
@@ -941,8 +943,8 @@ export default function TimesheetForm({
       const isTech = isTechnicalAP(wp);
       if (isTech !== technical) return sum;
       const entry = row.entries[day];
-      if (entry?.value && !isAbsenceCode(entry.value)) {
-        return sum + parseFloat(entry.value);
+      if (entry.value && !isAbsenceCode(entry.value)) {
+        return sum + parseHours(entry.value);
       }
       return sum;
     }, 0);
@@ -961,7 +963,7 @@ export default function TimesheetForm({
   const calculateNonBillableSum = (): number => {
     return Object.values(nonBillableEntries).reduce((sum, entry) => {
       if (entry.value) {
-        return sum + parseFloat(entry.value);
+        return sum + parseHours(entry.value);
       }
       return sum;
     }, 0);
@@ -971,7 +973,7 @@ export default function TimesheetForm({
     const absences: Record<string, number> = {};
     apRows.forEach(row => {
       const entry = row.entries[day];
-      if (entry?.value && isAbsenceCode(entry.value)) {
+      if (entry.value && isAbsenceCode(entry.value)) {
         const code = entry.value.toUpperCase();
         absences[code] = (absences[code] || 0) + 1;
       }
@@ -986,7 +988,7 @@ export default function TimesheetForm({
     for (let day = 1; day <= daysInMonth; day++) {
       apRows.forEach(row => {
         const entry = row.entries[day];
-        if (entry?.value && isAbsenceCode(entry.value)) {
+        if (entry.value && isAbsenceCode(entry.value)) {
           const code = entry.value.toUpperCase();
           if (sums[code] !== undefined) {
             sums[code] += companyDailyHours;
@@ -1023,19 +1025,19 @@ export default function TimesheetForm({
           if (!entry.value) return;
 
           const isAbsence = isAbsenceCode(entry.value);
-          const hours = isAbsence ? companyDailyHours : parseHours(entry.value);
+          const hours = isAbsence  companyDailyHours : parseHours(entry.value);
 
           // DB-Constraint: work_package_id und absence_code schliessen sich gegenseitig aus!
           // Bei Fehlzeiten: work_package_id = null, absence_code gesetzt
           // Bei Arbeit: work_package_id gesetzt, absence_code = null
           const record = {
             employee_id: selectedEmployeeId,
-            work_package_id: isAbsence ? null : row.workPackageId,
+            work_package_id: isAbsence  null : row.workPackageId,
             project_id: selectedProjectId,
             work_date: formatWorkDate(day),
             hours: hours,
             is_billable: !isAbsence,
-            absence_code: isAbsence ? entry.value.toUpperCase() : null,
+            absence_code: isAbsence  entry.value.toUpperCase() : null,
             data_source: 'manual',
             entered_by: currentUserId,
             entered_at: now,
@@ -1094,7 +1096,7 @@ export default function TimesheetForm({
         .eq('is_active', true);
 
       const idsToDeactivate = existingEntries
-        ?.filter(e => !idsToKeep.includes(e.id))
+        .filter(e => !idsToKeep.includes(e.id))
         .map(e => e.id) || [];
 
       if (idsToDeactivate.length > 0) {
@@ -1137,8 +1139,8 @@ export default function TimesheetForm({
   };
 
   const handleExportPDF = async () => {
-    const empName = selectedEmployee?.display_name?.replace(/\s+/g, '_') || 'Mitarbeiter';
-    const projectRef = selectedProject?.funding_reference?.replace(/\s+/g, '_') || selectedProject?.short_name || 'Projekt';
+    const empName = selectedEmployee.display_name.replace(/\s+/g, '_') || 'Mitarbeiter';
+    const projectRef = selectedProject.funding_reference.replace(/\s+/g, '_') || selectedProject.short_name || 'Projekt';
     const monthYear = `${String(selectedMonth).padStart(2, '0')}_${selectedYear}`;
     const defaultFileName = `Stundennachweis_${empName}_${projectRef}_${monthYear}.pdf`;
 
@@ -1277,11 +1279,11 @@ export default function TimesheetForm({
                 disabled={saving || !hasChanges}
                 className={`px-4 py-1.5 rounded text-sm font-medium ${
                   hasChanges
-                    ? 'bg-white text-gray-800 hover:bg-gray-100'
+                     'bg-white text-gray-800 hover:bg-gray-100'
                     : 'bg-white/50 text-white/70 cursor-not-allowed'
                 }`}
               >
-                {saving ? '...' : 'Speichern'}
+                {saving  '...' : 'Speichern'}
               </button>
               <span className="text-white text-sm">{currentUserDisplayName}</span>
             </div>
@@ -1324,7 +1326,7 @@ export default function TimesheetForm({
               >
                 {safeProjects.map(p => (
                   <option key={p.id} value={p.id}>
-                    {p.short_name || p.name} {p.funding_reference ? `(${p.funding_reference})` : ''}
+                    {p.short_name || p.name} {p.funding_reference  `(${p.funding_reference})` : ''}
                   </option>
                 ))}
               </select>
@@ -1392,7 +1394,7 @@ export default function TimesheetForm({
               <tr>
                 <td className="border p-2 print:p-1.5" style={{ width: '50%' }}>
                   <div className="text-[10px] print:text-[8px] text-gray-500">Zuwendungsempfaenger (Firmenstempel)</div>
-                  <div className="font-bold text-lg print:text-base text-center py-2">{company?.name}</div>
+                  <div className="font-bold text-lg print:text-base text-center py-2">{company.name}</div>
                 </td>
                 <td className="border p-2 print:p-1.5 text-center" style={{ width: '50%', backgroundColor: HEADER_ORANGE }}>
                   <div className="font-bold text-xl print:text-lg">Stundennachweis</div>
@@ -1404,11 +1406,11 @@ export default function TimesheetForm({
               <tr>
                 <td className="border p-2 print:p-1">
                   <div className="text-[10px] print:text-[8px] text-gray-500">Vorhabenthema</div>
-                  <div className="font-semibold text-base print:text-sm text-center py-1">{selectedProject?.name || '-'}</div>
+                  <div className="font-semibold text-base print:text-sm text-center py-1">{selectedProject.name || '-'}</div>
                 </td>
                 <td className="border p-2 print:p-1" style={{ backgroundColor: HEADER_ORANGE }}>
                   <div className="text-[10px] print:text-[8px] text-gray-500">Foerderkennzeichen</div>
-                  <div className="font-bold text-lg print:text-base text-center py-1">{selectedProject?.funding_reference || '-'}</div>
+                  <div className="font-bold text-lg print:text-base text-center py-1">{selectedProject.funding_reference || '-'}</div>
                 </td>
               </tr>
               <tr>
@@ -1419,7 +1421,7 @@ export default function TimesheetForm({
                 <td className="border p-2 print:p-1">
                   <div className="text-[10px] print:text-[8px] text-gray-500">Mitarbeiter(in): [Name, Vorname]</div>
                   <div className="font-semibold text-base print:text-sm text-center py-1">
-                    {selectedEmployee ? `${selectedEmployee.last_name || ''}, ${selectedEmployee.first_name || ''}`.trim() || selectedEmployee.display_name : '-'}
+                    {selectedEmployee  `${selectedEmployee.last_name || ''}, ${selectedEmployee.first_name || ''}`.trim() || selectedEmployee.display_name : '-'}
                   </div>
                 </td>
               </tr>
@@ -1447,7 +1449,7 @@ export default function TimesheetForm({
                   return (
                     <th
                       key={day}
-                      className={`border p-0 text-center ${weekend ? 'bg-gray-300' : holiday ? 'bg-orange-200' : ''}`}
+                      className={`border p-0 text-center ${weekend  'bg-gray-300' : holiday  'bg-orange-200' : ''}`}
                       style={{ width: '24px', minWidth: '24px' }}
                       title={holiday || undefined}
                     >
@@ -1462,7 +1464,7 @@ export default function TimesheetForm({
             <tbody>
               {/* Abschnitt 1: Foerderbare Arbeiten */}
               <tr>
-                <td className="border p-1 font-semibold" colSpan={(isDurchfuehrbarkeitsstudie ? 4 : 3) + daysInMonth + 2} style={{ backgroundColor: '#FFF9E6' }}>
+                <td className="border p-1 font-semibold" colSpan={(isDurchfuehrbarkeitsstudie  4 : 3) + daysInMonth + 2} style={{ backgroundColor: '#FFF9E6' }}>
                   1. foerderbare Projektarbeiten (1)
                 </td>
               </tr>
@@ -1497,8 +1499,8 @@ export default function TimesheetForm({
                               })
                               .map(wp => {
                                 const apDisplay = wp.ap_code
-                                  ? wp.ap_code.replace(/^AP/i, '')
-                                  : `${wp.ap_number}${wp.ap_sub_number ? `.${wp.ap_sub_number}` : ''}`;
+                                   wp.ap_code.replace(/^AP/i, '')
+                                  : `${wp.ap_number}${wp.ap_sub_number  `.${wp.ap_sub_number}` : ''}`;
                                 return (
                                   <option key={wp.id} value={wp.id}>
                                     {apDisplay}
@@ -1524,8 +1526,8 @@ export default function TimesheetForm({
                               })
                               .map(wp => {
                                 const apDisplay = wp.ap_code
-                                  ? wp.ap_code.replace(/^AP/i, '')
-                                  : `${wp.ap_number}${wp.ap_sub_number ? `.${wp.ap_sub_number}` : ''}`;
+                                   wp.ap_code.replace(/^AP/i, '')
+                                  : `${wp.ap_number}${wp.ap_sub_number  `.${wp.ap_sub_number}` : ''}`;
                                 return (
                                   <option key={wp.id} value={wp.id}>
                                     {apDisplay}
@@ -1537,8 +1539,8 @@ export default function TimesheetForm({
                         {/* Fallback wenn keine Gruppen */}
                         {assignedWPIds.length === 0 && availableWorkPackages.map(wp => {
                           const apDisplay = wp.ap_code
-                            ? wp.ap_code.replace(/^AP/i, '')
-                            : `${wp.ap_number}${wp.ap_sub_number ? `.${wp.ap_sub_number}` : ''}`;
+                             wp.ap_code.replace(/^AP/i, '')
+                            : `${wp.ap_number}${wp.ap_sub_number  `.${wp.ap_sub_number}` : ''}`;
                           return (
                             <option key={wp.id} value={wp.id}>
                               {apDisplay}
@@ -1548,14 +1550,14 @@ export default function TimesheetForm({
                       </select>
                     </td>
                     <td className="border p-1 text-[10px] leading-tight" style={{ maxWidth: '180px' }}>
-                      <div className="line-clamp-2" title={selectedWP?.name}>
-                        {selectedWP?.name || ''}
+                      <div className="line-clamp-2" title={selectedWP.name}>
+                        {selectedWP.name || ''}
                       </div>
                     </td>
                     {isDurchfuehrbarkeitsstudie && (
                       <td className="border p-1 text-center">
-                        {selectedWP ? (
-                          isTechnicalAP(selectedWP) ? (
+                        {selectedWP  (
+                          isTechnicalAP(selectedWP)  (
                             <span className="text-green-700 font-bold text-xs">T</span>
                           ) : (
                             <span className="text-blue-700 font-bold text-xs">NT</span>
@@ -1569,13 +1571,13 @@ export default function TimesheetForm({
                       const weekend = isWeekend(selectedYear, selectedMonth, day);
                       const holiday = isHoliday(selectedYear, selectedMonth, day);
                       const entry = row.entries[day];
-                      const isAbsence = entry?.value && isAbsenceCode(entry.value);
+                      const isAbsence = entry.value && isAbsenceCode(entry.value);
 
                       return (
                         <td
                           key={day}
                           className={`border p-0 text-center ${
-                            weekend ? 'bg-gray-200' : holiday ? 'bg-orange-100' : ''
+                            weekend  'bg-gray-200' : holiday  'bg-orange-100' : ''
                           }`}
                         >
                           <input
@@ -1583,15 +1585,15 @@ export default function TimesheetForm({
                             data-row={rowIndex}
                             data-day={day}
                             data-type="ap"
-                            value={entry?.value || ''}
+                            value={entry.value || ''}
                             onChange={(e) => handleCellChange(rowIndex, day, e.target.value)}
                             onKeyDown={(e) => handleKeyDown(e, rowIndex, day, 'ap')}
                             disabled={weekend || !!holiday || !row.workPackageId}
                             maxLength={4}
                             className={`w-full h-8 text-center text-xs border-0 ${
-                              weekend || !!holiday ? 'bg-transparent cursor-not-allowed' :
-                              !row.workPackageId ? 'bg-gray-50 cursor-not-allowed' :
-                              isAbsence ? 'bg-blue-100 font-bold text-blue-700' : 'bg-white'
+                              weekend || !!holiday  'bg-transparent cursor-not-allowed' :
+                              !row.workPackageId  'bg-gray-50 cursor-not-allowed' :
+                              isAbsence  'bg-blue-100 font-bold text-blue-700' : 'bg-white'
                             } focus:ring-1 ${colors.ring} print:bg-transparent`}
                             style={{ minWidth: '24px' }}
                           />
@@ -1599,7 +1601,7 @@ export default function TimesheetForm({
                       );
                     })}
                     <td className="border p-1 text-center font-semibold bg-gray-50">
-                      {calculateRowSum(row) > 0 ? calculateRowSum(row).toFixed(2) : '0,00'}
+                      {calculateRowSum(row) > 0  calculateRowSum(row).toFixed(2) : '0,00'}
                     </td>
                     {/* NEU v7.4.3: offen-Spalte */}
                     <td className="border p-1 text-center text-xs print:hidden" style={{ backgroundColor: '#F1F8E9' }}>
@@ -1618,7 +1620,7 @@ export default function TimesheetForm({
               {/* Button zum Hinzufuegen */}
               {allRowsFilled && availableWorkPackages.length > apRows.length && (
                 <tr className="print:hidden">
-                  <td colSpan={(isDurchfuehrbarkeitsstudie ? 4 : 3) + daysInMonth + 2} className="border p-1 text-center">
+                  <td colSpan={(isDurchfuehrbarkeitsstudie  4 : 3) + daysInMonth + 2} className="border p-1 text-center">
                     <button
                       onClick={addApRow}
                       className={`text-xs ${colors.text} hover:underline`}
@@ -1630,7 +1632,7 @@ export default function TimesheetForm({
               )}
 
               {/* Summe foerderbare Stunden */}
-              {isDurchfuehrbarkeitsstudie ? (
+              {isDurchfuehrbarkeitsstudie  (
                 <>
                   {/* Summe technische APs */}
                   <tr className="font-semibold" style={{ backgroundColor: '#E8F5E9' }}>
@@ -1639,7 +1641,7 @@ export default function TimesheetForm({
                       const daySum = calculateTechnicalDaySum(day, true);
                       return (
                         <td key={day} className="border p-1 text-center text-[10px]">
-                          {daySum > 0 ? daySum.toFixed(2) : ''}
+                          {daySum > 0  daySum.toFixed(2) : ''}
                         </td>
                       );
                     })}
@@ -1655,7 +1657,7 @@ export default function TimesheetForm({
                       const daySum = calculateTechnicalDaySum(day, false);
                       return (
                         <td key={day} className="border p-1 text-center text-[10px]">
-                          {daySum > 0 ? daySum.toFixed(2) : ''}
+                          {daySum > 0  daySum.toFixed(2) : ''}
                         </td>
                       );
                     })}
@@ -1671,7 +1673,7 @@ export default function TimesheetForm({
                       const daySum = calculateDaySum(day);
                       return (
                         <td key={day} className="border p-1 text-center text-[10px]">
-                          {daySum > 0 ? daySum.toFixed(2) : ''}
+                          {daySum > 0  daySum.toFixed(2) : ''}
                         </td>
                       );
                     })}
@@ -1688,7 +1690,7 @@ export default function TimesheetForm({
                     const daySum = calculateDaySum(day);
                     return (
                       <td key={day} className="border p-1 text-center text-[10px]">
-                        {daySum > 0 ? daySum.toFixed(2) : '0,00'}
+                        {daySum > 0  daySum.toFixed(2) : '0,00'}
                       </td>
                     );
                   })}
@@ -1701,31 +1703,31 @@ export default function TimesheetForm({
 
               {/* Abschnitt 2: Nicht zuschussfaehig */}
               <tr>
-                <td className="border p-1 font-semibold" colSpan={(isDurchfuehrbarkeitsstudie ? 4 : 3) + daysInMonth + 2} style={{ backgroundColor: '#FFF3E0' }}>
+                <td className="border p-1 font-semibold" colSpan={(isDurchfuehrbarkeitsstudie  4 : 3) + daysInMonth + 2} style={{ backgroundColor: '#FFF3E0' }}>
                   2. Nicht zuschussfaehige Arbeiten
                 </td>
               </tr>
               <tr>
-                <td className="border p-1" colSpan={isDurchfuehrbarkeitsstudie ? 4 : 3}>sonstige Arbeiten</td>
+                <td className="border p-1" colSpan={isDurchfuehrbarkeitsstudie  4 : 3}>sonstige Arbeiten</td>
                 {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
                   const weekend = isWeekend(selectedYear, selectedMonth, day);
                   const holiday = isHoliday(selectedYear, selectedMonth, day);
                   const entry = nonBillableEntries[day];
 
                   return (
-                    <td key={day} className={`border p-0 text-center ${weekend ? 'bg-gray-200' : holiday ? 'bg-orange-100' : ''}`}>
+                    <td key={day} className={`border p-0 text-center ${weekend  'bg-gray-200' : holiday  'bg-orange-100' : ''}`}>
                       <input
                         type="text"
                         data-row="0"
                         data-day={day}
                         data-type="nonbillable"
-                        value={entry?.value || ''}
+                        value={entry.value || ''}
                         onChange={(e) => handleNonBillableChange(day, e.target.value)}
                         onKeyDown={(e) => handleKeyDown(e, 0, day, 'nonbillable')}
                         disabled={weekend || !!holiday}
                         maxLength={4}
                         className={`w-full h-6 text-center text-xs border-0 ${
-                          weekend || !!holiday ? 'bg-transparent cursor-not-allowed' : 'bg-white'
+                          weekend || !!holiday  'bg-transparent cursor-not-allowed' : 'bg-white'
                         } focus:ring-1 focus:ring-yellow-500 print:bg-transparent`}
                       />
                     </td>
@@ -1739,59 +1741,59 @@ export default function TimesheetForm({
 
               {/* Abschnitt 3: Fehlzeiten */}
               <tr>
-                <td className="border p-1 font-semibold" colSpan={(isDurchfuehrbarkeitsstudie ? 4 : 3) + daysInMonth + 2} style={{ backgroundColor: '#E3F2FD' }}>
+                <td className="border p-1 font-semibold" colSpan={(isDurchfuehrbarkeitsstudie  4 : 3) + daysInMonth + 2} style={{ backgroundColor: '#E3F2FD' }}>
                   3. Fehlzeiten
                 </td>
               </tr>
               {/* Urlaub */}
               <tr>
-                <td className="border p-1 text-[10px]" colSpan={isDurchfuehrbarkeitsstudie ? 4 : 3}>Urlaub (nur bezahlten Urlaub auffuehren)</td>
+                <td className="border p-1 text-[10px]" colSpan={isDurchfuehrbarkeitsstudie  4 : 3}>Urlaub (nur bezahlten Urlaub auffuehren)</td>
                 {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
                   const absences = getAbsencesForDay(day);
                   const hasU = absences.some(a => a.code === 'U');
                   return (
                     <td key={day} className="border p-1 text-center text-[10px] bg-blue-50">
-                      {hasU ? companyDailyHours.toFixed(1).replace('.', ',') : ''}
+                      {hasU  companyDailyHours.toFixed(1).replace('.', ',') : ''}
                     </td>
                   );
                 })}
                 <td className="border p-1 text-center font-semibold bg-blue-100">
-                  {absenceSums.U > 0 ? absenceSums.U.toFixed(2) : '0,00'}
+                  {absenceSums.U > 0  absenceSums.U.toFixed(2) : '0,00'}
                 </td>
                 <td className="border p-1 bg-blue-50 print:hidden"></td>
               </tr>
               {/* Krankheit */}
               <tr>
-                <td className="border p-1 text-[10px]" colSpan={isDurchfuehrbarkeitsstudie ? 4 : 3}>Krankheit (nur bei Lohn- und Gehaltsfortzahlung)</td>
+                <td className="border p-1 text-[10px]" colSpan={isDurchfuehrbarkeitsstudie  4 : 3}>Krankheit (nur bei Lohn- und Gehaltsfortzahlung)</td>
                 {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
                   const absences = getAbsencesForDay(day);
                   const hasK = absences.some(a => a.code === 'K');
                   return (
                     <td key={day} className="border p-1 text-center text-[10px] bg-red-50">
-                      {hasK ? companyDailyHours.toFixed(1).replace('.', ',') : ''}
+                      {hasK  companyDailyHours.toFixed(1).replace('.', ',') : ''}
                     </td>
                   );
                 })}
                 <td className="border p-1 text-center font-semibold bg-red-100">
-                  {absenceSums.K > 0 ? absenceSums.K.toFixed(2) : '0,00'}
+                  {absenceSums.K > 0  absenceSums.K.toFixed(2) : '0,00'}
                 </td>
                 <td className="border p-1 bg-red-50 print:hidden"></td>
               </tr>
               {/* Sonstige */}
               <tr>
-                <td className="border p-1 text-[10px]" colSpan={isDurchfuehrbarkeitsstudie ? 4 : 3}>Sonstige bezahlte Ausfallzeiten (z. B. Feiertage)</td>
+                <td className="border p-1 text-[10px]" colSpan={isDurchfuehrbarkeitsstudie  4 : 3}>Sonstige bezahlte Ausfallzeiten (z. B. Feiertage)</td>
                 {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
                   const absences = getAbsencesForDay(day);
                   const hasS = absences.some(a => a.code === 'S');
                   const holiday = isHoliday(selectedYear, selectedMonth, day);
                   return (
-                    <td key={day} className={`border p-1 text-center text-[10px] ${holiday ? 'bg-orange-100' : 'bg-purple-50'}`}>
-                      {hasS || holiday ? companyDailyHours.toFixed(1).replace('.', ',') : ''}
+                    <td key={day} className={`border p-1 text-center text-[10px] ${holiday  'bg-orange-100' : 'bg-purple-50'}`}>
+                      {hasS || holiday  companyDailyHours.toFixed(1).replace('.', ',') : ''}
                     </td>
                   );
                 })}
                 <td className="border p-1 text-center font-semibold bg-purple-100">
-                  {absenceSums.S > 0 ? absenceSums.S.toFixed(2) : '0,00'}
+                  {absenceSums.S > 0  absenceSums.S.toFixed(2) : '0,00'}
                 </td>
                 <td className="border p-1 bg-purple-50 print:hidden"></td>
               </tr>
@@ -1836,7 +1838,7 @@ export default function TimesheetForm({
       <footer className="bg-white border-t mt-4 print:hidden">
         <div className="max-w-full mx-auto px-4 py-3">
           <p className="text-center text-xs text-gray-500">
-            PZE v7.4.3 | {portal === 'berater' ? 'Berater-Portal' : 'Firmen-Portal'} | {company.name}
+            PZE v7.4.3-6 | {portal === 'berater'  'Berater-Portal' : 'Firmen-Portal'} | {company.name}
           </p>
         </div>
       </footer>
@@ -1847,7 +1849,7 @@ export default function TimesheetForm({
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-md mx-4">
             <h3 className="text-lg font-semibold text-gray-900 mb-2">Ungespeicherte Aenderungen</h3>
             <p className="text-gray-600 mb-6">
-              Sie haben ungespeicherte Aenderungen. Was moechten Sie tun?
+              Sie haben ungespeicherte Aenderungen. Was moechten Sie tun
             </p>
             <div className="flex gap-3 justify-end">
               <button
