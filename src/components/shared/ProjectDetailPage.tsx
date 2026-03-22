@@ -3,7 +3,7 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 12. Maerz 2026
-// Version: 7.4.4-15
+// Version: 7.4.4-16
 //
 // Gemeinsame Projekt-Detailseite fuer beide Portale:
 // - Berater-Portal: /v7/berater/foerderung/firma/[firmaId]/projekt/[projektId]
@@ -463,6 +463,7 @@ export default function ProjectDetailPage({
         .eq('project_id', projectId)
         .eq('is_active', true);
 
+      console.log('[PZE-DEBUG-15] assignmentData:', assignmentData?.length, 'workPackages:', workPackages?.length);
       if (assignmentData) {
         setProjectEmployeeIds(assignmentData.map((a: any) => a.employee_id));
 
@@ -509,10 +510,12 @@ export default function ProjectDetailPage({
           if (b.employee_number !== null) return 1;
           return a.employee_name.localeCompare(b.employee_name, 'de');
         });
+        console.log('[PZE-DEBUG-15] setTeamMembers mit', team.length, 'MA');
         setTeamMembers(team);
       }
 
     } catch (err: any) {
+      console.log('[PZE-DEBUG-15] CATCH ERROR:', err.message);
       setError(err.message);
     } finally {
       setLoading(false);
