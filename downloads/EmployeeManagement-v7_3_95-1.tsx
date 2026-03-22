@@ -2,7 +2,7 @@
 // ============================================================================
 // PZE V7 - Shared Employee Management Component
 // ============================================================================
-// Datum: 20. Februar 2026
+// Datum: 18. Februar 2026
 // Version: 7.3.95-1
 //
 // Wird von beiden Portalen genutzt:
@@ -16,13 +16,6 @@
 // - Deaktivieren/Reaktivieren
 // - Portal-Rolle zuweisen (employee/project_leader/client_admin)
 // - Login erstellen (NEU: Erkennt bereits registrierte Benutzer)
-// - Passwort zuruecksetzen (Berater-Portal: amber Schluessel-Icon)
-//
-// AENDERUNGEN v7.3.95-1:
-// - WIEDERHERGESTELLT: Passwort-zuruecksetzen-Button + Modal
-//   (War in v7.3.91-1 eingebaut, ging bei v7.3.95 Anlage-6.1-Bereinigung verloren)
-//   Amber Schluessel-Icon bei MA mit bestehendem Login (nur Berater-Portal)
-//   Nutzt API-Route /api/v7/reset-password (Admin-gesichert)
 //
 // AENDERUNGEN v7.3.95:
 // - ENTFERNT: Gesamter "Persoenliche Daten (Anlage 6.1)" Bereich aus Formular
@@ -204,14 +197,6 @@ export default function EmployeeManagement({
   const [loginMode, setLoginMode] = useState<'create' | 'link'>('create');
   const [existingUserId, setExistingUserId] = useState<string | null>(null);
 
-  // State - Passwort zuruecksetzen (v7.3.95-1, wiederhergestellt aus v7.3.91-1)
-  const [showResetPwModal, setShowResetPwModal] = useState(false);
-  const [resetPwEmployee, setResetPwEmployee] = useState<Employee | null>(null);
-  const [resetPwPassword, setResetPwPassword] = useState('');
-  const [resetPwError, setResetPwError] = useState<string | null>(null);
-  const [resetPwSuccess, setResetPwSuccess] = useState(false);
-  const [resettingPw, setResettingPw] = useState(false);
-
   // ============================================================================
   // DATEN LADEN
   // ============================================================================
@@ -362,7 +347,7 @@ export default function EmployeeManagement({
         email: formData.email.trim() || null,
         position_title: formData.position_title.trim() || null,
         qualification: formData.qualification || null,
-        weekly_hours: formData.weekly_hours ? parseFloat(formData.weekly_hours) : null,
+        weekly_hours: formData.weekly_hours ? parseFloat(formData.weekly_hours.replace(',', '.')) : null,
         employment_start: formData.employment_start || null,
         employment_end: formData.employment_end || null,
         portal_role: formData.portal_role || 'employee',
@@ -679,14 +664,12 @@ export default function EmployeeManagement({
   };
 
   const createUserProfile = async (userId: string, emp: Employee) => {
-    // Alle Firmen-Mitarbeiter bekommen role = 'client_user' in v7_user_profiles
-    // Die Portal-Rolle (employee/project_leader/client_admin) steht in v7_employees.portal_role
     const { error } = await supabase
       .from('v7_user_profiles')
       .insert({
         id: userId,
         email: emp.email,
-        role: 'client_user',
+        role: emp.portal_role === 'client_admin' ? 'client_admin' : 'employee',
         display_name: emp.display_name,
         first_name: emp.first_name,
         last_name: emp.last_name,
@@ -728,71 +711,6 @@ export default function EmployeeManagement({
 
   const activeCount = employees.filter(e => e.is_active).length;
   const inactiveCount = employees.filter(e => !e.is_active).length;
-
-  // ============================================================================
-  // PASSWORT ZURUECKSETZEN (v7.3.95-1)
-  // ============================================================================
-
-  const openResetPwModal = (emp: Employee) => {
-    setResetPwEmployee(emp);
-    setResetPwPassword('');
-    setResetPwError(null);
-    setResetPwSuccess(false);
-    setShowResetPwModal(true);
-  };
-
-  const closeResetPwModal = () => {
-    setShowResetPwModal(false);
-    setResetPwEmployee(null);
-    setResetPwPassword('');
-    setResetPwError(null);
-    setResetPwSuccess(false);
-  };
-
-  const handleResetPassword = async () => {
-    if (!resetPwEmployee?.user_id) return;
-
-    if (resetPwPassword.length < 6) {
-      setResetPwError('Passwort muss mindestens 6 Zeichen lang sein.');
-      return;
-    }
-
-    setResettingPw(true);
-    setResetPwError(null);
-    try {
-      // Auth-Token holen
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        setResetPwError('Nicht eingeloggt. Bitte erneut anmelden.');
-        return;
-      }
-
-      const response = await fetch('/api/v7/reset-password', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          userId: resetPwEmployee.user_id,
-          newPassword: resetPwPassword,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        setResetPwError(result.error || 'Fehler beim Zuruecksetzen.');
-      } else {
-        setResetPwSuccess(true);
-        setResetPwPassword('');
-      }
-    } catch (err: unknown) {
-      setResetPwError('Unerwarteter Fehler.');
-    } finally {
-      setResettingPw(false);
-    }
-  };
 
   // ============================================================================
   // RENDER - LOADING
@@ -961,16 +879,6 @@ export default function EmployeeManagement({
                                 ? <Link2 size={18} /> 
                                 : <KeyRound size={18} />
                               }
-                            </button>
-                          )}
-                          {/* Passwort zuruecksetzen - nur bei MA MIT Login, nur Berater-Portal */}
-                          {emp.user_id && emp.has_login && emp.is_active && portal === 'berater' && (
-                            <button
-                              onClick={() => openResetPwModal(emp)}
-                              className="p-1.5 text-amber-600 hover:text-amber-800 rounded"
-                              title="Passwort zuruecksetzen"
-                            >
-                              <KeyRound size={18} />
                             </button>
                           )}
                           <button
@@ -1415,88 +1323,6 @@ export default function EmployeeManagement({
                   className={`px-4 py-2 text-white rounded-lg disabled:opacity-50 ${colors.button}`}
                 >
                   {creatingLogin ? 'Erstelle...' : 'Login erstellen'}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ================================================================ */}
-      {/* MODAL: Passwort zuruecksetzen (v7.3.95-1)                       */}
-      {/* ================================================================ */}
-      {showResetPwModal && resetPwEmployee && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                <KeyRound className="text-amber-600" size={20} />
-                Passwort zuruecksetzen
-              </h3>
-              <button
-                onClick={closeResetPwModal}
-                className="p-1 text-gray-400 hover:text-gray-600 rounded"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="p-6 space-y-4">
-              {resetPwSuccess ? (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
-                  <p className="text-green-800 font-medium mb-1">Passwort erfolgreich geaendert!</p>
-                  <p className="text-sm text-green-600">
-                    Bitte teilen Sie dem Mitarbeiter das neue Passwort mit.
-                  </p>
-                </div>
-              ) : (
-                <>
-                  <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg">
-                    <strong>{resetPwEmployee.display_name}</strong>
-                    <br />
-                    <span className="text-gray-500">{resetPwEmployee.email}</span>
-                  </div>
-
-                  {resetPwError && (
-                    <div className="bg-red-50 text-red-600 px-3 py-2 rounded-lg text-sm">
-                      {resetPwError}
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Neues Passwort
-                    </label>
-                    <input
-                      type="text"
-                      value={resetPwPassword}
-                      onChange={(e) => setResetPwPassword(e.target.value)}
-                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
-                      placeholder="Mindestens 6 Zeichen"
-                      autoFocus
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Das Passwort wird im Klartext angezeigt, damit Sie es dem Mitarbeiter mitteilen koennen.
-                    </p>
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-lg">
-              <button
-                onClick={closeResetPwModal}
-                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg"
-              >
-                {resetPwSuccess ? 'Schliessen' : 'Abbrechen'}
-              </button>
-              {!resetPwSuccess && (
-                <button
-                  onClick={handleResetPassword}
-                  disabled={resettingPw || resetPwPassword.length < 6}
-                  className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg disabled:opacity-50"
-                >
-                  {resettingPw ? 'Wird geaendert...' : 'Passwort setzen'}
                 </button>
               )}
             </div>
