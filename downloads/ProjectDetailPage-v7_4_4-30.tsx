@@ -3,17 +3,14 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 22. Maerz 2026
-// Version: 7.4.4-31
+// Version: 7.4.4-30
 //
-// KOMPLETTER NEUAUFBAU (Session 6) - Revision 1
+// KOMPLETTER NEUAUFBAU (Session 6)
 // Kein Patchen - von Grund auf korrekt implementiert:
 // - Profil-Query via .eq('email', user.email) - korrekte Lookup-Methode
 // - wpAssignments-Query ohne !inner - verhindert silent exception
 // - ArbeitsplanImport Props exakt nach Interface (hasTeam, teamCount, onImportComplete)
 // - WorkPackageTable Props exakt nach Interface (assignments.planned_pm, projectTeam-Felder)
-// - WPEmployee mit position_title + weekly_hours (laut WPModalEmployee-Interface)
-// - onAddAssignment/onUpdateAssignment/onRemoveAssignment mit 2-Param-Signatur (laut Modal)
-// - WorkPackage-Mapping fuer WPT: ap_code string (nicht nullable) + nur WPT-Felder
 // - Durchgehend typsicher - kein 'as any'
 //
 // Gemeinsame Projekt-Detailseite fuer beide Portale:
@@ -113,8 +110,6 @@ interface WPEmployee {
   display_name: string;
   first_name: string | null;
   last_name: string | null;
-  position_title: string | null;
-  weekly_hours: number | null;
   employee_number: number | null;
 }
 
@@ -428,7 +423,7 @@ export default function ProjectDetailPage({
       // Alle aktiven MAs der Firma (fuer WorkPackageTable Spalten-Header)
       const { data: allEmpsData } = await supabase
         .from('v7_employees')
-        .select('id, display_name, first_name, last_name, position_title, weekly_hours, employee_number')
+        .select('id, display_name, first_name, last_name, employee_number')
         .eq('client_company_id', targetCompanyId)
         .eq('is_active', true)
         .order('display_name');
@@ -438,8 +433,6 @@ export default function ProjectDetailPage({
         display_name: emp.display_name,
         first_name: emp.first_name || null,
         last_name: emp.last_name || null,
-        position_title: emp.position_title || null,
-        weekly_hours: emp.weekly_hours || null,
         employee_number: emp.employee_number || null,
       }));
       setAllEmployees(mappedAllEmps);
@@ -809,36 +802,39 @@ export default function ProjectDetailPage({
   // WP ASSIGNMENT (via WorkPackageAssignmentModal)
   // ============================================================================
 
-  // Signatur: (employeeId, pm) - nutzt assignmentWP aus State fuer work_package_id
-  const handleAddWPAssignment = async (employeeId: string, pm: number | null) => {
-    if (!assignmentWP) return;
+  const handleAddWPAssignment = async (
+    wpId: string,
+    employeeId: string,
+    plannedPm: number,
+    rolDesc: string | null
+  ) => {
     setSavingAssignment(true);
     try {
-      const hours = pm ? Math.round(pm * HOURS_PER_PM * 100) / 100 : null;
-      const { error: insertError } = await supabase
-        .from('v7_work_package_assignments')
-        .insert({
-          work_package_id: assignmentWP.id,
-          employee_id: employeeId,
-          planned_person_months: pm,
-          planned_hours: hours,
-          is_active: true,
-        });
-      if (insertError) {
-        if (insertError.code === '23505') {
-          await supabase
-            .from('v7_work_package_assignments')
-            .update({
-              is_active: true,
-              planned_person_months: pm,
-              planned_hours: hours,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('work_package_id', assignmentWP.id)
-            .eq('employee_id', employeeId);
-        } else {
-          throw insertError;
-        }
+      const hours = Math.round(plannedPm * HOURS_PER_PM);
+      const existing = wpAssignments.find(
+        a => a.work_package_id === wpId && a.employee_id === employeeId
+      );
+      if (existing) {
+        await supabase
+          .from('v7_work_package_assignments')
+          .update({
+            planned_person_months: plannedPm,
+            planned_hours: hours,
+            is_active: true,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existing.id);
+      } else {
+        await supabase
+          .from('v7_work_package_assignments')
+          .insert({
+            work_package_id: wpId,
+            employee_id: employeeId,
+            planned_person_months: plannedPm,
+            planned_hours: hours,
+            role_description: rolDesc,
+            is_active: true,
+          });
       }
       await loadData();
     } catch (err: unknown) {
@@ -849,22 +845,21 @@ export default function ProjectDetailPage({
     }
   };
 
-  // Signatur: (employeeId, pm) - nutzt assignmentWP aus State
-  const handleUpdateWPAssignment = async (employeeId: string, pm: number | null) => {
-    if (!assignmentWP) return;
+  const handleUpdateWPAssignment = async (
+    assignmentId: string,
+    plannedPm: number
+  ) => {
     setSavingAssignment(true);
     try {
-      const hours = pm ? Math.round(pm * HOURS_PER_PM * 100) / 100 : null;
-      const { error: updateError } = await supabase
+      const hours = Math.round(plannedPm * HOURS_PER_PM);
+      await supabase
         .from('v7_work_package_assignments')
         .update({
-          planned_person_months: pm,
+          planned_person_months: plannedPm,
           planned_hours: hours,
           updated_at: new Date().toISOString(),
         })
-        .eq('work_package_id', assignmentWP.id)
-        .eq('employee_id', employeeId);
-      if (updateError) throw updateError;
+        .eq('id', assignmentId);
       await loadData();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Fehler';
@@ -874,17 +869,13 @@ export default function ProjectDetailPage({
     }
   };
 
-  // Signatur: (employeeId) - nutzt assignmentWP aus State
-  const handleRemoveWPAssignment = async (employeeId: string) => {
-    if (!assignmentWP) return;
+  const handleRemoveWPAssignment = async (assignmentId: string) => {
     setSavingAssignment(true);
     try {
-      const { error: updateError } = await supabase
+      await supabase
         .from('v7_work_package_assignments')
         .update({ is_active: false, updated_at: new Date().toISOString() })
-        .eq('work_package_id', assignmentWP.id)
-        .eq('employee_id', employeeId);
-      if (updateError) throw updateError;
+        .eq('id', assignmentId);
       await loadData();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Fehler';
@@ -1379,35 +1370,18 @@ export default function ProjectDetailPage({
               portal={portal}
             />
 
-            {/* WorkPackageTable - Props auf WPT-eigenes Interface gemappt */}
+            {/* WorkPackageTable - alle Props typsicher */}
             <WorkPackageTable
               portal={portal}
               projectId={projectId}
-              workPackages={workPackages.map(wp => ({
-                id: wp.id,
-                ap_code: wp.ap_code ?? `AP${wp.ap_number}`,
-                ap_number: wp.ap_number,
-                ap_sub_number: wp.ap_sub_number,
-                name: wp.name,
-                description: wp.description,
-                start_date: wp.start_date,
-                end_date: wp.end_date,
-                planned_pm: wp.planned_pm,
-                is_technical: wp.is_technical,
-              }))}
+              workPackages={workPackages}
               employees={allEmployees}
               assignments={wpAssignments}
               projectTeam={wpProjectTeam}
               canEdit={adminUser}
               onAssignmentChange={handleTableAssignmentChange}
-              onEditAP={adminUser ? (wp) => {
-                const full = workPackages.find(w => w.id === wp.id);
-                if (full) openEditWPModal(full);
-              } : undefined}
-              onDeleteAP={adminUser ? (wp) => {
-                const full = workPackages.find(w => w.id === wp.id);
-                if (full) openDeleteConfirmation(full);
-              } : undefined}
+              onEditAP={adminUser ? openEditWPModal : undefined}
+              onDeleteAP={adminUser ? openDeleteConfirmation : undefined}
               fundingFormat={project.funding_format}
             />
           </div>
