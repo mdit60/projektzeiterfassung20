@@ -2,8 +2,12 @@
 // ============================================================================
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
-// Datum: 22. Maerz 2026
+// Datum: 23. Maerz 2026
 // Version: 7.4.4-32
+//
+// v7.4.4-32: ArbeitsplanImport und Kein-Team-Hinweis nur fuer adminUser sichtbar
+//   - Projektleiter und Mitarbeiter sehen den Arbeitsplan nur lesend
+//   - Excel-Vorlage Download/Upload ausschliesslich fuer client_admin und Berater
 //
 // KOMPLETTER NEUAUFBAU (Session 6) - Revision 1
 // Kein Patchen - von Grund auf korrekt implementiert:
@@ -737,7 +741,7 @@ export default function ProjectDetailPage({
         start_date: formData.start_date || null,
         end_date: formData.end_date || null,
         total_person_months: formData.total_person_months
-          ? parseFloat(formData.total_person_months.replace(',', '.'))
+          ? parseFloat(formData.total_person_months)
           : null,
         is_technical: formData.is_technical ?? null,
         is_active: true,
@@ -967,7 +971,7 @@ export default function ProjectDetailPage({
     setSavingTeam(true);
     try {
       const hourlyRate = teamEditData.hourly_rate
-        ? parseFloat(teamEditData.hourly_rate.replace(',', '.'))
+        ? parseFloat(teamEditData.hourly_rate)
         : null;
 
       const { error: paError } = await supabase
@@ -1040,8 +1044,8 @@ export default function ProjectDetailPage({
     setSavingProject(true);
     try {
       const overhead_nt_val = projectEditData.overhead_gleich
-        ? (projectEditData.overhead_t !== '' ? parseFloat(projectEditData.overhead_t.replace(',', '.')) : null)
-        : (projectEditData.overhead_nt !== '' ? parseFloat(projectEditData.overhead_nt.replace(',', '.')) : null);
+        ? (projectEditData.overhead_t !== '' ? parseFloat(projectEditData.overhead_t) : null)
+        : (projectEditData.overhead_nt !== '' ? parseFloat(projectEditData.overhead_nt) : null);
 
       const { error: updateError } = await supabase
         .from('v7_projects')
@@ -1053,8 +1057,8 @@ export default function ProjectDetailPage({
           start_date: projectEditData.start_date || null,
           end_date: projectEditData.end_date || null,
           notes: projectEditData.notes.trim() || null,
-          foerdersatz: projectEditData.foerdersatz !== '' ? parseFloat(projectEditData.foerdersatz.replace(',', '.')) : null,
-          overhead_t: projectEditData.overhead_t !== '' ? parseFloat(projectEditData.overhead_t.replace(',', '.')) : null,
+          foerdersatz: projectEditData.foerdersatz !== '' ? parseFloat(projectEditData.foerdersatz) : null,
+          overhead_t: projectEditData.overhead_t !== '' ? parseFloat(projectEditData.overhead_t) : null,
           overhead_nt: overhead_nt_val,
           overhead_gleich: projectEditData.overhead_gleich,
           updated_at: new Date().toISOString(),
@@ -1360,7 +1364,7 @@ export default function ProjectDetailPage({
               )}
             </div>
 
-            {teamMembers.length === 0 && (
+            {adminUser && teamMembers.length === 0 && (
               <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg flex items-start gap-2">
                 <AlertCircle size={16} className="text-yellow-600 mt-0.5 shrink-0" />
                 <p className="text-sm text-yellow-800">
@@ -1370,14 +1374,16 @@ export default function ProjectDetailPage({
               </div>
             )}
 
-            {/* ArbeitsplanImport - exakt nach Interface */}
-            <ArbeitsplanImport
-              projectId={projectId}
-              hasTeam={teamMembers.length > 0}
-              teamCount={teamMembers.length}
-              onImportComplete={loadData}
-              portal={portal}
-            />
+            {/* ArbeitsplanImport - nur fuer Admin sichtbar */}
+            {adminUser && (
+              <ArbeitsplanImport
+                projectId={projectId}
+                hasTeam={teamMembers.length > 0}
+                teamCount={teamMembers.length}
+                onImportComplete={loadData}
+                portal={portal}
+              />
+            )}
 
             {/* WorkPackageTable - Props auf WPT-eigenes Interface gemappt */}
             <WorkPackageTable
