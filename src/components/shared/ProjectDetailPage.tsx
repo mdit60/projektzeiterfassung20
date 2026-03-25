@@ -2,12 +2,8 @@
 // ============================================================================
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
-// Datum: 23. Maerz 2026
-// Version: 7.4.4-32
-//
-// v7.4.4-32: ArbeitsplanImport und Kein-Team-Hinweis nur fuer adminUser sichtbar
-//   - Projektleiter und Mitarbeiter sehen den Arbeitsplan nur lesend
-//   - Excel-Vorlage Download/Upload ausschliesslich fuer client_admin und Berater
+// Datum: 22. Maerz 2026
+// Version: 7.4.4-31
 //
 // KOMPLETTER NEUAUFBAU (Session 6) - Revision 1
 // Kein Patchen - von Grund auf korrekt implementiert:
@@ -1364,7 +1360,7 @@ export default function ProjectDetailPage({
               )}
             </div>
 
-            {adminUser && teamMembers.length === 0 && (
+            {teamMembers.length === 0 && (
               <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg flex items-start gap-2">
                 <AlertCircle size={16} className="text-yellow-600 mt-0.5 shrink-0" />
                 <p className="text-sm text-yellow-800">
@@ -1374,16 +1370,14 @@ export default function ProjectDetailPage({
               </div>
             )}
 
-            {/* ArbeitsplanImport - nur fuer Admin sichtbar */}
-            {adminUser && (
-              <ArbeitsplanImport
-                projectId={projectId}
-                hasTeam={teamMembers.length > 0}
-                teamCount={teamMembers.length}
-                onImportComplete={loadData}
-                portal={portal}
-              />
-            )}
+            {/* ArbeitsplanImport - exakt nach Interface */}
+            <ArbeitsplanImport
+              projectId={projectId}
+              hasTeam={teamMembers.length > 0}
+              teamCount={teamMembers.length}
+              onImportComplete={loadData}
+              portal={portal}
+            />
 
             {/* WorkPackageTable - Props auf WPT-eigenes Interface gemappt */}
             <WorkPackageTable
