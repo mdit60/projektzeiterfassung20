@@ -2,7 +2,7 @@
 // ============================================================================
 // PZE V7 - NWM Netzwerkpartner-Verwaltung
 // ============================================================================
-// Version: 7.4.5-2
+// Version: 7.4.5-3
 // Datum: 26. Maerz 2026
 //
 // Verwaltet die Netzwerkpartner eines ZIM_NETZWERK-Projekts:
@@ -12,6 +12,9 @@
 // - Schloss-Icon: manuell gesperrte NP werden bei Auto-Anpassung uebersprungen
 // - NP hinzufuegen / bearbeiten / ausscheiden
 // - Quoten-Summen-Validierung (muss 100,00% ergeben)
+// v7.4.5-3: Kundenauswahl uebernimmt alle verfuegbaren Felder:
+//   contact_person, contact_email, street, zip_code, city
+//   Rechtsform wird automatisch aus Firmennamen abgeleitet
 // v7.4.5-2: NEU: Kundenauswahl im NP-Modal
 //   - Dropdown "Aus bestehendem Kunden uebernehmen" oben im Modal
 //   - Befuellt Name, Adresse automatisch aus v7_client_companies
@@ -68,9 +71,13 @@ interface NWMPartnerPanelProps {
 interface KundenFirma {
   id: string;
   name: string;
+  short_name: string | null;
   street: string | null;
   zip_code: string | null;
   city: string | null;
+  contact_person: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
 }
 
 // Leeres Formular fuer neuen NP
@@ -204,7 +211,7 @@ export default function NWMPartnerPanel({ portal, projectId, consultantCompanyId
     if (consultantCompanyId) {
       const { data: kunden } = await supabase
         .from('v7_client_companies')
-        .select('id, name, street, zip_code, city')
+        .select('id, name, short_name, street, zip_code, city, contact_person, contact_email, contact_phone')
         .eq('consultant_company_id', consultantCompanyId)
         .eq('is_active', true)
         .order('name', { ascending: true });
@@ -295,9 +302,26 @@ export default function NWMPartnerPanel({ portal, projectId, consultantCompanyId
     if (!kundeId) return;
     const kunde = kundenListe.find(k => k.id === kundeId);
     if (!kunde) return;
+    // Rechtsform aus dem Firmennamen ableiten
+    const rechtsformGuess = (() => {
+      const n = kunde.name;
+      if (n.includes('GmbH & Co. KG')) return 'KG';
+      if (n.includes('gGmbH')) return 'gGmbH';
+      if (n.includes('GmbH')) return 'GmbH';
+      if (n.includes(' AG')) return 'AG';
+      if (n.includes(' UG')) return 'UG';
+      if (n.includes(' GbR')) return 'GbR';
+      if (n.includes(' OHG')) return 'OHG';
+      if (n.includes(' KG')) return 'KG';
+      if (n.includes('e.V.') || n.includes('eV')) return 'e.V.';
+      return '';
+    })();
     setForm(f => ({
       ...f,
       name: kunde.name,
+      rechtsform: rechtsformGuess,
+      ansprechpartner: kunde.contact_person || '',
+      email: kunde.contact_email || '',
       adresse_strasse: kunde.street || '',
       adresse_plz: kunde.zip_code || '',
       adresse_ort: kunde.city || '',
