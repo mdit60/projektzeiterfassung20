@@ -2006,101 +2006,28 @@ export default function TimesheetForm({
       {/* Print Styles */}
       <style jsx global>{`
         @media print {
-          /* Seite */
-          @page {
-            size: A4 landscape;
-            margin: 5mm;
-          }
-
-          /* Alles ausblenden ausser dem Formular */
           html, body {
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
             margin: 0 !important;
             padding: 0 !important;
             background: white !important;
-            font-size: 8px !important;
           }
-
-          /* Navigations- und UI-Elemente ausblenden */
-          header,
-          footer,
-          nav,
+          @page {
+            size: A4 landscape;
+            margin: 5mm;
+          }
           .print\\:hidden {
             display: none !important;
           }
-
-          /* Formular-Container: volle Breite, kein padding */
-          .max-w-full.mx-auto.p-4 {
-            padding: 0 !important;
-            margin: 0 !important;
-            max-width: 100% !important;
-          }
-
-          /* Kein Schatten, kein overflow hidden beim Drucken */
-          .bg-white.shadow-lg {
-            box-shadow: none !important;
-            overflow: visible !important;
-          }
-
-          /* Tabellen: kompakt, passend auf A4 landscape */
           table {
-            font-size: 7px !important;
-            width: 100% !important;
-            table-layout: fixed !important;
-            border-collapse: collapse !important;
-            page-break-inside: avoid !important;
+            font-size: 8px !important;
           }
-
-          th, td {
-            padding: 1px 2px !important;
-            font-size: 7px !important;
-            line-height: 1.2 !important;
-            overflow: hidden !important;
-            white-space: nowrap !important;
+          input {
+            font-size: 8px !important;
           }
-
-          /* Eingabefelder: transparent, kein Rahmen ausser Unterschriftlinie */
-          input[type="text"] {
-            font-size: 7px !important;
-            border: none !important;
-            background: transparent !important;
-            -webkit-appearance: none !important;
-            appearance: none !important;
-            padding: 0 !important;
-            outline: none !important;
-          }
-
-          /* Unterschrift-Datum-Inputs behalten ihre Unterstreichung */
-          .border-b.border-gray-300 {
-            border-bottom: 1px solid #999 !important;
-          }
-
-          /* Selects: per JS durch spans ersetzt (replaceSelectsForPrint),
-             hier sicherstellen dass verbliebene selects unsichtbar sind */
           select {
             display: none !important;
-          }
-
-          /* Hintergrundfarben beibehalten */
-          * {
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-
-          /* Kein Seitenumbruch innerhalb des Formulars */
-          .bg-white.shadow-lg.print\\:shadow-none {
-            page-break-inside: avoid !important;
-          }
-
-          /* Hinweistexte etwas kleiner */
-          .text-\\[7px\\], .text-\\[8px\\] {
-            font-size: 6px !important;
-          }
-
-          /* Unterschriften-Bereich: Abstand oben */
-          .border-x.border-b.flex {
-            margin-top: 2mm !important;
           }
         }
       `}</style>
