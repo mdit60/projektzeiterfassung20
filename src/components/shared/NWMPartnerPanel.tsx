@@ -2,7 +2,7 @@
 // ============================================================================
 // PZE V7 - NWM Netzwerkpartner-Verwaltung
 // ============================================================================
-// Version: 7.4.5-1
+// Version: 7.4.5-2
 // Datum: 26. Maerz 2026
 //
 // Verwaltet die Netzwerkpartner eines ZIM_NETZWERK-Projekts:
@@ -12,6 +12,10 @@
 // - Schloss-Icon: manuell gesperrte NP werden bei Auto-Anpassung uebersprungen
 // - NP hinzufuegen / bearbeiten / ausscheiden
 // - Quoten-Summen-Validierung (muss 100,00% ergeben)
+// v7.4.5-2: NEU: Kundenauswahl im NP-Modal
+//   - Dropdown "Aus bestehendem Kunden uebernehmen" oben im Modal
+//   - Befuellt Name, Adresse automatisch aus v7_client_companies
+//   - Manuell-Eingabe bleibt moeglich (Dropdown leer lassen)
 // ============================================================================
 
 'use client';
@@ -58,6 +62,15 @@ interface NetzwerkPartner {
 interface NWMPartnerPanelProps {
   portal: 'berater' | 'firma';
   projectId: string;
+  consultantCompanyId?: string;
+}
+
+interface KundenFirma {
+  id: string;
+  name: string;
+  street: string | null;
+  zip_code: string | null;
+  city: string | null;
 }
 
 // Leeres Formular fuer neuen NP
@@ -156,7 +169,7 @@ const smartAnpassung = (
 // KOMPONENTE
 // ============================================================================
 
-export default function NWMPartnerPanel({ portal, projectId }: NWMPartnerPanelProps) {
+export default function NWMPartnerPanel({ portal, projectId, consultantCompanyId }: NWMPartnerPanelProps) {
   const supabase = createClient();
 
   const borderActive = portal === 'firma' ? 'border-green-600 text-green-600' : 'border-blue-600 text-blue-600';
@@ -175,6 +188,10 @@ export default function NWMPartnerPanel({ portal, projectId }: NWMPartnerPanelPr
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm());
 
+  // Kunden-Auswahl
+  const [kundenListe, setKundenListe] = useState<KundenFirma[]>([]);
+  const [selectedKundeId, setSelectedKundeId] = useState<string>('');
+
   // Austritt-Dialog
   const [austrittsId, setAustrittsId] = useState<string | null>(null);
   const [austrittDatum, setAustrittDatum] = useState(new Date().toISOString().slice(0, 10));
@@ -183,6 +200,16 @@ export default function NWMPartnerPanel({ portal, projectId }: NWMPartnerPanelPr
   // ---- Laden ----
   const loadPartner = useCallback(async () => {
     setLoading(true);
+    // Kundenliste laden fuer Auswahl-Dropdown
+    if (consultantCompanyId) {
+      const { data: kunden } = await supabase
+        .from('v7_client_companies')
+        .select('id, name, street, zip_code, city')
+        .eq('consultant_company_id', consultantCompanyId)
+        .eq('is_active', true)
+        .order('name', { ascending: true });
+      setKundenListe(kunden || []);
+    }
     const { data, error: err } = await supabase
       .from('v7_netzwerk_partner')
       .select('*')
@@ -262,6 +289,21 @@ export default function NWMPartnerPanel({ portal, projectId }: NWMPartnerPanelPr
     }
   };
 
+  // ---- Kunde auswaehlen und Formular befuellen ----
+  const handleKundeSelect = (kundeId: string) => {
+    setSelectedKundeId(kundeId);
+    if (!kundeId) return;
+    const kunde = kundenListe.find(k => k.id === kundeId);
+    if (!kunde) return;
+    setForm(f => ({
+      ...f,
+      name: kunde.name,
+      adresse_strasse: kunde.street || '',
+      adresse_plz: kunde.zip_code || '',
+      adresse_ort: kunde.city || '',
+    }));
+  };
+
   // ---- NP anlegen / bearbeiten ----
   const openNeu = () => {
     setEditingId(null);
@@ -269,12 +311,14 @@ export default function NWMPartnerPanel({ portal, projectId }: NWMPartnerPanelPr
     const n = aktivePartner.length + 1;
     const quoten = gleichverteilung(n);
     const vorschlag = quoten[n - 1];
+    setSelectedKundeId('');
     setForm({ ...emptyForm(), eigenanteil_quote: String(vorschlag) });
     setShowModal(true);
   };
 
   const openEdit = (p: NetzwerkPartner) => {
     setEditingId(p.id);
+    setSelectedKundeId('');
     setForm({
       name: p.name,
       rechtsform: p.rechtsform || '',
@@ -637,6 +681,31 @@ export default function NWMPartnerPanel({ portal, projectId }: NWMPartnerPanelPr
               </button>
             </div>
             <div className="px-6 py-4 space-y-4">
+
+              {/* Kundenauswahl-Dropdown (nur wenn Kundenliste vorhanden) */}
+              {kundenListe.length > 0 && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <label className="block text-xs font-medium text-blue-700 mb-1">
+                    Aus bestehendem Kunden uebernehmen
+                    <span className="ml-1 font-normal text-blue-500">(optional)</span>
+                  </label>
+                  <select
+                    value={selectedKundeId}
+                    onChange={e => handleKundeSelect(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-blue-300 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="">-- Manuell eingeben --</option>
+                    {kundenListe.map(k => (
+                      <option key={k.id} value={k.id}>{k.name}</option>
+                    ))}
+                  </select>
+                  {selectedKundeId && (
+                    <p className="text-xs text-blue-600 mt-1">
+                      Daten uebernommen. Bitte pruefen und ggf. ergaenzen.
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Name + Rechtsform */}
               <div className="grid grid-cols-2 gap-3">

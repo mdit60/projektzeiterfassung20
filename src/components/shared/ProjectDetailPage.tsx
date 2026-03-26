@@ -3,9 +3,10 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 26. Maerz 2026
-// Version: 7.4.4-33
+// Version: 7.4.4-34
 //
-// v7.4.4-33: NWMPartnerPanel eingebunden (Partner Sub-Tab aktiv)
+// v7.4.4-34: consultantCompanyId an NWMPartnerPanel weitergegeben
+//   (fuer Kundenauswahl-Dropdown im NP-Modal)
 //   Basis: v7.4.4-32 (KISS Tab-Switch)
 //
 // KOMPLETTER NEUAUFBAU (Session 6) - Revision 1
@@ -1809,6 +1810,7 @@ export default function ProjectDetailPage({
               <NWMPartnerPanel
                 portal={portal}
                 projectId={project.id}
+                consultantCompanyId={company?.consultant_company_id || undefined}
               />
             )}
 
