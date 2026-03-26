@@ -2,8 +2,8 @@
 // ============================================================================
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
-// Datum: 22. Maerz 2026
-// Version: 7.4.4-31
+// Datum: 26. Maerz 2026
+// Version: 7.4.4-32
 //
 // KOMPLETTER NEUAUFBAU (Session 6) - Revision 1
 // Kein Patchen - von Grund auf korrekt implementiert:
@@ -21,6 +21,12 @@
 // - Firmen-Portal: /v7/firma/projekte/[id]
 //
 // Tabs: Uebersicht | Arbeitspakete | Team | Zeiterfassung | Zahlungsanforderungen (ZIM)
+// v7.4.4-32: NEU: Netzwerk-Tab fuer ZIM_NETZWERK (KISS-Tab-Switch)
+//   - Haupttabs werden durch NWM-Sub-Tabs ersetzt wenn Netzwerk aktiv
+//   - Sub-Tabs: Einstellungen | Netzwerkpartner | Eigenanteile
+//   - Zurueck-Pfeil bringt zu Haupttabs zurueck
+//   - Project Interface um NWM-Felder erweitert
+//   - isNetzwerkProject() Hilfsfunktion
 // ============================================================================
 
 'use client';
@@ -45,6 +51,11 @@ import {
   CheckCircle,
   FileText,
   Send,
+  Network,
+  Settings,
+  Building2,
+  CreditCard,
+  ChevronLeft,
 } from 'lucide-react';
 
 import PortalHeader from '@/components/shared/PortalHeader';
@@ -174,6 +185,12 @@ interface Project {
   overhead_nt: number | null;
   overhead_gleich: boolean | null;
   workplan_locked: boolean | null;
+  // NWM-Felder
+  netzwerk_typ: string | null;
+  netzwerk_phase: string | null;
+  bewilligung_datum: string | null;
+  phase2_start_datum: string | null;
+  foerdersatz_stufen: any | null;
 }
 
 interface TeamEditData {
@@ -243,7 +260,8 @@ const ZA_STATUS_STYLE: Record<string, {
   bewilligt:   { bg: 'bg-green-100',  text: 'text-green-800',  border: 'border-green-300',  icon: <CheckCircle size={14} /> },
 };
 
-type TabKey = 'uebersicht' | 'arbeitspakete' | 'team' | 'zeiterfassung' | 'zahlungsanforderungen';
+type TabKey = 'uebersicht' | 'arbeitspakete' | 'team' | 'zeiterfassung' | 'zahlungsanforderungen' | 'netzwerk';
+type NWMTabKey = 'einstellungen' | 'partner' | 'eigenanteile';
 
 // ============================================================================
 // KOMPONENTE
@@ -282,6 +300,7 @@ export default function ProjectDetailPage({
   const [company, setCompany] = useState<V7ClientCompany | null>(null);
   const [project, setProject] = useState<Project | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>('uebersicht');
+  const [nwmTab, setNwmTab] = useState<NWMTabKey>('einstellungen');
 
   // State Arbeitspakete
   const [workPackages, setWorkPackages] = useState<WorkPackage[]>([]);
@@ -657,6 +676,10 @@ export default function ProjectDetailPage({
 
   const isZimProject = (): boolean => {
     return (project?.funding_format || '').startsWith('ZIM');
+  };
+
+  const isNetzwerkProject = (): boolean => {
+    return (project?.funding_format || '').toUpperCase().trim() === 'ZIM_NETZWERK';
   };
 
   const formatZeitraum = (von: string, bis: string): string => {
@@ -1129,6 +1152,9 @@ export default function ProjectDetailPage({
     if (isZimProject()) {
       baseTabs.push({ key: 'zahlungsanforderungen', label: 'Zahlungsanforderungen', icon: <Receipt size={18} /> });
     }
+    if (isNetzwerkProject()) {
+      baseTabs.push({ key: 'netzwerk', label: 'Netzwerk', icon: <Network size={18} /> });
+    }
     return baseTabs;
   };
 
@@ -1229,39 +1255,78 @@ export default function ProjectDetailPage({
       {/* Tab-Leiste */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center space-x-1 overflow-x-auto -mb-px">
-            {tabs.map((tab) => (
+
+          {/* KISS: Wenn im Netzwerk-Bereich -> NWM-Sub-Tabs anzeigen */}
+          {activeTab === 'netzwerk' ? (
+            <div className="flex items-center space-x-1 overflow-x-auto -mb-px">
+              {/* Zurueck-Button */}
               <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className={[
-                  'flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2',
-                  'transition-colors whitespace-nowrap',
-                  activeTab === tab.key
-                    ? borderActive
-                    : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300',
-                ].join(' ')}
+                onClick={() => setActiveTab('uebersicht')}
+                className="flex items-center gap-1.5 px-3 py-3 text-sm font-medium text-gray-500 hover:text-gray-900 border-b-2 border-transparent transition-colors whitespace-nowrap mr-2"
               >
-                {tab.icon}
-                <span>{tab.label}</span>
-                {tab.key === 'arbeitspakete' && (
-                  <span className="ml-1 px-1.5 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">
-                    {workPackages.length}
-                  </span>
-                )}
-                {tab.key === 'team' && (
-                  <span className="ml-1 px-1.5 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">
-                    {teamMembers.length}
-                  </span>
-                )}
-                {tab.key === 'zahlungsanforderungen' && zaList.length > 0 && (
-                  <span className="ml-1 px-1.5 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">
-                    {zaList.length}
-                  </span>
-                )}
+                <ChevronLeft size={16} />
+                <span>Zurueck</span>
               </button>
-            ))}
-          </div>
+              <div className="h-5 w-px bg-gray-300 mr-2 self-center"></div>
+              {/* NWM-Sub-Tabs */}
+              {([
+                { key: 'einstellungen' as NWMTabKey, label: 'Einstellungen', icon: <Settings size={16} /> },
+                { key: 'partner' as NWMTabKey, label: 'Netzwerkpartner', icon: <Building2 size={16} /> },
+                { key: 'eigenanteile' as NWMTabKey, label: 'Eigenanteile', icon: <CreditCard size={16} /> },
+              ]).map((sub) => (
+                <button
+                  key={sub.key}
+                  onClick={() => setNwmTab(sub.key)}
+                  className={[
+                    'flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2',
+                    'transition-colors whitespace-nowrap',
+                    nwmTab === sub.key
+                      ? borderActive
+                      : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300',
+                  ].join(' ')}
+                >
+                  {sub.icon}
+                  <span>{sub.label}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            /* Normal-Ansicht: Haupt-Tabs */
+            <div className="flex items-center space-x-1 overflow-x-auto -mb-px">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={[
+                    'flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2',
+                    'transition-colors whitespace-nowrap',
+                    activeTab === tab.key
+                      ? borderActive
+                      : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300',
+                  ].join(' ')}
+                >
+                  {tab.icon}
+                  <span>{tab.label}</span>
+                  {tab.key === 'arbeitspakete' && (
+                    <span className="ml-1 px-1.5 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">
+                      {workPackages.length}
+                    </span>
+                  )}
+                  {tab.key === 'team' && (
+                    <span className="ml-1 px-1.5 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">
+                      {teamMembers.length}
+                    </span>
+                  )}
+                  {tab.key === 'zahlungsanforderungen' && zaList.length > 0 && (
+                    <span className="ml-1 px-1.5 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">
+                      {zaList.length}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+
         </div>
       </div>
 
@@ -1648,6 +1713,126 @@ export default function ProjectDetailPage({
             )}
           </div>
         )}
+
+
+
+        {/* ------------------------------------------------------------------ */}
+        {/* Tab: Netzwerk (NWM) - nur ZIM_NETZWERK                            */}
+        {/* ------------------------------------------------------------------ */}
+        {activeTab === 'netzwerk' && (
+          <div className="space-y-6">
+
+            {/* Sub-Tab: Einstellungen */}
+            {nwmTab === 'einstellungen' && (
+              <div className="bg-white rounded-lg border border-gray-200 p-6">
+                <div className="flex items-center gap-3 mb-6">
+                  <Settings className={portal === 'firma' ? 'text-green-600' : 'text-blue-600'} size={20} />
+                  <h2 className="text-lg font-semibold text-gray-900">NWM-Einstellungen</h2>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <div className="text-xs text-gray-500 mb-1">Netzwerktyp</div>
+                    <div className="font-medium text-sm text-gray-900">
+                      {project.netzwerk_typ === 'national' ? 'Nationales Innovationsnetzwerk'
+                        : project.netzwerk_typ === 'international' ? 'Internationales Innovationsnetzwerk'
+                        : <span className="text-amber-500 italic">Noch nicht konfiguriert</span>}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-500 mb-1">Foerderphase</div>
+                    <div className="font-medium text-sm text-gray-900">
+                      {project.netzwerk_phase === 'phase1' ? 'Phase 1 (Konzeption)'
+                        : project.netzwerk_phase === 'phase2' ? 'Phase 2 (Umsetzung)'
+                        : <span className="text-amber-500 italic">Noch nicht konfiguriert</span>}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-500 mb-1">Bewilligungsdatum Phase 1</div>
+                    <div className="font-medium text-sm text-gray-900">
+                      {project.bewilligung_datum
+                        ? new Date(project.bewilligung_datum).toLocaleDateString('de-DE')
+                        : <span className="text-amber-500 italic">Nicht hinterlegt</span>}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-500 mb-1">Bewilligungsdatum Phase 2</div>
+                    <div className="font-medium text-sm text-gray-900">
+                      {project.phase2_start_datum
+                        ? new Date(project.phase2_start_datum).toLocaleDateString('de-DE')
+                        : <span className="text-gray-400 italic">--</span>}
+                    </div>
+                  </div>
+                </div>
+                {(!project.netzwerk_typ || !project.bewilligung_datum) && (
+                  <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700">
+                    Bitte Netzwerktyp und Bewilligungsdatum hinterlegen damit Laufzeitjahr
+                    und Foerdersatz automatisch berechnet werden koennen.
+                    Bearbeiten via Projekt-Bearbeiten-Button oben rechts.
+                  </div>
+                )}
+                {project.foerdersatz_stufen && Array.isArray(project.foerdersatz_stufen) && project.foerdersatz_stufen.length > 0 && (
+                  <div className="mt-6">
+                    <div className="text-xs font-medium text-gray-700 mb-2">Foerdersatz-Stufen</div>
+                    <table className="w-full text-xs border border-gray-200 rounded-lg overflow-hidden">
+                      <thead>
+                        <tr className="bg-gray-50">
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Laufzeitjahr</th>
+                          <th className="px-3 py-2 text-right font-medium text-gray-600">Foerdersatz</th>
+                          <th className="px-3 py-2 text-right font-medium text-gray-600">Eigenanteil</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Gueltig ab</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {project.foerdersatz_stufen.map((stufe: any, idx: number) => (
+                          <tr key={idx} className="bg-white">
+                            <td className="px-3 py-2 font-medium">Jahr {stufe.laufzeitjahr}</td>
+                            <td className="px-3 py-2 text-right text-green-700 font-semibold">{stufe.satz_percent}%</td>
+                            <td className="px-3 py-2 text-right text-orange-700">{100 - stufe.satz_percent}%</td>
+                            <td className="px-3 py-2 text-gray-500">
+                              {stufe.gueltig_ab ? new Date(stufe.gueltig_ab).toLocaleDateString('de-DE') : '--'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Sub-Tab: Netzwerkpartner */}
+            {nwmTab === 'partner' && (
+              <div className="bg-white rounded-lg border border-gray-200 p-6">
+                <div className="flex items-center gap-3 mb-4">
+                  <Building2 className={portal === 'firma' ? 'text-green-600' : 'text-blue-600'} size={20} />
+                  <h2 className="text-lg font-semibold text-gray-900">Netzwerkpartner</h2>
+                </div>
+                <div className="text-center py-12 text-gray-400">
+                  <Building2 size={48} className="mx-auto mb-3 opacity-30" />
+                  <p className="text-sm">Netzwerkpartner-Verwaltung</p>
+                  <p className="text-xs mt-1 text-gray-300">Wird in naechstem Schritt implementiert</p>
+                </div>
+              </div>
+            )}
+
+            {/* Sub-Tab: Eigenanteile */}
+            {nwmTab === 'eigenanteile' && (
+              <div className="bg-white rounded-lg border border-gray-200 p-6">
+                <div className="flex items-center gap-3 mb-4">
+                  <CreditCard className={portal === 'firma' ? 'text-green-600' : 'text-blue-600'} size={20} />
+                  <h2 className="text-lg font-semibold text-gray-900">Eigenanteile</h2>
+                </div>
+                <div className="text-center py-12 text-gray-400">
+                  <CreditCard size={48} className="mx-auto mb-3 opacity-30" />
+                  <p className="text-sm">Eigenanteil-Berechnung und Zahlungsstatus</p>
+                  <p className="text-xs mt-1 text-gray-300">Wird in naechstem Schritt implementiert</p>
+                </div>
+              </div>
+            )}
+
+          </div>
+        )}
+
 
       </main>
 
