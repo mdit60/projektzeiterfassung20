@@ -2,7 +2,7 @@
 // ============================================================================
 // PZE V7 - NWM Eigenanteil-Berechnung und Zahlungsstatus
 // ============================================================================
-// Version: 7.4.5-2
+// Version: 7.4.5-3
 // Datum: 26. Maerz 2026
 //
 // Berechnet quartalsweise Eigenanteile pro Netzwerkpartner:
@@ -15,6 +15,7 @@
 // - Zahlungseingang erfassen, Status pflegen
 // - PDF: Rechnung Cubintec -> NP
 // - PDF: PT-Nachweis Eigenanteil-Eingang
+// v7.4.5-3: FIX: Perioden-Dropdown schaltet korrekt um (Index statt Objekt-Vergleich)
 // v7.4.5-2: FIX: Perioden ab Projektstart (3-Monats-Rhythmus, nicht Kalenderquartale)
 //   FIX: ZE-Query korrigiert (year/month statt date-Range, total_fue_hours)
 //   FIX: hourly_rate_approved Fallback korrekt
@@ -222,10 +223,12 @@ export default function NWMEigenanteilPanel({
   // Perioden-Auswahl (3-Monats-Rhythmus ab Projektstart)
   const perioden = generatePerioden(project.start_date);
   const now = new Date();
-  const defaultQ = perioden.find(q =>
-    now >= new Date(q.von) && now <= new Date(q.bis)
-  ) || perioden[perioden.length - 1] || { label: 'Periode 1', von: project.start_date || new Date().toISOString().slice(0, 10), bis: new Date().toISOString().slice(0, 10) };
-  const [selectedQ, setSelectedQ] = useState(defaultQ);
+  const defaultIdx = (() => {
+    const idx = perioden.findIndex(q => now >= new Date(q.von) && now <= new Date(q.bis));
+    return idx >= 0 ? idx : Math.max(0, perioden.length - 1);
+  })();
+  const [selectedIdx, setSelectedIdx] = useState(defaultIdx);
+  const selectedQ = perioden[selectedIdx] || perioden[0] || { label: 'Periode 1', von: project.start_date || '', bis: '' };
 
   // Daten
   const [partner, setPartner] = useState<NetzwerkPartner[]>([]);
@@ -289,7 +292,7 @@ export default function NWMEigenanteilPanel({
     } finally {
       setLoading(false);
     }
-  }, [project.id, selectedQ, supabase]);
+  }, [project.id, selectedIdx, supabase]);
 
   useEffect(() => { loadDaten(); }, [loadDaten]);
 
@@ -735,8 +738,8 @@ export default function NWMEigenanteilPanel({
             <select
               value={selectedQ.label}
               onChange={e => {
-                const q = quartale.find(q => q.label === e.target.value);
-                if (q) setSelectedQ(q);
+                const idx = perioden.findIndex(q => q.label === e.target.value);
+                if (idx >= 0) setSelectedIdx(idx);
               }}
               className={`px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 ${focusRing}`}
             >
