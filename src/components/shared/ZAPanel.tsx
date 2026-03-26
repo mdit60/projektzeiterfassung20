@@ -2,8 +2,19 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-21
-// Datum: 13. Maerz 2026
+// Version: 7.4.4-22
+// Datum: 26. Maerz 2026
+//
+// v7.4.4-22: NEU ZIM_NETZWERK-Erweiterungen:
+//   - isNetzwerk Flag fuer ZIM_NETZWERK-Projekte
+//   - Laufzeitjahr automatisch aus bewilligung_datum berechnet
+//   - Foerdersatz automatisch aus foerdersatz_stufen JSONB ermittelt
+//   - Deckblatt ZIM_NETZWERK: eigene Kostentabelle mit NWM-Feldern
+//     (Personalkosten aus ZE, Auftraege Dritte manuell, Uebrige pauschal)
+//   - Warnung wenn Bewilligungsdatum fehlt
+//   - ZAProject Interface um NWM-Felder erweitert
+//   - ZahlungsanforderungDB um NWM-Felder erweitert
+//   - handleSave speichert NWM-Felder zusaetzlich
 //
 // v7.4.4-18: NEU: Archiv-Tab mit Uebersicht aller ZAs
 //   - Neuer Tab "Archiv" neben Deckblatt / Anlage 1a / Anlage 1b
@@ -60,6 +71,12 @@ export interface ZAProject {
   overhead_t: number | null;
   overhead_nt: number | null;
   overhead_gleich: boolean | null;
+  // NWM-Felder
+  netzwerk_typ: string | null;
+  netzwerk_phase: string | null;
+  bewilligung_datum: string | null;
+  phase2_start_datum: string | null;
+  foerdersatz_stufen: Array<{ laufzeitjahr: number; satz_percent: number; gueltig_ab: string }> | null;
 }
 
 export interface ZAWorkPackage {
@@ -111,6 +128,13 @@ interface ZahlungsanforderungDB {
   notizen: string | null;
   eingereicht_am: string | null;
   bewilligt_am: string | null;
+  // NWM-Felder
+  nwm_personalkosten: number | null;
+  nwm_kosten_dritte: number | null;
+  nwm_kosten_uebrige: number | null;
+  nwm_kosten_gesamt: number | null;
+  laufzeitjahr: number | null;
+  foerdersatz_percent: number | null;
 }
 
 // Status-Hilfsfunktionen
@@ -132,6 +156,8 @@ interface ZAFormData {
   fue_unterauftrag: string;
   zeitw_personalaufnahme: string;
   notizen: string;
+  // NWM-Felder
+  nwm_kosten_dritte: string;
 }
 
 // ============================================================================
@@ -255,6 +281,7 @@ export default function ZAPanel({
     fue_unterauftrag: '',
     zeitw_personalaufnahme: '',
     notizen: '',
+    nwm_kosten_dritte: '',
   });
 
   // ---- Panel beim ersten Rendern laden ----
@@ -265,7 +292,7 @@ export default function ZAPanel({
 
     const { data: existingZAs } = await supabase
       .from('v7_zahlungsanforderungen')
-      .select('id, project_id, za_nummer, zeitraum_von, zeitraum_bis, auftraege_dritte_t, auftraege_dritte_nt, fue_unterauftrag, zeitw_personalaufnahme, status, notizen, eingereicht_am, bewilligt_am')
+      .select('id, project_id, za_nummer, zeitraum_von, zeitraum_bis, auftraege_dritte_t, auftraege_dritte_nt, fue_unterauftrag, zeitw_personalaufnahme, status, notizen, eingereicht_am, bewilligt_am, nwm_personalkosten, nwm_kosten_dritte, nwm_kosten_uebrige, nwm_kosten_gesamt, laufzeitjahr, foerdersatz_percent')
       .eq('project_id', pid)
       .order('za_nummer', { ascending: true });
 
@@ -290,6 +317,7 @@ export default function ZAPanel({
       fue_unterauftrag: '',
       zeitw_personalaufnahme: '',
       notizen: '',
+      nwm_kosten_dritte: '',
     });
     setZALoading(false);
   }, [projects, supabase]);
@@ -310,6 +338,7 @@ export default function ZAPanel({
       fue_unterauftrag: za.fue_unterauftrag != null ? String(za.fue_unterauftrag) : '',
       zeitw_personalaufnahme: za.zeitw_personalaufnahme != null ? String(za.zeitw_personalaufnahme) : '',
       notizen: za.notizen || '',
+      nwm_kosten_dritte: za.nwm_kosten_dritte != null ? String(za.nwm_kosten_dritte) : '',
     });
   };
 
@@ -348,7 +377,7 @@ export default function ZAPanel({
     if (!projectId) return;
     setZASaving(true);
     try {
-      const payload = {
+      const payload: Record<string, any> = {
         project_id: projectId,
         za_nummer: parseInt(zaFormData.za_nummer) || 1,
         zeitraum_von: zaFormData.zeitraum_von,
@@ -360,6 +389,15 @@ export default function ZAPanel({
         notizen: zaFormData.notizen.trim() || null,
         updated_at: new Date().toISOString(),
       };
+      // NWM-spezifische Felder nur bei ZIM_NETZWERK speichern
+      if (isNetzwerk) {
+        payload.nwm_personalkosten = nwmPersonalkosten;
+        payload.nwm_kosten_dritte = nwmKostenDritte;
+        payload.nwm_kosten_uebrige = nwmKostenUebrige;
+        payload.nwm_kosten_gesamt = nwmKostenGesamt;
+        payload.laufzeitjahr = nwmLaufzeitjahr;
+        payload.foerdersatz_percent = nwmFoerdersatz;
+      }
       if (zaSelectedId) {
         await supabase.from('v7_zahlungsanforderungen').update(payload).eq('id', zaSelectedId);
       } else {
@@ -450,6 +488,44 @@ export default function ZAPanel({
     return `${d}.${m}.${y}`;
   };
 
+
+  // ============================================================================
+  // NWM-HILFSFUNKTIONEN
+  // ============================================================================
+
+  // Laufzeitjahr aus Bewilligungsdatum + ZA-Periodenende berechnen
+  const calcLaufzeitjahr = (bewilligungDatum: string | null, periodeBis: string): number => {
+    if (!bewilligungDatum || !periodeBis) return 1;
+    const beg = new Date(bewilligungDatum);
+    const bis = new Date(periodeBis);
+    const diffMs = bis.getTime() - beg.getTime();
+    const diffYears = diffMs / (365.25 * 24 * 60 * 60 * 1000);
+    return Math.max(1, Math.ceil(diffYears));
+  };
+
+  // Foerdersatz aus foerdersatz_stufen JSONB fuer Laufzeitjahr ermitteln
+  const getFoerdersatzNWM = (project: ZAProject, laufzeitjahr: number): number => {
+    const stufen = project.foerdersatz_stufen;
+    if (!stufen || stufen.length === 0) {
+      // Fallback: Standardwerte national Phase 2
+      if (laufzeitjahr === 1) return 70;
+      if (laufzeitjahr === 2) return 50;
+      return 30;
+    }
+    const stufe = stufen.find(s => s.laufzeitjahr === laufzeitjahr);
+    return stufe ? stufe.satz_percent : (stufen[stufen.length - 1]?.satz_percent || 30);
+  };
+
+  // NWM-Personalkosten aus ZE berechnen (foerderfaehige Std x hourly_rate_approved)
+  const calcNWMPersonalkosten = (pid: string, vonStr: string, bisStr: string): number => {
+    if (!vonStr || !bisStr) return 0;
+    const psRows = getZAPersonenstunden(pid, vonStr, bisStr);
+    return psRows.reduce((sum, row) => {
+      const rate = getHourlyRate(row.empId, pid) || 0;
+      return sum + row.totalAll * rate;
+    }, 0);
+  };
+
   const handlePrint = () => {
     const el = document.getElementById('za-print-area');
     if (!el) return;
@@ -476,9 +552,27 @@ export default function ZAPanel({
   // Berechnungen
   const zaProject = projects.find(p => p.id === projectId) || zimProjects[0];
   const isDS = String(zaProject?.funding_format || '').toUpperCase().trim() === 'ZIM_DS';
+  const isNetzwerk = String(zaProject?.funding_format || '').toUpperCase().trim() === 'ZIM_NETZWERK';
   const vonStr = zaFormData.zeitraum_von;
   const bisStr = zaFormData.zeitraum_bis;
   const psData = (vonStr && bisStr && projectId) ? getZAPersonenstunden(projectId, vonStr, bisStr) : [];
+
+  // NWM-spezifische Berechnungen (nur relevant wenn isNetzwerk)
+  const nwmLaufzeitjahr = isNetzwerk && bisStr
+    ? calcLaufzeitjahr(zaProject?.bewilligung_datum || null, bisStr)
+    : 1;
+  const nwmFoerdersatz = isNetzwerk
+    ? getFoerdersatzNWM(zaProject, nwmLaufzeitjahr)
+    : (zaProject?.foerdersatz || 0);
+  const nwmPersonalkosten = isNetzwerk && vonStr && bisStr
+    ? calcNWMPersonalkosten(projectId, vonStr, bisStr)
+    : 0;
+  const nwmKostenDritte = parseFloat((zaFormData.nwm_kosten_dritte || '0').replace(',', '.')) || 0;
+  const nwmKostenUebrige = nwmPersonalkosten; // = 100% der Personalkosten lt. Richtlinie
+  const nwmKostenGesamt = nwmPersonalkosten + nwmKostenDritte + nwmKostenUebrige;
+  const nwmEigenanteilsquote = 100 - nwmFoerdersatz;
+  const nwmFoerderbetrag = Math.round(nwmKostenGesamt * nwmFoerdersatz / 100);
+  const nwmEigenanteil = nwmKostenGesamt - nwmFoerderbetrag;
 
   const pkT = psData.reduce((sum, row) => sum + row.totalT * (getHourlyRate(row.empId, projectId) || 0), 0);
   const pkNT = psData.reduce((sum, row) => sum + row.totalNT * (getHourlyRate(row.empId, projectId) || 0), 0);
@@ -626,17 +720,96 @@ export default function ZAPanel({
                 </div>
 
                 {/* Warnung fehlende Foerderparameter */}
-                {(!zaProject?.foerdersatz || !zaProject?.overhead_t) && (
+                {!isNetzwerk && (!zaProject?.foerdersatz || !zaProject?.overhead_t) && (
                   <div className="bg-amber-50 border border-amber-300 rounded p-2 text-xs text-amber-700 mb-3">
                     Foerderparameter (Foerdersatz, GKZ) sind noch nicht am Projekt hinterlegt.
                     Bitte im Projekt bearbeiten (Tab Uebersicht &rsaquo; Bearbeiten).
                   </div>
                 )}
+                {isNetzwerk && !zaProject?.bewilligung_datum && (
+                  <div className="bg-amber-50 border border-amber-300 rounded p-2 text-xs text-amber-700 mb-3">
+                    Bewilligungsdatum fehlt. Bitte im Tab Netzwerk &rsaquo; Einstellungen hinterlegen,
+                    damit Laufzeitjahr und Foerdersatz automatisch berechnet werden.
+                  </div>
+                )}
 
-                {/* Kostentabelle */}
+                {/* NWM-Kostentabelle (nur ZIM_NETZWERK) */}
+                {isNetzwerk && (
+                  <div className="mb-4">
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="text-xs font-medium text-gray-700">
+                        NWM-Kosten Abrechnungszeitraum
+                      </div>
+                      <div className="flex items-center gap-2 ml-auto">
+                        <span className="text-xs text-gray-500">Laufzeitjahr:</span>
+                        <span className="text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded">{nwmLaufzeitjahr}</span>
+                        <span className="text-xs text-gray-500 ml-2">Foerdersatz:</span>
+                        <span className="text-xs font-bold text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded">{nwmFoerdersatz}%</span>
+                        <span className="text-xs text-gray-500 ml-2">Eigenanteil:</span>
+                        <span className="text-xs font-bold text-orange-700 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded">{nwmEigenanteilsquote}%</span>
+                      </div>
+                    </div>
+                    <table className="w-full text-xs border border-gray-400">
+                      <thead>
+                        <tr className="bg-gray-100">
+                          <th className="text-left px-2 py-1.5 border border-gray-300 font-medium">Kostenart</th>
+                          <th className="text-right px-2 py-1.5 border border-gray-300 font-medium w-40">Betrag [EUR]</th>
+                          <th className="px-2 py-1.5 border border-gray-300 font-medium w-48 text-gray-500 text-center">Herkunft</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td className="px-2 py-1.5 border border-gray-300">(1) Personalkosten (foerderfaehig)</td>
+                          <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-blue-50">{fmt(nwmPersonalkosten)}</td>
+                          <td className="px-2 py-1.5 border border-gray-300 text-center text-gray-400 text-[10px]">aus Zeiterfassung</td>
+                        </tr>
+                        <tr>
+                          <td className="px-2 py-1.5 border border-gray-300">(2) Auftraege an Dritte</td>
+                          <td className="px-2 py-1.5 border border-gray-300 p-0">
+                            <input type="number" step="0.01" min="0"
+                              value={zaFormData.nwm_kosten_dritte}
+                              onChange={e => setZAFormData(prev => ({ ...prev, nwm_kosten_dritte: e.target.value }))}
+                              className={`w-full px-2 py-1.5 text-right border-0 bg-blue-50 ${colors.inputFocus}`}
+                              placeholder="0,00" />
+                          </td>
+                          <td className="px-2 py-1.5 border border-gray-300 text-center text-gray-400 text-[10px]">manuell (max. 25%)</td>
+                        </tr>
+                        <tr>
+                          <td className="px-2 py-1.5 border border-gray-300">(3) Uebrige Kosten (pauschal 100% Personalkosten)</td>
+                          <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-gray-50 text-gray-500">{fmt(nwmKostenUebrige)}</td>
+                          <td className="px-2 py-1.5 border border-gray-300 text-center text-gray-400 text-[10px]">automatisch</td>
+                        </tr>
+                        <tr className="bg-gray-100 font-semibold">
+                          <td className="px-2 py-1.5 border border-gray-300">Gesamtkosten NWM</td>
+                          <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">{fmt(nwmKostenGesamt)}</td>
+                          <td className="px-2 py-1.5 border border-gray-300"></td>
+                        </tr>
+                        <tr className="bg-blue-50">
+                          <td className="px-2 py-1.5 border border-gray-300 text-blue-700">Foerderbetrag PT ({nwmFoerdersatz}%)</td>
+                          <td className="px-2 py-1.5 border border-gray-300 text-right font-mono text-blue-700">{fmt(nwmFoerderbetrag)}</td>
+                          <td className="px-2 py-1.5 border border-gray-300"></td>
+                        </tr>
+                        <tr className="bg-orange-50">
+                          <td className="px-2 py-1.5 border border-gray-300 text-orange-700 font-semibold">Eigenanteil NP gesamt ({nwmEigenanteilsquote}%)</td>
+                          <td className="px-2 py-1.5 border border-gray-300 text-right font-mono text-orange-700 font-semibold">{fmt(nwmEigenanteil)}</td>
+                          <td className="px-2 py-1.5 border border-gray-300"></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <p className="text-[10px] text-gray-400 mt-1">
+                      Uebrige Kosten = 100% der Personalkosten (pauschal lt. ZIM-Richtlinie 2024 Abschnitt 5.3.1c).
+                      Auftraege an Dritte max. 25% der Gesamtkosten (national) bzw. 35% (international).
+                    </p>
+                  </div>
+                )}
+
+                {/* Kostentabelle (nur NICHT-NWM) */}
+                {!isNetzwerk && (
                 <div className="text-xs font-medium text-gray-700 mb-1">
                   Zuwendungsfaehige Kosten im Abrechnungszeitraum und anteilige Zuwendung
                 </div>
+                )}
+                {!isNetzwerk && (
                 <table className="w-full text-xs border border-gray-400">
                   <thead>
                     <tr className="bg-gray-100">
@@ -816,6 +989,7 @@ export default function ZAPanel({
                   </tbody>
                 </table>
 
+                )}
                 {/* Interne Notizen */}
                 <div className="mt-3">
                   <label className="block text-xs text-gray-500 mb-1">Interne Notizen (nicht im Formular)</label>
