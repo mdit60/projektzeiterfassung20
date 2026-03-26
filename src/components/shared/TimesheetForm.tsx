@@ -2,12 +2,17 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 23. Maerz 2026
-// Version: 7.4.3-10
+// Datum: 26. Maerz 2026
+// Version: 7.4.3-11
 //
-// v7.4.3-10: FIX: Monatsabschluss wird nur zurueckgesetzt wenn tatsaechlich
-//            Aenderungen gespeichert wurden (hasChanges === true).
-//            Vorher: Reset bei jedem Speichern, auch ohne Aenderungen.
+// v7.4.3-11: FIX: PDF-Export / Drucken komplett ueberarbeitet.
+//            Kein Popup-Fenster mehr (CSS ging verloren).
+//            window.print() direkt im gleichen Tab.
+//            select-Elemente werden vor dem Drucken per DOM-Swap
+//            durch span-Texte ersetzt (replaceSelectsForPrint),
+//            danach wiederhergestellt. Dateiname via document.title.
+//            @media print CSS: select display:none, kompakte Tabelle,
+//            alle UI-Elemente ausgeblendet.
 //
 // Wird von beiden Portalen genutzt:
 // - Firmen-Portal: /v7/firma/zeiterfassung
@@ -188,7 +193,7 @@ const normalizeStateCode = (state: string | null | undefined): string => {
   if (!state) return '';
   if (state.startsWith('DE-')) return state;
   const map: Record<string, string> = {
-    'Baden-Wuerttemberg': 'DE-BW', 'Baden-Wuerttemberg': 'DE-BW',
+    'Baden-Wuerttemberg': 'DE-BW',
     'Bayern': 'DE-BY', 'Bavaria': 'DE-BY',
     'Berlin': 'DE-BE', 'Brandenburg': 'DE-BB',
     'Bremen': 'DE-HB', 'Hamburg': 'DE-HH',
@@ -199,7 +204,7 @@ const normalizeStateCode = (state: string | null | undefined): string => {
     'Rheinland-Pfalz': 'DE-RP', 'Rhineland-Palatinate': 'DE-RP',
     'Saarland': 'DE-SL', 'Sachsen': 'DE-SN', 'Saxony': 'DE-SN',
     'Sachsen-Anhalt': 'DE-ST', 'Schleswig-Holstein': 'DE-SH',
-    'Thueringen': 'DE-TH', 'Thueringen': 'DE-TH', 'Thuringia': 'DE-TH',
+    'Thueringen': 'DE-TH', 'Thuringia': 'DE-TH',
   };
   return map[state] || state;
 };
@@ -1216,67 +1221,60 @@ export default function TimesheetForm({
   // PDF EXPORT
   // ============================================================================
 
-  const handlePrint = () => {
-    window.print();
+  // Hilfsfunktion: Alle select-Elemente im printRef durch span-Texte ersetzen,
+  // damit der Druckdialog die gewaehlten Werte als Text rendert (nicht als Dropdown).
+  // Gibt eine Restore-Funktion zurueck.
+  const replaceSelectsForPrint = (): (() => void) => {
+    const container = printRef.current;
+    if (!container) return () => {};
+
+    const replacements: Array<{ select: HTMLSelectElement; span: HTMLSpanElement }> = [];
+
+    container.querySelectorAll('select').forEach((select) => {
+      const selectedOption = select.options[select.selectedIndex];
+      const text = selectedOption ? selectedOption.text.trim() : '';
+      const span = document.createElement('span');
+      span.textContent = text === '-' || text === '' ? '' : text;
+      span.style.cssText = 'display:block;width:100%;text-align:center;font-size:inherit;padding:2px;';
+      select.parentNode?.insertBefore(span, select);
+      select.style.display = 'none';
+      replacements.push({ select, span });
+    });
+
+    return () => {
+      replacements.forEach(({ select, span }) => {
+        select.style.display = '';
+        span.parentNode?.removeChild(span);
+      });
+    };
   };
 
-  const handleExportPDF = async () => {
+  const handlePrint = () => {
     const empName = selectedEmployee?.display_name?.replace(/\s+/g, '_') || 'Mitarbeiter';
-    const projectRef = selectedProject?.funding_reference?.replace(/\s+/g, '_') || selectedProject?.short_name || 'Projekt';
+    const projectRef = selectedProject?.funding_reference?.replace(/[/\s]+/g, '_') || selectedProject?.short_name || 'Projekt';
     const monthYear = `${String(selectedMonth).padStart(2, '0')}_${selectedYear}`;
-    const defaultFileName = `Stundennachweis_${empName}_${projectRef}_${monthYear}.pdf`;
+    const fileName = `Stundennachweis_${empName}_${projectRef}_${monthYear}`;
 
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      alert('Popup blockiert. Bitte erlauben Sie Popups fuer diese Seite.');
-      return;
-    }
+    const prevTitle = document.title;
+    document.title = fileName;
 
-    const printContent = printRef.current;
-    if (!printContent) return;
+    const restore = replaceSelectsForPrint();
 
-    const styles = Array.from(document.styleSheets)
-      .map(sheet => {
-        try {
-          return Array.from(sheet.cssRules).map(rule => rule.cssText).join('\n');
-        } catch {
-          return '';
-        }
-      })
-      .join('\n');
+    window.print();
 
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>${defaultFileName}</title>
-          <style>
-            ${styles}
-            @page { size: A4 landscape; margin: 5mm; }
-            body { 
-              -webkit-print-color-adjust: exact !important;
-              print-color-adjust: exact !important;
-              background: white !important;
-              margin: 0;
-              padding: 10px;
-            }
-          </style>
-        </head>
-        <body>
-          ${printContent.innerHTML}
-          <script>
-            window.onload = function() {
-              document.title = '${defaultFileName}';
-              setTimeout(function() {
-                window.print();
-                window.onafterprint = function() { window.close(); };
-              }, 250);
-            };
-          </script>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
+    // Nach dem Drucken alles wiederherstellen
+    // onafterprint ist nicht zuverlaessig in allen Browsern -> kurzes Timeout als Fallback
+    const cleanup = () => {
+      restore();
+      document.title = prevTitle;
+    };
+    window.onafterprint = cleanup;
+    setTimeout(cleanup, 3000);
+  };
+
+  const handleExportPDF = () => {
+    // PDF Export = identisch mit Drucken (Browser-Dialog "Als PDF speichern")
+    handlePrint();
   };
 
   // ============================================================================
@@ -2008,29 +2006,101 @@ export default function TimesheetForm({
       {/* Print Styles */}
       <style jsx global>{`
         @media print {
+          /* Seite */
+          @page {
+            size: A4 landscape;
+            margin: 5mm;
+          }
+
+          /* Alles ausblenden ausser dem Formular */
           html, body {
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
             margin: 0 !important;
             padding: 0 !important;
             background: white !important;
+            font-size: 8px !important;
           }
-          @page {
-            size: A4 landscape;
-            margin: 5mm;
-          }
+
+          /* Navigations- und UI-Elemente ausblenden */
+          header,
+          footer,
+          nav,
           .print\\:hidden {
             display: none !important;
           }
+
+          /* Formular-Container: volle Breite, kein padding */
+          .max-w-full.mx-auto.p-4 {
+            padding: 0 !important;
+            margin: 0 !important;
+            max-width: 100% !important;
+          }
+
+          /* Kein Schatten, kein overflow hidden beim Drucken */
+          .bg-white.shadow-lg {
+            box-shadow: none !important;
+            overflow: visible !important;
+          }
+
+          /* Tabellen: kompakt, passend auf A4 landscape */
           table {
-            font-size: 8px !important;
+            font-size: 7px !important;
+            width: 100% !important;
+            table-layout: fixed !important;
+            border-collapse: collapse !important;
+            page-break-inside: avoid !important;
           }
-          input {
-            font-size: 8px !important;
+
+          th, td {
+            padding: 1px 2px !important;
+            font-size: 7px !important;
+            line-height: 1.2 !important;
+            overflow: hidden !important;
+            white-space: nowrap !important;
           }
-          select {
+
+          /* Eingabefelder: transparent, kein Rahmen ausser Unterschriftlinie */
+          input[type="text"] {
+            font-size: 7px !important;
+            border: none !important;
+            background: transparent !important;
             -webkit-appearance: none !important;
             appearance: none !important;
+            padding: 0 !important;
+            outline: none !important;
+          }
+
+          /* Unterschrift-Datum-Inputs behalten ihre Unterstreichung */
+          .border-b.border-gray-300 {
+            border-bottom: 1px solid #999 !important;
+          }
+
+          /* Selects: per JS durch spans ersetzt (replaceSelectsForPrint),
+             hier sicherstellen dass verbliebene selects unsichtbar sind */
+          select {
+            display: none !important;
+          }
+
+          /* Hintergrundfarben beibehalten */
+          * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+
+          /* Kein Seitenumbruch innerhalb des Formulars */
+          .bg-white.shadow-lg.print\\:shadow-none {
+            page-break-inside: avoid !important;
+          }
+
+          /* Hinweistexte etwas kleiner */
+          .text-\\[7px\\], .text-\\[8px\\] {
+            font-size: 6px !important;
+          }
+
+          /* Unterschriften-Bereich: Abstand oben */
+          .border-x.border-b.flex {
+            margin-top: 2mm !important;
           }
         }
       `}</style>
