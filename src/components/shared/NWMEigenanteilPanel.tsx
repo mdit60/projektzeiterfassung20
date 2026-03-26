@@ -2,7 +2,7 @@
 // ============================================================================
 // PZE V7 - NWM Eigenanteil-Berechnung und Zahlungsstatus
 // ============================================================================
-// Version: 7.4.5-1
+// Version: 7.4.5-2
 // Datum: 26. Maerz 2026
 //
 // Berechnet quartalsweise Eigenanteile pro Netzwerkpartner:
@@ -15,6 +15,9 @@
 // - Zahlungseingang erfassen, Status pflegen
 // - PDF: Rechnung Cubintec -> NP
 // - PDF: PT-Nachweis Eigenanteil-Eingang
+// v7.4.5-2: FIX: Perioden ab Projektstart (3-Monats-Rhythmus, nicht Kalenderquartale)
+//   FIX: ZE-Query korrigiert (year/month statt date-Range, total_fue_hours)
+//   FIX: hourly_rate_approved Fallback korrekt
 // ============================================================================
 
 'use client';
@@ -162,18 +165,34 @@ const getFoerdersatz = (
   return isInt ? 40 : 30;
 };
 
-// Quartale generieren (letztes Jahr + dieses Jahr)
-const generateQuartale = (): { label: string; von: string; bis: string }[] => {
+// Abrechnungsperioden ab Projektstart im 3-Monats-Rhythmus generieren
+const generatePerioden = (startDate: string | null): { label: string; von: string; bis: string }[] => {
+  if (!startDate) return [];
   const result = [];
+  const start = new Date(startDate);
+  // Sicherstellen dass wir am 1. des Startmonats beginnen
+  const basisDatum = new Date(start.getFullYear(), start.getMonth(), 1);
   const now = new Date();
-  const currentYear = now.getFullYear();
-  for (let year = currentYear - 1; year <= currentYear + 1; year++) {
-    result.push(
-      { label: `Q1 ${year}`, von: `${year}-01-01`, bis: `${year}-03-31` },
-      { label: `Q2 ${year}`, von: `${year}-04-01`, bis: `${year}-06-30` },
-      { label: `Q3 ${year}`, von: `${year}-07-01`, bis: `${year}-09-30` },
-      { label: `Q4 ${year}`, von: `${year}-10-01`, bis: `${year}-12-31` },
-    );
+  // Bis 2 Perioden in der Zukunft generieren
+  const maxDatum = new Date(now.getFullYear(), now.getMonth() + 6, 1);
+  let periodeStart = new Date(basisDatum);
+  let periodeNr = 1;
+  while (periodeStart <= maxDatum) {
+    const periodeEnd = new Date(periodeStart);
+    periodeEnd.setMonth(periodeEnd.getMonth() + 3);
+    periodeEnd.setDate(periodeEnd.getDate() - 1);
+    const vonStr = periodeStart.toISOString().slice(0, 10);
+    const bisStr = periodeEnd.toISOString().slice(0, 10);
+    // Label: "Periode 1 (Aug-Okt 2025)"
+    const vonLabel = periodeStart.toLocaleString('de-DE', { month: 'short' });
+    const bisLabel = periodeEnd.toLocaleString('de-DE', { month: 'short', year: '2-digit' });
+    result.push({
+      label: `Periode ${periodeNr} (${vonLabel}-${bisLabel})`,
+      von: vonStr,
+      bis: bisStr,
+    });
+    periodeStart.setMonth(periodeStart.getMonth() + 3);
+    periodeNr++;
   }
   return result;
 };
@@ -200,12 +219,12 @@ export default function NWMEigenanteilPanel({
   const btnPrimary = portal === 'firma' ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700';
   const focusRing = portal === 'firma' ? 'focus:ring-green-500 focus:border-green-500' : 'focus:ring-blue-500 focus:border-blue-500';
 
-  // Quartal-Auswahl
-  const quartale = generateQuartale();
+  // Perioden-Auswahl (3-Monats-Rhythmus ab Projektstart)
+  const perioden = generatePerioden(project.start_date);
   const now = new Date();
-  const defaultQ = quartale.find(q =>
+  const defaultQ = perioden.find(q =>
     now >= new Date(q.von) && now <= new Date(q.bis)
-  ) || quartale[4];
+  ) || perioden[perioden.length - 1] || { label: 'Periode 1', von: project.start_date || new Date().toISOString().slice(0, 10), bis: new Date().toISOString().slice(0, 10) };
   const [selectedQ, setSelectedQ] = useState(defaultQ);
 
   // Daten
@@ -323,31 +342,42 @@ export default function NWMEigenanteilPanel({
     setCalculating(true);
     setError(null);
     try {
-      // Personalkosten aus ZE berechnen
-      // Stunden aus v7_timesheets fuer den Zeitraum laden
+      // Personalkosten aus ZE berechnen (year/month basiert)
       const vonDate = new Date(selectedQ.von);
       const bisDate = new Date(selectedQ.bis);
+      // Alle Monate im Zeitraum ermitteln
       const monate: { year: number; month: number }[] = [];
       const cur = new Date(vonDate.getFullYear(), vonDate.getMonth(), 1);
-      while (cur <= bisDate) {
+      const bisMonat = new Date(bisDate.getFullYear(), bisDate.getMonth(), 1);
+      while (cur <= bisMonat) {
         monate.push({ year: cur.getFullYear(), month: cur.getMonth() + 1 });
         cur.setMonth(cur.getMonth() + 1);
       }
 
       let personalkosten = 0;
-      for (const m of monate) {
-        const { data: tsData } = await supabase
-          .from('v7_timesheets')
-          .select('employee_id, total_hours, total_fue_hours')
-          .eq('project_id', project.id)
-          .eq('year', m.year)
-          .eq('month', m.month);
+      if (monate.length > 0) {
+        // Alle Timesheets fuer dieses Projekt in diesem Zeitraum laden
+        const years = [...new Set(monate.map(m => m.year))];
+        for (const year of years) {
+          const monthsForYear = monate.filter(m => m.year === year).map(m => m.month);
+          const { data: tsData } = await supabase
+            .from('v7_timesheets')
+            .select('employee_id, total_hours, total_fue_hours')
+            .eq('project_id', project.id)
+            .eq('year', year)
+            .in('month', monthsForYear);
 
-        for (const ts of (tsData || [])) {
-          const pa = assignments.find(a => a.employee_id === ts.employee_id);
-          const rate = pa?.hourly_rate_approved || pa?.hourly_rate || 0;
-          const stunden = ts.total_fue_hours || ts.total_hours || 0;
-          personalkosten += stunden * rate;
+          for (const ts of (tsData || [])) {
+            // Prioritaet: total_fue_hours (foerderfaehig), fallback total_hours
+            const stunden = (ts.total_fue_hours != null && ts.total_fue_hours > 0)
+              ? Number(ts.total_fue_hours)
+              : Number(ts.total_hours || 0);
+            if (stunden === 0) continue;
+            // Stundensatz: hourly_rate aus v7_project_assignments
+            const pa = assignments.find(a => a.employee_id === ts.employee_id);
+            const rate = Number(pa?.hourly_rate_approved || pa?.hourly_rate || 0);
+            personalkosten += stunden * rate;
+          }
         }
       }
 
@@ -710,7 +740,7 @@ export default function NWMEigenanteilPanel({
               }}
               className={`px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 ${focusRing}`}
             >
-              {quartale.map(q => (
+              {perioden.map(q => (
                 <option key={q.label} value={q.label}>{q.label}</option>
               ))}
             </select>
