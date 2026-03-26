@@ -2,7 +2,7 @@
 // ============================================================================
 // PZE V7 - NWM Netzwerkpartner-Verwaltung
 // ============================================================================
-// Version: 7.4.5-3
+// Version: 7.4.5-4
 // Datum: 26. Maerz 2026
 //
 // Verwaltet die Netzwerkpartner eines ZIM_NETZWERK-Projekts:
@@ -12,6 +12,7 @@
 // - Schloss-Icon: manuell gesperrte NP werden bei Auto-Anpassung uebersprungen
 // - NP hinzufuegen / bearbeiten / ausscheiden
 // - Quoten-Summen-Validierung (muss 100,00% ergeben)
+// v7.4.5-4: FIX: Nach NP-Hinzufuegen automatisch Gleichverteilung aller aktiven NP
 // v7.4.5-3: Kundenauswahl uebernimmt alle verfuegbaren Felder:
 //   contact_person, contact_email, street, zip_code, city
 //   Rechtsform wird automatisch aus Firmennamen abgeleitet
@@ -391,7 +392,26 @@ export default function NWMPartnerPanel({ portal, projectId, consultantCompanyId
         });
       }
       setShowModal(false);
-      setSuccess(editingId ? 'Netzwerkpartner aktualisiert.' : 'Netzwerkpartner hinzugefuegt.');
+
+      // Bei neuem NP: Quoten aller aktiven NP gleichverteilen und speichern
+      if (!editingId) {
+        // Neu geladene Liste holen
+        const { data: alleNP } = await supabase
+          .from('v7_netzwerk_partner')
+          .select('id')
+          .eq('project_id', projectId)
+          .is('austritt_datum', null);
+        const aktiveIds = (alleNP || []).map((p: any) => p.id);
+        const quoten = gleichverteilung(aktiveIds.length);
+        for (let i = 0; i < aktiveIds.length; i++) {
+          await supabase
+            .from('v7_netzwerk_partner')
+            .update({ eigenanteil_quote: quoten[i], quote_manuell_gesperrt: false, updated_at: new Date().toISOString() })
+            .eq('id', aktiveIds[i]);
+        }
+      }
+
+      setSuccess(editingId ? 'Netzwerkpartner aktualisiert.' : 'Netzwerkpartner hinzugefuegt und Quoten gleichverteilt.');
       setTimeout(() => setSuccess(null), 3000);
       await loadPartner();
     } catch (err: any) {
