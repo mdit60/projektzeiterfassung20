@@ -2,17 +2,8 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 26. Maerz 2026
-// Version: 7.4.3-11
-//
-// v7.4.3-11: FIX: PDF-Export / Drucken komplett ueberarbeitet.
-//            Kein Popup-Fenster mehr (CSS ging verloren).
-//            window.print() direkt im gleichen Tab.
-//            select-Elemente werden vor dem Drucken per DOM-Swap
-//            durch span-Texte ersetzt (replaceSelectsForPrint),
-//            danach wiederhergestellt. Dateiname via document.title.
-//            @media print CSS: select display:none, kompakte Tabelle,
-//            alle UI-Elemente ausgeblendet.
+// Datum: 02. Maerz 2026
+// Version: 7.4.3-9
 //
 // Wird von beiden Portalen genutzt:
 // - Firmen-Portal: /v7/firma/zeiterfassung
@@ -1193,8 +1184,8 @@ export default function TimesheetForm({
       setHasChanges(false);
       setTimeout(() => setSuccessMessage(null), 4000);
 
-      // NEU v7.4.3-10: Completion zuruecksetzen NUR wenn tatsaechlich Aenderungen gespeichert wurden
-      if (isCompleted && hasChanges) {
+      // NEU v7.4.3-9: Completion zuruecksetzen wenn Aenderungen gespeichert wurden
+      if (isCompleted) {
         const supabaseCl = createClient();
         await supabaseCl
           .from('v7_timesheet_completions')
@@ -1221,26 +1212,22 @@ export default function TimesheetForm({
   // PDF EXPORT
   // ============================================================================
 
-  // Hilfsfunktion: Alle select-Elemente im printRef durch span-Texte ersetzen,
-  // damit der Druckdialog die gewaehlten Werte als Text rendert (nicht als Dropdown).
-  // Gibt eine Restore-Funktion zurueck.
+  // Ersetzt select-Elemente vor dem Drucken durch lesbare span-Texte.
+  // Gibt Restore-Funktion zurueck die alles rueckgaengig macht.
   const replaceSelectsForPrint = (): (() => void) => {
     const container = printRef.current;
     if (!container) return () => {};
-
     const replacements: Array<{ select: HTMLSelectElement; span: HTMLSpanElement }> = [];
-
     container.querySelectorAll('select').forEach((select) => {
       const selectedOption = select.options[select.selectedIndex];
       const text = selectedOption ? selectedOption.text.trim() : '';
       const span = document.createElement('span');
-      span.textContent = text === '-' || text === '' ? '' : text;
+      span.textContent = (text === '-' || text === '') ? '' : text;
       span.style.cssText = 'display:block;width:100%;text-align:center;font-size:inherit;padding:2px;';
       select.parentNode?.insertBefore(span, select);
       select.style.display = 'none';
       replacements.push({ select, span });
     });
-
     return () => {
       replacements.forEach(({ select, span }) => {
         select.style.display = '';
@@ -1251,29 +1238,19 @@ export default function TimesheetForm({
 
   const handlePrint = () => {
     const empName = selectedEmployee?.display_name?.replace(/\s+/g, '_') || 'Mitarbeiter';
-    const projectRef = selectedProject?.funding_reference?.replace(/[/\s]+/g, '_') || selectedProject?.short_name || 'Projekt';
+    const projectRef = selectedProject?.funding_reference?.replace(/[\/\s]+/g, '_') || selectedProject?.short_name || 'Projekt';
     const monthYear = `${String(selectedMonth).padStart(2, '0')}_${selectedYear}`;
     const fileName = `Stundennachweis_${empName}_${projectRef}_${monthYear}`;
-
     const prevTitle = document.title;
     document.title = fileName;
-
     const restore = replaceSelectsForPrint();
-
     window.print();
-
-    // Nach dem Drucken alles wiederherstellen
-    // onafterprint ist nicht zuverlaessig in allen Browsern -> kurzes Timeout als Fallback
-    const cleanup = () => {
-      restore();
-      document.title = prevTitle;
-    };
+    const cleanup = () => { restore(); document.title = prevTitle; };
     window.onafterprint = cleanup;
     setTimeout(cleanup, 3000);
   };
 
   const handleExportPDF = () => {
-    // PDF Export = identisch mit Drucken (Browser-Dialog "Als PDF speichern")
     handlePrint();
   };
 
