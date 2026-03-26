@@ -3,8 +3,9 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 26. Maerz 2026
-// Version: 7.4.4-35
+// Version: 7.4.4-36
 //
+// v7.4.4-36: NWMEigenanteilPanel eingebunden (Eigenanteile Sub-Tab aktiv)
 // v7.4.4-35: NWMEinstellungenPanel eingebunden
 //   - Einstellungen-Sub-Tab zeigt echte Komponente
 //   - onProjectUpdate Callback aktualisiert lokalen Project-State
@@ -84,6 +85,7 @@ import ProjectTeamManager from '@/components/shared/ProjectTeamManager';
 import ArbeitsplanImport from '@/components/shared/ArbeitsplanImport';
 import NWMPartnerPanel from '@/components/shared/NWMPartnerPanel';
 import NWMEinstellungenPanel from '@/components/shared/NWMEinstellungenPanel';
+import NWMEigenanteilPanel from '@/components/shared/NWMEigenanteilPanel';
 
 import {
   V7UserRole,
@@ -1751,17 +1753,11 @@ export default function ProjectDetailPage({
 
             {/* Sub-Tab: Eigenanteile */}
             {nwmTab === 'eigenanteile' && (
-              <div className="bg-white rounded-lg border border-gray-200 p-6">
-                <div className="flex items-center gap-3 mb-4">
-                  <CreditCard className={portal === 'firma' ? 'text-green-600' : 'text-blue-600'} size={20} />
-                  <h2 className="text-lg font-semibold text-gray-900">Eigenanteile</h2>
-                </div>
-                <div className="text-center py-12 text-gray-400">
-                  <CreditCard size={48} className="mx-auto mb-3 opacity-30" />
-                  <p className="text-sm">Eigenanteil-Berechnung und Zahlungsstatus</p>
-                  <p className="text-xs mt-1 text-gray-300">Wird in naechstem Schritt implementiert</p>
-                </div>
-              </div>
+              <NWMEigenanteilPanel
+                portal={portal}
+                project={project}
+                companyName={company?.name || ''}
+              />
             )}
 
           </div>
