@@ -3,8 +3,9 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 26. Maerz 2026
-// Version: 7.4.4-36
+// Version: 7.4.4-37
 //
+// v7.4.4-37: FIX: Project Interface um alle NWM-Bankfelder erweitert (TS-Fehler)
 // v7.4.4-36: NWMEigenanteilPanel eingebunden (Eigenanteile Sub-Tab aktiv)
 // v7.4.4-35: NWMEinstellungenPanel eingebunden
 //   - Einstellungen-Sub-Tab zeigt echte Komponente
@@ -202,6 +203,14 @@ interface Project {
   bewilligung_datum: string | null;
   phase2_start_datum: string | null;
   foerdersatz_stufen: any | null;
+  nwm_bank_kontoinhaber: string | null;
+  nwm_bank_iban: string | null;
+  nwm_bank_bic: string | null;
+  nwm_bank_name: string | null;
+  nwm_ust_id: string | null;
+  nwm_rechnung_prefix: string | null;
+  nwm_rechnung_naechste: number | null;
+  nwm_faelligkeitsfrist: number | null;
 }
 
 interface TeamEditData {
