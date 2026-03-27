@@ -2,7 +2,7 @@
 // ============================================================================
 // PZE V7 - NWM Eigenanteil-Berechnung und Zahlungsstatus
 // ============================================================================
-// Version: 7.4.5-4
+// Version: 7.4.5-5
 // Datum: 26. Maerz 2026
 //
 // Berechnet quartalsweise Eigenanteile pro Netzwerkpartner:
@@ -15,6 +15,7 @@
 // - Zahlungseingang erfassen, Status pflegen
 // - PDF: Rechnung Cubintec -> NP
 // - PDF: PT-Nachweis Eigenanteil-Eingang
+// v7.4.5-5: FIX: Perioden-Datum Off-by-one (lokale Strings statt toISOString)
 // v7.4.5-4: FIX: ZE-Query auf alte Timesheet-Struktur umgestellt
 //   (work_date/hours/is_active/is_billable statt year/month/total_fue_hours)
 // v7.4.5-3: FIX: Perioden-Dropdown schaltet korrekt um (Index statt Objekt-Vergleich)
@@ -174,18 +175,24 @@ const generatePerioden = (startDate: string | null): { label: string; von: strin
   const result = [];
   const start = new Date(startDate);
   // Sicherstellen dass wir am 1. des Startmonats beginnen
-  const basisDatum = new Date(start.getFullYear(), start.getMonth(), 1);
+  const basisJahr = start.getFullYear();
+  const basisMonat = start.getMonth(); // 0-basiert
   const now = new Date();
   // Bis 2 Perioden in der Zukunft generieren
   const maxDatum = new Date(now.getFullYear(), now.getMonth() + 6, 1);
-  let periodeStart = new Date(basisDatum);
+  let periodeJahr = basisJahr;
+  let periodeMonat = basisMonat; // 0-basiert
   let periodeNr = 1;
-  while (periodeStart <= maxDatum) {
-    const periodeEnd = new Date(periodeStart);
-    periodeEnd.setMonth(periodeEnd.getMonth() + 3);
-    periodeEnd.setDate(periodeEnd.getDate() - 1);
-    const vonStr = periodeStart.toISOString().slice(0, 10);
-    const bisStr = periodeEnd.toISOString().slice(0, 10);
+  while (new Date(periodeJahr, periodeMonat, 1) <= maxDatum) {
+    // Datum direkt als lokale Strings konstruieren - kein UTC-Problem
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const vonStr = `${periodeJahr}-${pad(periodeMonat + 1)}-01`;
+    // Ende: 3 Monate spaeter, Tag 0 = letzter Tag des Vormonats
+    const endMonat = periodeMonat + 3;
+    const endJahrRaw = periodeJahr + Math.floor(endMonat / 12);
+    const endMonatRaw = endMonat % 12; // 0-basiert, Tag 0 = letzter des Vormonats
+    const letzterTag = new Date(endJahrRaw, endMonatRaw, 0).getDate();
+    const bisStr = `${endJahrRaw}-${pad(endMonatRaw)}-${pad(letzterTag)}`;
     // Label: "Periode 1 (Aug-Okt 2025)"
     const vonLabel = periodeStart.toLocaleString('de-DE', { month: 'short' });
     const bisLabel = periodeEnd.toLocaleString('de-DE', { month: 'short', year: '2-digit' });
@@ -194,7 +201,11 @@ const generatePerioden = (startDate: string | null): { label: string; von: strin
       von: vonStr,
       bis: bisStr,
     });
-    periodeStart.setMonth(periodeStart.getMonth() + 3);
+    periodeMonat += 3;
+    if (periodeMonat >= 12) {
+      periodeJahr += Math.floor(periodeMonat / 12);
+      periodeMonat = periodeMonat % 12;
+    }
     periodeNr++;
   }
   return result;
@@ -377,7 +388,6 @@ export default function NWMEigenanteilPanel({
         const rate = Number(pa?.hourly_rate_approved || pa?.hourly_rate || 0);
         personalkosten += stunden * rate;
       }
-      console.log('NWM EA Berechnung:', { periodeVon: selectedQ.von, periodeBis: selectedQ.bis, tsRows: (tsData || []).length, stundenJeMA, personalkosten });
 
       const uebrige = personalkosten; // 100% der Personalkosten
       const kostenGesamt = personalkosten + nwmDritte + uebrige;
