@@ -2,7 +2,7 @@
 // ============================================================================
 // PZE V7 - NWM Eigenanteil-Berechnung und Zahlungsstatus
 // ============================================================================
-// Version: 7.4.5-8
+// Version: 7.4.5-9
 // Datum: 26. Maerz 2026
 //
 // Berechnet quartalsweise Eigenanteile pro Netzwerkpartner:
@@ -15,6 +15,7 @@
 // - Zahlungseingang erfassen, Status pflegen
 // - PDF: Rechnung Cubintec -> NP
 // - PDF: PT-Nachweis Eigenanteil-Eingang
+// v7.4.5-9: FIX: periodeStart not defined in generatePerioden
 // v7.4.5-8: Intelligenter Periodenvorschlag ab letzter abgerechneter Periode
 //   Laedt letztes periode_bis aus DB, naechster Vorschlag = +1 Tag bis +3 Monate
 //   Faellt automatisch ins urspruengliche Raster zurueck
@@ -202,8 +203,9 @@ const generatePerioden = (startDate: string | null): { label: string; von: strin
     const letzterTag = new Date(endJahrRaw, endMonatRaw, 0).getDate();
     const bisStr = `${endJahrRaw}-${pad(endMonatRaw)}-${pad(letzterTag)}`;
     // Label: "Periode 1 (Aug-Okt 2025)"
-    const vonLabel = periodeStart.toLocaleString('de-DE', { month: 'short' });
-    const bisLabel = periodeEnd.toLocaleString('de-DE', { month: 'short', year: '2-digit' });
+    const vonLabel = new Date(periodeJahr, periodeMonat).toLocaleString('de-DE', { month: 'short' });
+    const endDatum = new Date(endJahrRaw, endMonatRaw - 1);
+    const bisLabel = endDatum.toLocaleString('de-DE', { month: 'short', year: '2-digit' });
     result.push({
       label: `Periode ${periodeNr} (${vonLabel}-${bisLabel})`,
       von: vonStr,
