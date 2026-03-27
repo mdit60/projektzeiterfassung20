@@ -36,6 +36,7 @@ import { createClient } from '@/lib/supabase/client';
 import * as XLSX from 'xlsx';
 import PortalHeader from '@/components/shared/PortalHeader';
 import PortalNav from '@/components/shared/PortalNav';
+import ProjektFortschrittPanel from '@/components/shared/ProjektFortschrittPanel';
 import ZAPanel, { loadProjectAssignments } from '@/components/shared/ZAPanel';
 import {
   BarChart3,
@@ -333,6 +334,7 @@ export default function BerichtePage() {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [showMatrix, setShowMatrix] = useState(false);
   const [showZA, setShowZA] = useState(false);
+  const [showFortschritt, setShowFortschritt] = useState(false);
   const [matrixProjectId, setMatrixProjectId] = useState<string | null>(null);
   
   const holidays = useMemo(() => {
@@ -1419,12 +1421,22 @@ export default function BerichtePage() {
                 </span>
               </button>
 
-              {/* Kachel 3: Projektfortschritt - noch deaktiviert */}
-              <button disabled className="flex flex-col items-center p-6 border-2 border-dashed border-gray-300 rounded-lg text-gray-400 cursor-not-allowed">
+              {/* Kachel 3: Projektfortschritt - AKTIV */}
+              <button
+                onClick={() => setShowFortschritt(prev => !prev)}
+                className={`flex flex-col items-center p-6 border-2 rounded-lg transition-colors cursor-pointer ${
+                  showFortschritt
+                    ? 'border-green-600 text-green-800 bg-green-100'
+                    : 'border-green-400 text-green-700 bg-green-50 hover:bg-green-100'
+                }`}
+              >
                 <BarChart3 className="w-10 h-10 mb-3" />
                 <span className="font-medium">Projekt-Fortschritt</span>
                 <span className="text-xs mt-1">Grafische Auswertung</span>
-                <span className="text-xs mt-2 bg-gray-100 px-2 py-0.5 rounded">Demnaechst</span>
+                <span className={`text-xs mt-2 px-2 py-0.5 rounded flex items-center gap-1 ${showFortschritt ? 'bg-green-200' : 'bg-green-100'}`}>
+                  {showFortschritt ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+                  {showFortschritt ? 'Schliessen' : 'Oeffnen'}
+                </span>
               </button>
 
 
@@ -1447,6 +1459,21 @@ export default function BerichtePage() {
                 </span>
               </button>
             </div>
+
+            {/* Fortschritt-Panel - volle Breite unter dem Grid */}
+            {showFortschritt && (
+              <div className="mt-4 bg-white rounded-xl border border-gray-200 p-5">
+                <ProjektFortschrittPanel
+                  portal="firma"
+                  projects={projects}
+                  workPackages={workPackages}
+                  wpAssignments={wpAssignments}
+                  projectAssignments={projectAssignments}
+                  employees={employees}
+                  timesheets={timesheets}
+                />
+              </div>
+            )}
 
             {/* ZA-Panel - volle Breite unter dem Grid */}
             {showZA && (
