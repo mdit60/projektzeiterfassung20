@@ -2,7 +2,7 @@
 // ============================================================================
 // PZE V7 - NWM Eigenanteil-Berechnung und Zahlungsstatus
 // ============================================================================
-// Version: 7.4.5-3
+// Version: 7.4.5-4
 // Datum: 26. Maerz 2026
 //
 // Berechnet quartalsweise Eigenanteile pro Netzwerkpartner:
@@ -15,6 +15,8 @@
 // - Zahlungseingang erfassen, Status pflegen
 // - PDF: Rechnung Cubintec -> NP
 // - PDF: PT-Nachweis Eigenanteil-Eingang
+// v7.4.5-4: FIX: ZE-Query auf alte Timesheet-Struktur umgestellt
+//   (work_date/hours/is_active/is_billable statt year/month/total_fue_hours)
 // v7.4.5-3: FIX: Perioden-Dropdown schaltet korrekt um (Index statt Objekt-Vergleich)
 // v7.4.5-2: FIX: Perioden ab Projektstart (3-Monats-Rhythmus, nicht Kalenderquartale)
 //   FIX: ZE-Query korrigiert (year/month statt date-Range, total_fue_hours)
@@ -345,44 +347,37 @@ export default function NWMEigenanteilPanel({
     setCalculating(true);
     setError(null);
     try {
-      // Personalkosten aus ZE berechnen (year/month basiert)
-      const vonDate = new Date(selectedQ.von);
-      const bisDate = new Date(selectedQ.bis);
-      // Alle Monate im Zeitraum ermitteln
-      const monate: { year: number; month: number }[] = [];
-      const cur = new Date(vonDate.getFullYear(), vonDate.getMonth(), 1);
-      const bisMonat = new Date(bisDate.getFullYear(), bisDate.getMonth(), 1);
-      while (cur <= bisMonat) {
-        monate.push({ year: cur.getFullYear(), month: cur.getMonth() + 1 });
-        cur.setMonth(cur.getMonth() + 1);
+      // Personalkosten aus ZE berechnen
+      // Prod-Struktur: v7_timesheets mit work_date/hours/is_active/is_billable
+      const { data: tsData, error: tsError } = await supabase
+        .from('v7_timesheets')
+        .select('employee_id, hours, work_date, is_active, is_billable')
+        .eq('project_id', project.id)
+        .gte('work_date', selectedQ.von)
+        .lte('work_date', selectedQ.bis)
+        .eq('is_active', true)
+        .eq('is_billable', true);
+
+      if (tsError) {
+        console.error('ZE-Query Fehler:', tsError);
       }
 
+      // Stunden je Mitarbeiter aggregieren
+      const stundenJeMA: Record<string, number> = {};
+      for (const ts of (tsData || [])) {
+        const empId = ts.employee_id;
+        stundenJeMA[empId] = (stundenJeMA[empId] || 0) + Number(ts.hours || 0);
+      }
+
+      // Personalkosten = Stunden x bewilligter Stundensatz
       let personalkosten = 0;
-      if (monate.length > 0) {
-        // Alle Timesheets fuer dieses Projekt in diesem Zeitraum laden
-        const years = [...new Set(monate.map(m => m.year))];
-        for (const year of years) {
-          const monthsForYear = monate.filter(m => m.year === year).map(m => m.month);
-          const { data: tsData } = await supabase
-            .from('v7_timesheets')
-            .select('employee_id, total_hours, total_fue_hours')
-            .eq('project_id', project.id)
-            .eq('year', year)
-            .in('month', monthsForYear);
-
-          for (const ts of (tsData || [])) {
-            // Prioritaet: total_fue_hours (foerderfaehig), fallback total_hours
-            const stunden = (ts.total_fue_hours != null && ts.total_fue_hours > 0)
-              ? Number(ts.total_fue_hours)
-              : Number(ts.total_hours || 0);
-            if (stunden === 0) continue;
-            // Stundensatz: hourly_rate aus v7_project_assignments
-            const pa = assignments.find(a => a.employee_id === ts.employee_id);
-            const rate = Number(pa?.hourly_rate_approved || pa?.hourly_rate || 0);
-            personalkosten += stunden * rate;
-          }
-        }
+      for (const [empId, stunden] of Object.entries(stundenJeMA)) {
+        if (stunden === 0) continue;
+        const pa = assignments.find(a => a.employee_id === empId);
+        const rate = Number(pa?.hourly_rate_approved || pa?.hourly_rate || 0);
+        personalkosten += stunden * rate;
       }
+      console.log('NWM EA Berechnung:', { periodeVon: selectedQ.von, periodeBis: selectedQ.bis, tsRows: (tsData || []).length, stundenJeMA, personalkosten });
 
       const uebrige = personalkosten; // 100% der Personalkosten
       const kostenGesamt = personalkosten + nwmDritte + uebrige;
