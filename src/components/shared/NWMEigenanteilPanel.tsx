@@ -2,7 +2,7 @@
 // ============================================================================
 // PZE V7 - NWM Eigenanteil-Berechnung und Zahlungsstatus
 // ============================================================================
-// Version: 7.4.5-9
+// Version: 7.4.5-10
 // Datum: 26. Maerz 2026
 //
 // Berechnet quartalsweise Eigenanteile pro Netzwerkpartner:
@@ -15,6 +15,9 @@
 // - Zahlungseingang erfassen, Status pflegen
 // - PDF: Rechnung Cubintec -> NP
 // - PDF: PT-Nachweis Eigenanteil-Eingang
+// v7.4.5-10: NEU: Archiv-Tab mit allen gespeicherten EA-Perioden
+//   Klick auf Periode laedt EA in Hauptansicht
+//   Bezahlte EA sind schreibgeschuetzt
 // v7.4.5-9: FIX: periodeStart not defined in generatePerioden
 // v7.4.5-8: Intelligenter Periodenvorschlag ab letzter abgerechneter Periode
 //   Laedt letztes periode_bis aus DB, naechster Vorschlag = +1 Tag bis +3 Monate
@@ -258,10 +261,18 @@ export default function NWMEigenanteilPanel({
   // selectedQ immer aus den freien Datumsfeldern
   const selectedQ = { label: 'Manuell', von: vonDatum, bis: bisDatum };
 
+  // Panel-Tabs: Abrechnung | Archiv
+  const [panelTab, setPanelTab] = useState<'abrechnung' | 'archiv'>('abrechnung');
+
   // Daten
   const [partner, setPartner] = useState<NetzwerkPartner[]>([]);
   const [eigenanteile, setEigenanteile] = useState<Eigenanteil[]>([]);
   const [assignments, setAssignments] = useState<ProjectAssignment[]>([]);
+  const [archivPerioden, setArchivPerioden] = useState<{
+    von: string; bis: string; kostenGesamt: number; foerdersatz: number;
+    laufzeitjahr: number; summeSoll: number; summeBrutto: number;
+    alleBezahlt: boolean; hatOffene: boolean;
+  }[]>([]);
   const [nwmKostenDritte, setNwmKostenDritte] = useState('');
   const [loading, setLoading] = useState(true);
   const [calculating, setCalculating] = useState(false);
@@ -277,6 +288,41 @@ export default function NWMEigenanteilPanel({
     setLoading(true);
     setError(null);
     try {
+      // Alle EA-Perioden fuer Archiv laden (distinct periode_von/bis)
+      const { data: archivData } = await supabase
+        .from('v7_netzwerk_eigenanteile')
+        .select('periode_von, periode_bis, nwm_kosten_gesamt, foerdersatz_percent, laufzeitjahr, betrag_soll, betrag_brutto, status')
+        .eq('project_id', project.id)
+        .order('periode_von', { ascending: false });
+
+      // Perioden deduplizieren und aggregieren
+      const archivPerioden: {
+        von: string; bis: string; kostenGesamt: number; foerdersatz: number;
+        laufzeitjahr: number; summeSoll: number; summeBrutto: number;
+        alleBezahlt: boolean; hatOffene: boolean;
+      }[] = [];
+      if (archivData) {
+        const periodeMap = new Map<string, typeof archivPerioden[0]>();
+        for (const ea of archivData) {
+          const key = `${ea.periode_von}__${ea.periode_bis}`;
+          if (!periodeMap.has(key)) {
+            periodeMap.set(key, {
+              von: ea.periode_von, bis: ea.periode_bis,
+              kostenGesamt: ea.nwm_kosten_gesamt || 0,
+              foerdersatz: ea.foerdersatz_percent || 0,
+              laufzeitjahr: ea.laufzeitjahr || 1,
+              summeSoll: 0, summeBrutto: 0,
+              alleBezahlt: true, hatOffene: false,
+            });
+          }
+          const p = periodeMap.get(key)!;
+          p.summeSoll += ea.betrag_soll || 0;
+          p.summeBrutto += ea.betrag_brutto || 0;
+          if (ea.status !== 'bezahlt') p.alleBezahlt = false;
+          if (ea.status === 'offen' || ea.status === 'gemahnt') p.hatOffene = true;
+        }
+        archivPerioden.push(...Array.from(periodeMap.values()));
+      }
       // Aktive Partner laden
       const { data: npData } = await supabase
         .from('v7_netzwerk_partner')
@@ -284,6 +330,7 @@ export default function NWMEigenanteilPanel({
         .eq('project_id', project.id)
         .is('austritt_datum', null)
         .order('sort_order');
+      setArchivPerioden(archivPerioden);
       setPartner(npData || []);
 
       // Eigenanteile fuer dieses Quartal laden
@@ -800,6 +847,109 @@ export default function NWMEigenanteilPanel({
         </div>
       )}
 
+      {/* ---- Tab-Navigation ---- */}
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="flex border-b border-gray-200">
+          {(['abrechnung', 'archiv'] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setPanelTab(tab)}
+              className={`px-5 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2
+                ${panelTab === tab
+                  ? (portal === 'firma' ? 'border-green-600 text-green-700' : 'border-blue-600 text-blue-700')
+                  : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+            >
+              {tab === 'abrechnung' ? (
+                <><Calculator size={15} /> Abrechnung</>
+              ) : (
+                <><FileText size={15} /> Archiv
+                  {archivPerioden.length > 0 && (
+                    <span className="ml-1 px-1.5 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">
+                      {archivPerioden.length}
+                    </span>
+                  )}
+                </>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ---- ARCHIV-TAB ---- */}
+      {panelTab === 'archiv' && (
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          {archivPerioden.length === 0 ? (
+            <div className="p-12 text-center text-gray-400">
+              <FileText size={40} className="mx-auto mb-3 opacity-30" />
+              <p className="text-sm">Noch keine EA-Abrechnungen gespeichert.</p>
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Zeitraum</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wide">Laufzeitjahr</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wide">Foerdersatz</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wide">NWM-Kosten</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wide">EA netto</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wide">EA brutto</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wide">Status</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wide">Aktion</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {archivPerioden.map((ap, idx) => {
+                  const statusBg = ap.alleBezahlt
+                    ? 'bg-green-100 text-green-700 border-green-200'
+                    : ap.hatOffene
+                      ? 'bg-red-50 text-red-700 border-red-200'
+                      : 'bg-gray-100 text-gray-600 border-gray-200';
+                  const statusLabel = ap.alleBezahlt ? 'bezahlt' : ap.hatOffene ? 'offen' : 'teilweise';
+                  return (
+                    <tr key={idx} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-gray-900">
+                          {fmtDate(ap.von)} -- {fmtDate(ap.bis)}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-center text-gray-600">Jahr {ap.laufzeitjahr}</td>
+                      <td className="px-4 py-3 text-right">
+                        <span className="text-green-700 font-medium">{ap.foerdersatz}%</span>
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-gray-700">{fmt2(ap.kostenGesamt)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-gray-700">{fmt2(ap.summeSoll)}</td>
+                      <td className="px-4 py-3 text-right font-mono font-semibold text-gray-900">{fmt2(ap.summeBrutto)}</td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${statusBg}`}>
+                          {statusLabel}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <button
+                          onClick={() => {
+                            setVonDatum(ap.von);
+                            setBisDatum(ap.bis);
+                            setSelectedIdx(-1);
+                            setPanelTab('abrechnung');
+                          }}
+                          className={`text-xs px-3 py-1 rounded border transition-colors bg-white text-gray-600 border-gray-300 hover:border-gray-400`}
+                        >
+                          Oeffnen
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* ---- ABRECHNUNG-TAB ---- */}
+      {panelTab === 'abrechnung' && (
+      <div className="space-y-4">
+
       {/* ---- Quartal-Auswahl + Foerderinfo ---- */}
       <div className="bg-white rounded-lg border border-gray-200 p-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
@@ -1038,6 +1188,9 @@ export default function NWMEigenanteilPanel({
           </table>
         </div>
       )}
+
+      </div>
+      )} {/* Ende panelTab === abrechnung */}
 
       {/* ================================================================== */}
       {/* DIALOG: Zahlungseingang erfassen                                    */}
