@@ -3,8 +3,9 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 26. Maerz 2026
-// Version: 7.4.4-37
+// Version: 7.4.4-38
 //
+// v7.4.4-38: NEU: nwmTab URL-Parameter (Direktlink aus NWM-Uebersicht)
 // v7.4.4-37: FIX: Project Interface um alle NWM-Bankfelder erweitert (TS-Fehler)
 // v7.4.4-36: NWMEigenanteilPanel eingebunden (Eigenanteile Sub-Tab aktiv)
 // v7.4.4-35: NWMEinstellungenPanel eingebunden
@@ -41,7 +42,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import {
   ArrowLeft,
@@ -319,8 +320,16 @@ export default function ProjectDetailPage({
   const [employee, setEmployee] = useState<V7Employee | null>(null);
   const [company, setCompany] = useState<V7ClientCompany | null>(null);
   const [project, setProject] = useState<Project | null>(null);
-  const [activeTab, setActiveTab] = useState<TabKey>('uebersicht');
-  const [nwmTab, setNwmTab] = useState<NWMTabKey>('einstellungen');
+  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useState<TabKey>(() => {
+    const nwmTabParam = searchParams?.get('nwmTab');
+    return nwmTabParam ? 'netzwerk' : 'uebersicht';
+  });
+  const [nwmTab, setNwmTab] = useState<NWMTabKey>(() => {
+    const param = searchParams?.get('nwmTab');
+    if (param === 'partner' || param === 'eigenanteile' || param === 'einstellungen') return param;
+    return 'einstellungen';
+  });
 
   // State Arbeitspakete
   const [workPackages, setWorkPackages] = useState<WorkPackage[]>([]);

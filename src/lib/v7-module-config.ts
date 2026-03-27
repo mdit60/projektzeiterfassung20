@@ -3,10 +3,9 @@
 // PZE V7 - Modul-Konfiguration
 // ============================================================================
 // Datum: 12. Februar 2026
-// Version: 7.3.90-5
+// Version: 7.3.90-6
+// v7.3.90-6: NEU: NWM-Kachel aktiv mit Link zur Firmenuebersicht (filter=nwm)
 //
-// v7.3.90-5: coming_soon Module im Firmen-Portal ausgeblendet
-//            (nur Berater sieht geplante Module)
 // v7.3.90-4: Sortierung: Berichte nach Zeiterfassung (Reihe 1),
 //            ZA/VN/AGVO in Reihe 2, De-Minimis in Reihe 3
 // v7.3.90-3: Rollenfix: project_leader sieht Projekte + Berichte
@@ -146,7 +145,7 @@ export const V7_MODULES: V7ModuleDefinition[] = [
       plannedRelease: 'Q2/2026',
     },
     firma: {
-      visible: false,
+      visible: true,
       status: 'coming_soon',
       href: '',
       roles: ['client_admin'],
@@ -170,7 +169,7 @@ export const V7_MODULES: V7ModuleDefinition[] = [
       plannedRelease: 'Q3/2026',
     },
     firma: {
-      visible: false,
+      visible: true,
       status: 'coming_soon',
       href: '',
       roles: ['client_admin'],
@@ -194,7 +193,7 @@ export const V7_MODULES: V7ModuleDefinition[] = [
       plannedRelease: 'Q3/2026',
     },
     firma: {
-      visible: false,
+      visible: true,
       status: 'coming_soon',
       href: '',
       roles: ['client_admin'],
@@ -218,7 +217,7 @@ export const V7_MODULES: V7ModuleDefinition[] = [
       plannedRelease: 'Q3/2026',
     },
     firma: {
-      visible: false,
+      visible: true,
       status: 'coming_soon',
       href: '',
       roles: ['client_admin'],
@@ -265,11 +264,10 @@ export const V7_MODULES: V7ModuleDefinition[] = [
     sortOrder: 8,
     berater: {
       visible: true,
-      status: 'coming_soon',
-      href: '',
+      status: 'active',
+      href: '/v7/berater/foerderung?filter=nwm',
       roles: ['system_admin', 'consultant'],
       description: 'ZIM-Netzwerke, Mitglieder und Projekte verwalten',
-      plannedRelease: 'Q4/2026',
     },
     firma: {
       visible: false,
