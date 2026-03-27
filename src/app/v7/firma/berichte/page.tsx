@@ -2,7 +2,8 @@
 // ============================================================================
 // PZE V7 - Berichte & Controlling (Firmen-Portal)
 // ============================================================================
-// Version: 7.4.4-14
+// Version: 7.4.4-18
+// v7.4.4-18: NEU: Projektfortschritt-Kachel aktiv (ProjektFortschrittPanel)
 // Datum: 12. Maerz 2026
 //
 // v7.4.4-14: Kachel "Zahlungsanforderung" umbenannt in
@@ -1460,7 +1461,7 @@ export default function BerichtePage() {
               </button>
             </div>
 
-            {/* Fortschritt-Panel - volle Breite unter dem Grid */}
+            {/* Fortschritt-Panel */}
             {showFortschritt && (
               <div className="mt-4 bg-white rounded-xl border border-gray-200 p-5">
                 <ProjektFortschrittPanel
