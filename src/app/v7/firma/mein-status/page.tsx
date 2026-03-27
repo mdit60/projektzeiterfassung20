@@ -2,10 +2,12 @@
 // ============================================================================
 // PZE V7 - Mein Status (Firmen-Portal)
 // ============================================================================
-// Version: 7.4.4-7
-// Datum: 24. Maerz 2026
+// Version: 7.4.4-8
+// v7.4.4-8: FIX: Monatsstatus grueen wenn Completion-Flag gesetzt
+//   Laedt v7_timesheet_completions und verwendet es als primaeren Status
+// Datum: 23. Maerz 2026
 //
-// v7.4.4-7: Download-Link Firmen-Admin auf PZE_Anleitung_Firmen-Administrator.pdf aktualisiert
+// v7.4.4-6: Download-Link Projektleiter auf PZE_Anleitung_Projektleiter.pdf aktualisiert
 //
 // v7.4.4-5: FIX: isAdminOrPL prueft userPortalRole statt profile.role
 //   - profile.role ist fuer alle Firmen-User 'client_user', nie 'client_admin'
@@ -294,6 +296,7 @@ export default function MeinStatusPage() {
   const [allProjectEmployees, setAllProjectEmployees] = useState<Record<string, string[]>>({});
   // Fuer ZA-Ampel: eingereichte/bewilligte ZAs pro Projekt
   const [zaRecords, setZARecords] = useState<ZARecord[]>([]);
+  const [completions, setCompletions] = useState<{employee_id: string; project_id: string; year: number; month: number}[]>([]);
 
   // ============================================================================
   // DATEN LADEN
@@ -400,6 +403,16 @@ export default function MeinStatusPage() {
             .in('project_id', projectIds);
 
           setTimesheets(timesheetData || []);
+
+          // Completions fuer diesen MA laden
+          if (projectIds.length > 0) {
+            const { data: completionData } = await supabase
+              .from('v7_timesheet_completions')
+              .select('employee_id, project_id, year, month')
+              .eq('employee_id', userEmployeeId)
+              .in('project_id', projectIds);
+            setCompletions(completionData || []);
+          }
         } else if (userPortalRole === 'client_admin' && !userEmployeeId) {
           setAssignments([]);
           setTimesheets([]);
@@ -504,9 +517,19 @@ export default function MeinStatusPage() {
             monthTimesheets.filter((t) => (t.hours || 0) > 0).map((t) => t.work_date)
           ).size;
 
+          // Completion-Flag aus v7_timesheet_completions hat Prioritaet
+          const isCompleted = completions.some(c =>
+            c.project_id === project.id &&
+            c.year === y &&
+            c.month === m
+          );
+
           let status: MonthStatus = 'missing';
           if (isFuture) {
             status = 'future';
+          } else if (isCompleted) {
+            status = 'complete';
+            completeCount++;
           } else if (hoursRecorded > 0 && daysRecorded >= workingDays) {
             status = 'complete';
             completeCount++;
@@ -533,7 +556,7 @@ export default function MeinStatusPage() {
         missingMonths: missingCount,
       };
     });
-  }, [projects, assignments, timesheets, company, currentEmployeeId]);
+  }, [projects, assignments, timesheets, company, currentEmployeeId, completions]);
 
   // ============================================================================
   // GESAMT-STATISTIK
@@ -714,8 +737,8 @@ export default function MeinStatusPage() {
         {(() => {
           const manualMap: Record<string, { file: string; label: string }> = {
             client_admin: {
-              file: '/manuals/PZE_Anleitung_Firmen-Administrator.pdf',
-              label: 'Anleitung Firmen-Administrator',
+              file: '/manuals/PZE_Schnellstart_Firmen-Administrator.pdf',
+              label: 'Schnellstart-Anleitung Firmen-Administrator',
             },
             project_leader: {
               file: '/manuals/PZE_Anleitung_Projektleiter.pdf',
