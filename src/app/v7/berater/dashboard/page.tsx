@@ -4,127 +4,47 @@
 // ============================================================================
 // PZE V7 - Berater-Dashboard
 // ============================================================================
-// Datum: 19. Maerz 2026
 // Version: 7.4.4-6
+// Datum: 26. Maerz 2026
 //
-// Layout:
-//   1. Kundenliste (Tabelle mit Suchfunktion)
-//      Klick auf Firma -> Firmen-Detail-Seite
-//   2. Sonstiges (firmenuebergreifend)
-//      Netzwerk, Multiprojekt, FZul
-//
-// v7.4.4-6: "+ Neue Firma"-Button + Modal zum Anlegen neuer Kundenfirmen
-//            Pflichtfelder: Firmenname, Bundesland
-//            Optional: Kurzname, Stadt
-//            Nach Speichern: Firmenliste wird sofort aktualisiert
-//            consultantCompanyId als State gespeichert (fuer INSERT benoetigt)
-// v7.4.4-5: ZA-Button im Schnellzugriff -> /berichte?panel=za
-// v7.4.4-4: Projekte/MA-Spalten klickbar; Projekte-Button aus Schnellzugriff entfernt
-// v7.4.4-3: Schnellzugriff-Buttons in Kundentabelle (Firma/Berichte/ZE/MA)
-//            /v7/berater/berichte Redirect auf Dashboard
-// v7.3.90-4: Kundenliste statt Kacheln (skaliert besser)
-//            Suchfunktion fuer Firmennamen
-//            ZIM-Import-Button entfernt (gehoert nicht aufs Dashboard)
-//            Footer vereinheitlicht
+// v7.4.4-6: Komplett neu - 4 Hauptkacheln statt Kundenliste
+//   - Kundenfirmen: Klick -> /v7/berater/foerderung
+//   - Netzwerkmanagement: Klick -> /v7/berater/netzwerk (Live: Anzahl NWM + offene EA)
+//   - Multiprojekt-Tool: in Vorbereitung
+//   - Forschungszulage: in Vorbereitung
+//   Kundenliste entfaellt (eigene Seite /v7/berater/foerderung)
 // ============================================================================
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import PortalHeader from '@/components/shared/PortalHeader';
 import PortalNav from '@/components/shared/PortalNav';
 import {
-  FolderKanban,
-  Clock,
-  Receipt,
-  FileCheck,
-  Scale,
-  Layers,
-  Calculator,
-  Network,
-  FlaskConical,
-  BarChart3,
-  CheckCircle,
-  CalendarClock,
-  Loader2,
   Building2,
-  Users,
-  Search,
-  Plus,
-  X,
+  Network,
+  Layers,
+  FlaskConical,
+  ChevronRight,
   AlertCircle,
+  CheckCircle,
+  Clock,
+  Users,
+  FolderKanban,
 } from 'lucide-react';
-
 import { V7UserRole } from '@/types/v7-types';
-import { PORTAL_COLORS } from '@/lib/v7-constants';
-import {
-  getBeraterWerkzeuge,
-} from '@/lib/v7-module-config';
-
-// ============================================================================
-// KONSTANTEN
-// ============================================================================
-
-const BUNDESLAENDER = [
-  'Baden-Wuerttemberg',
-  'Bayern',
-  'Berlin',
-  'Brandenburg',
-  'Bremen',
-  'Hamburg',
-  'Hessen',
-  'Mecklenburg-Vorpommern',
-  'Niedersachsen',
-  'Nordrhein-Westfalen',
-  'Rheinland-Pfalz',
-  'Saarland',
-  'Sachsen',
-  'Sachsen-Anhalt',
-  'Schleswig-Holstein',
-  'Thueringen',
-];
-
-// ============================================================================
-// ICON-MAPPING
-// ============================================================================
-
-const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
-  FolderKanban, Clock, Receipt, FileCheck, Scale,
-  Layers, Calculator, Network, FlaskConical, BarChart3,
-};
-
-function getModuleIcon(iconName: string) {
-  return ICON_MAP[iconName] || FolderKanban;
-}
 
 // ============================================================================
 // TYPEN
 // ============================================================================
 
-interface ClientCompanyRow {
-  id: string;
-  name: string;
-  short_name: string | null;
-  city: string | null;
-  federal_state: string | null;
-  project_count: number;
-  employee_count: number;
-  is_active: boolean;
+interface DashboardStats {
+  kundenAnzahl: number;
+  projekteAnzahl: number;
+  nwmAnzahl: number;
+  offeneEA: number;
+  consultantCompanyId: string | null;
 }
-
-interface NeuerFirmaForm {
-  name: string;
-  short_name: string;
-  city: string;
-  federal_state: string;
-}
-
-const EMPTY_FORM: NeuerFirmaForm = {
-  name: '',
-  short_name: '',
-  city: '',
-  federal_state: '',
-};
 
 // ============================================================================
 // KOMPONENTE
@@ -134,62 +54,18 @@ export default function BeraterDashboardPage() {
   const router = useRouter();
   const supabase = createClient();
 
-  // Basis-State
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState('');
   const [userFirstName, setUserFirstName] = useState('');
-  const [userEmail, setUserEmail] = useState('');
   const [userRole, setUserRole] = useState<V7UserRole>('consultant');
   const [consultantCompanyName, setConsultantCompanyName] = useState('');
-  const [consultantCompanyId, setConsultantCompanyId] = useState<string | null>(null);
-  const [companies, setCompanies] = useState<ClientCompanyRow[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
-
-  // Modal-State
-  const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState<NeuerFirmaForm>(EMPTY_FORM);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-
-  const colors = PORTAL_COLORS.berater;
-
-  // ==========================================================================
-  // FIRMENLISTE LADEN (wiederverwendbar fuer Refresh nach Neuanlage)
-  // ==========================================================================
-
-  async function loadCompanies() {
-    const { data: clientCompanies } = await supabase
-      .from('v7_client_companies')
-      .select('id, name, short_name, city, federal_state, is_active')
-      .eq('is_active', true)
-      .order('name');
-
-    if (clientCompanies && clientCompanies.length > 0) {
-      const companiesWithStats: ClientCompanyRow[] = await Promise.all(
-        clientCompanies.map(async (company) => {
-          const { count: pCount } = await supabase
-            .from('v7_projects')
-            .select('*', { count: 'exact', head: true })
-            .eq('client_company_id', company.id);
-
-          const { count: eCount } = await supabase
-            .from('v7_employees')
-            .select('*', { count: 'exact', head: true })
-            .eq('client_company_id', company.id)
-            .eq('is_active', true);
-
-          return {
-            ...company,
-            project_count: pCount || 0,
-            employee_count: eCount || 0,
-          };
-        })
-      );
-      setCompanies(companiesWithStats);
-    } else {
-      setCompanies([]);
-    }
-  }
+  const [stats, setStats] = useState<DashboardStats>({
+    kundenAnzahl: 0,
+    projekteAnzahl: 0,
+    nwmAnzahl: 0,
+    offeneEA: 0,
+    consultantCompanyId: null,
+  });
 
   // ==========================================================================
   // DATEN LADEN
@@ -199,12 +75,8 @@ export default function BeraterDashboardPage() {
     async function loadData() {
       try {
         const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-          router.push('/login');
-          return;
-        }
+        if (!user) { router.push('/login'); return; }
 
-        // Profil laden
         const { data: profile } = await supabase
           .from('v7_user_profiles')
           .select('display_name, first_name, last_name, role, consultant_company_id')
@@ -214,10 +86,8 @@ export default function BeraterDashboardPage() {
         if (profile) {
           const name = profile.display_name
             || [profile.first_name, profile.last_name].filter(Boolean).join(' ')
-            || user.email
-            || '';
+            || user.email || '';
           setUserName(name);
-
           if (profile.first_name) {
             setUserFirstName(profile.first_name);
           } else if (profile.display_name && profile.display_name.includes(',')) {
@@ -228,18 +98,66 @@ export default function BeraterDashboardPage() {
           setUserRole((profile.role as V7UserRole) || 'consultant');
 
           if (profile.consultant_company_id) {
-            setConsultantCompanyId(profile.consultant_company_id);
             const { data: cc } = await supabase
               .from('v7_consultant_companies')
               .select('name')
               .eq('id', profile.consultant_company_id)
               .single();
             if (cc) setConsultantCompanyName(cc.name);
+
+            // Kunden + Projekte zaehlen
+            const { data: companies } = await supabase
+              .from('v7_client_companies')
+              .select('id')
+              .eq('consultant_company_id', profile.consultant_company_id)
+              .eq('is_active', true);
+
+            const companyIds = (companies || []).map(c => c.id);
+            const kundenAnzahl = companyIds.length;
+
+            let projekteAnzahl = 0;
+            let nwmAnzahl = 0;
+            let offeneEA = 0;
+
+            if (companyIds.length > 0) {
+              // Alle Projekte
+              const { count: pCount } = await supabase
+                .from('v7_projects')
+                .select('*', { count: 'exact', head: true })
+                .in('client_company_id', companyIds)
+                .eq('is_active', true);
+              projekteAnzahl = pCount || 0;
+
+              // NWM-Projekte
+              const { data: nwmProjects } = await supabase
+                .from('v7_projects')
+                .select('id')
+                .in('client_company_id', companyIds)
+                .eq('is_active', true)
+                .eq('funding_format', 'ZIM_NETZWERK');
+              nwmAnzahl = (nwmProjects || []).length;
+
+              // Offene EA
+              if (nwmAnzahl > 0) {
+                const nwmIds = (nwmProjects || []).map(p => p.id);
+                const { count: eaCount } = await supabase
+                  .from('v7_netzwerk_eigenanteile')
+                  .select('*', { count: 'exact', head: true })
+                  .in('project_id', nwmIds)
+                  .eq('status', 'offen');
+                offeneEA = eaCount || 0;
+              }
+            }
+
+            setStats({
+              kundenAnzahl,
+              projekteAnzahl,
+              nwmAnzahl,
+              offeneEA,
+              consultantCompanyId: profile.consultant_company_id,
+            });
           }
         }
-        setUserEmail(user.email || '');
-
-        await loadCompanies();
       } catch (err) {
         console.error('Dashboard-Fehler:', err);
       } finally {
@@ -250,348 +168,181 @@ export default function BeraterDashboardPage() {
   }, []);
 
   // ==========================================================================
-  // NEUE FIRMA SPEICHERN
-  // ==========================================================================
-
-  async function handleSaveFirma() {
-    setSaveError(null);
-
-    // Validierung
-    if (!form.name.trim()) {
-      setSaveError('Firmenname ist ein Pflichtfeld.');
-      return;
-    }
-    if (!form.federal_state) {
-      setSaveError('Bitte Bundesland auswaehlen.');
-      return;
-    }
-    if (!consultantCompanyId) {
-      setSaveError('Beraterfirma konnte nicht ermittelt werden. Bitte neu einloggen.');
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const { error } = await supabase
-        .from('v7_client_companies')
-        .insert({
-          consultant_company_id: consultantCompanyId,
-          name: form.name.trim(),
-          short_name: form.short_name.trim() || null,
-          city: form.city.trim() || null,
-          federal_state: form.federal_state,
-          is_active: true,
-        });
-
-      if (error) {
-        setSaveError('Fehler beim Speichern: ' + error.message);
-        return;
-      }
-
-      // Erfolg: Modal schliessen, Formular zuruecksetzen, Liste neu laden
-      setShowModal(false);
-      setForm(EMPTY_FORM);
-      await loadCompanies();
-    } catch (err) {
-      setSaveError('Unerwarteter Fehler. Bitte erneut versuchen.');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function handleOpenModal() {
-    setForm(EMPTY_FORM);
-    setSaveError(null);
-    setShowModal(true);
-  }
-
-  function handleCloseModal() {
-    if (saving) return;
-    setShowModal(false);
-    setForm(EMPTY_FORM);
-    setSaveError(null);
-  }
-
-  // ==========================================================================
-  // FILTER + WERKZEUGE
-  // ==========================================================================
-
-  const filteredCompanies = useMemo(() => {
-    if (!searchTerm.trim()) return companies;
-    const term = searchTerm.toLowerCase();
-    return companies.filter((c) =>
-      c.name.toLowerCase().includes(term)
-      || (c.short_name && c.short_name.toLowerCase().includes(term))
-      || (c.city && c.city.toLowerCase().includes(term))
-    );
-  }, [companies, searchTerm]);
-
-  const beraterWerkzeuge = getBeraterWerkzeuge(userRole);
-  const totalProjects = companies.reduce((sum, c) => sum + c.project_count, 0);
-
-  // ==========================================================================
   // RENDER
   // ==========================================================================
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <Loader2 className="animate-spin text-sky-600" size={40} />
+      <div className="min-h-screen bg-gray-50">
+        <PortalHeader portal="berater" userName="" userRole="consultant" companyName="" hideNavigation />
+        <div className="flex items-center justify-center h-64">
+          <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+        </div>
       </div>
     );
   }
 
+  const kacheln = [
+    {
+      id: 'kunden',
+      titel: 'Kundenfirmen',
+      beschreibung: 'Alle Kundenfirmen und deren Projekte verwalten',
+      icon: Building2,
+      iconBg: 'bg-sky-50',
+      iconColor: 'text-sky-600',
+      borderHover: 'hover:border-sky-400',
+      status: 'active' as const,
+      href: '/v7/berater/foerderung',
+      stats: [
+        { label: 'Firmen', wert: String(stats.kundenAnzahl), icon: Building2 },
+        { label: 'Projekte', wert: String(stats.projekteAnzahl), icon: FolderKanban },
+      ],
+    },
+    {
+      id: 'netzwerk',
+      titel: 'Netzwerkmanagement',
+      beschreibung: 'ZIM-Netzwerke, Netzwerkpartner und Eigenanteile',
+      icon: Network,
+      iconBg: 'bg-blue-50',
+      iconColor: 'text-blue-600',
+      borderHover: 'hover:border-blue-400',
+      status: 'active' as const,
+      href: '/v7/berater/netzwerk',
+      stats: [
+        { label: 'Netzwerke', wert: String(stats.nwmAnzahl), icon: Network },
+        {
+          label: stats.offeneEA > 0 ? 'EA offen' : 'EA ok',
+          wert: stats.offeneEA > 0 ? String(stats.offeneEA) : null,
+          icon: stats.offeneEA > 0 ? AlertCircle : CheckCircle,
+          color: stats.offeneEA > 0 ? 'text-red-600' : 'text-green-600',
+        },
+      ],
+    },
+    {
+      id: 'multiprojekt',
+      titel: 'Multiprojekt-Tool',
+      beschreibung: '173h-Pruefung: MA-Abgrenzung ueber alle Projekte',
+      icon: Layers,
+      iconBg: 'bg-gray-100',
+      iconColor: 'text-gray-400',
+      borderHover: '',
+      status: 'coming_soon' as const,
+      href: null,
+      stats: [],
+    },
+    {
+      id: 'fzul',
+      titel: 'Forschungszulage',
+      beschreibung: 'Verfuegbare FuE-Kapazitaeten fuer FZul-Antraege',
+      icon: FlaskConical,
+      iconBg: 'bg-gray-100',
+      iconColor: 'text-gray-400',
+      borderHover: '',
+      status: 'coming_soon' as const,
+      href: null,
+      stats: [],
+    },
+  ];
+
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+
       <PortalHeader
         portal="berater"
-        userRole={userRole}
         userName={userName}
-        userEmail={userEmail}
-        companyName={consultantCompanyName || 'PZE'}
-      />
-
-      <PortalNav
-        portal="berater"
         userRole={userRole}
-        currentPath="/v7/berater/dashboard"
+        companyName={consultantCompanyName}
       />
+      <PortalNav portal="berater" userRole={userRole} />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 w-full">
 
-        {/* Willkommen */}
+        {/* Begruessung */}
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-gray-900">
-            Willkommen, {userFirstName || 'Berater'}!
+            Willkommen{userFirstName ? `, ${userFirstName}` : ''}!
           </h1>
-          <p className="text-gray-500 mt-1">
-            {companies.length} {companies.length === 1 ? 'Kundenfirma' : 'Kundenfirmen'} &middot; {totalProjects} {totalProjects === 1 ? 'Projekt' : 'Projekte'}
+          <p className="text-gray-500 text-sm mt-1">
+            {consultantCompanyName && (
+              <span className="font-medium text-gray-700">{consultantCompanyName} &middot; </span>
+            )}
+            {stats.kundenAnzahl} Kundenfirmen &middot; {stats.projekteAnzahl} Projekte
           </p>
         </div>
 
-        {/* ================================================================ */}
-        {/* KUNDENLISTE                                                      */}
-        {/* ================================================================ */}
-        <section className="mb-12">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <Building2 size={20} className="text-sky-600" />
-              <h2 className="text-lg font-semibold text-gray-800">
-                Kundenuebersicht
-              </h2>
-            </div>
-            {/* NEUE FIRMA BUTTON */}
-            <button
-              onClick={handleOpenModal}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors"
-              style={{ backgroundColor: colors.primary }}
-            >
-              <Plus size={16} />
-              Neue Firma
-            </button>
-          </div>
+        {/* 4 Hauptkacheln */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+          {kacheln.map(kachel => {
+            const IconComponent = kachel.icon;
+            const isActive = kachel.status === 'active';
 
-          {/* Suchfeld */}
-          {companies.length > 3 && (
-            <div className="relative mb-4">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Firma suchen..."
-                className="w-full sm:w-80 pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg
-                           focus:outline-none focus:ring-2 focus:ring-sky-400 focus:border-transparent
-                           bg-white"
-              />
-            </div>
-          )}
-
-          {companies.length === 0 ? (
-            <div className="bg-white rounded-xl border-2 border-dashed border-gray-200 p-12 text-center">
-              <Building2 size={40} className="text-gray-300 mx-auto mb-3" />
-              <p className="text-gray-500">Noch keine Kundenfirmen angelegt</p>
-            </div>
-          ) : (
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-gray-100 bg-gray-50">
-                    <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
-                      Firma
-                    </th>
-                    <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3 hidden sm:table-cell">
-                      Ort
-                    </th>
-                    <th className="text-center text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
-                      Projekte
-                    </th>
-                    <th className="text-center text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
-                      Mitarbeiter
-                    </th>
-                    <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3 hidden md:table-cell">Schnellzugriff</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {filteredCompanies.map((company) => (
-                    <tr
-                      key={company.id}
-                      className="hover:bg-sky-50 transition-colors"
-                    >
-                      {/* Firmenname - klickbar zur Detailseite */}
-                      <td
-                        className="px-4 py-3 cursor-pointer"
-                        onClick={() => router.push(`/v7/berater/foerderung/firma/${company.id}`)}
-                      >
-                        <div className="font-medium text-gray-900 text-sm hover:text-sky-700 transition-colors">
-                          {company.name}
-                        </div>
-                        {company.short_name && (
-                          <div className="text-xs text-gray-400">{company.short_name}</div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-500 hidden sm:table-cell">
-                        {company.city || '-'}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <button
-                          onClick={() => router.push(`/v7/berater/foerderung/firma/${company.id}?tab=projekte`)}
-                          title="Zu den Projekten"
-                          className="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-sky-700 hover:underline transition-colors cursor-pointer"
-                        >
-                          <FolderKanban size={14} className="text-gray-400" />
-                          {company.project_count}
-                        </button>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <button
-                          onClick={() => router.push(`/v7/berater/foerderung/firma/${company.id}?tab=mitarbeiter`)}
-                          title="Zu den Mitarbeitern"
-                          className="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-sky-700 hover:underline transition-colors cursor-pointer"
-                        >
-                          <Users size={14} className="text-gray-400" />
-                          {company.employee_count}
-                        </button>
-                      </td>
-                      {/* Schnellzugriff-Buttons */}
-                      <td className="px-4 py-3 hidden md:table-cell">
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={() => router.push(`/v7/berater/foerderung/firma/${company.id}/berichte`)}
-                            title="Berichte & Controlling"
-                            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-green-100 hover:text-green-700 rounded transition-colors"
-                          >
-                            <BarChart3 size={12} />
-                            Berichte
-                          </button>
-                          <button
-                            onClick={() => router.push(`/v7/berater/foerderung/firma/${company.id}/berichte?panel=za`)}
-                            title="Zahlungsanforderung direkt oeffnen"
-                            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-orange-100 hover:text-orange-700 rounded transition-colors"
-                          >
-                            <Receipt size={12} />
-                            ZA
-                          </button>
-                          <button
-                            onClick={() => router.push(`/v7/berater/foerderung/firma/${company.id}/zeiterfassung`)}
-                            title="Zeiterfassungen"
-                            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-purple-100 hover:text-purple-700 rounded transition-colors"
-                          >
-                            <Clock size={12} />
-                            Zeiten
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-
-              {filteredCompanies.length === 0 && searchTerm && (
-                <div className="px-4 py-8 text-center text-sm text-gray-400">
-                  Keine Firma gefunden fuer &quot;{searchTerm}&quot;
+            return (
+              <button
+                key={kachel.id}
+                onClick={() => isActive && kachel.href ? router.push(kachel.href) : undefined}
+                disabled={!isActive}
+                className={`
+                  relative text-left w-full rounded-2xl border-2 p-6
+                  transition-all duration-200
+                  ${isActive
+                    ? `bg-white border-gray-200 ${kachel.borderHover} hover:shadow-lg cursor-pointer`
+                    : 'bg-gray-50 border-gray-200 border-dashed cursor-default opacity-60'
+                  }
+                `}
+              >
+                {/* Status-Badge */}
+                <div className="absolute top-4 right-4">
+                  {isActive ? (
+                    <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600 bg-green-50 px-2 py-0.5 rounded-full border border-green-200">
+                      <CheckCircle size={11} />
+                      Aktiv
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                      <Clock size={11} />
+                      In Vorbereitung
+                    </span>
+                  )}
                 </div>
-              )}
-            </div>
-          )}
-        </section>
 
-        {/* ================================================================ */}
-        {/* BERATER-WERKZEUGE                                                */}
-        {/* ================================================================ */}
-        {beraterWerkzeuge.length > 0 && (
-          <section className="mb-10">
-            <div className="flex items-center gap-3 mb-5">
-              <Layers size={20} className="text-sky-600" />
-              <h2 className="text-lg font-semibold text-gray-800">
-                Sonstiges
-              </h2>
-              <span className="text-sm text-gray-400"></span>
-            </div>
+                {/* Icon */}
+                <div className={`w-14 h-14 ${kachel.iconBg} rounded-xl flex items-center justify-center mb-4`}>
+                  <IconComponent size={28} className={kachel.iconColor} />
+                </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {beraterWerkzeuge.map((mod) => {
-                const config = mod.berater;
-                const isActive = config.status === 'active';
-                const IconComponent = getModuleIcon(mod.icon);
+                {/* Titel + Beschreibung */}
+                <h3 className={`text-lg font-semibold mb-1 ${isActive ? 'text-gray-900' : 'text-gray-500'}`}>
+                  {kachel.titel}
+                </h3>
+                <p className={`text-sm leading-relaxed mb-4 ${isActive ? 'text-gray-500' : 'text-gray-400'}`}>
+                  {kachel.beschreibung}
+                </p>
 
-                return (
-                  <button
-                    key={mod.id}
-                    onClick={() => isActive && config.href ? router.push(config.href) : undefined}
-                    disabled={!isActive}
-                    className={`
-                      relative group text-left w-full rounded-xl border-2 p-5
-                      transition-all duration-200
-                      ${isActive
-                        ? 'bg-white border-gray-200 hover:border-sky-400 hover:shadow-lg cursor-pointer'
-                        : 'bg-gray-50 border-gray-200 border-dashed cursor-default opacity-70'
-                      }
-                    `}
-                  >
-                    {/* Status-Badge */}
-                    <div className="absolute top-3 right-3">
-                      {isActive ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
-                          <CheckCircle size={12} />
-                          Aktiv
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
-                          <CalendarClock size={12} />
-                          In Vorbereitung
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Icon */}
-                    <div className={`
-                      w-12 h-12 rounded-lg flex items-center justify-center mb-3
-                      ${isActive
-                        ? 'bg-sky-50 text-sky-600 group-hover:bg-sky-100'
-                        : 'bg-gray-100 text-gray-400'
-                      }
-                    `}>
-                      <IconComponent size={24} />
-                    </div>
-
-                    {/* Name + Beschreibung */}
-                    <h3 className={`font-semibold text-sm mb-1 ${isActive ? 'text-gray-900' : 'text-gray-500'}`}>
-                      {mod.name}
-                    </h3>
-                    <p className={`text-xs leading-relaxed ${isActive ? 'text-gray-500' : 'text-gray-400'}`}>
-                      {config.description}
-                    </p>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-        )}
+                {/* Live-Stats */}
+                {isActive && kachel.stats.length > 0 && (
+                  <div className="flex items-center gap-4 pt-4 border-t border-gray-100">
+                    {kachel.stats.map((stat, idx) => {
+                      const StatIcon = stat.icon;
+                      return (
+                        <div key={idx} className="flex items-center gap-1.5">
+                          <StatIcon size={14} className={stat.color || 'text-gray-400'} />
+                          <span className={`text-sm font-semibold ${stat.color || 'text-gray-700'}`}>
+                            {stat.wert ?? ''}
+                          </span>
+                          <span className="text-xs text-gray-400">{stat.label}</span>
+                        </div>
+                      );
+                    })}
+                    <ChevronRight size={16} className="text-gray-300 ml-auto" />
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
 
       </main>
 
-      {/* Footer */}
       <footer className="bg-white border-t mt-8">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <p className="text-center text-xs text-gray-400">
@@ -599,159 +350,6 @@ export default function BeraterDashboardPage() {
           </p>
         </div>
       </footer>
-
-      {/* ================================================================== */}
-      {/* MODAL: NEUE FIRMA ANLEGEN                                          */}
-      {/* ================================================================== */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          {/* Backdrop */}
-          <div
-            className="absolute inset-0 bg-black/40"
-            onClick={handleCloseModal}
-          />
-
-          {/* Modal-Box */}
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6">
-
-            {/* Header */}
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg flex items-center justify-center"
-                  style={{ backgroundColor: colors.primary }}>
-                  <Building2 size={18} className="text-white" />
-                </div>
-                <h2 className="text-lg font-semibold text-gray-900">Neue Firma anlegen</h2>
-              </div>
-              <button
-                onClick={handleCloseModal}
-                disabled={saving}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            {/* Fehlermeldung */}
-            {saveError && (
-              <div className="flex items-start gap-2 mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-                <AlertCircle size={16} className="mt-0.5 shrink-0" />
-                {saveError}
-              </div>
-            )}
-
-            {/* Formular */}
-            <div className="space-y-4">
-
-              {/* Firmenname - Pflicht */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Firmenname <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder="z.B. Mustermann GmbH"
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg
-                             focus:outline-none focus:ring-2 focus:ring-sky-400 focus:border-transparent"
-                  disabled={saving}
-                  autoFocus
-                />
-              </div>
-
-              {/* Kurzname - Optional */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Kurzname <span className="text-gray-400 font-normal">(optional)</span>
-                </label>
-                <input
-                  type="text"
-                  value={form.short_name}
-                  onChange={(e) => setForm({ ...form, short_name: e.target.value })}
-                  placeholder="z.B. Mustermann"
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg
-                             focus:outline-none focus:ring-2 focus:ring-sky-400 focus:border-transparent"
-                  disabled={saving}
-                />
-              </div>
-
-              {/* Stadt - Optional */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Stadt <span className="text-gray-400 font-normal">(optional)</span>
-                </label>
-                <input
-                  type="text"
-                  value={form.city}
-                  onChange={(e) => setForm({ ...form, city: e.target.value })}
-                  placeholder="z.B. Berlin"
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg
-                             focus:outline-none focus:ring-2 focus:ring-sky-400 focus:border-transparent"
-                  disabled={saving}
-                />
-              </div>
-
-              {/* Bundesland - Pflicht */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Bundesland <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={form.federal_state}
-                  onChange={(e) => setForm({ ...form, federal_state: e.target.value })}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg
-                             focus:outline-none focus:ring-2 focus:ring-sky-400 focus:border-transparent
-                             bg-white"
-                  disabled={saving}
-                >
-                  <option value="">-- Bitte auswaehlen --</option>
-                  {BUNDESLAENDER.map((bl) => (
-                    <option key={bl} value={bl}>{bl}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Hinweis */}
-            <p className="mt-4 text-xs text-gray-400">
-              Weitere Details (Adresse, Ansprechpartner, Kontakt) koennen nach der Anlage
-              unter Firmendaten ergaenzt werden.
-            </p>
-
-            {/* Buttons */}
-            <div className="flex justify-end gap-3 mt-6">
-              <button
-                onClick={handleCloseModal}
-                disabled={saving}
-                className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100
-                           hover:bg-gray-200 rounded-lg transition-colors"
-              >
-                Abbrechen
-              </button>
-              <button
-                onClick={handleSaveFirma}
-                disabled={saving}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white
-                           rounded-lg transition-colors disabled:opacity-60"
-                style={{ backgroundColor: colors.primary }}
-              >
-                {saving ? (
-                  <>
-                    <Loader2 size={14} className="animate-spin" />
-                    Speichern...
-                  </>
-                ) : (
-                  <>
-                    <Plus size={14} />
-                    Firma anlegen
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
     </div>
   );
