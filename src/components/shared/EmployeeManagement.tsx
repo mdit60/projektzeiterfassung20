@@ -3,7 +3,8 @@
 // PZE V7 - Shared Employee Management Component
 // ============================================================================
 // Datum: 18. Februar 2026
-// Version: 7.3.95-1
+// Version: 7.3.95-2
+// v7.3.95-2: NEU: Passwort zuruecksetzen fuer MA mit Login (Schluessel-Icon)
 //
 // Wird von beiden Portalen genutzt:
 // - Firmen-Portal: /v7/firma/mitarbeiter
@@ -197,6 +198,14 @@ export default function EmployeeManagement({
   const [loginMode, setLoginMode] = useState<'create' | 'link'>('create');
   const [existingUserId, setExistingUserId] = useState<string | null>(null);
 
+  // State - Passwort zuruecksetzen
+  const [showResetPwModal, setShowResetPwModal] = useState(false);
+  const [resetPwEmployee, setResetPwEmployee] = useState<Employee | null>(null);
+  const [resetPwPassword, setResetPwPassword] = useState('');
+  const [resetPwError, setResetPwError] = useState<string | null>(null);
+  const [resetPwSuccess, setResetPwSuccess] = useState(false);
+  const [resettingPw, setResettingPw] = useState(false);
+
   // ============================================================================
   // DATEN LADEN
   // ============================================================================
@@ -264,6 +273,53 @@ export default function EmployeeManagement({
   useEffect(() => {
     if (companyId) loadEmployees();
   }, [companyId, loadEmployees]);
+
+  // ============================================================================
+  // PASSWORT ZURUECKSETZEN
+  // ============================================================================
+
+  const openResetPwModal = (emp: Employee) => {
+    setResetPwEmployee(emp);
+    setResetPwPassword('');
+    setResetPwError(null);
+    setResetPwSuccess(false);
+    setShowResetPwModal(true);
+  };
+
+  const handleResetPw = async () => {
+    if (!resetPwEmployee || !resetPwPassword || resetPwPassword.length < 6) {
+      setResetPwError('Passwort muss mindestens 6 Zeichen lang sein.');
+      return;
+    }
+    setResettingPw(true);
+    setResetPwError(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { setResetPwError('Nicht eingeloggt.'); return; }
+      const response = await fetch('/api/v7/reset-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          userId: resetPwEmployee.user_id,
+          newPassword: resetPwPassword,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        setResetPwError(result.error || 'Fehler beim Zuruecksetzen.');
+      } else {
+        setResetPwSuccess(true);
+        setResetPwPassword('');
+      }
+    } catch (err: any) {
+      setResetPwError('Unerwarteter Fehler: ' + err.message);
+    } finally {
+      setResettingPw(false);
+    }
+  };
 
   // ============================================================================
   // MODAL FUNKTIONEN
@@ -881,6 +937,16 @@ export default function EmployeeManagement({
                               }
                             </button>
                           )}
+                          {/* Passwort zuruecksetzen - nur wenn MA bereits Login hat */}
+                          {emp.user_id && emp.is_active && (
+                            <button
+                              onClick={() => openResetPwModal(emp)}
+                              className="p-1.5 text-amber-600 hover:text-amber-800 rounded"
+                              title="Passwort zuruecksetzen"
+                            >
+                              <KeyRound size={18} />
+                            </button>
+                          )}
                           <button
                             onClick={() => openEditModal(emp)}
                             className={`p-1.5 ${colors.text} ${colors.hover} rounded`}
@@ -1329,6 +1395,80 @@ export default function EmployeeManagement({
           </div>
         </div>
       )}
+      {/* ================================================================ */}
+      {/* MODAL: Passwort zuruecksetzen */}
+      {/* ================================================================ */}
+      {showResetPwModal && resetPwEmployee && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <div className="flex justify-between items-center px-6 py-4 border-b">
+              <h3 className="text-lg font-semibold text-gray-900">Passwort zuruecksetzen</h3>
+              <button onClick={() => setShowResetPwModal(false)} className="text-gray-400 hover:text-gray-600">
+                <X size={24} />
+              </button>
+            </div>
+            <div className="px-6 py-4 space-y-4">
+              {resetPwSuccess ? (
+                <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-lg p-4 text-green-700">
+                  <svg className="w-5 h-5 shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                  <div>
+                    <div className="font-medium">Passwort erfolgreich zurueckgesetzt!</div>
+                    <div className="text-sm mt-1">Das neue Passwort wurde gesetzt. Bitte teile es dem Mitarbeiter mit.</div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-700">
+                    Passwort fuer <span className="font-medium">{resetPwEmployee.display_name}</span> zuruecksetzen.
+                    Das neue Passwort muss dem Mitarbeiter mitgeteilt werden.
+                  </div>
+                  {resetPwError && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
+                      {resetPwError}
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Neues Passwort <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={resetPwPassword}
+                      onChange={e => setResetPwPassword(e.target.value)}
+                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
+                      placeholder="Mind. 6 Zeichen"
+                      autoComplete="new-password"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">
+                      Empfehlung: Mindestens 8 Zeichen mit Gross-/Kleinbuchstaben und Zahlen.
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50">
+              <button
+                onClick={() => setShowResetPwModal(false)}
+                className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                {resetPwSuccess ? 'Schliessen' : 'Abbrechen'}
+              </button>
+              {!resetPwSuccess && (
+                <button
+                  onClick={handleResetPw}
+                  disabled={resettingPw || !resetPwPassword || resetPwPassword.length < 6}
+                  className={`px-4 py-2 text-white rounded-lg disabled:opacity-50 ${colors.button}`}
+                >
+                  {resettingPw ? 'Setze zurueck...' : 'Passwort setzen'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
