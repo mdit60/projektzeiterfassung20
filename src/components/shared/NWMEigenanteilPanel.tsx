@@ -2,7 +2,7 @@
 // ============================================================================
 // PZE V7 - NWM Eigenanteil-Berechnung und Zahlungsstatus
 // ============================================================================
-// Version: 7.4.5-10
+// Version: 7.4.5-11
 // Datum: 26. Maerz 2026
 //
 // Berechnet quartalsweise Eigenanteile pro Netzwerkpartner:
@@ -15,6 +15,7 @@
 // - Zahlungseingang erfassen, Status pflegen
 // - PDF: Rechnung Cubintec -> NP
 // - PDF: PT-Nachweis Eigenanteil-Eingang
+// v7.4.5-11: NEU: Loeschen-Funktion im Archiv (nicht fuer bezahlte Perioden)
 // v7.4.5-10: NEU: Archiv-Tab mit allen gespeicherten EA-Perioden
 //   Klick auf Periode laedt EA in Hauptansicht
 //   Bezahlte EA sind schreibgeschuetzt
@@ -282,6 +283,9 @@ export default function NWMEigenanteilPanel({
 
   // Zahlungseingang-Dialog
   const [zahlung, setZahlung] = useState<{ id: string; betrag: string; datum: string } | null>(null);
+
+  // Loeschen-Dialog
+  const [loeschenPeriode, setLoeschenPeriode] = useState<{ von: string; bis: string } | null>(null);
 
   // ---- Daten laden ----
   const loadDaten = useCallback(async () => {
@@ -598,6 +602,30 @@ export default function NWMEigenanteilPanel({
       .update({ status: 'gemahnt', mahnung_datum: new Date().toISOString().slice(0, 10), updated_at: new Date().toISOString() })
       .eq('id', id);
     await loadDaten();
+  };
+
+  const handleLoeschenPeriode = async () => {
+    if (!loeschenPeriode) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const { error: delErr } = await supabase
+        .from('v7_netzwerk_eigenanteile')
+        .delete()
+        .eq('project_id', project.id)
+        .eq('periode_von', loeschenPeriode.von)
+        .eq('periode_bis', loeschenPeriode.bis)
+        .neq('status', 'bezahlt'); // Bezahlte nie loeschen
+      if (delErr) throw delErr;
+      setLoeschenPeriode(null);
+      setSuccess('Periode geloescht.');
+      setTimeout(() => setSuccess(null), 3000);
+      await loadDaten();
+    } catch (err: any) {
+      setError('Fehler beim Loeschen: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   // ---- PDF: Rechnung ----
@@ -925,17 +953,28 @@ export default function NWMEigenanteilPanel({
                         </span>
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <button
-                          onClick={() => {
-                            setVonDatum(ap.von);
-                            setBisDatum(ap.bis);
-                            setSelectedIdx(-1);
-                            setPanelTab('abrechnung');
-                          }}
-                          className={`text-xs px-3 py-1 rounded border transition-colors bg-white text-gray-600 border-gray-300 hover:border-gray-400`}
-                        >
-                          Oeffnen
-                        </button>
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            onClick={() => {
+                              setVonDatum(ap.von);
+                              setBisDatum(ap.bis);
+                              setSelectedIdx(-1);
+                              setPanelTab('abrechnung');
+                            }}
+                            className="text-xs px-3 py-1 rounded border transition-colors bg-white text-gray-600 border-gray-300 hover:border-gray-400"
+                          >
+                            Oeffnen
+                          </button>
+                          {!ap.alleBezahlt && (
+                            <button
+                              onClick={() => setLoeschenPeriode({ von: ap.von, bis: ap.bis })}
+                              className="text-xs px-2 py-1 rounded border transition-colors bg-white text-red-500 border-red-200 hover:bg-red-50"
+                              title="Periode loeschen"
+                            >
+                              &times;
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -1247,6 +1286,43 @@ export default function NWMEigenanteilPanel({
           </div>
         );
       })()}
+
+      {/* ================================================================== */}
+      {/* DIALOG: Periode loeschen                                           */}
+      {/* ================================================================== */}
+      {loeschenPeriode && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h3 className="font-semibold text-gray-900">Periode loeschen</h3>
+            </div>
+            <div className="px-6 py-4">
+              <p className="text-sm text-gray-700">
+                Alle EA-Datensaetze fuer den Zeitraum
+                <span className="font-medium"> {fmtDate(loeschenPeriode.von)} -- {fmtDate(loeschenPeriode.bis)}</span> loeschen?
+              </p>
+              <p className="text-xs text-gray-400 mt-2">
+                Bezahlte EA werden nicht geloescht. Diese Aktion kann nicht rueckgaengig gemacht werden.
+              </p>
+            </div>
+            <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-200">
+              <button
+                onClick={() => setLoeschenPeriode(null)}
+                className="px-4 py-2 text-sm text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={handleLoeschenPeriode}
+                disabled={saving}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg disabled:opacity-50"
+              >
+                {saving ? 'Loeschen...' : 'Endgueltig loeschen'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
