@@ -2,7 +2,7 @@
 // ============================================================================
 // PZE V7 - NWM Eigenanteil-Berechnung und Zahlungsstatus
 // ============================================================================
-// Version: 7.4.5-5
+// Version: 7.4.5-8
 // Datum: 26. Maerz 2026
 //
 // Berechnet quartalsweise Eigenanteile pro Netzwerkpartner:
@@ -15,6 +15,14 @@
 // - Zahlungseingang erfassen, Status pflegen
 // - PDF: Rechnung Cubintec -> NP
 // - PDF: PT-Nachweis Eigenanteil-Eingang
+// v7.4.5-8: Intelligenter Periodenvorschlag ab letzter abgerechneter Periode
+//   Laedt letztes periode_bis aus DB, naechster Vorschlag = +1 Tag bis +3 Monate
+//   Faellt automatisch ins urspruengliche Raster zurueck
+// v7.4.5-7: Von/Bis-Datumsfelder frei waehlbar
+//   Perioden-Dropdown als Vorschlag, Von/Bis direkt editierbar
+// v7.4.5-6: FIX: Cent-genaue Betragsverteilung
+//   Rundungsrest geht an letzten NP (max. 1 Cent Differenz)
+//   Quoten bleiben unveraendert, Betrag wird direkt verteilt
 // v7.4.5-5: FIX: Perioden-Datum Off-by-one (lokale Strings statt toISOString)
 // v7.4.5-4: FIX: ZE-Query auf alte Timesheet-Struktur umgestellt
 //   (work_date/hours/is_active/is_billable statt year/month/total_fue_hours)
@@ -233,15 +241,20 @@ export default function NWMEigenanteilPanel({
   const btnPrimary = portal === 'firma' ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700';
   const focusRing = portal === 'firma' ? 'focus:ring-green-500 focus:border-green-500' : 'focus:ring-blue-500 focus:border-blue-500';
 
-  // Perioden-Auswahl (3-Monats-Rhythmus ab Projektstart)
+  // Perioden-Auswahl (3-Monats-Rhythmus ab Projektstart als Vorschlag)
   const perioden = generatePerioden(project.start_date);
   const now = new Date();
   const defaultIdx = (() => {
     const idx = perioden.findIndex(q => now >= new Date(q.von) && now <= new Date(q.bis));
     return idx >= 0 ? idx : Math.max(0, perioden.length - 1);
   })();
-  const [selectedIdx, setSelectedIdx] = useState(defaultIdx);
-  const selectedQ = perioden[selectedIdx] || perioden[0] || { label: 'Periode 1', von: project.start_date || '', bis: '' };
+  const defaultPeriode = perioden[defaultIdx] || perioden[0] || { label: 'Manuell', von: project.start_date || '', bis: '' };
+  const [selectedIdx, setSelectedIdx] = useState<number | -1>(defaultIdx);
+  const [vonDatum, setVonDatum] = useState(defaultPeriode.von);
+  const [bisDatum, setBisDatum] = useState(defaultPeriode.bis);
+  const [naechsteVorschlag, setNaechsteVorschlag] = useState<{ von: string; bis: string } | null>(null);
+  // selectedQ immer aus den freien Datumsfeldern
+  const selectedQ = { label: 'Manuell', von: vonDatum, bis: bisDatum };
 
   // Daten
   const [partner, setPartner] = useState<NetzwerkPartner[]>([]);
@@ -288,6 +301,32 @@ export default function NWMEigenanteilPanel({
         .eq('is_active', true);
       setAssignments(paData || []);
 
+      // Letztes periode_bis aus allen EA dieses Projekts laden
+      // -> daraus naechsten intelligenten Periodenvorschlag berechnen
+      const { data: letzteEA } = await supabase
+        .from('v7_netzwerk_eigenanteile')
+        .select('periode_bis')
+        .eq('project_id', project.id)
+        .order('periode_bis', { ascending: false })
+        .limit(1);
+
+      if (letzteEA && letzteEA.length > 0) {
+        const letztesBis = new Date(letzteEA[0].periode_bis);
+        // Naechster Von = letztes Bis + 1 Tag
+        const naechstesVon = new Date(letztesBis);
+        naechstesVon.setDate(naechstesVon.getDate() + 1);
+        // Naechstes Bis = Von + 3 Monate - 1 Tag
+        const naechstesBis = new Date(naechstesVon);
+        naechstesBis.setMonth(naechstesBis.getMonth() + 3);
+        naechstesBis.setDate(naechstesBis.getDate() - 1);
+        const pad = (n: number) => String(n).padStart(2, '0');
+        const vonStr = `${naechstesVon.getFullYear()}-${pad(naechstesVon.getMonth() + 1)}-${pad(naechstesVon.getDate())}`;
+        const bisStr = `${naechstesBis.getFullYear()}-${pad(naechstesBis.getMonth() + 1)}-${pad(naechstesBis.getDate())}`;
+        setNaechsteVorschlag({ von: vonStr, bis: bisStr });
+      } else {
+        setNaechsteVorschlag(null);
+      }
+
       // Auftraege Dritte aus ZA laden falls vorhanden
       const { data: zaData } = await supabase
         .from('v7_zahlungsanforderungen')
@@ -305,7 +344,7 @@ export default function NWMEigenanteilPanel({
     } finally {
       setLoading(false);
     }
-  }, [project.id, selectedIdx, supabase]);
+  }, [project.id, vonDatum, bisDatum, supabase]);
 
   useEffect(() => { loadDaten(); }, [loadDaten]);
 
@@ -396,12 +435,36 @@ export default function NWMEigenanteilPanel({
       // Fuer jeden NP einen EA-Datensatz erstellen/aktualisieren
       let naechsteRechnungsnr = project.nwm_rechnung_naechste || 1;
 
-      for (const np of partner) {
-        const anteilGesamt = kostenGesamt * np.eigenanteil_quote / 100;
-        const foerderAnteil = foerderbetrag * np.eigenanteil_quote / 100;
-        const betragSoll = anteilGesamt - foerderAnteil;
-        const ustBetrag = anteilGesamt * np.ust_satz / 100;
-        const betragBrutto = betragSoll + ustBetrag;
+      // Cent-genaue Verteilung: Gesamtbetrag in Cents berechnen
+      // dann floor(Betrag/n) je NP, Rest an letzten NP
+      const eigenanteilGesamtCents = Math.round(kostenGesamt * (100 - foerdersatz));
+      // Cents je NP (floor)
+      const centsJeNP = Math.floor(eigenanteilGesamtCents / partner.length);
+      const restCents = eigenanteilGesamtCents - centsJeNP * partner.length;
+
+      for (let npIdx = 0; npIdx < partner.length; npIdx++) {
+        const np = partner[npIdx];
+        const istLetzter = npIdx === partner.length - 1;
+
+        // Betrag in Cents: letzter NP bekommt den Rundungsrest
+        const betragSollCents = centsJeNP + (istLetzter ? restCents : 0);
+        const betragSoll = betragSollCents / 100;
+
+        // Anteil Gesamtleistung: proportional zum Soll-Betrag
+        // Eigenanteil = Anteil - Foerderanteil
+        // Anteil = betragSoll / (eigenanteilsquote/100)
+        const eigenanteilsquote = (100 - foerdersatz) / 100;
+        const anteilGesamt = eigenanteilsquote > 0
+          ? Math.round(betragSoll / eigenanteilsquote * 100) / 100
+          : 0;
+        const foerderAnteil = Math.round((anteilGesamt - betragSoll) * 100) / 100;
+        const ustBetrag = Math.round(anteilGesamt * np.ust_satz / 100 * 100) / 100;
+        const betragBrutto = Math.round((betragSoll + ustBetrag) * 100) / 100;
+
+        // Quote fuer Anzeige: aus Betrag rueckrechnen
+        const quoteDisplay = kostenGesamt > 0
+          ? Math.round(anteilGesamt / kostenGesamt * 10000) / 100
+          : np.eigenanteil_quote;
 
         const payload = {
           project_id: project.id,
@@ -411,13 +474,13 @@ export default function NWMEigenanteilPanel({
           nwm_kosten_gesamt: Math.round(kostenGesamt * 100) / 100,
           foerdersatz_percent: foerdersatz,
           laufzeitjahr,
-          eigenanteil_quote: np.eigenanteil_quote,
-          anteil_gesamtleistung_netto: Math.round(anteilGesamt * 100) / 100,
-          foerderanteil_pt: Math.round(foerderAnteil * 100) / 100,
-          betrag_soll: Math.round(betragSoll * 100) / 100,
+          eigenanteil_quote: quoteDisplay,
+          anteil_gesamtleistung_netto: anteilGesamt,
+          foerderanteil_pt: foerderAnteil,
+          betrag_soll: betragSoll,
           ust_satz: np.ust_satz,
-          ust_betrag: Math.round(ustBetrag * 100) / 100,
-          betrag_brutto: Math.round(betragBrutto * 100) / 100,
+          ust_betrag: ustBetrag,
+          betrag_brutto: betragBrutto,
           status: 'offen',
           updated_at: new Date().toISOString(),
         };
@@ -738,20 +801,58 @@ export default function NWMEigenanteilPanel({
       {/* ---- Quartal-Auswahl + Foerderinfo ---- */}
       <div className="bg-white rounded-lg border border-gray-200 p-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-3">
-            <label className="text-sm font-medium text-gray-700">Abrechnungsquartal:</label>
+          <div className="flex items-center gap-3 flex-wrap">
+            <label className="text-sm font-medium text-gray-700">Abrechnungszeitraum:</label>
+            {/* Perioden-Vorschlag */}
             <select
-              value={selectedQ.label}
+              value={selectedIdx === -1 ? '__manuell__' : (selectedIdx === -2 ? '__naechste__' : String(selectedIdx))}
               onChange={e => {
-                const idx = perioden.findIndex(q => q.label === e.target.value);
-                if (idx >= 0) setSelectedIdx(idx);
+                if (e.target.value === '__manuell__') {
+                  setSelectedIdx(-1);
+                } else if (e.target.value === '__naechste__') {
+                  setSelectedIdx(-2);
+                  if (naechsteVorschlag) {
+                    setVonDatum(naechsteVorschlag.von);
+                    setBisDatum(naechsteVorschlag.bis);
+                  }
+                } else {
+                  const idx = parseInt(e.target.value);
+                  setSelectedIdx(idx);
+                  const p = perioden[idx];
+                  if (p) { setVonDatum(p.von); setBisDatum(p.bis); }
+                }
               }}
               className={`px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 ${focusRing}`}
             >
-              {perioden.map(q => (
-                <option key={q.label} value={q.label}>{q.label}</option>
-              ))}
+              {naechsteVorschlag && (
+                <option value="__naechste__">
+                  Naechste Periode ({naechsteVorschlag.von} -- {naechsteVorschlag.bis})
+                </option>
+              )}
+              <optgroup label="Perioden ab Projektstart">
+                {perioden.map((q, i) => (
+                  <option key={q.label} value={String(i)}>{q.label}</option>
+                ))}
+              </optgroup>
+              <option value="__manuell__">Manuell eingeben</option>
             </select>
+            {/* Freie Von/Bis-Felder */}
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-gray-500">von</label>
+              <input
+                type="date"
+                value={vonDatum}
+                onChange={e => { setVonDatum(e.target.value); setSelectedIdx(-1); }}
+                className={`px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 ${focusRing}`}
+              />
+              <label className="text-xs text-gray-500">bis</label>
+              <input
+                type="date"
+                value={bisDatum}
+                onChange={e => { setBisDatum(e.target.value); setSelectedIdx(-1); }}
+                className={`px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 ${focusRing}`}
+              />
+            </div>
           </div>
           <div className="flex items-center gap-4 text-xs text-gray-500">
             <span className="flex items-center gap-1">
