@@ -3,7 +3,15 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 26. Maerz 2026
-// Version: 7.4.4-32
+// Version: 7.4.4-36
+//
+// v7.4.4-36: NWMEigenanteilPanel eingebunden (Eigenanteile Sub-Tab aktiv)
+// v7.4.4-35: NWMEinstellungenPanel eingebunden
+//   - Einstellungen-Sub-Tab zeigt echte Komponente
+//   - onProjectUpdate Callback aktualisiert lokalen Project-State
+// v7.4.4-34: consultantCompanyId an NWMPartnerPanel weitergegeben
+//   (fuer Kundenauswahl-Dropdown im NP-Modal)
+//   Basis: v7.4.4-32 (KISS Tab-Switch)
 //
 // KOMPLETTER NEUAUFBAU (Session 6) - Revision 1
 // Kein Patchen - von Grund auf korrekt implementiert:
@@ -75,6 +83,9 @@ import WorkPackageAssignmentModal, {
 } from '@/components/shared/WorkPackageAssignmentModal';
 import ProjectTeamManager from '@/components/shared/ProjectTeamManager';
 import ArbeitsplanImport from '@/components/shared/ArbeitsplanImport';
+import NWMPartnerPanel from '@/components/shared/NWMPartnerPanel';
+import NWMEinstellungenPanel from '@/components/shared/NWMEinstellungenPanel';
+import NWMEigenanteilPanel from '@/components/shared/NWMEigenanteilPanel';
 
 import {
   V7UserRole,
@@ -1724,110 +1735,29 @@ export default function ProjectDetailPage({
 
             {/* Sub-Tab: Einstellungen */}
             {nwmTab === 'einstellungen' && (
-              <div className="bg-white rounded-lg border border-gray-200 p-6">
-                <div className="flex items-center gap-3 mb-6">
-                  <Settings className={portal === 'firma' ? 'text-green-600' : 'text-blue-600'} size={20} />
-                  <h2 className="text-lg font-semibold text-gray-900">NWM-Einstellungen</h2>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <div className="text-xs text-gray-500 mb-1">Netzwerktyp</div>
-                    <div className="font-medium text-sm text-gray-900">
-                      {project.netzwerk_typ === 'national' ? 'Nationales Innovationsnetzwerk'
-                        : project.netzwerk_typ === 'international' ? 'Internationales Innovationsnetzwerk'
-                        : <span className="text-amber-500 italic">Noch nicht konfiguriert</span>}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-gray-500 mb-1">Foerderphase</div>
-                    <div className="font-medium text-sm text-gray-900">
-                      {project.netzwerk_phase === 'phase1' ? 'Phase 1 (Konzeption)'
-                        : project.netzwerk_phase === 'phase2' ? 'Phase 2 (Umsetzung)'
-                        : <span className="text-amber-500 italic">Noch nicht konfiguriert</span>}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-gray-500 mb-1">Bewilligungsdatum Phase 1</div>
-                    <div className="font-medium text-sm text-gray-900">
-                      {project.bewilligung_datum
-                        ? new Date(project.bewilligung_datum).toLocaleDateString('de-DE')
-                        : <span className="text-amber-500 italic">Nicht hinterlegt</span>}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-gray-500 mb-1">Bewilligungsdatum Phase 2</div>
-                    <div className="font-medium text-sm text-gray-900">
-                      {project.phase2_start_datum
-                        ? new Date(project.phase2_start_datum).toLocaleDateString('de-DE')
-                        : <span className="text-gray-400 italic">--</span>}
-                    </div>
-                  </div>
-                </div>
-                {(!project.netzwerk_typ || !project.bewilligung_datum) && (
-                  <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700">
-                    Bitte Netzwerktyp und Bewilligungsdatum hinterlegen damit Laufzeitjahr
-                    und Foerdersatz automatisch berechnet werden koennen.
-                    Bearbeiten via Projekt-Bearbeiten-Button oben rechts.
-                  </div>
-                )}
-                {project.foerdersatz_stufen && Array.isArray(project.foerdersatz_stufen) && project.foerdersatz_stufen.length > 0 && (
-                  <div className="mt-6">
-                    <div className="text-xs font-medium text-gray-700 mb-2">Foerdersatz-Stufen</div>
-                    <table className="w-full text-xs border border-gray-200 rounded-lg overflow-hidden">
-                      <thead>
-                        <tr className="bg-gray-50">
-                          <th className="px-3 py-2 text-left font-medium text-gray-600">Laufzeitjahr</th>
-                          <th className="px-3 py-2 text-right font-medium text-gray-600">Foerdersatz</th>
-                          <th className="px-3 py-2 text-right font-medium text-gray-600">Eigenanteil</th>
-                          <th className="px-3 py-2 text-left font-medium text-gray-600">Gueltig ab</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {project.foerdersatz_stufen.map((stufe: any, idx: number) => (
-                          <tr key={idx} className="bg-white">
-                            <td className="px-3 py-2 font-medium">Jahr {stufe.laufzeitjahr}</td>
-                            <td className="px-3 py-2 text-right text-green-700 font-semibold">{stufe.satz_percent}%</td>
-                            <td className="px-3 py-2 text-right text-orange-700">{100 - stufe.satz_percent}%</td>
-                            <td className="px-3 py-2 text-gray-500">
-                              {stufe.gueltig_ab ? new Date(stufe.gueltig_ab).toLocaleDateString('de-DE') : '--'}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
+              <NWMEinstellungenPanel
+                portal={portal}
+                project={project}
+                onProjectUpdate={(updated) => setProject(prev => prev ? { ...prev, ...updated } : prev)}
+              />
             )}
 
             {/* Sub-Tab: Netzwerkpartner */}
             {nwmTab === 'partner' && (
-              <div className="bg-white rounded-lg border border-gray-200 p-6">
-                <div className="flex items-center gap-3 mb-4">
-                  <Building2 className={portal === 'firma' ? 'text-green-600' : 'text-blue-600'} size={20} />
-                  <h2 className="text-lg font-semibold text-gray-900">Netzwerkpartner</h2>
-                </div>
-                <div className="text-center py-12 text-gray-400">
-                  <Building2 size={48} className="mx-auto mb-3 opacity-30" />
-                  <p className="text-sm">Netzwerkpartner-Verwaltung</p>
-                  <p className="text-xs mt-1 text-gray-300">Wird in naechstem Schritt implementiert</p>
-                </div>
-              </div>
+              <NWMPartnerPanel
+                portal={portal}
+                projectId={project.id}
+                consultantCompanyId={company?.consultant_company_id || undefined}
+              />
             )}
 
             {/* Sub-Tab: Eigenanteile */}
             {nwmTab === 'eigenanteile' && (
-              <div className="bg-white rounded-lg border border-gray-200 p-6">
-                <div className="flex items-center gap-3 mb-4">
-                  <CreditCard className={portal === 'firma' ? 'text-green-600' : 'text-blue-600'} size={20} />
-                  <h2 className="text-lg font-semibold text-gray-900">Eigenanteile</h2>
-                </div>
-                <div className="text-center py-12 text-gray-400">
-                  <CreditCard size={48} className="mx-auto mb-3 opacity-30" />
-                  <p className="text-sm">Eigenanteil-Berechnung und Zahlungsstatus</p>
-                  <p className="text-xs mt-1 text-gray-300">Wird in naechstem Schritt implementiert</p>
-                </div>
-              </div>
+              <NWMEigenanteilPanel
+                portal={portal}
+                project={project}
+                companyName={company?.name || ''}
+              />
             )}
 
           </div>

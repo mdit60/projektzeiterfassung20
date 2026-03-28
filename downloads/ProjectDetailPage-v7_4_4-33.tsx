@@ -3,7 +3,10 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 26. Maerz 2026
-// Version: 7.4.4-32
+// Version: 7.4.4-33
+//
+// v7.4.4-33: NWMPartnerPanel eingebunden (Partner Sub-Tab aktiv)
+//   Basis: v7.4.4-32 (KISS Tab-Switch)
 //
 // KOMPLETTER NEUAUFBAU (Session 6) - Revision 1
 // Kein Patchen - von Grund auf korrekt implementiert:
@@ -75,6 +78,7 @@ import WorkPackageAssignmentModal, {
 } from '@/components/shared/WorkPackageAssignmentModal';
 import ProjectTeamManager from '@/components/shared/ProjectTeamManager';
 import ArbeitsplanImport from '@/components/shared/ArbeitsplanImport';
+import NWMPartnerPanel from '@/components/shared/NWMPartnerPanel';
 
 import {
   V7UserRole,
@@ -1802,17 +1806,10 @@ export default function ProjectDetailPage({
 
             {/* Sub-Tab: Netzwerkpartner */}
             {nwmTab === 'partner' && (
-              <div className="bg-white rounded-lg border border-gray-200 p-6">
-                <div className="flex items-center gap-3 mb-4">
-                  <Building2 className={portal === 'firma' ? 'text-green-600' : 'text-blue-600'} size={20} />
-                  <h2 className="text-lg font-semibold text-gray-900">Netzwerkpartner</h2>
-                </div>
-                <div className="text-center py-12 text-gray-400">
-                  <Building2 size={48} className="mx-auto mb-3 opacity-30" />
-                  <p className="text-sm">Netzwerkpartner-Verwaltung</p>
-                  <p className="text-xs mt-1 text-gray-300">Wird in naechstem Schritt implementiert</p>
-                </div>
-              </div>
+              <NWMPartnerPanel
+                portal={portal}
+                projectId={project.id}
+              />
             )}
 
             {/* Sub-Tab: Eigenanteile */}
