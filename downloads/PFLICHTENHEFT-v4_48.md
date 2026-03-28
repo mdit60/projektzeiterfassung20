@@ -2,9 +2,9 @@
 
 **Version:** 4.48
 **SW-Release:** V7.4.4
-**Datum:** 24. Maerz 2026
+**Datum:** 26. Maerz 2026
 **Projekt:** Projektzeiterfassung fuer FuE-Foerdervorhaben
-**Status:** V7.4.4-32 + V7.4.3-10 deployed auf v7-dev + main
+**Status:** V7.4.4-21 + V7.4.3-12 deployed auf v7-dev + main
 
 ---
 
@@ -144,14 +144,6 @@ Bei jedem neuen Firmen-User pruefen:
 
 Fehlt Punkt 3 -> User landet nach Login auf leerem Login-Bildschirm (kein Fehler)
 
-### 2.6 ArbeitsplanImport - Verhalten bei wiederholtem Import
-
-- Neue APs werden angelegt
-- Bestehende APs werden aktualisiert (Matching ueber AP-Nummer)
-- APs werden NICHT automatisch geloescht
-- Nach jedem Import manuell pruefen ob Arbeitsplan mit Foerderantrag uebereinstimmt
-- ArbeitsplanImport nur fuer client_admin sichtbar (seit v7.4.4-32)
-
 ---
 
 ## 3. Entwicklungshistorie
@@ -204,87 +196,164 @@ v7.4.4 (10.-22. Maerz 2026):
 
 ### 3.5 Session 7 (22. Maerz 2026) - v7.4.3-9 / v7.4.4-21
 
-- TimesheetForm: parseHours() in allen Berechnungsfunktionen
-- Feiertags-Summe korrekt eingerechnet, Mariae Himmelfahrt
-- normalizeStateCode(), companyDailyHours aus standard_weekly_hours
-- NEU: Monat-abschliessen-Button
+**TimesheetForm (v7.4.3-9):**
+- parseHours() jetzt in ALLEN Berechnungsfunktionen (calculateRowSum,
+  calculateDaySum, calculateTechnicalDaySum, calculateNonBillableSum)
+- Feiertags-Summe korrekt in "Sonstige bezahlte Ausfallzeiten" eingerechnet
+- Mariae Himmelfahrt (15.8.) fuer Bayern (DE-BY) + Saarland (DE-SL)
+- normalizeStateCode(): "Bayern" -> "DE-BY" Konvertierung
+- companyDailyHours aus standard_weekly_hours (38h/Woche -> 7,6h/Tag)
+- NEU: "Monat abschliessen"-Button (ganz links im Header)
+  * Grau = offen / Gruen = abgeschlossen
+  * Speichert in v7_timesheet_completions
+  * Automatisch zurueckgesetzt nach Speichern von Aenderungen
+- Button-Reihenfolge: Monat abschliessen | Speichern | PDF Export | Drucken
 
-### 3.6 Session 8 (24. Maerz 2026) - v7.4.3-10 / v7.4.4-32
+**FirmendatenCard (v7.4.4-2):**
+- Feld "Regelarbeitszeit" in Anzeige und Bearbeiten-Modal
+- JSX-Struktur-Bug behoben
 
-**TimesheetForm (v7.4.3-10):**
-- FIX: Monatsabschluss-Reset nur bei tatsaechlichen Aenderungen (hasChanges)
+**berichte-page (v7.4.4-17) + berater-berichte-page (v7.4.4-18):**
+- Stundennachweis-Matrix: Completion-Flag aus v7_timesheet_completions
+  * Gruen wenn MA "Monat abschliessen" geklickt hat
+  * Gruen wenn alle Arbeitstage erfasst (Fallback)
+  * Orange wenn Eintraege aber kein Abschluss
+  * Rot wenn keine Eintraege
+- normalizeStateCode() fuer Feiertags-Berechnung
+- Feiertage zaehlen als "erfasste Tage"
+- Mariae Himmelfahrt fuer DE-BY ergaenzt
 
-**ProjectDetailPage (v7.4.4-32):**
-- ArbeitsplanImport + Kein-Team-Hinweis nur fuer adminUser (client_admin)
-- Projektleiter sehen Arbeitsplan nur lesend
+**ZAPanel (v7.4.4-21):**
+- ZIM_NETZWERK als gueltiges Foerderformat
+- Filter: ff.startsWith('ZIM') statt nur ZIM/ZIM_DS
+- Robuster Vergleich gegen Postgres ENUM-Typ
 
-**mein-status-page (v7.4.4-7):**
-- Links auf neue Anleitungen PL + FA aktualisiert
+**SQL-Migration (Prod ausgefuehrt):**
+- Neue Tabelle v7_timesheet_completions (Monatsabschluss)
+- standard_weekly_hours in v7_client_companies (Regelarbeitszeit)
 
-**Dokumentation:**
-- PZE-Anleitung-Projektleiter-v2.0: Vollstaendige Neuerstellung
-- PZE-Anleitung-Firmen-Administrator-v2.0: Vollstaendige Neuerstellung
-- Alte Kurzanleitungen ersetzt
+### 3.6 Bekannte Bugs und Loesungen
+
+**Bug: isAdminOrPL prueft falsche Quelle**
+- Problem: `profile.role` ist bei allen Firmen-Usern immer 'client_user'
+- Loesung: `employee.portal_role` aus `v7_employees` verwenden
+
+**Bug: Profil-Query schlaegt fehl**
+- Problem: `.eq('id', user.id)` findet kein Ergebnis
+- Loesung: `.eq('email', user.email)` verwenden
+
+**Bug: User landet nach Login auf leerem Login-Bildschirm**
+- Problem: `client_company_id` in `v7_user_profiles` ist NULL
+- Loesung: SQL UPDATE direkt in Supabase
+
+**Bug: Komplexe JSX-Dateien nach str_replace korrupt**
+- Loesung: Immer kompletten Neuaufbau statt Patching bei grossen Dateien
+
+**Bug: Python-UTF-8-Bereinigung zerstoert Code**
+- Problem: Kompletter ASCII-Filter kaputt macht Template-Strings und "as"-Casts
+- Loesung: Von Original starten, nur gezielte String-Ersetzungen
+
+**Bug: Zeilensumme vor Speichern falsch bei Komma-Dezimalwerten**
+- Problem: calculateRowSum nutzte parseFloat statt parseHours
+- Loesung: parseHours() in ALLEN Berechnungsfunktionen
+
+**Bug: Matrix zeigt "teilweise" fuer vollstaendig erfasste Monate**
+- Ursache 1: normalizeStateCode fehlte -> Feiertage nicht erkannt
+- Ursache 2: Feiertage erzeugen keine DB-Eintraege -> zaehlen nicht
+- Ursache 3: Teilzeit-MA hat nicht jeden Tag Eintraege (korrekt so)
+- Loesung: Monatsabschluss-Button + Feiertage als erfasste Tage zaehlen
 
 ---
 
 ## 4. Komponenten-Uebersicht
 
-### 4.1 Shared Components (/components/shared/)
+### 4.1 Shared Components (src/components/shared/)
 
-| Komponente | Version | Beschreibung |
-|-----------|---------|--------------|
-| ProjectDetailPage.tsx | 7.4.4-32 | Projekt-Detail (beide Portale) |
-| ZAPanel.tsx | 7.4.4-21 | Zahlungsanforderungs-Panel |
-| ProjectTeamManager.tsx | 7.4.4-5 | Team-Verwaltung |
-| TimesheetForm.tsx | 7.4.3-10 | Zeiterfassungs-Formular |
-| WorkPackageTable.tsx | 7.4.3-7 | Arbeitsplan-Tabelle |
-| PortalHeader.tsx | 7.3.95-3 | Header (beide Portale) |
-| PortalNav.tsx | 7.4.4-1 | Navigation (beide Portale) |
-| FirmendatenCard.tsx | 7.4.4-2 | Firmendaten-Anzeige |
-| EmployeeManagement.tsx | 7.3.95-1 | Mitarbeiter-Verwaltung |
-| ProjectList.tsx | 7.3.88-6 | Projektliste |
-| ProjectCreateForm.tsx | 7.3.82-9 | Projekt-Anlage |
-| WorkPackageEditModal.tsx | 7.3.85-2 | AP-Bearbeitung |
+| Datei | Version | Funktion |
+|-------|---------|----------|
+| ArbeitsplanImport.tsx | 7.3.87 | Excel Download/Upload |
+| CapacityBar.tsx | 7.3.42 | Kapazitaets-Fortschrittsbalken |
+| CompanyDataView.tsx | 7.3.57 | Firmendaten-Anzeige (readonly) |
+| ConsultantManagement.tsx | 7.3.94-1 | Berater-Verwaltung (system_admin) |
+| DataTable.tsx | 7.3.42 | Generische Tabellen-Komponente |
+| EmployeeManagement.tsx | 7.3.95-1 | MA-Verwaltung mit Login, PW-Reset |
+| FirmendatenCard.tsx | 7.4.4-2 | Firmendaten-Karte inkl. Regelarbeitszeit |
+| Modal.tsx | 7.3.42 | Generische Modal-Komponente |
+| PortalHeader.tsx | 7.3.95-4 | Header mit Rolle, PW-Aendern |
+| PortalNav.tsx | 7.4.4-1 | Portal-Navigation |
+| ProjectCreateForm.tsx | 7.3.57 | Projekt anlegen |
+| ProjectDetailPage.tsx | 7.4.4-31 | Projekt-Detailseite (Neuaufbau Session 6) |
+| ProjectList.tsx | 7.3.90 | Projektliste |
+| ProjectTeamManager.tsx | 7.4.4-5 | Team-Verwaltung mit Anlage-6.1-Feldern |
+| TimesheetForm.tsx | 7.4.3-9 | Zeiterfassung + Monatsabschluss-Button |
+| WorkPackageAssignmentModal.tsx | 7.3.62 | MA einem AP zuordnen |
+| WorkPackageEditModal.tsx | 7.3.85-2 | AP bearbeiten |
+| WorkPackageList.tsx | 7.3.54 | AP-Liste mit Sortierung |
+| WorkPackageTable.tsx | 7.4.3-7 | Arbeitsplan mit Lock/Unlock, Ampel |
+| ZAPanel.tsx | 7.4.4-21 | ZA-Formular (alle ZIM-Formate inkl. NETZWERK) |
 
-### 4.2 Firmen-Portal Pages
+### 4.2 Konfigurations-Dateien
 
-| Route | Komponente | Version |
-|-------|-----------|---------|
-| /v7/firma/mein-status | mein-status-page | 7.4.4-7 |
-| /v7/firma/berichte | berichte-page | 7.4.4-17 |
-| /v7/firma/zeiterfassung | zeiterfassung-page | 7.3.93 |
-| /v7/firma/projekte | page-firma-projekte | 7.3.89 |
-| /v7/firma/dashboard | firma-dashboard | 7.3.92 |
+| Datei | Version | Funktion |
+|-------|---------|----------|
+| v7-module-config.ts | 7.3.90-4 | Modul-Konfiguration mit portalRoles |
+| v7-types.ts | 7.4.0 | TypeScript-Typen fuer V7 |
 
-### 4.3 Berater-Portal Pages
+### 4.3 Wichtige Props-Interfaces (Referenz)
 
-| Route | Komponente | Version |
-|-------|-----------|---------|
-| /v7/berater/dashboard | berater-dashboard | 7.4.4-5 |
-| /v7/berater/foerderung/firma/[id] | berater-firma-detail | 7.4.4-3 |
-| /v7/berater/foerderung/firma/[id]/berichte | berater-berichte | 7.4.4-18 |
+**ArbeitsplanImport:**
+```
+projectId: string
+hasTeam: boolean
+teamCount: number
+onImportComplete: () => void
+portal: 'berater' | 'firma'
+```
+
+**WorkPackageTable:**
+```
+projectId: string
+employees: { id, display_name, first_name, last_name, employee_number }[]
+workPackages: { id, ap_code: string, ap_number, ap_sub_number, name,
+                description, start_date, end_date, planned_pm, is_technical }[]
+assignments: { id, work_package_id, employee_id, planned_pm: number }[]
+projectTeam: { id, project_id, employee_id, employee_number,
+               role_in_project, hourly_rate_override }[]
+canEdit: boolean
+onAssignmentChange: (wpId, empId, pm) => Promise<void>
+onEditAP?: (wp) => void
+onDeleteAP?: (wp) => void
+portal?: 'berater' | 'firma'
+fundingFormat?: string | null
+```
+
+**WorkPackageAssignmentModal Handler-Signaturen:**
+```
+onAddAssignment: (employeeId: string, pm: number | null) => Promise<void>
+onUpdateAssignment: (employeeId: string, pm: number | null) => Promise<void>
+onRemoveAssignment: (employeeId: string) => Promise<void>
+```
 
 ---
 
-## 5. Kritische Bugs und Lessons Learned
+## 5. Bekannte Fehler und Status
 
-### 5.1 Bekannte kritische Muster
-
-- `isAdminOrPL` muss `userPortalRole` pruefen (aus `v7_employees.portal_role`),
-  NICHT `profile.role` (immer 'client_user' fuer alle Firmen-User)
-- `funding_format` ist enum-Typ: bei LIKE-Vergleichen `::TEXT` Cast erforderlich
-- Komplexe JSX-Dateien komplett neu schreiben, nie mit str_replace patchen
-- Next.js Production-Builds strenger als Dev: null-safety (`(arr || []).filter(...)`)
-- `useSearchParams()` benoetigt Suspense-Wrapper in Next.js 15
-
-### 5.2 Offene Bugs
-
-| Bug | Beschreibung | Prioritaet |
-|-----|-------------|------------|
-| Bug 5.9 | Firmen-Detailseite Berater-Portal: Header gruen statt blau | Mittel |
-| - | ZA-Rollback Bewilligt -> Eingereicht fehlt (nur -> Entwurf vorhanden) | Niedrig |
-| - | Stundensatz Annika Arndt: 20.19 vs 20.35 EUR/h zu pruefen | Niedrig |
+| Nr. | Fehler | Status | Version |
+|-----|--------|--------|---------|
+| 5.1 | ZE nicht gespeichert bei Tab-Wechsel | Behoben | v7.3.57 |
+| 5.2 | Berichte zeigen falsche PM-Summen | Behoben | v7.4.3-11 |
+| 5.3 | PortalHeader Navigation fehlt | Behoben | v7.3.95-3 |
+| 5.4 | TimesheetForm springt auf aktuellen Monat | Behoben | v7.3.91 |
+| 5.5 | ZIM-Import: MA ohne Stundensatz | Behoben | v7.3.87 |
+| 5.6 | TeamMembers leer im AP-Tab | Behoben | v7.4.4-31 |
+| 5.7 | isAdminOrPL prueft falsche Rolle | Behoben | v7.4.4-5 |
+| 5.8 | Profil-Query via id statt email | Behoben | v7.4.4-31 |
+| 5.9 | Firma-Detail Header gruen statt blau | Offen | - |
+| 5.10 | Stundensatz Annika Arndt Diskrepanz | Offen | - |
+| 5.11 | Matrix zeigte teilweise statt gruen | Behoben | v7.4.4-17 |
+| 5.12 | ZAPanel ZIM_NETZWERK nicht erkannt | Behoben | v7.4.4-21 |
+| 5.13 | Zeilensumme vor Speichern falsch (Komma) | Behoben | v7.4.3-9 |
+| 5.14 | Feiertagssumme nicht berechnet | Behoben | v7.4.3-9 |
 
 ---
 
@@ -304,7 +373,30 @@ offizielle VDI/VDE-IT Formular uebertragen.
 | ZIM_DS | Durchfuehrbarkeitsstudie | true |
 | ZIM_NETZWERK | Netzwerkmanagement | false |
 
-### 6.3 Status-Workflow
+Filter im ZAPanel: `String(funding_format).toUpperCase().startsWith('ZIM')`
+
+### 6.3 Datenbankfelder v7_zahlungsanforderungen
+
+| Feld | Typ | Beschreibung |
+|------|-----|--------------|
+| za_nummer | integer | Laufende Nummer |
+| zeitraum_von | date | Abrechnungszeitraum Beginn |
+| zeitraum_bis | date | Abrechnungszeitraum Ende |
+| status | text | entwurf / eingereicht / bewilligt |
+| auftraege_dritte_t | numeric | Auftraege an Dritte (T) |
+| auftraege_dritte_nt | numeric | Auftraege an Dritte (NT) |
+| fue_unterauftrag | numeric | FuE-Unterauftraege |
+| zeitw_personalaufnahme | numeric | Zeitwert Personalaufnahme |
+| notizen | text | Interne Notizen |
+
+### 6.4 ZA-Faelligkeit
+
+- Feld `naechste_za_faellig DATE` in `v7_projects` (Migration ausgefuehrt)
+- Berechnung: letztes `zeitraum_bis` eines eingereichten ZA + 3 Monate
+- Status `eingereicht` genuegt fuer Faelligkeitsberechnung
+- Anzeige als Ampel in Mein-Status
+
+### 6.5 Status-Workflow
 
 ```
 Entwurf --> Eingereicht --> Bewilligt
@@ -315,31 +407,52 @@ Entwurf --> Eingereicht --> Bewilligt
 
 Offener Punkt: Direkter Rollback Bewilligt -> Eingereicht fehlt noch.
 
-### 6.4 ZA-Faelligkeit
+### 6.6 Gestaffelte Foerderquoten ZIM-Netzwerk (Konzept fertig, Impl. offen)
 
-- Berechnung: letztes `zeitraum_bis` eines eingereichten ZA + 3 Monate
-- Anzeige als Ampel in Mein-Status (nur fuer client_admin + project_leader)
-- Ampelfarben: Gruen > 30 Tage, Gelb <= 30 Tage, Rot <= 14 Tage / ueberfaellig
+Konzept in KONZEPT-ZIM-NETZWERKMANAGEMENT-v1_2.md vollstaendig dokumentiert.
+Foerdersaetze laut ZIM-Richtlinie 2024 (analysiert Session 8):
 
-### 6.5 Gestaffelte Foerderquoten ZIM-Netzwerk (offen)
+National: Phase 1: 90% | Phase 2: Jahr 1: 70%, Jahr 2: 50%, Jahr 3-4: 30%
+International: Phase 1: 95% | Phase 2: Jahr 1: 80%, Jahr 2: 60%, Jahr 3-4: 40%
 
-ZIM-Netzwerk: Foerderquote sinkt pro Phase (80% -> 60% -> 40%).
-Geplant: JSONB-Feld `foerdersatz_stufen` in v7_projects.
-Status: Naechste Session.
+Geplante DB-Erweiterung v7_projects:
+  netzwerk_typ TEXT ('national'|'international')
+  netzwerk_phase TEXT ('phase1'|'phase2')
+  bewilligung_datum DATE
+  phase2_start_datum DATE
+  foerdersatz_stufen JSONB
+
+Status: Konzept fertig. Implementierung nach Klaerung offener Punkte.
+Offene Punkte: USt-Behandlung (Abstimmung Katrin), Rechnungsnummernkreis, Bankdaten.
+
+### 6.7 NWM-Eigenanteil-Modul (Konzept fertig, Impl. offen)
+
+Cubintec als NWM muss quartalsweise Eigenanteile von NP einfordern.
+Eigenanteil = NWM-Gesamtkosten x (100% - Foerdersatz) x NP-Quote.
+NP-Quoten: Gleichverteilung als Standard, individuelle Anpassung mit Smart-Anpassung.
+USt: Option B (auf Gesamtleistung anteilig) - zur Bestaetigung mit Katrin.
+NWM-Kosten: Aus PZE-Zeiterfassung (foerderfaehige Stunden x hourly_rate_approved).
+
+Neue Tabellen geplant:
+  v7_netzwerk_partner (NP-Stammdaten, Quoten, USt-Satz)
+  v7_netzwerk_eigenanteile (Berechnungs-Snapshot, Zahlungsstatus)
+
+Ausgabe-Dokumente:
+  Rechnung Cubintec -> NP (PDF, quartalsweise)
+  PT-Nachweis Eigenanteil-Eingang (PDF, Pflicht fuer ZA)
 
 ---
 
-## 7. Monatsabschluss-Workflow (v7.4.3-10)
+## 7. Monatsabschluss-Workflow (NEU v7.4.3-9)
 
 ### 7.1 Ablauf
 
 1. MA erfasst Stunden im TimesheetForm
-2. MA klickt "Monat abschliessen" (gruener Button oben links)
+2. MA prueft Monat und klickt "Monat abschliessen" (gruener Button oben links)
 3. System speichert Eintrag in `v7_timesheet_completions`
 4. Matrix-Ampel zeigt Gruen fuer diesen Monat
-5. Falls nachtraegliche Aenderungen gespeichert werden (hasChanges === true):
-   Completion automatisch geloescht -> MA muss erneut abschliessen
-6. Speichern OHNE Aenderungen: Completion bleibt erhalten (Fix v7.4.3-10)
+5. Falls nachtraegliche Aenderung gespeichert wird: Completion automatisch geloescht
+6. MA muss erneut "Monat abschliessen" klicken
 
 ### 7.2 Matrix-Ampel Logik
 
@@ -349,6 +462,14 @@ Status: Naechste Session.
 | Orange | Eintraege vorhanden, kein Completion-Flag |
 | Rot | Keine Eintraege im Monat |
 | Grau | Zukunft |
+
+### 7.3 Datenbank
+
+```sql
+v7_timesheet_completions:
+  employee_id, project_id, year, month (UNIQUE)
+  completed_at, completed_by
+```
 
 ---
 
@@ -378,6 +499,7 @@ Status: Naechste Session.
 | /v7/berater/foerderung/firma/[id]/projekt/[pid] | ProjectDetailPage | Projekt-Detail (shared) |
 | /v7/berater/foerderung/firma/[id]/zeiterfassung | berater-ze-seite | ZE fuer Firma |
 | /v7/berater/foerderung/firma/[id]/berichte | berater-berichte | Berichte fuer Firma |
+| /v7/berater/admin | ConsultantManagement | Berater-Verwaltung |
 
 ---
 
@@ -404,22 +526,23 @@ git checkout main && git merge v7-dev --no-edit && git push origin main && git c
 
 KRITISCHE REGEL: Jede Aenderung = neues Inkrement N. NIEMALS gleiche Datei ueberschreiben.
 Dateiname: `KomponentenName-vX_Y_Z-N.tsx`
-Beispiel: `TimesheetForm-v7_4_3-10.tsx` -> naechste Aenderung -> `TimesheetForm-v7_4_3-11.tsx`
+Beispiel: `TimesheetForm-v7_4_3-9.tsx` -> naechste Aenderung -> `TimesheetForm-v7_4_3-10.tsx`
 Ablage: `~/Documents/Dev/PZE/downloads/`
 
 ---
 
-## 10. Dokumentation (public/manuals/)
+## 10. Test-User
 
-| Datei | Version | Zielgruppe | Stand |
-|-------|---------|-----------|-------|
-| PZE_Anleitung_Projektleiter.pdf | 2.0 | Projektleiter | 24.03.2026 |
-| PZE_Anleitung_Firmen-Administrator.pdf | 2.0 | Firmen-Admin | 24.03.2026 |
-| PZE_Kurzanleitung_Mitarbeiter.pdf | 1.0 | Mitarbeiter | Feb 2026 |
-| PZE-FAQ-Zeiterfassung-v1.pdf | 1.0 | Alle | Maerz 2026 |
-
-Hinweis: Alle Anleitungen enthalten Testbetrieb-Hinweis mit Ansprechpartner
-Martin Ditscherlein (m.ditscherlein@cubintec.com).
+| Name | Email | Rolle | Portal / Firma |
+|------|-------|-------|----------------|
+| Martin Ditscherlein | m.ditscherlein@cubintec.com | system_admin | Berater |
+| Robin Freund | (Steuerkanzlei) | client_admin | Firma: Steuerkanzlei Freund |
+| Annika Arndt | (Steuerkanzlei) | project_leader | Firma: Steuerkanzlei Freund |
+| Anett Mueller | (Steuerkanzlei) | employee | Firma: Steuerkanzlei Freund |
+| Carolin Schoebel | (Steuerkanzlei) | employee | Firma: Steuerkanzlei Freund |
+| Thomas Duehrkop | t.duehrkop@gmm-yacht.de | client_user | Firma: Global Maritime Management |
+| Kirchner, Katrin | (Cubintec) | client_admin | Firma: Cubintec GmbH |
+| Kirchner, Lisa | (Cubintec) | employee | Firma: Cubintec GmbH |
 
 ---
 
@@ -427,15 +550,15 @@ Martin Ditscherlein (m.ditscherlein@cubintec.com).
 
 ### 11.1 Kurzfristig (naechste Session)
 
-- Gestaffelte Foerderquoten ZIM-Netzwerk (JSONB foerdersatz_stufen)
-- ZA-Rollback-Button: Bewilligt -> Eingereicht
+- NWM-Modul: Abstimmung USt mit Katrin, dann SQL-Migration + Implementierung
+- ZA-Rollback-Button: Bewilligt -> Eingereicht (fehlt noch)
 - Firma-Detailseite Berater-Portal: Header gruen statt blau (Bug 5.9)
+- Stundensatz-Diskrepanz pruefen: Annika Arndt (20.19 vs. 20.35 EUR/h)
 
 ### 11.2 Mittelfristig
 
 - ZA-Ampel Integration Berater-Dashboard
-- Mitarbeiter-Anleitung v2.0 (Monatsabschluss-Button erwaehnen)
-- Berater-Portal Anleitung (neu)
+- User Manual Berater-Portal (PDF)
 - Projekt-Fortschritt Kachel: Grafische Auswertung
 - ZIM PDF Import im Firmen-Portal aktivieren
 
@@ -451,9 +574,9 @@ Martin Ditscherlein (m.ditscherlein@cubintec.com).
 
 | Version | Datum | Aenderungen |
 |---------|-------|-------------|
-| v4.48 | 24.03.2026 | Session 8: Anleitungen v2.0, TimesheetForm-Reset-Fix, ArbeitsplanImport Admin-only |
-| v4.47 | 22.03.2026 | Session 7: Monatsabschluss, Matrix-Ampel-Fix, ZIM_NETZWERK, Komma-Fix komplett |
-| v4.46 | 22.03.2026 | Session 6: ProjectDetailPage-31 Neuaufbau, Props-Interfaces |
+| v4.48 | 26.03.2026 | Session 8: TimesheetForm-12 PDF-Print-Fix, NWM-Konzept v1.2 (ZIM-Richtlinie analysiert, Eigenanteil-Modul) |
+| v4.47 | 22.03.2026 | Session 7: Monatsabschluss, Matrix-Ampel-Fix, ZIM_NETZWERK, Komma-Fix komplett, Regelarbeitszeit, normalizeStateCode |
+| v4.46 | 22.03.2026 | Session 6: ProjectDetailPage-31 Neuaufbau, Props-Interfaces, Bug-Checkliste neue User |
 | v4.45 | 13.03.2026 | Session 5: FirmendatenCard, ProjectTeamManager-4 |
 | v4.44 | 13.03.2026 | v7.4.4-17/18/5: ZA Status-Workflow, ZA-Ampel, Archiv-Tab |
 | v4.43 | 12.03.2026 | v7.4.4-16: ZA-Kachel, ZIM-Hinweiskasten |
@@ -466,4 +589,4 @@ Martin Ditscherlein (m.ditscherlein@cubintec.com).
 ---
 
 **Ende des Pflichtenhefts v4.48**
-**Letzte Aktualisierung: 24. Maerz 2026**
+**Letzte Aktualisierung: 26. Maerz 2026**
