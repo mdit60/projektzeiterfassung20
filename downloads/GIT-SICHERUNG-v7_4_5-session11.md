@@ -1,85 +1,73 @@
 # GIT-Sicherung Session 11 - 1. April 2026
 
+## Status
+- Branch: v7-dev + main
+- Production: pze.itenion.com - LAEUFT STABIL
+- RLS: Vollstaendig aktiv in PROD (alle Tabellen)
+
+---
+
 ## Was in Session 11 erledigt wurde
 
----
+### 1. Login-Bug behoben (EmployeeManagement-v7_3_95-3/4)
 
-### 1. Bug-Fix: Login-Erstellung MA (EmployeeManagement-v7_3_95-3)
+Neue Mitarbeiter konnten sich nach Login-Erstellung nicht anmelden.
+Symptom: Korrekte Zugangsdaten, Rueckkehr zur leeren Login-Maske (Login-Schleife).
 
-**Problem:** Neue Mitarbeiter konnten sich nach Login-Erstellung nicht anmelden.
-Symptom: Korrekte Zugangsdaten, aber Rueckkehr zur leeren Login-Maske (Login-Schleife).
+Zwei Bugs behoben:
+- createUserProfile: role war 'employee' statt 'client_user'
+- handleLinkExistingUser: Feldname 'company_id' statt 'client_company_id' -> NULL in DB
 
-**Diagnose am Beispiel Firma Stoma:**
-- Reinhard Matzke (erster Admin, manuell angelegt) = funktioniert
-- Markus Schmahl + Roman Matzke (ueber EmployeeManagement angelegt) = Login-Schleife
-- SQL-Diagnose ergab: `client_company_id` = NULL in `v7_user_profiles`
+SQL-Sofortfix fuer betroffene Stoma-User ausgefuehrt (Markus Schmahl, Roman Matzke).
 
-**Zwei Bugs in EmployeeManagement-v7_3_95-2 gefunden und behoben:**
+### 2. Atomare API-Route /api/v7/create-employee-login (v7.3.95-4)
 
-| # | Funktion | War (falsch) | Ist (korrekt) |
-|---|----------|--------------|---------------|
-| 1 | `createUserProfile` | `role: 'employee'` | `role: 'client_user'` |
-| 2 | `handleLinkExistingUser` | `company_id: companyId` | `client_company_id: companyId` |
+Neues Architekturprinzip: Login-Erstellung vollstaendig server-seitig und atomar.
+- Auth + Profil + Employee-Verknuepfung in einem Aufruf
+- Vollstaendiges Rollback bei jedem Fehler
+- Gilt fuer Berater-Portal UND Firmen-Portal
+- EmployeeManagement ruft ausschliesslich diese Route auf
+Getestet: Neue Firma angelegt, Admin-Login sofort funktionsfaehig.
 
-Bug 2 war die eigentliche Ursache: falscher Feldname wurde von Supabase
-stillschweigend ignoriert, `client_company_id` blieb NULL. Das Routing
-prueft dieses Feld und schickt den User bei NULL zurueck zur Login-Seite.
+### 3. RLS vollstaendig aktiviert in PROD
 
-**Sofort-Fix PROD (SQL):**
-```sql
-UPDATE v7_user_profiles up
-SET client_company_id = e.client_company_id
-FROM v7_employees e
-WHERE e.user_id = up.id
-  AND up.client_company_id IS NULL
-  AND up.id IN (
-    '7b1478d1-ec26-4460-87d8-96afaafe795b',
-    '01c02c9a-9704-4d2c-b366-2bf7546889eb'
-  );
-```
-Ergebnis: Beide User haben jetzt korrekte `client_company_id`, Login funktioniert.
+Vorbereitung:
+- Enum v7_user_role: 'client_admin' ergaenzt (fehlte in PROD)
+- SECURITY DEFINER Funktion v7_get_my_profile() erstellt
 
-**Code-Fix:** EmployeeManagement-v7_3_95-3.tsx deployed.
+v7_user_profiles RLS (Zirkelschluss geloest):
+Loesung: Policies nur mit auth.uid() - KEIN Funktionsaufruf.
+- SELECT/INSERT/UPDATE: id = auth.uid()
+- DELETE: false (nur Service Role)
 
----
+v7_timesheets RLS:
+Policies bereits vorhanden, RLS aktiviert - alle Tests bestanden.
 
-### 2. Architekturentscheidung: Atomarer Login-Prozess (naechste Umsetzung)
+Lernlektion: SELECT-Policy auf v7_user_profiles darf KEINE Funktion aufrufen
+die wieder v7_user_profiles liest - auch SECURITY DEFINER loest das nicht.
+Loesung ist immer: direkt auth.uid() = id.
 
-**Problem:** Der Login-Erstellungsprozess laeuft clientseitig ueber 3 separate
-Supabase-Aufrufe. Schlaegt einer still fehl, sieht es im UI nach Erfolg aus
-aber der Login funktioniert nicht. Dieser Fehler ist in der Vergangenheit
-mehrfach aufgetreten.
-
-**Beschlossene Loesung:** Neue Server-Side API-Route `/api/v7/create-employee-login`
-
-Anforderungen:
-- Alle 3 Schritte (Auth anlegen + Profil anlegen + Employee verknuepfen) atomar
-- Bei jedem Fehler vollstaendiges Rollback
-- Nur "Erfolg" wenn wirklich alle 3 Schritte abgeschlossen
-- Idempotent (doppelter Aufruf schadet nicht)
-- Gilt fuer ALLE Wege: Berater legt an, Firmen-Admin legt an
-- EmployeeManagement ruft diese eine Route auf, keine eigene Logik mehr
-
-**Reihenfolge:**
-1. GIT-Sicherung (diese Datei) ✅
-2. API-Route `/api/v7/create-employee-login` bauen
-3. EmployeeManagement auf neue Route umstellen
-4. RLS-Thema
+### Test-Checkliste - alle bestanden
+- Login Martin -> blaues Dashboard + 7 Kundenfirmen sichtbar
+- Martin -> Kundenfirma Freund -> Projekte + ZE sichtbar
+- Login Robin Freund -> gruenes Dashboard + eigene ZE sichtbar
+- Robin Freund -> Zeiterfassung -> Stunden sichtbar
+- Berichte -> Fortschritt-Kachel -> Diagramme korrekt
 
 ---
 
-## Offene Punkte (unveraendert aus Session 9)
+## RLS-Status PROD - vollstaendig
 
-### KRITISCH: v7_timesheets RLS in PROD
-- PROD: `rowsecurity=FALSE` -> Zeiterfassungsdaten ungeschuetzt
-- DEV: `rowsecurity=TRUE` -> korrekt
-- Muss vor naechstem Produktivbetrieb behoben werden
+Alle V7-Tabellen haben aktives RLS. Sicherheitsziel aus Session 9 erreicht.
 
-### RLS-Aktionsplan (aus Session 9 uebernommen)
-Schritt 2: DEV Altlasten loeschen (fzul_*, import_*)
-Schritt 3: RLS aktivieren alle V7-Tabellen DEV
-Schritt 4: DEV testen
-Schritt 5: RLS PROD aktivieren inkl. v7_timesheets
+---
+
+## Offene Punkte (naechste Session)
+
+- ProjektFortschrittPanel: Projektname in Anzeige erwaehnen
+- ZAPanel: Direkter Bewilligt->Eingereicht Rollback-Button
+- Berater-Portal Benutzerhandbuch
+- Gestaffelte Foerderquoten ZIM_NETZWERK
 
 ---
 
@@ -87,26 +75,26 @@ Schritt 5: RLS PROD aktivieren inkl. v7_timesheets
 
 | Dateiname | Zweck | Status |
 |-----------|-------|--------|
-| EmployeeManagement-v7_3_95-3.tsx | Bug-Fix Login-Erstellung | deployed |
+| EmployeeManagement-v7_3_95-3.tsx | Bug-Fix role + client_company_id | deployed |
+| EmployeeManagement-v7_3_95-4.tsx | Atomare API-Route Umstellung | deployed |
+| create-employee-login-route-v7_3_95-1.ts | Neue API-Route | deployed |
 | GIT-SICHERUNG-v7_4_5-session11.md | diese Datei | - |
-| PFLICHTENHEFT-v4_52.md | Pflichtenheft aktualisiert | - |
+| PFLICHTENHEFT-v4_54.md | Pflichtenheft aktualisiert | - |
 
 ---
 
 ## Deploy-Sequenz Session 11
 
-```bash
 git add -A
-git commit -m "session11: EmployeeManagement Login-Fix + GIT-Sicherung + Pflichtenheft"
+git commit -m "session11: RLS komplett PROD, atomarer Login, GIT-Sicherung, Pflichtenheft v4.54"
 git push origin v7-dev
 git checkout main
 git merge v7-dev --no-ff --no-edit
 git push origin main
 git checkout v7-dev
-```
 
 ---
 
 ## Pflichtenheft
-**Version:** 4.52
-**Datei:** PFLICHTENHEFT-v4_52.md
+Version: 4.54
+Datei: PFLICHTENHEFT-v4_54.md
