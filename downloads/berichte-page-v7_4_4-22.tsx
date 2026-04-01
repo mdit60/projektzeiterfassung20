@@ -1703,4 +1703,3 @@ export default function BerichtePage() {
     </div>
   );
 }
-// deploy trigger Fr. 27 März 2026 23:59:26 EET
