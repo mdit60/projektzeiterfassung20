@@ -2,9 +2,10 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Grafische Auswertung
 // ============================================================================
-// Version: 7.4.5-2
-// Datum: 28. Maerz 2026
+// Version: 7.4.5-3
+// Datum: 1. April 2026
 //
+// v7.4.5-3: Projektname + FKZ im Panel-Header angezeigt (bei Einzelprojekt)
 // v7.4.5-2: Monatsverlauf-Diagramm komplett neu
 //   - ComposedChart: Soll/Ist-Saeulen + kumulative Linien kombiniert
 //   - Soll-Planstunden je Monat: AP-genau verteilt (Start/End-Datum je AP)
@@ -418,8 +419,8 @@ export default function ProjektFortschrittPanel({
   return (
     <div className="space-y-5">
 
-      {/* Projekt-Auswahl (nur bei mehreren Projekten) */}
-      {projects.length > 1 && (
+      {/* Projekt-Auswahl oder Projektname */}
+      {projects.length > 1 ? (
         <div className="flex items-center gap-3">
           <label className="text-sm font-medium text-gray-700">Projekt:</label>
           <select
@@ -434,6 +435,22 @@ export default function ProjektFortschrittPanel({
               </option>
             ))}
           </select>
+        </div>
+      ) : (
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-semibold text-gray-800">
+            {project.short_name || project.name}
+          </span>
+          {project.funding_reference && (
+            <span className="text-xs text-gray-400 font-mono">
+              {project.funding_reference}
+            </span>
+          )}
+          {project.funding_format && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
+              {project.funding_format}
+            </span>
+          )}
         </div>
       )}
 
