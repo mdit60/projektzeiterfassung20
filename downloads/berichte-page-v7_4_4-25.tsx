@@ -1525,7 +1525,6 @@ export default function BerichtePage() {
                 }}
               />
             )}
-            )}
           </div>
         </div>
       </main>
