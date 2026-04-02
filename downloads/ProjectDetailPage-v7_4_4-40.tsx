@@ -2093,7 +2093,6 @@ export default function ProjectDetailPage({
                   />
                 </div>
               </div>
-              </div>
 
               {projectEditData.funding_format === 'ZIM_DS' ? (
                 <>
