@@ -2,7 +2,7 @@
 // ============================================================================
 // PZE V7 - Berichte & Controlling (Berater-Portal - Firmenansicht)
 // ============================================================================
-// Version: 7.4.4-19
+// Version: 7.4.4-20
 // Datum: 28. Maerz 2026
 //
 // v7.4.4-19: Projektfortschritt-Kachel aktiviert (war "Demnaechst")
@@ -27,6 +27,7 @@ import PortalHeader from '@/components/shared/PortalHeader';
 import PortalNav from '@/components/shared/PortalNav';
 import ZAPanel, { loadProjectAssignments } from '@/components/shared/ZAPanel';
 import ProjektFortschrittPanel from '@/components/shared/ProjektFortschrittPanel';
+import StundennachweisMatrix from '@/components/shared/StundennachweisMatrix';
 import {
   BarChart3,
   FolderKanban,
@@ -1027,89 +1028,25 @@ function BeratePageContent() {
               />
             )}
 
-            {/* Stundennachweis-Matrix */}
+            {/* Stundennachweis-Matrix - Shared Component */}
             {showMatrix && (
-              <div className="mt-6 border border-gray-200 rounded-lg overflow-hidden">
-                <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <Grid3x3 className="w-5 h-5 text-blue-600" />
-                    <span className="font-medium text-gray-900">Stundennachweis-Matrix</span>
-                    {projects.length > 1 && (
-                      <select value={matrixProjectId || projects[0]?.id || ''} onChange={e => setMatrixProjectId(e.target.value)} className="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-1 focus:ring-blue-500">
-                        {projects.map(p => <option key={p.id} value={p.id}>{p.short_name || p.name}</option>)}
-                      </select>
-                    )}
-                    {projects.length === 1 && <span className="text-sm text-gray-600">{projects[0].short_name || projects[0].name}</span>}
-                  </div>
-                  <div className="flex items-center gap-3 text-xs text-gray-500">
-                    <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-green-500 inline-block"></span>Vollstaendig</span>
-                    <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-orange-400 inline-block"></span>Teilweise</span>
-                    <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-red-400 inline-block"></span>Fehlt</span>
-                    <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-gray-200 inline-block"></span>Zukunft</span>
-                  </div>
-                </div>
-                {!matrixData ? (
-                  <div className="p-8 text-center text-gray-500">Keine Projektdaten verfuegbar (Projekt benoetigt Start- und Enddatum).</div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full text-xs">
-                      <thead>
-                        <tr className="bg-gray-100 border-b border-gray-200">
-                          <th className="px-3 py-2 text-left font-semibold text-gray-600 w-40 sticky left-0 bg-gray-100 z-10">Mitarbeiter</th>
-                          {matrixData.years.map(year => {
-                            const monthsInYear = matrixData.months.filter(m => m.year === year);
-                            return <th key={year} colSpan={monthsInYear.length} className="px-2 py-2 text-center font-bold text-gray-700 border-l border-gray-300">Jahr {year - matrixData.years[0] + 1} ({year})</th>;
-                          })}
-                        </tr>
-                        <tr className="bg-gray-50 border-b border-gray-200">
-                          <th className="px-3 py-2 sticky left-0 bg-gray-50 z-10"></th>
-                          {matrixData.months.map(({ year, month, label }) => {
-                            const now = new Date();
-                            const isCurrent = year === now.getFullYear() && month === now.getMonth() + 1;
-                            return <th key={`${year}-${month}`} className={`px-1 py-2 text-center font-medium w-10 border-l border-gray-200 ${isCurrent ? 'text-blue-700 bg-blue-50' : 'text-gray-500'}`}>{label}</th>;
-                          })}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {matrixData.employees.map((emp, empIdx) => (
-                          <tr key={emp.id} className={empIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                            <td className={`px-3 py-2 font-medium text-gray-800 sticky left-0 z-10 ${empIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>{emp.display_name}</td>
-                            {matrixData.months.map(({ year, month }) => {
-                              const cell = matrixData.cells.find(c => c.employeeId === emp.id && c.year === year && c.month === month);
-                              const status = cell?.status || 'future';
-                              const hours = cell?.hoursRecorded || 0;
-                              const colorMap: Record<string, string> = {
-                                complete: 'bg-green-500 hover:bg-green-600 cursor-pointer',
-                                partial: 'bg-orange-400 hover:bg-orange-500 cursor-pointer',
-                                missing: 'bg-red-400 hover:bg-red-500 cursor-pointer',
-                                future: 'bg-gray-200 cursor-default',
-                                outside: 'bg-gray-100 cursor-default',
-                              };
-                              const isClickable = status !== 'future' && status !== 'outside';
-                              const monthName = ['Januar','Februar','Maerz','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'][month - 1];
-                              const tooltip = status === 'future' ? `${monthName} ${year}: Noch nicht erfasst` : status === 'complete' ? `${monthName} ${year}: ${hours.toFixed(1)}h - Vollstaendig` : status === 'partial' ? `${monthName} ${year}: ${hours.toFixed(1)}h - In Bearbeitung` : `${monthName} ${year}: Keine Erfassung`;
-                              return (
-                                <td key={`${year}-${month}`} className="px-1 py-2 text-center border-l border-gray-100" title={tooltip}>
-                                  <div className={`w-8 h-7 mx-auto rounded flex items-center justify-center text-white font-bold transition-colors ${colorMap[status] || 'bg-gray-100'}`}
-                                    onClick={() => { if (!isClickable) return; const returnUrl = encodeURIComponent(`/v7/berater/foerderung/firma/${companyId}/berichte`); router.push(`/v7/berater/foerderung/firma/${companyId}/zeiterfassung?employee=${emp.id}&year=${year}&month=${month}&returnUrl=${returnUrl}`); }}>
-                                    {status === 'complete' && <CheckCircle size={14} />}
-                                    {status === 'partial' && <AlertTriangle size={14} />}
-                                    {status === 'missing' && <XCircle size={14} />}
-                                    {status === 'future' && <span className="text-gray-400 text-xs">-</span>}
-                                  </div>
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-                <div className="bg-gray-50 px-4 py-2 border-t border-gray-200 text-xs text-gray-500">
-                  Klick auf eine Zelle oeffnet die Zeiterfassung des Mitarbeiters fuer den jeweiligen Monat.
-                </div>
-              </div>
+              <StundennachweisMatrix
+                portal="berater"
+                companyId={companyId}
+                projects={projects}
+                workPackages={workPackages}
+                wpAssignments={wpAssignments}
+                employees={employees}
+                timesheets={timesheets}
+                completions={completions}
+                company={company}
+                matrixProjectId={matrixProjectId}
+                onProjectChange={(id) => setMatrixProjectId(id)}
+                onNavigateToZE={(empId, year, month) => {
+                  const returnUrl = encodeURIComponent(`/v7/berater/foerderung/firma/${companyId}/berichte`);
+                  router.push(`/v7/berater/foerderung/firma/${companyId}/zeiterfassung?employee=${empId}&year=${year}&month=${month}&returnUrl=${returnUrl}`);
+                }}
+              />
             )}
           </div>
         </div>
