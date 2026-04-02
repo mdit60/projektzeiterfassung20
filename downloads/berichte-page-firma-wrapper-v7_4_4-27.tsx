@@ -14,4 +14,3 @@ import BerichtePage from '@/components/shared/BerichtePage';
 export default function FirmaBerichtePage() {
   return <BerichtePage portal="firma" />;
 }
-// deploy trigger Fr. 27 März 2026 23:59:26 EET
