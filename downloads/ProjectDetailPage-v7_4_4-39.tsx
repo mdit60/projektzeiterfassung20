@@ -3,7 +3,7 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 26. Maerz 2026
-// Version: 7.4.4-40
+// Version: 7.4.4-39
 //
 // v7.4.4-38: NEU: nwmTab URL-Parameter (Direktlink aus NWM-Uebersicht)
 // v7.4.4-37: FIX: Project Interface um alle NWM-Bankfelder erweitert (TS-Fehler)
@@ -213,7 +213,7 @@ interface Project {
   nwm_rechnung_naechste: number | null;
   nwm_faelligkeitsfrist: number | null;
   // Zuwendungsbescheid
-  bewilligung_datum: string | null;
+  zuwendungsbescheid_datum: string | null;
   bewilligte_summe: number | null;
 }
 
@@ -235,7 +235,7 @@ interface ProjectEditData {
   overhead_t: string;
   overhead_nt: string;
   overhead_gleich: boolean;
-  bewilligung_datum: string;
+  zuwendungsbescheid_datum: string;
   bewilligte_summe: string;
 }
 
@@ -386,7 +386,7 @@ export default function ProjectDetailPage({
     overhead_t: '',
     overhead_nt: '',
     overhead_gleich: false,
-    bewilligung_datum: '',
+    zuwendungsbescheid_datum: '',
     bewilligte_summe: '',
   });
   const [savingProject, setSavingProject] = useState(false);
@@ -1088,7 +1088,7 @@ export default function ProjectDetailPage({
       overhead_t: project.overhead_t != null ? String(project.overhead_t) : '',
       overhead_nt: project.overhead_nt != null ? String(project.overhead_nt) : '',
       overhead_gleich: project.overhead_gleich || false,
-      bewilligung_datum: project.bewilligung_datum || '',
+      zuwendungsbescheid_datum: project.zuwendungsbescheid_datum || '',
       bewilligte_summe: project.bewilligte_summe != null ? String(project.bewilligte_summe) : '',
     });
     setShowProjectEditModal(true);
@@ -1118,7 +1118,7 @@ export default function ProjectDetailPage({
           overhead_t: projectEditData.overhead_t !== '' ? parseFloat(projectEditData.overhead_t) : null,
           overhead_nt: overhead_nt_val,
           overhead_gleich: projectEditData.overhead_gleich,
-          bewilligung_datum: projectEditData.bewilligung_datum || null,
+          zuwendungsbescheid_datum: projectEditData.zuwendungsbescheid_datum || null,
           bewilligte_summe: projectEditData.bewilligte_summe !== '' ? parseFloat(projectEditData.bewilligte_summe) : null,
           updated_at: new Date().toISOString(),
         })
@@ -1433,12 +1433,12 @@ export default function ProjectDetailPage({
                       </p>
                     </div>
                   )}
-                  {(project.bewilligung_datum || project.bewilligte_summe) && (
+                  {(project.zuwendungsbescheid_datum || project.bewilligte_summe) && (
                     <div>
                       <label className="text-sm font-medium text-gray-500">Zuwendungsbescheid</label>
                       <p className="mt-1 text-gray-900">
-                        {project.bewilligung_datum
-                          ? formatDate(project.bewilligung_datum)
+                        {project.zuwendungsbescheid_datum
+                          ? formatDate(project.zuwendungsbescheid_datum)
                           : <span className="text-gray-400 italic">Datum fehlt</span>}
                         {project.bewilligte_summe != null && (
                           <span className="ml-3 font-medium text-green-700">
@@ -1970,7 +1970,7 @@ export default function ProjectDetailPage({
       {/* Modal: Projekt bearbeiten */}
       {showProjectEditModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 sticky top-0 bg-white">
               <h3 className="text-lg font-semibold text-gray-900">Projekt bearbeiten</h3>
               <button onClick={closeProjectEditModal} className="text-gray-400 hover:text-gray-600">
@@ -2014,29 +2014,16 @@ export default function ProjectDetailPage({
                   ))}
                 </select>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Foerderkennzeichen
-                  </label>
-                  <input
-                    type="text"
-                    value={projectEditData.funding_reference}
-                    onChange={(e) => setProjectEditData(prev => ({ ...prev, funding_reference: e.target.value }))}
-                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Datum Zuwendungsbescheid
-                  </label>
-                  <input
-                    type="date"
-                    value={projectEditData.bewilligung_datum}
-                    onChange={(e) => setProjectEditData(prev => ({ ...prev, bewilligung_datum: e.target.value }))}
-                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
-                  />
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Foerderkennzeichen
+                </label>
+                <input
+                  type="text"
+                  value={projectEditData.funding_reference}
+                  onChange={(e) => setProjectEditData(prev => ({ ...prev, funding_reference: e.target.value }))}
+                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -2062,36 +2049,20 @@ export default function ProjectDetailPage({
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Foerdersatz (%)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    max="100"
-                    value={projectEditData.foerdersatz}
-                    onChange={(e) => setProjectEditData(prev => ({ ...prev, foerdersatz: e.target.value }))}
-                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
-                    placeholder="z.B. 45.00"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Bewilligte Foerdersumme (EUR)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={projectEditData.bewilligte_summe}
-                    onChange={(e) => setProjectEditData(prev => ({ ...prev, bewilligte_summe: e.target.value }))}
-                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
-                    placeholder="z.B. 125000.00"
-                  />
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Foerdersatz (%)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  value={projectEditData.foerdersatz}
+                  onChange={(e) => setProjectEditData(prev => ({ ...prev, foerdersatz: e.target.value }))}
+                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                  placeholder="z.B. 45.00"
+                />
               </div>
 
               {projectEditData.funding_format === 'ZIM_DS' ? (
@@ -2167,6 +2138,34 @@ export default function ProjectDetailPage({
                   />
                 </div>
               )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Datum Zuwendungsbescheid
+                  </label>
+                  <input
+                    type="date"
+                    value={projectEditData.zuwendungsbescheid_datum}
+                    onChange={(e) => setProjectEditData(prev => ({ ...prev, zuwendungsbescheid_datum: e.target.value }))}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Bewilligte Foerdersumme (EUR)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={projectEditData.bewilligte_summe}
+                    onChange={(e) => setProjectEditData(prev => ({ ...prev, bewilligte_summe: e.target.value }))}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                    placeholder="z.B. 125000.00"
+                  />
+                </div>
+              </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
