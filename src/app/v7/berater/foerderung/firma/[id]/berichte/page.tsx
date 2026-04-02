@@ -2,7 +2,7 @@
 // ============================================================================
 // PZE V7 - Berichte & Controlling (Berater-Portal - Firmenansicht)
 // ============================================================================
-// Version: 7.4.4-20
+// Version: 7.4.4-23
 // Datum: 28. Maerz 2026
 //
 // v7.4.4-19: Projektfortschritt-Kachel aktiviert (war "Demnaechst")
@@ -748,11 +748,11 @@ function BeratePageContent() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">Erfasste PM</p>
-                <p className="text-3xl font-bold text-orange-600">{formatPM(stats.totalActualPM)}</p>
+                <p className="text-3xl font-bold text-green-600">{formatPM(stats.totalActualPM)}</p>
                 <p className="text-xs text-gray-400 mt-1">{stats.progressPercent.toFixed(0)}% von Plan</p>
               </div>
-              <div className="w-12 h-12 bg-orange-50 rounded-lg flex items-center justify-center">
-                <TrendingUp className="w-6 h-6 text-orange-600" />
+              <div className="w-12 h-12 bg-green-50 rounded-lg flex items-center justify-center">
+                <TrendingUp className="w-6 h-6 text-green-600" />
               </div>
             </div>
           </div>
