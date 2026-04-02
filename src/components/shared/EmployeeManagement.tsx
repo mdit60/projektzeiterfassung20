@@ -2,8 +2,14 @@
 // ============================================================================
 // PZE V7 - Shared Employee Management Component
 // ============================================================================
-// Datum: 18. Februar 2026
-// Version: 7.3.95-2
+// Datum: 31. Maerz 2026
+// Version: 7.3.95-4
+// v7.3.95-4: REFACTOR: handleCreateLogin auf atomare API-Route /api/v7/create-employee-login
+//   umgestellt. Alle 3 Schritte (Auth + Profil + Employee) server-seitig und atomar.
+//   createUserProfile() und linkEmployeeToUser() entfernt (nicht mehr benoetigt).
+// v7.3.95-3: BUG FIX Login-Erstellung:
+//   1. createUserProfile: role war 'employee' statt 'client_user' -> Login-Schleife
+//   2. handleLinkExistingUser: Feldname 'company_id' -> 'client_company_id' -> NULL in DB
 // v7.3.95-2: NEU: Passwort zuruecksetzen fuer MA mit Login (Schluessel-Icon)
 //
 // Wird von beiden Portalen genutzt:
@@ -572,13 +578,12 @@ export default function EmployeeManagement({
       
       if (!existingProfile) {
         // Profil erstellen fuer V6-Altdaten
-        const portalRole = loginEmployee.portal_role || 'employee';
         await supabase.from('v7_user_profiles').insert({
           id: userId,
           email: loginEmployee.email!.toLowerCase(),
           display_name: loginEmployee.display_name,
-          role: portalRole,
-          company_id: companyId,
+          role: 'client_user',
+          client_company_id: companyId,
           is_active: true,
         });
       }
@@ -618,98 +623,54 @@ export default function EmployeeManagement({
     setLoginError(null);
 
     try {
-      // 1. Auth-User erstellen (Admin API - ohne E-Mail-Versand)
-      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-        email: loginEmployee.email,
-        password: loginPassword,
-        email_confirm: true, // Direkt bestaetigt, keine E-Mail
-      });
-
-      if (authError) {
-        // Fallback: Normale signUp verwenden (sendet evtl. E-Mail)
-        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+      // Atomarer Server-Aufruf: Auth + Profil + Employee-Verknuepfung in einem Schritt
+      const response = await fetch('/api/v7/create-employee-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          employee_id: loginEmployee.id,
           email: loginEmployee.email,
           password: loginPassword,
-          options: {
-            data: {
-              display_name: loginEmployee.display_name,
-            }
-          }
-        });
+          display_name: loginEmployee.display_name,
+          first_name: loginEmployee.first_name || undefined,
+          last_name: loginEmployee.last_name || undefined,
+          client_company_id: companyId,
+          portal_role: loginEmployee.portal_role || 'employee',
+        }),
+      });
 
-        if (signUpError) {
-          if (signUpError.message.includes('already registered')) {
-            // E-Mail bereits registriert - SOFORT auf Verknuepfungs-Modus wechseln
-            setLoginMode('link');
-            setLoginError('Diese E-Mail ist bereits registriert. Klicken Sie auf "Verknuepfen" um den bestehenden Login mit diesem Mitarbeiter zu verbinden.');
-            
-            // Versuchen, die User-ID aus v7_user_profiles zu finden
-            const { data: existingProfile } = await supabase
-              .from('v7_user_profiles')
-              .select('id')
-              .eq('email', loginEmployee.email.toLowerCase())
-              .maybeSingle();
-            
-            if (existingProfile) {
-              setExistingUserId(existingProfile.id);
-            } else {
-              // V6-Altdaten: User existiert in auth.users aber nicht in v7_user_profiles
-              // Wir versuchen die User-ID ueber signIn zu bekommen
-              const { data: signInData } = await supabase.auth.signInWithPassword({
-                email: loginEmployee.email,
-                password: loginPassword,
-              });
-              
-              if (signInData?.user) {
-                setExistingUserId(signInData.user.id);
-                // Wieder ausloggen, damit der aktuelle Admin eingeloggt bleibt
-                // (signIn hat den Session-Context gewechselt)
-                // Hinweis: In Production sollte hier ein Admin-API Call verwendet werden
-              } else {
-                // Passwort stimmt nicht - User existiert aber wir kennen die ID nicht
-                // Setzen wir trotzdem auf link, damit der Dialog nicht im Kreis dreht
-                // Der User muss dann manuell in Supabase nachgeschaut werden
-                setLoginError(
-                  'Diese E-Mail ist bereits registriert, aber das eingegebene Passwort stimmt nicht mit dem bestehenden Login ueberein. ' +
-                  'Bitte geben Sie das korrekte Passwort ein und klicken Sie erneut auf "Verknuepfen", oder suchen Sie die User-ID in Supabase Auth.'
-                );
-              }
-            }
-            return;
-          } else {
-            setLoginError(signUpError.message);
+      const result = await response.json();
+
+      if (!result.success) {
+        // E-Mail bereits registriert -> auf Verknuepfungs-Modus wechseln
+        if (result.code === 'ALREADY_REGISTERED') {
+          setLoginMode('link');
+          setLoginError(
+            'Diese E-Mail ist bereits registriert. ' +
+            'Bitte "Verknuepfen" verwenden um den bestehenden Login mit diesem Mitarbeiter zu verbinden.'
+          );
+          // User-ID aus v7_user_profiles laden fuer den Verknuepfungs-Dialog
+          const { data: existingProfile } = await supabase
+            .from('v7_user_profiles')
+            .select('id')
+            .eq('email', loginEmployee.email.toLowerCase())
+            .maybeSingle();
+          if (existingProfile) {
+            setExistingUserId(existingProfile.id);
           }
           return;
         }
-
-        if (!signUpData.user) {
-          setLoginError('Benutzer konnte nicht erstellt werden.');
-          return;
-        }
-
-        // User ID von signUp
-        const userId = signUpData.user.id;
-
-        // 2. user_profile erstellen
-        await createUserProfile(userId, loginEmployee);
-
-        // 3. employee.user_id verknuepfen
-        await linkEmployeeToUser(loginEmployee.id, userId);
-
-      } else if (authData.user) {
-        // Admin API hat funktioniert
-        const userId = authData.user.id;
-
-        // 2. user_profile erstellen
-        await createUserProfile(userId, loginEmployee);
-
-        // 3. employee.user_id verknuepfen
-        await linkEmployeeToUser(loginEmployee.id, userId);
+        setLoginError(result.error || 'Ein Fehler ist aufgetreten.');
+        return;
       }
 
       closeLoginModal();
       await loadEmployees();
-      alert(`Login erstellt fuer ${loginEmployee.display_name}!\n\nE-Mail: ${loginEmployee.email}\nPasswort: ${loginPassword}`);
+      alert(
+        `Login erstellt fuer ${loginEmployee.display_name}!\n\n` +
+        `E-Mail: ${loginEmployee.email}\n` +
+        `Passwort: ${loginPassword}`
+      );
 
     } catch (err: any) {
       console.error('Fehler beim Login erstellen:', err);
@@ -717,36 +678,6 @@ export default function EmployeeManagement({
     } finally {
       setCreatingLogin(false);
     }
-  };
-
-  const createUserProfile = async (userId: string, emp: Employee) => {
-    const { error } = await supabase
-      .from('v7_user_profiles')
-      .insert({
-        id: userId,
-        email: emp.email,
-        role: emp.portal_role === 'client_admin' ? 'client_admin' : 'employee',
-        display_name: emp.display_name,
-        first_name: emp.first_name,
-        last_name: emp.last_name,
-        client_company_id: companyId,
-      });
-
-    if (error && error.code !== '23505') {
-      throw error;
-    }
-  };
-
-  const linkEmployeeToUser = async (employeeId: string, userId: string) => {
-    const { error } = await supabase
-      .from('v7_employees')
-      .update({ 
-        user_id: userId,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', employeeId);
-
-    if (error) throw error;
   };
 
   // ============================================================================
