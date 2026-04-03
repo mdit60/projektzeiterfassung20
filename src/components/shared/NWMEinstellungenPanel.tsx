@@ -2,7 +2,7 @@
 // ============================================================================
 // PZE V7 - NWM Einstellungen
 // ============================================================================
-// Version: 7.4.5-1
+// Version: 7.4.5-2
 // Datum: 26. Maerz 2026
 //
 // Zeigt und bearbeitet alle NWM-spezifischen Projekteinstellungen:
@@ -242,7 +242,7 @@ export default function NWMEinstellungenPanel({
   const handleSave = async () => {
     if (!form.netzwerk_typ) { setError('Bitte Netzwerktyp auswaehlen.'); return; }
     if (!form.netzwerk_phase) { setError('Bitte Foerderphase auswaehlen.'); return; }
-    if (!form.bewilligung_datum) { setError('Bewilligungsdatum Phase 1 ist Pflichtfeld.'); return; }
+    if (!form.bewilligung_datum) { setError('Startdatum Phase 1 ist Pflichtfeld.'); return; }
 
     setSaving(true);
     setError(null);
@@ -344,7 +344,7 @@ export default function NWMEinstellungenPanel({
               </div>
             </div>
             <div>
-              <div className="text-xs text-gray-500 mb-1">Bewilligungsdatum Phase 1</div>
+              <div className="text-xs text-gray-500 mb-1">Startdatum Phase 1</div>
               <div className="font-medium text-sm text-gray-900">
                 {project.bewilligung_datum
                   ? fmtDate(project.bewilligung_datum)
@@ -352,7 +352,7 @@ export default function NWMEinstellungenPanel({
               </div>
             </div>
             <div>
-              <div className="text-xs text-gray-500 mb-1">Bewilligungsdatum Phase 2</div>
+              <div className="text-xs text-gray-500 mb-1">Startdatum Phase 2</div>
               <div className="font-medium text-sm text-gray-900">
                 {project.phase2_start_datum ? fmtDate(project.phase2_start_datum) : <span className="text-gray-400">--</span>}
               </div>
@@ -391,7 +391,7 @@ export default function NWMEinstellungenPanel({
 
         {(!project.netzwerk_typ || !project.bewilligung_datum) && (
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700">
-            Bitte Netzwerktyp und Bewilligungsdatum hinterlegen damit Laufzeitjahr
+            Bitte Netzwerktyp und Startdatum Phase 1 hinterlegen damit Laufzeitjahr
             und Foerdersatz im ZA-Panel automatisch berechnet werden koennen.
           </div>
         )}
@@ -521,7 +521,7 @@ export default function NWMEinstellungenPanel({
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Bewilligungsdatum Phase 1 <span className="text-red-500">*</span>
+                      Startdatum Phase 1 <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="date"
@@ -532,7 +532,7 @@ export default function NWMEinstellungenPanel({
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Bewilligungsdatum Phase 2
+                      Startdatum Phase 2
                       <span className="ml-1 text-gray-400 font-normal">(optional)</span>
                     </label>
                     <input
