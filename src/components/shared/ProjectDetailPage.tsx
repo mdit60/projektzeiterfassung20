@@ -3,7 +3,7 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 26. Maerz 2026
-// Version: 7.4.4-41
+// Version: 7.4.4-42
 //
 // v7.4.4-38: NEU: nwmTab URL-Parameter (Direktlink aus NWM-Uebersicht)
 // v7.4.4-37: FIX: Project Interface um alle NWM-Bankfelder erweitert (TS-Fehler)
@@ -1852,6 +1852,7 @@ export default function ProjectDetailPage({
         </div>
       )}
 
+      {/* Modal: Team-Mitglied bearbeiten */}
       {editingMember && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
@@ -1932,6 +1933,7 @@ export default function ProjectDetailPage({
         </div>
       )}
 
+      {/* Modal: Projekt bearbeiten */}
       {showProjectEditModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -2188,6 +2190,7 @@ export default function ProjectDetailPage({
         </div>
       )}
 
+      {/* Modal: Projekt loeschen bestaetigen */}
       {showProjectDeleteConfirm && project && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
