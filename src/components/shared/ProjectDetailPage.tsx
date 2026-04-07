@@ -1243,7 +1243,6 @@ export default function ProjectDetailPage({
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
 
-      {/* Header */}
       <PortalHeader
         portal={portal}
         userName={userName}
@@ -1253,7 +1252,6 @@ export default function ProjectDetailPage({
         hideNavigation={true}
       />
 
-      {/* Projekt-Titelzeile */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
@@ -1293,14 +1291,11 @@ export default function ProjectDetailPage({
         </div>
       </div>
 
-      {/* Tab-Leiste */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
-          {/* KISS: Wenn im Netzwerk-Bereich -> NWM-Sub-Tabs anzeigen */}
           {activeTab === 'netzwerk' ? (
             <div className="flex items-center space-x-1 overflow-x-auto -mb-px">
-              {/* Zurueck-Button */}
               <button
                 onClick={() => {
                   if (fromNWMList && portal === 'berater') {
@@ -1315,7 +1310,6 @@ export default function ProjectDetailPage({
                 <span>Zurueck</span>
               </button>
               <div className="h-5 w-px bg-gray-300 mr-2 self-center"></div>
-              {/* NWM-Sub-Tabs */}
               {([
                 { key: 'einstellungen' as NWMTabKey, label: 'Einstellungen', icon: <Settings size={16} /> },
                 { key: 'partner' as NWMTabKey, label: 'Netzwerkpartner', icon: <Building2 size={16} /> },
@@ -1376,12 +1370,8 @@ export default function ProjectDetailPage({
         </div>
       </div>
 
-      {/* Inhalt */}
       <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
 
-        {/* ------------------------------------------------------------------ */}
-        {/* Tab: Uebersicht                                                     */}
-        {/* ------------------------------------------------------------------ */}
         {activeTab === 'uebersicht' && (
           <div className="space-y-6">
             <div className="bg-white rounded-lg border border-gray-200 p-6">
@@ -1466,9 +1456,6 @@ export default function ProjectDetailPage({
           </div>
         )}
 
-        {/* ------------------------------------------------------------------ */}
-        {/* Tab: Arbeitspakete                                                  */}
-        {/* ------------------------------------------------------------------ */}
         {activeTab === 'arbeitspakete' && (
           <div>
             <div className="flex items-center justify-between mb-4">
@@ -1496,7 +1483,6 @@ export default function ProjectDetailPage({
               </div>
             )}
 
-            {/* ArbeitsplanImport - exakt nach Interface */}
             <ArbeitsplanImport
               projectId={projectId}
               hasTeam={teamMembers.length > 0}
@@ -1505,7 +1491,6 @@ export default function ProjectDetailPage({
               portal={portal}
             />
 
-            {/* WorkPackageTable - Props auf WPT-eigenes Interface gemappt */}
             <WorkPackageTable
               portal={portal}
               projectId={projectId}
@@ -1539,9 +1524,6 @@ export default function ProjectDetailPage({
           </div>
         )}
 
-        {/* ------------------------------------------------------------------ */}
-        {/* Tab: Team                                                           */}
-        {/* ------------------------------------------------------------------ */}
         {activeTab === 'team' && (
           <div>
             <ProjectTeamManager
@@ -1554,9 +1536,6 @@ export default function ProjectDetailPage({
           </div>
         )}
 
-        {/* ------------------------------------------------------------------ */}
-        {/* Tab: Zeiterfassung                                                  */}
-        {/* ------------------------------------------------------------------ */}
         {activeTab === 'zeiterfassung' && (
           <div>
             <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
@@ -1604,9 +1583,6 @@ export default function ProjectDetailPage({
           </div>
         )}
 
-        {/* ------------------------------------------------------------------ */}
-        {/* Tab: Zahlungsanforderungen (nur ZIM-Projekte)                       */}
-        {/* ------------------------------------------------------------------ */}
         {activeTab === 'zahlungsanforderungen' && (
           <div>
             <div className="flex items-center justify-between mb-6">
@@ -1663,7 +1639,6 @@ export default function ProjectDetailPage({
                     >
                       <div className="flex items-center justify-between gap-4">
 
-                        {/* ZA-Nummer + Zeitraum */}
                         <div className="flex items-center gap-4 flex-1 min-w-0">
                           <div className={[
                             'shrink-0 w-12 h-12 rounded-lg flex flex-col items-center justify-center',
@@ -1695,7 +1670,6 @@ export default function ProjectDetailPage({
                           </div>
                         </div>
 
-                        {/* Status-Dropdown */}
                         <div className="shrink-0">
                           <div className="relative">
                             <select
@@ -1725,7 +1699,6 @@ export default function ProjectDetailPage({
                           </div>
                         </div>
 
-                        {/* ZA oeffnen */}
                         <div className="shrink-0">
                           <button
                             onClick={() => navigateToBerichteWithZA(za.id)}
@@ -1747,7 +1720,6 @@ export default function ProjectDetailPage({
                   );
                 })}
 
-                {/* Zusammenfassung */}
                 <div className="mt-4 pt-4 border-t border-gray-200 flex items-center justify-between text-sm text-gray-500">
                   <span>
                     {zaList.length} Zahlungsanforderung{zaList.length !== 1 ? 'en' : ''} gesamt
@@ -1777,13 +1749,9 @@ export default function ProjectDetailPage({
 
 
 
-        {/* ------------------------------------------------------------------ */}
-        {/* Tab: Netzwerk (NWM) - nur ZIM_NETZWERK                            */}
-        {/* ------------------------------------------------------------------ */}
         {activeTab === 'netzwerk' && (
           <div className="space-y-6">
 
-            {/* Sub-Tab: Einstellungen */}
             {nwmTab === 'einstellungen' && (
               <NWMEinstellungenPanel
                 portal={portal}
@@ -1792,7 +1760,6 @@ export default function ProjectDetailPage({
               />
             )}
 
-            {/* Sub-Tab: Netzwerkpartner */}
             {nwmTab === 'partner' && (
               <NWMPartnerPanel
                 portal={portal}
@@ -1801,7 +1768,6 @@ export default function ProjectDetailPage({
               />
             )}
 
-            {/* Sub-Tab: Eigenanteile */}
             {nwmTab === 'eigenanteile' && (
               <NWMEigenanteilPanel
                 portal={portal}
@@ -1816,11 +1782,7 @@ export default function ProjectDetailPage({
 
       </main>
 
-      {/* ================================================================== */}
-      {/* MODALS                                                               */}
-      {/* ================================================================== */}
 
-      {/* Modal: WorkPackage anlegen / bearbeiten */}
       <WorkPackageEditModal
         portal={portal}
         isOpen={showWPEditModal}
@@ -1835,7 +1797,6 @@ export default function ProjectDetailPage({
         error={wpError}
       />
 
-      {/* Modal: MA einem AP zuordnen */}
       <WorkPackageAssignmentModal
         portal={portal}
         isOpen={showWPAssignModal}
@@ -1850,7 +1811,6 @@ export default function ProjectDetailPage({
         saving={savingAssignment}
       />
 
-      {/* Modal: AP loeschen bestaetigen */}
       {showDeleteConfirm && wpToDelete && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
@@ -1892,7 +1852,6 @@ export default function ProjectDetailPage({
         </div>
       )}
 
-      {/* Modal: Team-Mitglied bearbeiten */}
       {editingMember && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
@@ -1973,7 +1932,6 @@ export default function ProjectDetailPage({
         </div>
       )}
 
-      {/* Modal: Projekt bearbeiten */}
       {showProjectEditModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -2230,7 +2188,6 @@ export default function ProjectDetailPage({
         </div>
       )}
 
-      {/* Modal: Projekt loeschen bestaetigen */}
       {showProjectDeleteConfirm && project && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
@@ -2297,7 +2254,6 @@ export default function ProjectDetailPage({
         </div>
       )}
 
-      {/* Footer */}
       <footer className="bg-white border-t mt-auto">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <p className="text-center text-sm text-gray-500">
