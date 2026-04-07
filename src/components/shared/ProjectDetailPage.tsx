@@ -1338,7 +1338,6 @@ export default function ProjectDetailPage({
               ))}
             </div>
           ) : (
-            {/* Normal-Ansicht: Haupt-Tabs */}
             <div className="flex items-center space-x-1 overflow-x-auto -mb-px">
               {tabs.map((tab) => (
                 <button
