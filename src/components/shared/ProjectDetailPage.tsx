@@ -3,7 +3,7 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 26. Maerz 2026
-// Version: 7.4.4-44
+// Version: 7.4.4-45
 //
 // v7.4.4-38: NEU: nwmTab URL-Parameter (Direktlink aus NWM-Uebersicht)
 // v7.4.4-37: FIX: Project Interface um alle NWM-Bankfelder erweitert (TS-Fehler)
@@ -1302,13 +1302,7 @@ export default function ProjectDetailPage({
             <div className="flex items-center space-x-1 overflow-x-auto -mb-px">
               {/* Zurueck-Button */}
               <button
-                onClick={() => {
-                  if (fromNWMList && portal === 'berater') {
-                    router.push('/v7/berater/netzwerk');
-                  } else {
-                    setActiveTab('uebersicht');
-                  }
-                }}
+                onClick={() => fromNWMList && portal === 'berater' ? router.push('/v7/berater/netzwerk') : setActiveTab('uebersicht')}
                 className="flex items-center gap-1.5 px-3 py-3 text-sm font-medium text-gray-500 hover:text-gray-900 border-b-2 border-transparent transition-colors whitespace-nowrap mr-2"
               >
                 <ChevronLeft size={16} />
