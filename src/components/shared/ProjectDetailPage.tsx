@@ -3,7 +3,7 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 26. Maerz 2026
-// Version: 7.4.4-42
+// Version: 7.4.4-43
 //
 // v7.4.4-38: NEU: nwmTab URL-Parameter (Direktlink aus NWM-Uebersicht)
 // v7.4.4-37: FIX: Project Interface um alle NWM-Bankfelder erweitert (TS-Fehler)
@@ -1851,7 +1851,6 @@ export default function ProjectDetailPage({
           </div>
         </div>
       )}
-
       {/* Modal: Team-Mitglied bearbeiten */}
       {editingMember && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -1932,7 +1931,6 @@ export default function ProjectDetailPage({
           </div>
         </div>
       )}
-
       {/* Modal: Projekt bearbeiten */}
       {showProjectEditModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -2172,24 +2170,16 @@ export default function ProjectDetailPage({
                   disabled={savingProject || !projectEditData.name.trim()}
                   className={`flex items-center gap-2 px-4 py-2 ${buttonBg} text-white rounded-lg disabled:opacity-50 transition-colors`}
                 >
-                  {savingProject ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                      Speichern...
-                    </>
-                  ) : (
-                    <>
-                      <Save size={16} />
-                      Speichern
-                    </>
-                  )}
+                  {savingProject
+                    ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>Speichern...</>
+                    : <><Save size={16} />Speichern</>
+                  }
                 </button>
               </div>
             </div>
           </div>
         </div>
       )}
-
       {/* Modal: Projekt loeschen bestaetigen */}
       {showProjectDeleteConfirm && project && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
