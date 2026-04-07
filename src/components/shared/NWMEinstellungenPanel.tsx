@@ -2,15 +2,16 @@
 // ============================================================================
 // PZE V7 - NWM Einstellungen
 // ============================================================================
-// Version: 7.4.5-2
-// Datum: 26. Maerz 2026
+// Version: 7.4.5-3
+// Datum: 8. April 2026
 //
-// Zeigt und bearbeitet alle NWM-spezifischen Projekteinstellungen:
-// - Netzwerktyp / Phase / Bewilligungsdaten
-// - Foerdersatz-Stufen (auto berechnet, manuell ueberschreibbar)
-// - Bankdaten Cubintec (fuer NP-Rechnungen)
-// - USt-ID, Rechnungsnummernkreis, Faelligkeitsfrist
-// Speichert direkt in v7_projects.
+// Aenderungen gg. v7.4.5-2:
+//   - Datenmodell-Korrektur: phase2_start_datum entfernt
+//   - start_date / end_date als editierbare Felder aufgenommen
+//   - Foerderparameter-Anzeige: Bewilligungsdatum + Startdatum + Enddatum
+//   - Stufen-Berechnung: Basisdatum = start_date (statt bewilligung_datum/phase2)
+//   - Hinweistext angepasst
+//   - Interface NWMProjektDaten: start_date/end_date ergaenzt
 // ============================================================================
 
 'use client';
@@ -24,7 +25,6 @@ import {
   AlertCircle,
   CheckCircle,
   Settings,
-  Building2,
   CreditCard,
   FileText,
   Calendar,
@@ -45,7 +45,8 @@ interface NWMProjektDaten {
   netzwerk_typ: string | null;
   netzwerk_phase: string | null;
   bewilligung_datum: string | null;
-  phase2_start_datum: string | null;
+  start_date: string | null;
+  end_date: string | null;
   foerdersatz_stufen: FoerdersatzStufe[] | null;
   nwm_bank_kontoinhaber: string | null;
   nwm_bank_iban: string | null;
@@ -68,19 +69,16 @@ interface NWMEinstellungenPanelProps {
 // ============================================================================
 
 // Foerdersatz-Stufen automatisch berechnen
+// Basisdatum = start_date der Phase (nicht mehr bewilligung_datum/phase2_datum)
 const berechneStufen = (
   typ: string,
   phase: string,
-  bewilligungDatum: string,
-  phase2Datum: string | null
+  startDate: string
 ): FoerdersatzStufe[] => {
+  if (!typ || !phase || !startDate) return [];
+
   const isInt = typ === 'international';
   const isPhase1 = phase === 'phase1';
-  const basisDatum = isPhase1
-    ? bewilligungDatum
-    : (phase2Datum || bewilligungDatum);
-
-  if (!basisDatum) return [];
 
   const addJahr = (datum: string, jahre: number): string => {
     const d = new Date(datum);
@@ -91,24 +89,23 @@ const berechneStufen = (
   if (isPhase1) {
     const satz = isInt ? 95 : 90;
     return [
-      { laufzeitjahr: 1, satz_percent: satz, gueltig_ab: basisDatum },
-      { laufzeitjahr: 2, satz_percent: satz, gueltig_ab: addJahr(basisDatum, 1) },
+      { laufzeitjahr: 1, satz_percent: satz, gueltig_ab: startDate },
+      { laufzeitjahr: 2, satz_percent: satz, gueltig_ab: addJahr(startDate, 1) },
     ];
   } else {
-    // Phase 2
     if (isInt) {
       return [
-        { laufzeitjahr: 1, satz_percent: 80, gueltig_ab: basisDatum },
-        { laufzeitjahr: 2, satz_percent: 60, gueltig_ab: addJahr(basisDatum, 1) },
-        { laufzeitjahr: 3, satz_percent: 40, gueltig_ab: addJahr(basisDatum, 2) },
-        { laufzeitjahr: 4, satz_percent: 40, gueltig_ab: addJahr(basisDatum, 3) },
+        { laufzeitjahr: 1, satz_percent: 80, gueltig_ab: startDate },
+        { laufzeitjahr: 2, satz_percent: 60, gueltig_ab: addJahr(startDate, 1) },
+        { laufzeitjahr: 3, satz_percent: 40, gueltig_ab: addJahr(startDate, 2) },
+        { laufzeitjahr: 4, satz_percent: 40, gueltig_ab: addJahr(startDate, 3) },
       ];
     } else {
       return [
-        { laufzeitjahr: 1, satz_percent: 70, gueltig_ab: basisDatum },
-        { laufzeitjahr: 2, satz_percent: 50, gueltig_ab: addJahr(basisDatum, 1) },
-        { laufzeitjahr: 3, satz_percent: 30, gueltig_ab: addJahr(basisDatum, 2) },
-        { laufzeitjahr: 4, satz_percent: 30, gueltig_ab: addJahr(basisDatum, 3) },
+        { laufzeitjahr: 1, satz_percent: 70, gueltig_ab: startDate },
+        { laufzeitjahr: 2, satz_percent: 50, gueltig_ab: addJahr(startDate, 1) },
+        { laufzeitjahr: 3, satz_percent: 30, gueltig_ab: addJahr(startDate, 2) },
+        { laufzeitjahr: 4, satz_percent: 30, gueltig_ab: addJahr(startDate, 3) },
       ];
     }
   }
@@ -148,12 +145,12 @@ export default function NWMEinstellungenPanel({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Formular-State
-  const [form, setForm] = useState({
+  const initForm = () => ({
     netzwerk_typ: project.netzwerk_typ || '',
     netzwerk_phase: project.netzwerk_phase || '',
     bewilligung_datum: project.bewilligung_datum || '',
-    phase2_start_datum: project.phase2_start_datum || '',
+    start_date: project.start_date || '',
+    end_date: project.end_date || '',
     nwm_bank_kontoinhaber: project.nwm_bank_kontoinhaber || '',
     nwm_bank_iban: project.nwm_bank_iban || '',
     nwm_bank_bic: project.nwm_bank_bic || '',
@@ -166,48 +163,23 @@ export default function NWMEinstellungenPanel({
     stufen: project.foerdersatz_stufen || [] as FoerdersatzStufe[],
   });
 
+  const [form, setForm] = useState(initForm);
+
   const openModal = () => {
-    setForm({
-      netzwerk_typ: project.netzwerk_typ || '',
-      netzwerk_phase: project.netzwerk_phase || '',
-      bewilligung_datum: project.bewilligung_datum || '',
-      phase2_start_datum: project.phase2_start_datum || '',
-      nwm_bank_kontoinhaber: project.nwm_bank_kontoinhaber || '',
-      nwm_bank_iban: project.nwm_bank_iban || '',
-      nwm_bank_bic: project.nwm_bank_bic || '',
-      nwm_bank_name: project.nwm_bank_name || '',
-      nwm_ust_id: project.nwm_ust_id || '',
-      nwm_rechnung_prefix: project.nwm_rechnung_prefix || '',
-      nwm_rechnung_naechste: String(project.nwm_rechnung_naechste || 1),
-      nwm_faelligkeitsfrist: String(project.nwm_faelligkeitsfrist || 30),
-      stufen_manuell: false,
-      stufen: project.foerdersatz_stufen || [],
-    });
+    setForm(initForm());
     setError(null);
     setShowModal(true);
   };
 
-  // Stufen neu berechnen wenn Typ/Phase/Datum sich aendert
-  const recalcStufen = (
-    typ: string,
-    phase: string,
-    bew: string,
-    ph2: string
-  ): FoerdersatzStufe[] => {
-    if (!typ || !phase || !bew) return [];
-    return berechneStufen(typ, phase, bew, ph2 || null);
-  };
-
+  // Stufen neu berechnen wenn Typ/Phase/Startdatum sich aendert
   const handleFieldChange = (field: string, value: string) => {
     setForm(prev => {
       const updated = { ...prev, [field]: value };
-      // Stufen automatisch neu berechnen wenn nicht manuell
-      if (!prev.stufen_manuell && ['netzwerk_typ', 'netzwerk_phase', 'bewilligung_datum', 'phase2_start_datum'].includes(field)) {
+      if (!prev.stufen_manuell && ['netzwerk_typ', 'netzwerk_phase', 'start_date'].includes(field)) {
         const typ = field === 'netzwerk_typ' ? value : updated.netzwerk_typ;
         const phase = field === 'netzwerk_phase' ? value : updated.netzwerk_phase;
-        const bew = field === 'bewilligung_datum' ? value : updated.bewilligung_datum;
-        const ph2 = field === 'phase2_start_datum' ? value : updated.phase2_start_datum;
-        updated.stufen = recalcStufen(typ, phase, bew, ph2);
+        const sd = field === 'start_date' ? value : updated.start_date;
+        updated.stufen = berechneStufen(typ, phase, sd);
       }
       return updated;
     });
@@ -230,19 +202,16 @@ export default function NWMEinstellungenPanel({
   };
 
   const handleStufeReset = () => {
-    const stufen = recalcStufen(
-      form.netzwerk_typ,
-      form.netzwerk_phase,
-      form.bewilligung_datum,
-      form.phase2_start_datum
-    );
+    const stufen = berechneStufen(form.netzwerk_typ, form.netzwerk_phase, form.start_date);
     setForm(prev => ({ ...prev, stufen, stufen_manuell: false }));
   };
 
   const handleSave = async () => {
     if (!form.netzwerk_typ) { setError('Bitte Netzwerktyp auswaehlen.'); return; }
     if (!form.netzwerk_phase) { setError('Bitte Foerderphase auswaehlen.'); return; }
-    if (!form.bewilligung_datum) { setError('Startdatum Phase 1 ist Pflichtfeld.'); return; }
+    if (!form.bewilligung_datum) { setError('Bewilligungsdatum ist Pflichtfeld.'); return; }
+    if (!form.start_date) { setError('Startdatum ist Pflichtfeld.'); return; }
+    if (!form.end_date) { setError('Enddatum ist Pflichtfeld.'); return; }
 
     setSaving(true);
     setError(null);
@@ -251,7 +220,9 @@ export default function NWMEinstellungenPanel({
         netzwerk_typ: form.netzwerk_typ,
         netzwerk_phase: form.netzwerk_phase,
         bewilligung_datum: form.bewilligung_datum,
-        phase2_start_datum: form.phase2_start_datum || null,
+        start_date: form.start_date,
+        end_date: form.end_date,
+        phase2_start_datum: null,
         foerdersatz_stufen: form.stufen.length > 0 ? form.stufen : null,
         nwm_bank_kontoinhaber: form.nwm_bank_kontoinhaber.trim() || null,
         nwm_bank_iban: form.nwm_bank_iban.replace(/\s/g, '').toUpperCase() || null,
@@ -300,7 +271,7 @@ export default function NWMEinstellungenPanel({
         </div>
       )}
 
-      {/* ---- Foerderparameter ---- */}
+      {/* ---- Hauptkarte ---- */}
       <div className="bg-white rounded-lg border border-gray-200 p-6">
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-3">
@@ -344,7 +315,7 @@ export default function NWMEinstellungenPanel({
               </div>
             </div>
             <div>
-              <div className="text-xs text-gray-500 mb-1">Startdatum Phase 1</div>
+              <div className="text-xs text-gray-500 mb-1">Bewilligungsdatum</div>
               <div className="font-medium text-sm text-gray-900">
                 {project.bewilligung_datum
                   ? fmtDate(project.bewilligung_datum)
@@ -352,9 +323,22 @@ export default function NWMEinstellungenPanel({
               </div>
             </div>
             <div>
-              <div className="text-xs text-gray-500 mb-1">Startdatum Phase 2</div>
+              {/* Platzhalter fuer Raster-Ausrichtung */}
+            </div>
+            <div>
+              <div className="text-xs text-gray-500 mb-1">Startdatum</div>
               <div className="font-medium text-sm text-gray-900">
-                {project.phase2_start_datum ? fmtDate(project.phase2_start_datum) : <span className="text-gray-400">--</span>}
+                {project.start_date
+                  ? fmtDate(project.start_date)
+                  : <span className="text-amber-500 italic">Nicht hinterlegt</span>}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-gray-500 mb-1">Enddatum</div>
+              <div className="font-medium text-sm text-gray-900">
+                {project.end_date
+                  ? fmtDate(project.end_date)
+                  : <span className="text-amber-500 italic">Nicht hinterlegt</span>}
               </div>
             </div>
           </div>
@@ -389,9 +373,9 @@ export default function NWMEinstellungenPanel({
           </div>
         )}
 
-        {(!project.netzwerk_typ || !project.bewilligung_datum) && (
+        {(!project.netzwerk_typ || !project.start_date) && (
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700">
-            Bitte Netzwerktyp und Startdatum Phase 1 hinterlegen damit Laufzeitjahr
+            Bitte Netzwerktyp und Startdatum hinterlegen, damit Laufzeitjahr
             und Foerdersatz im ZA-Panel automatisch berechnet werden koennen.
           </div>
         )}
@@ -470,17 +454,18 @@ export default function NWMEinstellungenPanel({
 
             {/* Modal-Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 sticky top-0 bg-white z-10">
-              <h3 className="font-semibold text-gray-900">NWM-Einstellungen bearbeiten</h3>
+              <h3 className="text-base font-semibold text-gray-900">NWM-Einstellungen bearbeiten</h3>
               <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600">
                 <X size={20} />
               </button>
             </div>
 
+            {/* Modal-Body */}
             <div className="px-6 py-5 space-y-6">
 
               {error && (
                 <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
-                  <AlertCircle size={15} /> {error}
+                  <AlertCircle size={16} /> {error}
                 </div>
               )}
 
@@ -519,9 +504,10 @@ export default function NWMEinstellungenPanel({
                       <option value="phase2">Phase 2 (Umsetzung)</option>
                     </select>
                   </div>
-                  <div>
+                  <div className="col-span-2">
                     <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Startdatum Phase 1 <span className="text-red-500">*</span>
+                      Bewilligungsdatum <span className="text-red-500">*</span>
+                      <span className="ml-1 text-gray-400 font-normal">(Datum des Zuwendungsbescheids)</span>
                     </label>
                     <input
                       type="date"
@@ -532,13 +518,25 @@ export default function NWMEinstellungenPanel({
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Startdatum Phase 2
-                      <span className="ml-1 text-gray-400 font-normal">(optional)</span>
+                      Startdatum <span className="text-red-500">*</span>
+                      <span className="ml-1 text-gray-400 font-normal">(Laufzeitbeginn)</span>
                     </label>
                     <input
                       type="date"
-                      value={form.phase2_start_datum}
-                      onChange={e => handleFieldChange('phase2_start_datum', e.target.value)}
+                      value={form.start_date}
+                      onChange={e => handleFieldChange('start_date', e.target.value)}
+                      className={`w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 ${focusRing}`}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Enddatum <span className="text-red-500">*</span>
+                      <span className="ml-1 text-gray-400 font-normal">(Laufzeitende)</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={form.end_date}
+                      onChange={e => handleFieldChange('end_date', e.target.value)}
                       className={`w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 ${focusRing}`}
                     />
                   </div>
