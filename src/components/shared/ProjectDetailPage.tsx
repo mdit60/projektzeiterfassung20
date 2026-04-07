@@ -3,7 +3,7 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 26. Maerz 2026
-// Version: 7.4.4-40
+// Version: 7.4.4-41
 //
 // v7.4.4-38: NEU: nwmTab URL-Parameter (Direktlink aus NWM-Uebersicht)
 // v7.4.4-37: FIX: Project Interface um alle NWM-Bankfelder erweitert (TS-Fehler)
@@ -335,6 +335,8 @@ export default function ProjectDetailPage({
     if (param === 'partner' || param === 'eigenanteile' || param === 'einstellungen') return param;
     return 'einstellungen';
   });
+  // Wenn nwmTab als URL-Parameter kam = direkt von NWM-Uebersicht navigiert
+  const fromNWMList = !!searchParams?.get('nwmTab');
 
   // State Arbeitspakete
   const [workPackages, setWorkPackages] = useState<WorkPackage[]>([]);
@@ -1301,7 +1303,13 @@ export default function ProjectDetailPage({
             <div className="flex items-center space-x-1 overflow-x-auto -mb-px">
               {/* Zurueck-Button */}
               <button
-                onClick={() => setActiveTab('uebersicht')}
+                onClick={() => {
+                  if (fromNWMList && portal === 'berater') {
+                    router.push('/v7/berater/netzwerk');
+                  } else {
+                    setActiveTab('uebersicht');
+                  }
+                }}
                 className="flex items-center gap-1.5 px-3 py-3 text-sm font-medium text-gray-500 hover:text-gray-900 border-b-2 border-transparent transition-colors whitespace-nowrap mr-2"
               >
                 <ChevronLeft size={16} />
@@ -2092,6 +2100,7 @@ export default function ProjectDetailPage({
                     placeholder="z.B. 125000.00"
                   />
                 </div>
+              </div>
               </div>
 
               {projectEditData.funding_format === 'ZIM_DS' ? (
