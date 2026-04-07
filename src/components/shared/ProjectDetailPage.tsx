@@ -335,7 +335,6 @@ export default function ProjectDetailPage({
     if (param === 'partner' || param === 'eigenanteile' || param === 'einstellungen') return param;
     return 'einstellungen';
   });
-  // Wenn nwmTab als URL-Parameter kam = direkt von NWM-Uebersicht navigiert
   const fromNWMList = !!searchParams?.get('nwmTab');
 
   // State Arbeitspakete
