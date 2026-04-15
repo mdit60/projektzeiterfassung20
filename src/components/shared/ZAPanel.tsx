@@ -2,8 +2,13 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-26
-// Datum: 26. Maerz 2026
+// Version: 7.4.4-27
+// Datum: 15. April 2026
+//
+// v7.4.4-27: Rollback-Button Bewilligt -> Eingereicht ergaenzt
+//   - Bei Status "bewilligt" jetzt zwei Buttons:
+//     "Zurueck zu Eingereicht" (primaer) und "Zurueck zu Entwurf" (sekundaer)
+//   - handleStatusChange unveraendert (unterstuetzt bereits alle Status)
 //
 // v7.4.4-22: NEU ZIM_NETZWERK-Erweiterungen:
 //   - isNetzwerk Flag fuer ZIM_NETZWERK-Projekte
@@ -1126,12 +1131,20 @@ export default function ZAPanel({
                           </>
                         )}
                         {currentStatus === 'bewilligt' && (
-                          <button
-                            onClick={() => handleStatusChange('entwurf')}
-                            disabled={zaSaving}
-                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-white hover:bg-gray-100 text-gray-600 border border-gray-300 rounded-lg disabled:opacity-50 transition-colors">
-                            Zurueck zu Entwurf
-                          </button>
+                          <>
+                            <button
+                              onClick={() => handleStatusChange('eingereicht')}
+                              disabled={zaSaving}
+                              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 transition-colors">
+                              Zurueck zu Eingereicht
+                            </button>
+                            <button
+                              onClick={() => handleStatusChange('entwurf')}
+                              disabled={zaSaving}
+                              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-white hover:bg-gray-100 text-gray-600 border border-gray-300 rounded-lg disabled:opacity-50 transition-colors">
+                              Zurueck zu Entwurf
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>
