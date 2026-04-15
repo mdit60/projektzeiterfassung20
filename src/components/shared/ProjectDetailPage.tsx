@@ -2,11 +2,9 @@
 // ============================================================================
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
-// Datum: 15. April 2026
-// Version: 7.4.4-46
+// Datum: 26. Maerz 2026
+// Version: 7.4.4-40
 //
-// v7.4.4-46: getBackUrl/getBackLabel: fromNWMList -> Netzwerk-Liste statt Firma
-// v7.4.4-44: (vorherige produktive Version)
 // v7.4.4-38: NEU: nwmTab URL-Parameter (Direktlink aus NWM-Uebersicht)
 // v7.4.4-37: FIX: Project Interface um alle NWM-Bankfelder erweitert (TS-Fehler)
 // v7.4.4-36: NWMEigenanteilPanel eingebunden (Eigenanteile Sub-Tab aktiv)
@@ -337,7 +335,6 @@ export default function ProjectDetailPage({
     if (param === 'partner' || param === 'eigenanteile' || param === 'einstellungen') return param;
     return 'einstellungen';
   });
-  const fromNWMList = !!searchParams?.get('nwmTab');
 
   // State Arbeitspakete
   const [workPackages, setWorkPackages] = useState<WorkPackage[]>([]);
@@ -702,9 +699,6 @@ export default function ProjectDetailPage({
 
   const getBackUrl = (): string => {
     if (backUrl) return backUrl;
-    if (fromNWMList && portal === 'berater') {
-      return '/v7/berater/netzwerk';
-    }
     if (portal === 'berater' && companyId) {
       return `/v7/berater/foerderung/firma/${companyId}?tab=projekte`;
     }
@@ -712,7 +706,6 @@ export default function ProjectDetailPage({
   };
 
   const getBackLabel = (): string => {
-    if (fromNWMList && portal === 'berater') return 'Netzwerke';
     if (portal === 'berater') return 'Firma';
     return 'Projekte';
   };
@@ -1308,13 +1301,7 @@ export default function ProjectDetailPage({
             <div className="flex items-center space-x-1 overflow-x-auto -mb-px">
               {/* Zurueck-Button */}
               <button
-                onClick={() => {
-                  if (fromNWMList && portal === 'berater') {
-                    router.push('/v7/berater/netzwerk');
-                  } else {
-                    setActiveTab('uebersicht');
-                  }
-                }}
+                onClick={() => setActiveTab('uebersicht')}
                 className="flex items-center gap-1.5 px-3 py-3 text-sm font-medium text-gray-500 hover:text-gray-900 border-b-2 border-transparent transition-colors whitespace-nowrap mr-2"
               >
                 <ChevronLeft size={16} />
@@ -1344,6 +1331,7 @@ export default function ProjectDetailPage({
               ))}
             </div>
           ) : (
+            /* Normal-Ansicht: Haupt-Tabs */
             <div className="flex items-center space-x-1 overflow-x-auto -mb-px">
               {tabs.map((tab) => (
                 <button
@@ -2104,7 +2092,6 @@ export default function ProjectDetailPage({
                     placeholder="z.B. 125000.00"
                   />
                 </div>
-              </div>
               </div>
 
               {projectEditData.funding_format === 'ZIM_DS' ? (
