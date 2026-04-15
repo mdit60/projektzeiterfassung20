@@ -2,13 +2,15 @@
 
 // ============================================================================
 // BERATER-PORTAL: Firmen-Detail-Seite
-// Version: 7.4.4-3
-// Datum: 20. Maerz 2026
+// Version: 7.4.4-4
+// Datum: 15. April 2026
 //
 // Route: /v7/berater/foerderung/firma/[id]
 //
 // TABS: Firmendaten | Projekte | Mitarbeiter | Zeiterfassung | Berichte
 //
+// v7.4.4-4: handleBack -> Kundenfirmen-Liste (/berater/foerderung) statt Dashboard
+//            Zurueck-Button Label: "Kundenfirmen" (war: "Zurueck")
 // v7.4.4-3: Firmendaten-Tab ersetzt durch FirmendatenCard (Shared Component)
 //            Bearbeiten-Modal jetzt funktional fuer alle Berater-Rollen
 // FIX v7.4.4-2: firmaName -> companyName (Header zeigt jetzt Firmenname)
@@ -168,7 +170,7 @@ export default function BeraterFirmaDetailPage() {
   // ==========================================================================
 
   const handleBack = () => {
-    router.push('/v7/berater/dashboard');
+    router.push('/v7/berater/foerderung');
   };
 
   const handleTabChange = (tab: TabKey) => {
@@ -263,7 +265,7 @@ export default function BeraterFirmaDetailPage() {
               className="flex items-center gap-2 py-4 text-gray-600 hover:text-[#002451] whitespace-nowrap"
             >
               <ArrowLeft className="w-4 h-4" />
-              Zurueck
+              Kundenfirmen
             </button>
 
             {/* Tabs */}
