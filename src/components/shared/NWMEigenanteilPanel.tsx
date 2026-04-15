@@ -2,11 +2,16 @@
 // ============================================================================
 // PZE V7 - NWM Eigenanteil-Berechnung und Zahlungsstatus
 // ============================================================================
-// Version: 7.4.5-11
-// Datum: 26. Maerz 2026
+// Version: 7.4.5-12
+// Datum: 15. April 2026
+//
+// v7.4.5-12: Drei Korrekturen:
+//   1. Perioden-Dropdown entfernt - nur freie Von/Bis-Felder
+//   2. Archiv-Tab: "EA brutto" -> "USt-Anteil" (summeBrutto -> summeUst)
+//   3. Abrechnung-Tab: "Brutto" -> "USt-Anteil" (betrag_brutto -> ust_betrag)
 //
 // Berechnet quartalsweise Eigenanteile pro Netzwerkpartner:
-// - Quartal-Auswahl (Dropdown)
+// - Freie Von/Bis-Datumsfelder fuer Abrechnungszeitraum
 // - NWM-Kosten aus ZE berechnen (foerderfaehige Std x hourly_rate_approved)
 //   PLUS manuell: Auftraege an Dritte
 //   PLUS automatisch: Uebrige Kosten (100% Personalkosten, lt. Richtlinie)
@@ -271,7 +276,7 @@ export default function NWMEigenanteilPanel({
   const [assignments, setAssignments] = useState<ProjectAssignment[]>([]);
   const [archivPerioden, setArchivPerioden] = useState<{
     von: string; bis: string; kostenGesamt: number; foerdersatz: number;
-    laufzeitjahr: number; summeSoll: number; summeBrutto: number;
+    laufzeitjahr: number; summeSoll: number; summeUst: number; summeBrutto: number;
     alleBezahlt: boolean; hatOffene: boolean;
   }[]>([]);
   const [nwmKostenDritte, setNwmKostenDritte] = useState('');
@@ -295,14 +300,14 @@ export default function NWMEigenanteilPanel({
       // Alle EA-Perioden fuer Archiv laden (distinct periode_von/bis)
       const { data: archivData } = await supabase
         .from('v7_netzwerk_eigenanteile')
-        .select('periode_von, periode_bis, nwm_kosten_gesamt, foerdersatz_percent, laufzeitjahr, betrag_soll, betrag_brutto, status')
+        .select('periode_von, periode_bis, nwm_kosten_gesamt, foerdersatz_percent, laufzeitjahr, betrag_soll, ust_betrag, betrag_brutto, status')
         .eq('project_id', project.id)
         .order('periode_von', { ascending: false });
 
       // Perioden deduplizieren und aggregieren
       const archivPerioden: {
         von: string; bis: string; kostenGesamt: number; foerdersatz: number;
-        laufzeitjahr: number; summeSoll: number; summeBrutto: number;
+        laufzeitjahr: number; summeSoll: number; summeUst: number; summeBrutto: number;
         alleBezahlt: boolean; hatOffene: boolean;
       }[] = [];
       if (archivData) {
@@ -315,12 +320,13 @@ export default function NWMEigenanteilPanel({
               kostenGesamt: ea.nwm_kosten_gesamt || 0,
               foerdersatz: ea.foerdersatz_percent || 0,
               laufzeitjahr: ea.laufzeitjahr || 1,
-              summeSoll: 0, summeBrutto: 0,
+              summeSoll: 0, summeUst: 0, summeBrutto: 0,
               alleBezahlt: true, hatOffene: false,
             });
           }
           const p = periodeMap.get(key)!;
           p.summeSoll += ea.betrag_soll || 0;
+          p.summeUst += ea.ust_betrag || 0;
           p.summeBrutto += ea.betrag_brutto || 0;
           if (ea.status !== 'bezahlt') p.alleBezahlt = false;
           if (ea.status === 'offen' || ea.status === 'gemahnt') p.hatOffene = true;
@@ -920,7 +926,7 @@ export default function NWMEigenanteilPanel({
                   <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wide">Foerdersatz</th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wide">NWM-Kosten</th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wide">EA netto</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wide">EA brutto</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wide">USt-Anteil</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wide">Status</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wide">Aktion</th>
                 </tr>
@@ -946,7 +952,7 @@ export default function NWMEigenanteilPanel({
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-gray-700">{fmt2(ap.kostenGesamt)}</td>
                       <td className="px-4 py-3 text-right font-mono text-gray-700">{fmt2(ap.summeSoll)}</td>
-                      <td className="px-4 py-3 text-right font-mono font-semibold text-gray-900">{fmt2(ap.summeBrutto)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-gray-500">{fmt2(ap.summeUst)}</td>
                       <td className="px-4 py-3 text-center">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${statusBg}`}>
                           {statusLabel}
@@ -989,44 +995,11 @@ export default function NWMEigenanteilPanel({
       {panelTab === 'abrechnung' && (
       <div className="space-y-4">
 
-      {/* ---- Quartal-Auswahl + Foerderinfo ---- */}
+      {/* ---- Abrechnungszeitraum + Foerderinfo ---- */}
       <div className="bg-white rounded-lg border border-gray-200 p-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3 flex-wrap">
             <label className="text-sm font-medium text-gray-700">Abrechnungszeitraum:</label>
-            {/* Perioden-Vorschlag */}
-            <select
-              value={selectedIdx === -1 ? '__manuell__' : (selectedIdx === -2 ? '__naechste__' : String(selectedIdx))}
-              onChange={e => {
-                if (e.target.value === '__manuell__') {
-                  setSelectedIdx(-1);
-                } else if (e.target.value === '__naechste__') {
-                  setSelectedIdx(-2);
-                  if (naechsteVorschlag) {
-                    setVonDatum(naechsteVorschlag.von);
-                    setBisDatum(naechsteVorschlag.bis);
-                  }
-                } else {
-                  const idx = parseInt(e.target.value);
-                  setSelectedIdx(idx);
-                  const p = perioden[idx];
-                  if (p) { setVonDatum(p.von); setBisDatum(p.bis); }
-                }
-              }}
-              className={`px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 ${focusRing}`}
-            >
-              {naechsteVorschlag && (
-                <option value="__naechste__">
-                  Naechste Periode ({naechsteVorschlag.von} -- {naechsteVorschlag.bis})
-                </option>
-              )}
-              <optgroup label="Perioden ab Projektstart">
-                {perioden.map((q, i) => (
-                  <option key={q.label} value={String(i)}>{q.label}</option>
-                ))}
-              </optgroup>
-              <option value="__manuell__">Manuell eingeben</option>
-            </select>
             {/* Freie Von/Bis-Felder */}
             <div className="flex items-center gap-2">
               <label className="text-xs text-gray-500">von</label>
@@ -1138,7 +1111,7 @@ export default function NWMEigenanteilPanel({
                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wide">Quote</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wide">Netto (EUR)</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wide">USt.</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wide">Brutto (EUR)</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wide">USt-Anteil (EUR)</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Rechnung</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Eingegangen</th>
                 <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wide">Status</th>
@@ -1162,11 +1135,11 @@ export default function NWMEigenanteilPanel({
                     <td className="px-4 py-3 text-right font-mono text-sm">
                       {fmt2(ea.betrag_soll)}
                     </td>
-                    <td className="px-4 py-3 text-right text-sm text-gray-500">
+                    <td className="px-4 py-3 text-right font-mono text-sm text-gray-500">
                       {ea.ust_satz > 0 ? fmt2(ea.ust_betrag) : '0,00'}
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-sm font-semibold">
-                      {fmt2(ea.betrag_brutto)}
+                      {fmt2(ea.ust_betrag)}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">
                       {ea.rechnung_nr || '--'}
@@ -1217,8 +1190,8 @@ export default function NWMEigenanteilPanel({
               <tr className="bg-gray-50 border-t-2 border-gray-300 font-semibold text-sm">
                 <td colSpan={2} className="px-4 py-3 text-right text-gray-600">Summe:</td>
                 <td className="px-4 py-3 text-right font-mono">{fmt2(eigenanteile.reduce((s, e) => s + e.betrag_soll, 0))}</td>
-                <td className="px-4 py-3 text-right font-mono text-gray-500">{fmt2(eigenanteile.reduce((s, e) => s + e.ust_betrag, 0))}</td>
-                <td className="px-4 py-3 text-right font-mono">{fmt2(summeBrutto)}</td>
+                <td className="px-4 py-3 text-right font-mono text-gray-500"></td>
+                <td className="px-4 py-3 text-right font-mono">{fmt2(eigenanteile.reduce((s, e) => s + e.ust_betrag, 0))}</td>
                 <td colSpan={4} className="px-4 py-3 text-xs text-gray-500">
                   Bezahlt: {fmt2(summeBezahlt)} EUR | Offen: {fmt2(summeOffen)} EUR
                 </td>

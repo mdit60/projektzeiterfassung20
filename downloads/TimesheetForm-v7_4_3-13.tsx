@@ -3,7 +3,11 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 02. Maerz 2026
-// Version: 7.4.3-9
+// Version: 7.4.3-13
+//
+// v7.4.3-13: Stundennachweis Wording ZIM_NETZWERK
+//   - isNetzwerk Flag ergaenzt (analog isDurchfuehrbarkeitsstudie)
+//   - Abschnitt 1: "foerderbare Projektarbeiten" -> "Management-Arbeiten" bei ZIM_NETZWERK
 //
 // Wird von beiden Portalen genutzt:
 // - Firmen-Portal: /v7/firma/zeiterfassung
@@ -312,9 +316,6 @@ export default function TimesheetForm({
   // Dialog fuer ungespeicherte Aenderungen
   const [showUnsavedDialog, setShowUnsavedDialog] = useState<(() => void) | null>(null);
 
-  // Abgeschlossener Monat: nur Admin/Berater darf aufheben
-  const isReadOnly = isCompleted && !isAdmin;
-
   // Zeiterfassungs-Daten
   const [apRows, setApRows] = useState<APRow[]>([
     { workPackageId: null, entries: {} },
@@ -340,6 +341,7 @@ export default function TimesheetForm({
   const availableWorkPackages = safeWorkPackages.filter(wp => wp.project_id === selectedProjectId);
   const selectedEmployee = safeEmployees.find(e => e.id === selectedEmployeeId);
   const isDurchfuehrbarkeitsstudie = selectedProject?.funding_format?.includes('DS') || false;
+  const isNetzwerk = selectedProject?.funding_format === 'ZIM_NETZWERK';
 
   // Hilfsfunktion: Prueft ob AP technisch ist (robust gegen verschiedene DB-Datentypen)
   const isTechnicalAP = (wp: WorkPackage | undefined | null): boolean => {
@@ -782,7 +784,6 @@ export default function TimesheetForm({
     const totalApRows = apRows.length;
 
     const canEdit = (r: number, d: number, type: 'ap' | 'nonbillable'): boolean => {
-      if (isReadOnly) return false; // Abgeschlossener Monat: keine Eingabe
       if (isWeekend(selectedYear, selectedMonth, d)) return false;
       if (isHoliday(selectedYear, selectedMonth, d)) return false;
       if (type === 'ap' && !apRows[r]?.workPackageId) return false;
@@ -1074,7 +1075,6 @@ export default function TimesheetForm({
 
   const handleSave = async () => {
     if (!selectedEmployeeId) return;
-    if (isReadOnly) return; // Schutz: abgeschlossene Monate nicht aenderbar
 
     setSaving(true);
     setError(null);
@@ -1324,55 +1324,41 @@ export default function TimesheetForm({
                   Ungespeichert
                 </span>
               )}
-              {/* Monat abschliessen / Status-Anzeige */}
-              {isReadOnly ? (
-                /* MA sieht nur Status-Badge - kein Button */
-                <span className="flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium bg-green-500 text-white">
+              {/* NEU v7.4.3-9: Monat abschliessen */}
+              <button
+                onClick={handleToggleComplete}
+                disabled={loadingCompletion || !selectedEmployeeId || !selectedProjectId}
+                title={isCompleted ? 'Monat ist abgeschlossen - klicken zum Aufheben' : 'Monat als vollstaendig erfasst markieren'}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+                  isCompleted
+                    ? 'bg-green-500 text-white hover:bg-green-600'
+                    : 'bg-white/20 text-white hover:bg-white/30'
+                }`}
+              >
+                {loadingCompletion ? (
+                  <span className="w-3 h-3 border-2 border-white/50 border-t-white rounded-full animate-spin" />
+                ) : isCompleted ? (
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                   </svg>
-                  Abgeschlossen
-                </span>
-              ) : (
-                /* Admin/Berater: Toggle-Button */
-                <button
-                  onClick={handleToggleComplete}
-                  disabled={loadingCompletion || !selectedEmployeeId || !selectedProjectId}
-                  title={isCompleted ? 'Abschluss aufheben' : 'Monat als vollstaendig erfasst markieren'}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-                    isCompleted
-                      ? 'bg-green-500 text-white hover:bg-green-600'
-                      : 'bg-white/20 text-white hover:bg-white/30'
-                  }`}
-                >
-                  {loadingCompletion ? (
-                    <span className="w-3 h-3 border-2 border-white/50 border-t-white rounded-full animate-spin" />
-                  ) : isCompleted ? (
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                    </svg>
-                  ) : (
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  )}
-                  {isCompleted ? 'Abgeschlossen' : 'Monat abschliessen'}
-                </button>
-              )}
-              {/* Speichern: nur wenn nicht readonly */}
-              {!isReadOnly && (
-                <button
-                  onClick={handleSave}
-                  disabled={saving || !hasChanges}
-                  className={`px-4 py-1.5 rounded text-sm font-medium ${
-                    hasChanges
-                      ? 'bg-white text-gray-800 hover:bg-gray-100'
-                      : 'bg-white/50 text-white/70 cursor-not-allowed'
-                  }`}
-                >
-                  {saving ? '...' : 'Speichern'}
-                </button>
-              )}
+                ) : (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                )}
+                {isCompleted ? 'Abgeschlossen' : 'Monat abschliessen'}
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving || !hasChanges}
+                className={`px-4 py-1.5 rounded text-sm font-medium ${
+                  hasChanges
+                    ? 'bg-white text-gray-800 hover:bg-gray-100'
+                    : 'bg-white/50 text-white/70 cursor-not-allowed'
+                }`}
+              >
+                {saving ? '...' : 'Speichern'}
+              </button>
               <button
                 onClick={handleExportPDF}
                 className="px-3 py-1.5 bg-white/20 text-white rounded hover:bg-white/30 text-sm"
@@ -1485,32 +1471,6 @@ export default function TimesheetForm({
         </div>
       )}
 
-      {/* Banner: Abgeschlossener Monat - nur sichtbar wenn isCompleted */}
-      {isCompleted && (
-        <div className={`max-w-full mx-auto px-4 mt-2 print:hidden`}>
-          <div className={`flex items-center gap-3 px-4 py-2.5 rounded text-sm ${
-            isAdmin
-              ? 'bg-amber-50 border border-amber-300 text-amber-800'
-              : 'bg-green-50 border border-green-300 text-green-800'
-          }`}>
-            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={isAdmin ? 2 : 2.5}
-                d={isAdmin
-                  ? "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                  : "M5 13l4 4L19 7"
-                }
-              />
-            </svg>
-            <span>
-              {isAdmin
-                ? 'Dieser Monat ist abgeschlossen. Klicke auf den "Abgeschlossen"-Button oben um den Abschluss aufzuheben und Aenderungen zu ermoeglichen.'
-                : 'Dieser Monat wurde abgeschlossen. Aenderungen sind nicht mehr moeglich.'
-              }
-            </span>
-          </div>
-        </div>
-      )}
-
       {/* STUNDENNACHWEIS-FORMULAR */}
       <div ref={printRef} className="max-w-full mx-auto p-4 print:p-0 print:m-0">
         <div className="bg-white shadow-lg print:shadow-none overflow-x-auto">
@@ -1591,7 +1551,7 @@ export default function TimesheetForm({
               {/* Abschnitt 1: Foerderbare Arbeiten */}
               <tr>
                 <td className="border p-1 font-semibold" colSpan={(isDurchfuehrbarkeitsstudie ? 4 : 3) + daysInMonth + 2} style={{ backgroundColor: '#FFF9E6' }}>
-                  1. foerderbare Projektarbeiten (1)
+                  1. {isNetzwerk ? 'Management-Arbeiten' : 'foerderbare Projektarbeiten'} (1)
                 </td>
               </tr>
 
