@@ -546,6 +546,8 @@ export default function TimesheetForm({
     }
 
     const loadTimeEntries = async () => {
+      // Completion-Status sofort zuruecksetzen damit kein alter Wert haengen bleibt
+      setIsCompleted(false);
       console.log('[TimesheetForm] ====== LADE ZEITEINTRAEGE ======');
       console.log('[TimesheetForm] Parameter:', { 
         selectedEmployeeId, 
@@ -722,6 +724,8 @@ export default function TimesheetForm({
       setApRows(newRows);
       setNonBillableEntries(newNonBillable);
       setHasChanges(false);
+      // Completion-Status fuer diesen MA/Projekt/Monat laden
+      await loadCompletionStatus(selectedEmployeeId, selectedProjectId, selectedYear, selectedMonth);
     };
 
     loadTimeEntries();
