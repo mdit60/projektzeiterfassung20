@@ -3,7 +3,7 @@
 // PZE V7 - Projekt-Team Management
 // ============================================================================
 // Datum: 17. April 2026
-// Version: 7.4.4-14
+// Version: 7.4.4-15
 // AENDERUNGEN v7.4.4-13:
 // - employment_end ins Employee-Interface aufgenommen
 // - AddMemberDialog: wenn ausgewaehlter MA employment_end hat ->
@@ -625,6 +625,10 @@ function AddMemberDialog({
                     <p className="text-xs text-gray-500 mt-1">Leer = noch aktiv</p>
                   )}
                 </div>
+              </div>
+            </>
+          )}
+        </div>
 
         {/* Footer */}
         <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50">
