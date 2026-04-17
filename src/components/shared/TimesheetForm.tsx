@@ -3,7 +3,7 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 02. Maerz 2026
-// Version: 7.4.3-17
+// Version: 7.4.3-18
 // v7.4.3-17: MA-Dropdown sortiert nach Team-Nummer (employee_number aus
 //   v7_project_assignments) wenn ein Projekt ausgewaehlt ist.
 //   Fallback: alphabetisch wenn kein Projekt oder MA nicht im Team.
@@ -525,6 +525,11 @@ export default function TimesheetForm({
     };
     loadTeamNumbers();
   }, [selectedProjectId]);
+
+  useEffect(() => {
+    if (!selectedEmployeeId || !selectedProjectId) return;
+
+    const loadAssignmentData = async () => {
       try {
         const supabaseClient = createClient();
 
