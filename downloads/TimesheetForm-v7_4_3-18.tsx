@@ -2,19 +2,8 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 17. April 2026
-// Version: 7.4.3-19
-// v7.4.3-19: Compliance-Absicherung: Monatsauswahl eingeschraenkt auf
-//   gueltigen Zeitraum. Beruecksichtigt:
-//   - employment_start/end aus v7_employees (Firmenzugehoerigkeit)
-//   - assignment_start/end aus v7_project_assignments (Projektzuordnung)
-//   - start_date/end_date aus v7_projects (Projektlaufzeit)
-//   Ungueltige Monate erscheinen gar nicht im Dropdown.
-//   Pfeil-Navigation stoppt an den Raendern des erlaubten Bereichs.
-//   Verhindert Zeiterfassung fuer Perioden in denen MA nicht im
-//   Unternehmen oder nicht im Projekt war (Subventionsbetrugs-Praevention).
-//
-// v7.4.3-18: (vorherige Version)
+// Datum: 02. Maerz 2026
+// Version: 7.4.3-18
 // v7.4.3-17: MA-Dropdown sortiert nach Team-Nummer (employee_number aus
 //   v7_project_assignments) wenn ein Projekt ausgewaehlt ist.
 //   Fallback: alphabetisch wenn kein Projekt oder MA nicht im Team.
@@ -122,8 +111,6 @@ interface Employee {
   first_name: string | null;
   last_name: string | null;
   weekly_hours: number | null;
-  employment_start: string | null;
-  employment_end: string | null;
 }
 
 interface Project {
@@ -132,8 +119,6 @@ interface Project {
   short_name: string | null;
   funding_reference: string | null;
   funding_format: string | null;
-  start_date: string | null;
-  end_date: string | null;
 }
 
 interface WorkPackage {
@@ -318,10 +303,6 @@ export default function TimesheetForm({
   // Team-Nummern fuer das aktuell gewaehlte Projekt (employee_id -> employee_number)
   const [teamNumbers, setTeamNumbers] = useState<Map<string, number>>(new Map());
 
-  // NEU v7.4.3-19: Assignment-Daten fuer Zeitraum-Einschraenkung
-  const [assignmentStart, setAssignmentStart] = useState<string | null>(null);
-  const [assignmentEnd, setAssignmentEnd] = useState<string | null>(null);
-
   // Sortierte MA-Liste: nach Team-Nr. wenn Projekt gewaehlt, sonst alphabetisch
   const sortedEmployees = useMemo(() => {
     if (teamNumbers.size === 0) return safeEmployees;
@@ -388,77 +369,6 @@ export default function TimesheetForm({
   };
 
   const allRowsFilled = apRows.every(row => row.workPackageId !== null);
-
-  // ============================================================================
-  // NEU v7.4.3-19: Erlaubter Zeitraum fuer Monatsauswahl
-  // ============================================================================
-  // Beruecksichtigt: employment_start/end, assignment_start/end, project start/end
-  // Ergebnis: { firstYear, firstMonth, lastYear, lastMonth } oder null (alles erlaubt)
-
-  const allowedRange = useMemo(() => {
-    // Fruehestes Datum = Maximum aus employment_start, assignment_start, project.start_date
-    const startDates: string[] = [];
-    if (selectedEmployee?.employment_start) startDates.push(selectedEmployee.employment_start);
-    if (assignmentStart) startDates.push(assignmentStart);
-    if (selectedProject?.start_date) startDates.push(selectedProject.start_date);
-
-    // Spaetestes Datum = Minimum aus employment_end, assignment_end, project.end_date
-    const endDates: string[] = [];
-    if (selectedEmployee?.employment_end) endDates.push(selectedEmployee.employment_end);
-    if (assignmentEnd) endDates.push(assignmentEnd);
-    if (selectedProject?.end_date) endDates.push(selectedProject.end_date);
-
-    // Fruehestes erlaubtes Datum (hoechstes Start-Datum)
-    let firstYear = 2020;
-    let firstMonth = 1;
-    if (startDates.length > 0) {
-      const latestStart = startDates.sort().pop()!; // alphabetisch sortiert = chronologisch bei ISO-Daten
-      const parts = latestStart.split('-');
-      firstYear = parseInt(parts[0]);
-      firstMonth = parseInt(parts[1]);
-    }
-
-    // Spaetestes erlaubtes Datum (niedrigstes End-Datum)
-    let lastYear = 2030;
-    let lastMonth = 12;
-    if (endDates.length > 0) {
-      const earliestEnd = endDates.sort()[0]; // frueheSTES End-Datum
-      const parts = earliestEnd.split('-');
-      lastYear = parseInt(parts[0]);
-      lastMonth = parseInt(parts[1]);
-    }
-
-    return { firstYear, firstMonth, lastYear, lastMonth };
-  }, [selectedEmployee, assignmentStart, assignmentEnd, selectedProject]);
-
-  // Hilfsfunktion: Ist ein Monat/Jahr im erlaubten Bereich?
-  const isMonthAllowed = useCallback((year: number, month: number): boolean => {
-    if (!allowedRange) return true;
-    const { firstYear, firstMonth, lastYear, lastMonth } = allowedRange;
-    const val = year * 12 + month;
-    const min = firstYear * 12 + firstMonth;
-    const max = lastYear * 12 + lastMonth;
-    return val >= min && val <= max;
-  }, [allowedRange]);
-
-  // Gefilterte Monatsliste fuer das aktuell gewaehlte Jahr
-  const allowedMonths = useMemo(() => {
-    return MONTH_NAMES.map((name, idx) => ({
-      name,
-      month: idx + 1,
-      allowed: isMonthAllowed(selectedYear, idx + 1),
-    })).filter(m => m.allowed);
-  }, [selectedYear, isMonthAllowed]);
-
-  // Gefilterte Jahresliste
-  const allowedYears = useMemo(() => {
-    if (!allowedRange) return [2020, 2021, 2022, 2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030];
-    const years: number[] = [];
-    for (let y = allowedRange.firstYear; y <= allowedRange.lastYear; y++) {
-      years.push(y);
-    }
-    return years;
-  }, [allowedRange]);
 
   // ============================================================================
   // HILFSFUNKTIONEN
@@ -593,56 +503,28 @@ export default function TimesheetForm({
     }
   }, [selectedEmployeeId, selectedProjectId]);
 
-  // Team-Nummern + Assignment-Daten laden wenn Projekt oder MA sich aendert
+  // Team-Nummern laden wenn Projekt sich aendert
   useEffect(() => {
     if (!selectedProjectId) {
       setTeamNumbers(new Map());
-      setAssignmentStart(null);
-      setAssignmentEnd(null);
       return;
     }
     const loadTeamNumbers = async () => {
       const supabaseClient = createClient();
       const { data } = await supabaseClient
         .from('v7_project_assignments')
-        .select('employee_id, employee_number, assignment_start, assignment_end')
+        .select('employee_id, employee_number')
         .eq('project_id', selectedProjectId);
       if (data) {
         const map = new Map<string, number>();
-        data.forEach((a: { employee_id: string; employee_number: number | null; assignment_start: string | null; assignment_end: string | null }) => {
+        data.forEach((a: { employee_id: string; employee_number: number | null }) => {
           if (a.employee_number !== null) map.set(a.employee_id, a.employee_number);
         });
         setTeamNumbers(map);
-
-        // NEU v7.4.3-19: Assignment-Daten fuer den aktuellen MA setzen
-        if (selectedEmployeeId) {
-          const myAssignment = data.find((a: { employee_id: string }) => a.employee_id === selectedEmployeeId);
-          setAssignmentStart(myAssignment?.assignment_start || null);
-          setAssignmentEnd(myAssignment?.assignment_end || null);
-        }
       }
     };
     loadTeamNumbers();
-  }, [selectedProjectId, selectedEmployeeId]);
-
-  // NEU v7.4.3-19: Automatische Korrektur wenn aktueller Monat ausserhalb des erlaubten Bereichs
-  useEffect(() => {
-    if (!allowedRange) return;
-    if (!isMonthAllowed(selectedYear, selectedMonth)) {
-      const { firstYear, firstMonth, lastYear, lastMonth } = allowedRange;
-      const currentVal = selectedYear * 12 + selectedMonth;
-      const minVal = firstYear * 12 + firstMonth;
-      const maxVal = lastYear * 12 + lastMonth;
-
-      if (currentVal < minVal) {
-        setSelectedYear(firstYear);
-        setSelectedMonth(firstMonth);
-      } else if (currentVal > maxVal) {
-        setSelectedYear(lastYear);
-        setSelectedMonth(lastMonth);
-      }
-    }
-  }, [allowedRange, selectedYear, selectedMonth, isMonthAllowed]);
+  }, [selectedProjectId]);
 
   useEffect(() => {
     if (!selectedEmployeeId || !selectedProjectId) return;
@@ -1427,36 +1309,22 @@ export default function TimesheetForm({
 
   const goToPreviousMonth = () => {
     checkUnsavedChanges(() => {
-      let newMonth = selectedMonth;
-      let newYear = selectedYear;
-      if (newMonth === 1) {
-        newMonth = 12;
-        newYear = newYear - 1;
+      if (selectedMonth === 1) {
+        setSelectedMonth(12);
+        setSelectedYear(prev => prev - 1);
       } else {
-        newMonth = newMonth - 1;
-      }
-      // NEU v7.4.3-19: Nur navigieren wenn im erlaubten Bereich
-      if (isMonthAllowed(newYear, newMonth)) {
-        setSelectedMonth(newMonth);
-        setSelectedYear(newYear);
+        setSelectedMonth(prev => prev - 1);
       }
     });
   };
 
   const goToNextMonth = () => {
     checkUnsavedChanges(() => {
-      let newMonth = selectedMonth;
-      let newYear = selectedYear;
-      if (newMonth === 12) {
-        newMonth = 1;
-        newYear = newYear + 1;
+      if (selectedMonth === 12) {
+        setSelectedMonth(1);
+        setSelectedYear(prev => prev + 1);
       } else {
-        newMonth = newMonth + 1;
-      }
-      // NEU v7.4.3-19: Nur navigieren wenn im erlaubten Bereich
-      if (isMonthAllowed(newYear, newMonth)) {
-        setSelectedMonth(newMonth);
-        setSelectedYear(newYear);
+        setSelectedMonth(prev => prev + 1);
       }
     });
   };
@@ -1609,8 +1477,8 @@ export default function TimesheetForm({
                 }}
                 className="border rounded px-2 py-1 text-sm"
               >
-                {allowedMonths.map(m => (
-                  <option key={m.month} value={m.month}>{m.name}</option>
+                {MONTH_NAMES.map((name, idx) => (
+                  <option key={idx} value={idx + 1}>{name}</option>
                 ))}
               </select>
               <select
@@ -1621,7 +1489,7 @@ export default function TimesheetForm({
                 }}
                 className="border rounded px-2 py-1 text-sm"
               >
-                {allowedYears.map(y => (
+                {[2020, 2021, 2022, 2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030].map(y => (
                   <option key={y} value={y}>{y}</option>
                 ))}
               </select>
