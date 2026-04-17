@@ -2,17 +2,21 @@
 // ============================================================================
 // PZE V7 - Atomare API-Route: MA-Login erstellen
 // ============================================================================
-// Version: v7.3.95-1
-// Datum: 1. April 2026
+// Version: v7.3.95-2
+// Datum: 17. April 2026
+//
+// AENDERUNG v7.3.95-2:
+//   BUG FIX: "duplicate key value violates unique constraint v7_user_profiles_pkey"
+//   Ursache: Supabase kann beim Auth-User-Anlegen automatisch ein leeres
+//   v7_user_profiles-Profil erstellen (Trigger oder Race Condition).
+//   Fix: INSERT -> UPSERT (on_conflict: id) fuer v7_user_profiles.
+//   So wird ein bereits vorhandenes (leeres) Profil korrekt befuellt
+//   statt einen Duplikat-Fehler auszuloesen.
 //
 // Zweck:
 //   Erstellt einen vollstaendigen MA-Login in einem atomaren Server-Aufruf.
 //   Alle 3 Schritte (Auth + Profil + Employee-Verknuepfung) werden ausgefuehrt
 //   oder bei Fehler vollstaendig zurueckgerollt.
-//
-// Ersetzt:
-//   - client-seitiges signUp() + manuelles Profil-Insert in EmployeeManagement
-//   - Fehleranfaellige 3-Schritt-Logik die zu NULL-Feldern fuehrte
 //
 // Gilt fuer ALLE Wege:
 //   - Berater legt MA an (Berater-Portal)
@@ -47,7 +51,7 @@
 //   ALREADY_LINKED      - Employee hat bereits einen user_id
 //   VALIDATION_ERROR    - Pflichtfelder fehlen oder ungueltig
 //   AUTH_ERROR          - Supabase Auth Fehler
-//   PROFILE_ERROR       - v7_user_profiles Insert fehlgeschlagen
+//   PROFILE_ERROR       - v7_user_profiles Upsert fehlgeschlagen
 //   LINK_ERROR          - v7_employees Update fehlgeschlagen
 //   UNAUTHORIZED        - Aufrufer hat keine Berechtigung
 // ============================================================================
@@ -225,8 +229,13 @@ export async function POST(
   }
 
   // 4c. E-Mail bereits registriert?
-  const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers();
-  const emailAlreadyExists = existingUsers?.users?.some(
+  // Supabase Admin API: listUsers hat Paginierung - bei vielen Usern nur erste Seite
+  // Sicherer: getUserByEmail (falls verfuegbar) oder filter
+  const { data: existingUsersData } = await supabaseAdmin.auth.admin.listUsers({
+    page: 1,
+    perPage: 1000,
+  });
+  const emailAlreadyExists = existingUsersData?.users?.some(
     (u) => u.email?.toLowerCase() === email.toLowerCase()
   );
 
@@ -266,19 +275,28 @@ export async function POST(
 
     newUserId = authData.user.id;
 
-    // SCHRITT 2: v7_user_profiles anlegen
+    // SCHRITT 2: v7_user_profiles anlegen oder aktualisieren
+    // WICHTIG: UPSERT statt INSERT!
+    // Supabase kann beim createUser automatisch ein leeres Profil per Trigger anlegen.
+    // Mit upsert wird dieses leere Profil korrekt befuellt statt einen
+    // "duplicate key"-Fehler auszuloesen.
     const { error: profileError } = await supabaseAdmin
       .from('v7_user_profiles')
-      .insert({
-        id: newUserId,
-        email: email.toLowerCase().trim(),
-        display_name,
-        first_name: first_name?.trim() || null,
-        last_name: last_name?.trim() || null,
-        role: 'client_user',             // IMMER client_user - Portal-Rolle kommt aus v7_employees
-        client_company_id,
-        is_active: true,
-      });
+      .upsert(
+        {
+          id: newUserId,
+          email: email.toLowerCase().trim(),
+          display_name,
+          first_name: first_name?.trim() || null,
+          last_name: last_name?.trim() || null,
+          role: 'client_user',             // IMMER client_user - Portal-Rolle kommt aus v7_employees
+          client_company_id,
+          is_active: true,
+        },
+        {
+          onConflict: 'id',   // Bei vorhandenem Profil: updaten statt Fehler
+        }
+      );
 
     if (profileError) {
       // Rollback: Auth-User loeschen
