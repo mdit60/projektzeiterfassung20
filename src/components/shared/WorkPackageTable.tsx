@@ -3,7 +3,10 @@
 // PZE V7 - Arbeitsplan-Tabelle (Excel-Style mit Inline-Edit)
 // ============================================================================
 // Datum: 02. Maerz 2026
-// Version: 7.4.3-6
+// Version: 7.4.3-8
+// v7.4.3-8: PM-Anzeige auf 3 Dezimalstellen (toFixed(3)) fuer alle PM-Werte
+//   Begruendung: importierte PM-Werte koennen 3-stellig sein (z.B. 0,344)
+//   Berechnung war immer korrekt, Anzeige zeigte nur 2 Stellen
 //
 // SHARED COMPONENT - wird von beiden Portalen genutzt:
 // - Berater-Portal: /v7/berater/foerderung/firma/[id]/projekt/[projektId]
@@ -202,7 +205,7 @@ const getShortName = (emp: Employee): string => {
 
 const fmtPM = (val: number): string => {
   if (val === 0) return '0';
-  return val.toFixed(2).replace('.', ',');
+  return val.toFixed(3).replace('.', ',');
 };
 
 const fmtHours = (val: number): string => {
@@ -306,7 +309,7 @@ function EditableCell({ value, canEdit, onChange, portalColors }: EditableCellPr
       } ${canEdit ? 'hover:bg-blue-50 hover:text-blue-700' : ''}`}
       title={canEdit ? 'Klicken zum Bearbeiten' : undefined}
     >
-      {hasValue ? value.toFixed(2).replace('.', ',') : '-'}
+      {hasValue ? value.toFixed(3).replace('.', ',') : '-'}
     </div>
   );
 }
@@ -762,7 +765,7 @@ export default function WorkPackageTable({
 
                   {/* Summe PM */}
                   <td className="px-2 py-2 text-center font-semibold text-gray-900 bg-gray-100 border-r">
-                    {wpSum > 0 ? wpSum.toFixed(2).replace('.', ',') : '-'}
+                    {wpSum > 0 ? wpSum.toFixed(3).replace('.', ',') : '-'}
                   </td>
 
                   {/* Soll (h) */}
@@ -848,13 +851,13 @@ export default function WorkPackageTable({
                 const empSum = sums.perEmployee.get(emp.id) || 0;
                 return (
                   <td key={emp.id} className="px-2 py-2 text-center font-semibold border-r border-white/30">
-                    {empSum > 0 ? empSum.toFixed(2).replace('.', ',') : '-'}
+                    {empSum > 0 ? empSum.toFixed(3).replace('.', ',') : '-'}
                   </td>
                 );
               })}
               {/* PM Gesamt */}
               <td className="px-2 py-2 text-center font-bold text-lg border-r border-white/30">
-                {sums.total.toFixed(2).replace('.', ',')}
+                {sums.total.toFixed(3).replace('.', ',')}
               </td>
               {/* Soll Gesamt */}
               <td className="px-2 py-2 text-center font-semibold border-r border-white/30">
