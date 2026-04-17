@@ -3,8 +3,8 @@
 // PZE V7 - Shared Employee Management Component
 // ============================================================================
 // Datum: 31. Maerz 2026
-// Version: 7.3.95-6
-// v7.3.95-6:
+// Version: 7.3.95-7
+// v7.3.95-7:
 //   1. Status-Anzeige: "Ausgeschieden" wenn employment_end in der Vergangenheit
 //      (zusaetzlich zu "Inaktiv" bei manuellem is_active=false)
 //      Helper-Funktion isEmpActive(emp) steuert alle Status-Checks.
@@ -868,7 +868,7 @@ export default function EmployeeManagement({
                           </span>
                         ) : emp.is_active && emp.employment_end ? (
                           <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-orange-100 text-orange-700">
-                            Ausgeschieden
+                            Ausgeschieden {formatDate(emp.employment_end)}
                           </span>
                         ) : (
                           <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-gray-200 text-gray-600">
