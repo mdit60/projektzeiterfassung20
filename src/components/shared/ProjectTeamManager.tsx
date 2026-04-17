@@ -3,9 +3,12 @@
 // PZE V7 - Projekt-Team Management
 // ============================================================================
 // Datum: 17. April 2026
-// Version: 7.4.4-9
+// Version: 7.4.4-10
 //
-// AENDERUNGEN v7.4.4-9:
+// AENDERUNGEN v7.4.4-10:
+// - FIX: Zaehlung "aktive Mitarbeiter" nutzte m.is_active statt Datumspruefung
+//   -> Werkstudentin mit zukuenftigem Enddatum wurde nicht mitgezaehlt
+//AENDERUNGEN v7.4.4-9:
 // - FIX: Status-Anzeige Team: "Ausgeschieden" nur wenn assignment_end in
 //   der Vergangenheit liegt. assignment_end in der Zukunft = weiterhin "Aktiv"
 // - 'Student' zur QUALIFICATION_OPTIONS hinzugefuegt (via EmployeeManagement-v7_3_95-5)
@@ -1281,7 +1284,7 @@ export default function ProjectTeamManager({
         <div>
           <h3 className="font-semibold text-gray-900">Team</h3>
           <p className="text-sm text-gray-500">
-            {teamMembers.filter(m => m.is_active).length} aktive Mitarbeiter
+            {teamMembers.filter(m => m.is_active && (!m.assignment_end || new Date(m.assignment_end) >= new Date(new Date().toISOString().split('T')[0]))).length} aktive Mitarbeiter
           </p>
         </div>
         {canEdit && availableEmployees.length > 0 && (
