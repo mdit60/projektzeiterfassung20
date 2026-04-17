@@ -3,9 +3,19 @@
 // PZE V7 - Projekt-Team Management
 // ============================================================================
 // Datum: 17. April 2026
-// Version: 7.4.4-11
+// Version: 7.4.4-14
+// AENDERUNGEN v7.4.4-14:
+// - Validierung beim Speichern: assignment_end darf nicht nach employment_end liegen
+//   (max-Attribut allein reicht nicht bei manueller Datumseingabe)
 //
-// AENDERUNGEN v7.4.4-11:
+//AENDERUNGEN v7.4.4-13:
+// - employment_end ins Employee-Interface aufgenommen
+// - AddMemberDialog: wenn ausgewaehlter MA employment_end hat ->
+//   assignmentEnd automatisch vorbelegen + max-Datum setzen + Hinweis
+// - EditMemberDialog: employment_end des MA als Hard-Limit fuer assignment_end
+//   max-Datum + Hinweis "Vertrag endet am XX.XX.XXXX"
+// - Konsequenz: assignment_end kann nie spaeter als employment_end sein
+//
 // - FIX: Zaehlung "aktive Mitarbeiter" nutzte m.is_active statt Datumspruefung
 //   -> Werkstudentin mit zukuenftigem Enddatum wurde nicht mitgezaehlt
 //AENDERUNGEN v7.4.4-9:
@@ -79,6 +89,7 @@ interface Employee {
   company_weekly_hours: number | null;
   hourly_rate: number | null;
   is_active: boolean;
+  employment_end: string | null;
 }
 
 interface ProjectTeamMember {
@@ -282,6 +293,24 @@ function AddMemberDialog({
     return Math.max(...existingNumbers) + 1;
   }, [existingNumbers]);
 
+  // Ausgewaehlter MA und sein employment_end
+  const selectedEmployee = useMemo(() =>
+    availableEmployees.find(e => e.id === selectedEmployeeId) || null,
+  [availableEmployees, selectedEmployeeId]);
+
+  const maxAssignmentEnd = selectedEmployee?.employment_end || undefined;
+
+  // Wenn MA ausgewaehlt wird: assignment_end auf employment_end vorbelegen
+  const handleEmployeeSelect = (empId: string) => {
+    setSelectedEmployeeId(empId);
+    const emp = availableEmployees.find(e => e.id === empId);
+    if (emp?.employment_end) {
+      setAssignmentEnd(emp.employment_end);
+    } else {
+      setAssignmentEnd('');
+    }
+  };
+
   const handleSave = async () => {
     if (!selectedEmployeeId) {
       setError('Bitte Mitarbeiter auswaehlen');
@@ -294,6 +323,11 @@ function AddMemberDialog({
     }
     if (existingNumbers.includes(numValue)) {
       setError(`Lfd. Nr. ${numValue} ist bereits vergeben`);
+      return;
+    }
+    // Validierung: assignment_end darf nicht nach employment_end liegen
+    if (maxAssignmentEnd && assignmentEnd && assignmentEnd > maxAssignmentEnd) {
+      setError(`Projektende darf nicht nach dem Vertragsende (${formatDate(maxAssignmentEnd)}) liegen`);
       return;
     }
 
@@ -368,7 +402,7 @@ function AddMemberDialog({
                 <label className="block text-sm font-medium text-gray-700 mb-1">Mitarbeiter *</label>
                 <select
                   value={selectedEmployeeId}
-                  onChange={(e) => setSelectedEmployeeId(e.target.value)}
+                  onChange={(e) => handleEmployeeSelect(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="">-- Bitte auswaehlen --</option>
@@ -583,15 +617,18 @@ function AddMemberDialog({
                   <input
                     type="date"
                     value={assignmentEnd}
+                    max={maxAssignmentEnd}
                     onChange={(e) => setAssignmentEnd(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
-                  <p className="text-xs text-gray-500 mt-1">Leer = noch aktiv</p>
+                  {maxAssignmentEnd ? (
+                    <p className="text-xs text-amber-600 mt-1">
+                      Vertrag endet am {formatDate(maxAssignmentEnd)} — spaeteres Datum nicht moeglich
+                    </p>
+                  ) : (
+                    <p className="text-xs text-gray-500 mt-1">Leer = noch aktiv</p>
+                  )}
                 </div>
-              </div>
-            </>
-          )}
-        </div>
 
         {/* Footer */}
         <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50">
@@ -648,6 +685,8 @@ function EditMemberDialog({
   existingNumbers,
   portal,
 }: EditMemberDialogProps) {
+  // employment_end direkt aus dem gejointe employee-Objekt lesen
+  const maxAssignmentEnd = member?.employee?.employment_end || undefined;
   const colors = PORTAL_COLORS[portal];
   const [employeeNumber, setEmployeeNumber] = useState<string>('');
   const [monthlyGrossSalary, setMonthlyGrossSalary] = useState<string>('');
@@ -744,6 +783,11 @@ function EditMemberDialog({
     const otherNumbers = existingNumbers.filter(n => n !== member?.employee_number);
     if (otherNumbers.includes(numValue)) {
       setError(`Lfd. Nr. ${numValue} ist bereits an einen anderen Mitarbeiter vergeben`);
+      return;
+    }
+    // Validierung: assignment_end darf nicht nach employment_end liegen
+    if (maxAssignmentEnd && assignmentEnd && assignmentEnd > maxAssignmentEnd) {
+      setError(`Projektende darf nicht nach dem Vertragsende (${formatDate(maxAssignmentEnd)}) liegen`);
       return;
     }
 
@@ -999,10 +1043,17 @@ function EditMemberDialog({
               <input
                 type="date"
                 value={assignmentEnd}
+                max={maxAssignmentEnd}
                 onChange={(e) => setAssignmentEnd(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
-              <p className="text-xs text-gray-500 mt-1">Leer = noch aktiv</p>
+              {maxAssignmentEnd ? (
+                <p className="text-xs text-amber-600 mt-1">
+                  Vertrag endet am {formatDate(maxAssignmentEnd)} — spaeteres Datum nicht moeglich
+                </p>
+              ) : (
+                <p className="text-xs text-gray-500 mt-1">Leer = noch aktiv</p>
+              )}
             </div>
           </div>
         </div>
