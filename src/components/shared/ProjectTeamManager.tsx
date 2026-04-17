@@ -3,7 +3,7 @@
 // PZE V7 - Projekt-Team Management
 // ============================================================================
 // Datum: 17. April 2026
-// Version: 7.4.4-15
+// Version: 7.4.4-16
 // AENDERUNGEN v7.4.4-13:
 // - employment_end ins Employee-Interface aufgenommen
 // - AddMemberDialog: wenn ausgewaehlter MA employment_end hat ->
@@ -321,11 +321,10 @@ function AddMemberDialog({
       setError(`Lfd. Nr. ${numValue} ist bereits vergeben`);
       return;
     }
-    // Validierung: assignment_end darf nicht nach employment_end liegen
-    if (maxAssignmentEnd && assignmentEnd && assignmentEnd > maxAssignmentEnd) {
-      setError(`Projektende darf nicht nach dem Vertragsende (${formatDate(maxAssignmentEnd)}) liegen`);
-      return;
-    }
+    // Wenn assignment_end nach employment_end liegt: automatisch kappen
+    const effectiveAssignmentEnd = (maxAssignmentEnd && assignmentEnd && assignmentEnd > maxAssignmentEnd)
+      ? maxAssignmentEnd
+      : assignmentEnd || null;
 
     setSaving(true);
     setError(null);
@@ -341,7 +340,7 @@ function AddMemberDialog({
         companyWeeklyHours: companyWeeklyHours ? parseFloat(companyWeeklyHours.replace(',', '.')) : null,
         roleInProject: roleInProject || null,
         assignmentStart: assignmentStart || null,
-        assignmentEnd: assignmentEnd || null,
+        assignmentEnd: effectiveAssignmentEnd,
       });
       onClose();
     } catch (err: any) {
@@ -785,11 +784,10 @@ function EditMemberDialog({
       setError(`Lfd. Nr. ${numValue} ist bereits an einen anderen Mitarbeiter vergeben`);
       return;
     }
-    // Validierung: assignment_end darf nicht nach employment_end liegen
-    if (maxAssignmentEnd && assignmentEnd && assignmentEnd > maxAssignmentEnd) {
-      setError(`Projektende darf nicht nach dem Vertragsende (${formatDate(maxAssignmentEnd)}) liegen`);
-      return;
-    }
+    // Wenn assignment_end nach employment_end liegt: automatisch kappen
+    const effectiveAssignmentEnd = (maxAssignmentEnd && assignmentEnd && assignmentEnd > maxAssignmentEnd)
+      ? maxAssignmentEnd
+      : assignmentEnd || null;
 
     setSaving(true);
     setError(null);
@@ -804,7 +802,7 @@ function EditMemberDialog({
         companyWeeklyHours: companyWeeklyHours ? parseFloat(companyWeeklyHours.replace(',', '.')) : null,
         roleInProject: roleInProject || null,
         assignmentStart: assignmentStart || null,
-        assignmentEnd: assignmentEnd || null,
+        assignmentEnd: effectiveAssignmentEnd,
       });
       onClose();
     } catch (err: any) {
