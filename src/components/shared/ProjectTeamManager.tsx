@@ -3,9 +3,9 @@
 // PZE V7 - Projekt-Team Management
 // ============================================================================
 // Datum: 17. April 2026
-// Version: 7.4.4-10
+// Version: 7.4.4-11
 //
-// AENDERUNGEN v7.4.4-10:
+// AENDERUNGEN v7.4.4-11:
 // - FIX: Zaehlung "aktive Mitarbeiter" nutzte m.is_active statt Datumspruefung
 //   -> Werkstudentin mit zukuenftigem Enddatum wurde nicht mitgezaehlt
 //AENDERUNGEN v7.4.4-9:
@@ -1126,7 +1126,7 @@ export default function ProjectTeamManager({
         role_in_project: data.roleInProject,
         assignment_start: data.assignmentStart,
         assignment_end: data.assignmentEnd,
-        is_active: !data.assignmentEnd,
+        is_active: true,
       });
 
     if (error) throw error;
@@ -1161,7 +1161,7 @@ export default function ProjectTeamManager({
         role_in_project: data.roleInProject,
         assignment_start: data.assignmentStart,
         assignment_end: data.assignmentEnd,
-        is_active: !data.assignmentEnd,
+        is_active: true,
       })
       .eq('id', editingMember.id);
 
@@ -1284,7 +1284,7 @@ export default function ProjectTeamManager({
         <div>
           <h3 className="font-semibold text-gray-900">Team</h3>
           <p className="text-sm text-gray-500">
-            {teamMembers.filter(m => m.is_active && (!m.assignment_end || new Date(m.assignment_end) >= new Date(new Date().toISOString().split('T')[0]))).length} aktive Mitarbeiter
+            {teamMembers.filter(m => !m.assignment_end || m.assignment_end >= new Date().toISOString().split('T')[0]).length} aktive Mitarbeiter
           </p>
         </div>
         {canEdit && availableEmployees.length > 0 && (
@@ -1318,10 +1318,8 @@ export default function ProjectTeamManager({
           <tbody>
             {teamMembers.map((member) => {
               const emp = member.employee;
-              const isActive = member.is_active && (
-                !member.assignment_end ||
-                new Date(member.assignment_end) >= new Date(new Date().toISOString().split('T')[0])
-              );
+              const today = new Date().toISOString().split('T')[0];
+              const isActive = !member.assignment_end || member.assignment_end >= today;
               return (
                 <tr
                   key={member.id}
