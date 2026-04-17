@@ -3,7 +3,8 @@
 // PZE V7 - Shared Employee Management Component
 // ============================================================================
 // Datum: 31. Maerz 2026
-// Version: 7.3.95-4
+// Version: 7.3.95-5
+// v7.3.95-5: 'Student' zur QUALIFICATION_OPTIONS Liste hinzugefuegt
 // v7.3.95-4: REFACTOR: handleCreateLogin auf atomare API-Route /api/v7/create-employee-login
 //   umgestellt. Alle 3 Schritte (Auth + Profil + Employee) server-seitig und atomar.
 //   createUserProfile() und linkEmployeeToUser() entfernt (nicht mehr benoetigt).
@@ -129,6 +130,7 @@ const EMPTY_FORM: EmployeeFormData = {
 
 const QUALIFICATION_OPTIONS = [
   'keine Ausbildung',
+  'Student',
   'Berufsausbildung',
   'Meister/Techniker',
   'Bachelor',
