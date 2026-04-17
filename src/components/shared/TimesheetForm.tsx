@@ -3,7 +3,10 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 02. Maerz 2026
-// Version: 7.4.3-16
+// Version: 7.4.3-17
+// v7.4.3-17: MA-Dropdown sortiert nach Team-Nummer (employee_number aus
+//   v7_project_assignments) wenn ein Projekt ausgewaehlt ist.
+//   Fallback: alphabetisch wenn kein Projekt oder MA nicht im Team.
 //
 // v7.4.3-16: "Monat abschliessen" speichert automatisch mit
 //   - handleToggleComplete prueft hasChanges
@@ -66,7 +69,7 @@
 
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
 // ============================================================================
@@ -297,6 +300,20 @@ export default function TimesheetForm({
   const safeProjects = projects || [];
   const safeWorkPackages = workPackages || [];
 
+  // Team-Nummern fuer das aktuell gewaehlte Projekt (employee_id -> employee_number)
+  const [teamNumbers, setTeamNumbers] = useState<Map<string, number>>(new Map());
+
+  // Sortierte MA-Liste: nach Team-Nr. wenn Projekt gewaehlt, sonst alphabetisch
+  const sortedEmployees = useMemo(() => {
+    if (teamNumbers.size === 0) return safeEmployees;
+    return [...safeEmployees].sort((a, b) => {
+      const nA = teamNumbers.get(a.id) ?? 9999;
+      const nB = teamNumbers.get(b.id) ?? 9999;
+      if (nA !== nB) return nA - nB;
+      return (a.display_name || '').localeCompare(b.display_name || '');
+    });
+  }, [safeEmployees, teamNumbers]);
+
   // State
   const [saving, setSaving] = useState(false);
   const [isCompleted, setIsCompleted] = useState(false);
@@ -486,10 +503,28 @@ export default function TimesheetForm({
     }
   }, [selectedEmployeeId, selectedProjectId]);
 
+  // Team-Nummern laden wenn Projekt sich aendert
   useEffect(() => {
-    if (!selectedEmployeeId || !selectedProjectId) return;
-
-    const loadAssignmentData = async () => {
+    if (!selectedProjectId) {
+      setTeamNumbers(new Map());
+      return;
+    }
+    const loadTeamNumbers = async () => {
+      const supabaseClient = createClient();
+      const { data } = await supabaseClient
+        .from('v7_project_assignments')
+        .select('employee_id, employee_number')
+        .eq('project_id', selectedProjectId);
+      if (data) {
+        const map = new Map<string, number>();
+        data.forEach((a: { employee_id: string; employee_number: number | null }) => {
+          if (a.employee_number !== null) map.set(a.employee_id, a.employee_number);
+        });
+        setTeamNumbers(map);
+      }
+    };
+    loadTeamNumbers();
+  }, [selectedProjectId]);
       try {
         const supabaseClient = createClient();
 
@@ -546,8 +581,6 @@ export default function TimesheetForm({
     }
 
     const loadTimeEntries = async () => {
-      // Completion-Status sofort zuruecksetzen damit kein alter Wert haengen bleibt
-      setIsCompleted(false);
       console.log('[TimesheetForm] ====== LADE ZEITEINTRAEGE ======');
       console.log('[TimesheetForm] Parameter:', { 
         selectedEmployeeId, 
@@ -724,8 +757,6 @@ export default function TimesheetForm({
       setApRows(newRows);
       setNonBillableEntries(newNonBillable);
       setHasChanges(false);
-      // Completion-Status fuer diesen MA/Projekt/Monat laden
-      await loadCompletionStatus(selectedEmployeeId, selectedProjectId, selectedYear, selectedMonth);
     };
 
     loadTimeEntries();
@@ -1398,10 +1429,10 @@ export default function TimesheetForm({
                   const newValue = e.target.value;
                   checkUnsavedChanges(() => setSelectedEmployeeId(newValue));
                 }}
-                disabled={!isAdmin && safeEmployees.length <= 1}
+                disabled={!isAdmin && sortedEmployees.length <= 1}
                 className="border rounded px-2 py-1 text-sm"
               >
-                {safeEmployees.map(emp => (
+                {sortedEmployees.map(emp => (
                   <option key={emp.id} value={emp.id}>{emp.display_name}</option>
                 ))}
               </select>
