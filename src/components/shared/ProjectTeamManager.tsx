@@ -3,9 +3,13 @@
 // PZE V7 - Projekt-Team Management
 // ============================================================================
 // Datum: 17. April 2026
-// Version: 7.4.4-8
+// Version: 7.4.4-9
 //
-// AENDERUNGEN v7.4.4-8:
+// AENDERUNGEN v7.4.4-9:
+// - FIX: Status-Anzeige Team: "Ausgeschieden" nur wenn assignment_end in
+//   der Vergangenheit liegt. assignment_end in der Zukunft = weiterhin "Aktiv"
+// - 'Student' zur QUALIFICATION_OPTIONS hinzugefuegt (via EmployeeManagement-v7_3_95-5)
+//
 // - AddMemberDialog: Layout identisch zu EditMemberDialog (einspaltig)
 //   * Bewilligter Stundensatz lt. Bescheid hinzugefuegt
 //   * "Im Projekt bis" hinzugefuegt
@@ -1311,7 +1315,10 @@ export default function ProjectTeamManager({
           <tbody>
             {teamMembers.map((member) => {
               const emp = member.employee;
-              const isActive = member.is_active && !member.assignment_end;
+              const isActive = member.is_active && (
+                !member.assignment_end ||
+                new Date(member.assignment_end) >= new Date(new Date().toISOString().split('T')[0])
+              );
               return (
                 <tr
                   key={member.id}
