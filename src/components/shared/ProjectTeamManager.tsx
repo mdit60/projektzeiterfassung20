@@ -4,11 +4,7 @@
 // ============================================================================
 // Datum: 17. April 2026
 // Version: 7.4.4-14
-// AENDERUNGEN v7.4.4-14:
-// - Validierung beim Speichern: assignment_end darf nicht nach employment_end liegen
-//   (max-Attribut allein reicht nicht bei manueller Datumseingabe)
-//
-//AENDERUNGEN v7.4.4-13:
+// AENDERUNGEN v7.4.4-13:
 // - employment_end ins Employee-Interface aufgenommen
 // - AddMemberDialog: wenn ausgewaehlter MA employment_end hat ->
 //   assignmentEnd automatisch vorbelegen + max-Datum setzen + Hinweis
