@@ -3,7 +3,15 @@
 // PZE V7 - Shared Employee Management Component
 // ============================================================================
 // Datum: 31. Maerz 2026
-// Version: 7.3.95-5
+// Version: 7.3.95-6
+// v7.3.95-6:
+//   1. Status-Anzeige: "Ausgeschieden" wenn employment_end in der Vergangenheit
+//      (zusaetzlich zu "Inaktiv" bei manuellem is_active=false)
+//      Helper-Funktion isEmpActive(emp) steuert alle Status-Checks.
+//   2. employment_end -> assignment_end automatisch uebertragen:
+//      Wenn employment_end gesetzt wird und kleiner als bestehendes assignment_end
+//      (oder assignment_end leer), werden alle Projektteam-Eintraege dieses MA
+//      automatisch auf employment_end gekappt.
 // v7.3.95-5: 'Student' zur QUALIFICATION_OPTIONS Liste hinzugefuegt
 // v7.3.95-4: REFACTOR: handleCreateLogin auf atomare API-Route /api/v7/create-employee-login
 //   umgestellt. Alle 3 Schritte (Auth + Profil + Employee) server-seitig und atomar.
@@ -137,6 +145,14 @@ const QUALIFICATION_OPTIONS = [
   'Master/Diplom',
   'Promotion',
 ];
+
+// Helper: MA gilt als aktiv wenn is_active=true UND employment_end nicht ueberschritten
+function isEmpActive(emp: { is_active: boolean; employment_end: string | null }): boolean {
+  if (!emp.is_active) return false;
+  if (!emp.employment_end) return true;
+  const today = new Date().toISOString().split('T')[0];
+  return emp.employment_end >= today;
+}
 
 const PORTAL_ROLE_OPTIONS = [
   { value: 'employee', label: 'Mitarbeiter', description: 'Kann nur eigene Zeiterfassung sehen' },
@@ -435,6 +451,26 @@ export default function EmployeeManagement({
           .eq('id', editingEmployee.id);
 
         if (error) throw error;
+
+        // Automatisch alle Projektteam-Eintraege kappen wenn employment_end gesetzt
+        if (saveData.employment_end) {
+          const { data: assignments } = await supabase
+            .from('v7_project_assignments')
+            .select('id, assignment_end')
+            .eq('employee_id', editingEmployee.id);
+
+          if (assignments && assignments.length > 0) {
+            const toUpdate = assignments.filter(a =>
+              !a.assignment_end || a.assignment_end > saveData.employment_end!
+            );
+            if (toUpdate.length > 0) {
+              await supabase
+                .from('v7_project_assignments')
+                .update({ assignment_end: saveData.employment_end })
+                .in('id', toUpdate.map((a: { id: string }) => a.id));
+            }
+          }
+        }
       }
 
       closeModal();
@@ -698,8 +734,8 @@ export default function EmployeeManagement({
     (e.position_title && e.position_title.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  const activeCount = employees.filter(e => e.is_active).length;
-  const inactiveCount = employees.filter(e => !e.is_active).length;
+  const activeCount = employees.filter(e => isEmpActive(e)).length;
+  const inactiveCount = employees.filter(e => !isEmpActive(e)).length;
 
   // ============================================================================
   // RENDER - LOADING
@@ -793,7 +829,7 @@ export default function EmployeeManagement({
                 {filteredEmployees.map((emp) => (
                   <tr
                     key={emp.id}
-                    className={`hover:bg-gray-50 ${!emp.is_active ? 'opacity-50' : ''}`}
+                    className={`hover:bg-gray-50 ${!isEmpActive(emp) ? 'opacity-50' : ''}`}
                   >
                     <td className="px-6 py-4">
                       <div className="font-medium text-gray-900">{emp.display_name}</div>
@@ -826,9 +862,13 @@ export default function EmployeeManagement({
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex flex-col gap-1">
-                        {emp.is_active ? (
+                        {isEmpActive(emp) ? (
                           <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700">
                             Aktiv
+                          </span>
+                        ) : emp.is_active && emp.employment_end ? (
+                          <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-orange-100 text-orange-700">
+                            Ausgeschieden
                           </span>
                         ) : (
                           <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-gray-200 text-gray-600">
@@ -851,7 +891,7 @@ export default function EmployeeManagement({
                       <td className="px-6 py-4 text-right">
                         <div className="flex justify-end gap-2">
                           {/* Login erstellen/verknuepfen - nur wenn noch nicht verknuepft und E-Mail vorhanden */}
-                          {!emp.user_id && emp.email && emp.is_active && (
+                          {!emp.user_id && emp.email && isEmpActive(emp) && (
                             <button
                               onClick={() => openLoginModal(emp)}
                               className={`p-1.5 rounded ${
@@ -871,7 +911,7 @@ export default function EmployeeManagement({
                             </button>
                           )}
                           {/* Passwort zuruecksetzen - nur wenn MA bereits Login hat */}
-                          {emp.user_id && emp.is_active && (
+                          {emp.user_id && isEmpActive(emp) && (
                             <button
                               onClick={() => openResetPwModal(emp)}
                               className="p-1.5 text-amber-600 hover:text-amber-800 rounded"
