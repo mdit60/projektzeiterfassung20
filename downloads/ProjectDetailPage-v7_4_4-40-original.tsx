@@ -2,15 +2,9 @@
 // ============================================================================
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
-// Datum: 18. April 2026
-// Version: 7.4.4-49
+// Datum: 26. Maerz 2026
+// Version: 7.4.4-40
 //
-// v7.4.4-49: FIX: Zurueck-Button NWM navigiert zur NWM-Uebersicht statt Firma
-//   - fromNWMList als useState (stabil bei Re-Render)
-//   - getBackUrl/getBackLabel: fromNWMList -> /v7/berater/netzwerk
-//   - NWM-Tab Zurueck-Button: fromNWMList -> router.push statt setActiveTab
-//   - bg-black/50 ersetzt durch bg-black bg-opacity-50 (SWC-Compiler-Bug Praevention)
-// v7.4.4-40: Stabile Basis (letzter erfolgreicher Build)
 // v7.4.4-38: NEU: nwmTab URL-Parameter (Direktlink aus NWM-Uebersicht)
 // v7.4.4-37: FIX: Project Interface um alle NWM-Bankfelder erweitert (TS-Fehler)
 // v7.4.4-36: NWMEigenanteilPanel eingebunden (Eigenanteile Sub-Tab aktiv)
@@ -341,7 +335,6 @@ export default function ProjectDetailPage({
     if (param === 'partner' || param === 'eigenanteile' || param === 'einstellungen') return param;
     return 'einstellungen';
   });
-  const [fromNWMList] = useState<boolean>(() => !!searchParams?.get('nwmTab'));
 
   // State Arbeitspakete
   const [workPackages, setWorkPackages] = useState<WorkPackage[]>([]);
@@ -706,9 +699,6 @@ export default function ProjectDetailPage({
 
   const getBackUrl = (): string => {
     if (backUrl) return backUrl;
-    if (fromNWMList && portal === 'berater') {
-      return '/v7/berater/netzwerk';
-    }
     if (portal === 'berater' && companyId) {
       return `/v7/berater/foerderung/firma/${companyId}?tab=projekte`;
     }
@@ -716,7 +706,6 @@ export default function ProjectDetailPage({
   };
 
   const getBackLabel = (): string => {
-    if (fromNWMList && portal === 'berater') return 'Netzwerke';
     if (portal === 'berater') return 'Firma';
     return 'Projekte';
   };
@@ -1312,13 +1301,7 @@ export default function ProjectDetailPage({
             <div className="flex items-center space-x-1 overflow-x-auto -mb-px">
               {/* Zurueck-Button */}
               <button
-                onClick={() => {
-                  if (fromNWMList && portal === 'berater') {
-                    router.push('/v7/berater/netzwerk');
-                  } else {
-                    setActiveTab('uebersicht');
-                  }
-                }}
+                onClick={() => setActiveTab('uebersicht')}
                 className="flex items-center gap-1.5 px-3 py-3 text-sm font-medium text-gray-500 hover:text-gray-900 border-b-2 border-transparent transition-colors whitespace-nowrap mr-2"
               >
                 <ChevronLeft size={16} />
@@ -1863,7 +1846,7 @@ export default function ProjectDetailPage({
 
       {/* Modal: AP loeschen bestaetigen */}
       {showDeleteConfirm && wpToDelete && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
             <div className="p-6 text-center">
               <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4">
@@ -1905,7 +1888,7 @@ export default function ProjectDetailPage({
 
       {/* Modal: Team-Mitglied bearbeiten */}
       {editingMember && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-gray-900">
@@ -1986,7 +1969,7 @@ export default function ProjectDetailPage({
 
       {/* Modal: Projekt bearbeiten */}
       {showProjectEditModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 sticky top-0 bg-white">
               <h3 className="text-lg font-semibold text-gray-900">Projekt bearbeiten</h3>
@@ -2242,7 +2225,7 @@ export default function ProjectDetailPage({
 
       {/* Modal: Projekt loeschen bestaetigen */}
       {showProjectDeleteConfirm && project && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
             <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-200 bg-red-50">
               <div className="p-2 bg-red-100 rounded-full">
