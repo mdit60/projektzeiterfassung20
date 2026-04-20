@@ -2,8 +2,14 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 17. April 2026
-// Version: 7.4.3-22
+// Datum: 20. April 2026
+// Version: 7.4.6-1
+// v7.4.6-1: Feiertagsberechnung konsolidiert - nutzt zentrale Utility
+//   src/lib/holidays/germanHolidays.ts. Lokale getEasterSunday/getGermanHolidays/
+//   normalizeStateCode entfernt. Neues Feld company.holiday_region wird
+//   an die Utility durchgereicht (kommunale Sonderfaelle wie BY_EVAN,
+//   BY_AUGSBURG, SN_SORB, TH_EICHSFELD).
+//
 // v7.4.3-22: Timesheet-Notizen ueberarbeitet:
 //   - Kein Loeschen mehr, nur noch Erledigt-Checkbox
 //   - Ersteller-Name wird angezeigt (wer hat Notiz geschrieben)
@@ -97,6 +103,10 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import {
+  getGermanHolidays,
+  type HolidayRegion,
+} from '@/lib/holidays/germanHolidays';
 
 // ============================================================================
 // KONSTANTEN
@@ -165,6 +175,7 @@ interface ClientCompany {
   id: string;
   name: string;
   federal_state: string | null;
+  holiday_region: string | null;  // v7.4.6: kommunaler Feiertags-Override
   standard_weekly_hours: number | null;
 }
 
@@ -198,108 +209,8 @@ interface TimesheetFormProps {
 // ============================================================================
 // FEIERTAGS-BERECHNUNG
 // ============================================================================
-
-const getEasterSunday = (year: number): Date => {
-  const a = year % 19;
-  const b = Math.floor(year / 100);
-  const c = year % 100;
-  const d = Math.floor(b / 4);
-  const e = b % 4;
-  const f = Math.floor((b + 8) / 25);
-  const g = Math.floor((b - f + 1) / 3);
-  const h = (19 * a + b - d - g + 15) % 30;
-  const i = Math.floor(c / 4);
-  const k = c % 4;
-  const l = (32 + 2 * e + 2 * i - h - k) % 7;
-  const m = Math.floor((a + 11 * h + 22 * l) / 451);
-  const month = Math.floor((h + l - 7 * m + 114) / 31) - 1;
-  const day = ((h + l - 7 * m + 114) % 31) + 1;
-  return new Date(year, month, day);
-};
-
-// FIX v7.4.3-7: Bundesland-Langname zu DE-XX Code normalisieren
-const normalizeStateCode = (state: string | null | undefined): string => {
-  if (!state) return '';
-  if (state.startsWith('DE-')) return state;
-  const map: Record<string, string> = {
-    'Baden-Wuerttemberg': 'DE-BW',
-    'Bayern': 'DE-BY', 'Bavaria': 'DE-BY',
-    'Berlin': 'DE-BE', 'Brandenburg': 'DE-BB',
-    'Bremen': 'DE-HB', 'Hamburg': 'DE-HH',
-    'Hessen': 'DE-HE', 'Hesse': 'DE-HE',
-    'Mecklenburg-Vorpommern': 'DE-MV',
-    'Niedersachsen': 'DE-NI', 'Lower Saxony': 'DE-NI',
-    'Nordrhein-Westfalen': 'DE-NW', 'North Rhine-Westphalia': 'DE-NW',
-    'Rheinland-Pfalz': 'DE-RP', 'Rhineland-Palatinate': 'DE-RP',
-    'Saarland': 'DE-SL', 'Sachsen': 'DE-SN', 'Saxony': 'DE-SN',
-    'Sachsen-Anhalt': 'DE-ST', 'Schleswig-Holstein': 'DE-SH',
-    'Thueringen': 'DE-TH', 'Thuringia': 'DE-TH',
-  };
-  return map[state] || state;
-};
-
-const getGermanHolidays = (year: number, stateCode: string): Map<string, string> => {
-  const holidays = new Map<string, string>();
-  const easter = getEasterSunday(year);
-
-  const formatDate = (d: Date): string => {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-  };
-
-  const addDays = (d: Date, days: number): Date => {
-    const r = new Date(d);
-    r.setDate(d.getDate() + days);
-    return r;
-  };
-
-  // Bundesweite Feiertage
-  holidays.set(`${year}-01-01`, 'Neujahr');
-  holidays.set(formatDate(addDays(easter, -2)), 'Karfreitag');
-  holidays.set(formatDate(addDays(easter, 1)), 'Ostermontag');
-  holidays.set(`${year}-05-01`, 'Tag der Arbeit');
-  holidays.set(formatDate(addDays(easter, 39)), 'Chr. Himmelfahrt');
-  holidays.set(formatDate(addDays(easter, 50)), 'Pfingstmontag');
-  holidays.set(`${year}-10-03`, 'Tag d. Dt. Einheit');
-  holidays.set(`${year}-12-25`, '1. Weihnachtstag');
-  holidays.set(`${year}-12-26`, '2. Weihnachtstag');
-
-  // Landesspezifische Feiertage
-  if (['DE-BW', 'DE-BY', 'DE-ST'].includes(stateCode)) {
-    holidays.set(`${year}-01-06`, 'Hl. Drei Koenige');
-  }
-  if (['DE-BE', 'DE-MV'].includes(stateCode)) {
-    holidays.set(`${year}-03-08`, 'Frauentag');
-  }
-  if (['DE-BW', 'DE-BY', 'DE-HE', 'DE-NW', 'DE-RP', 'DE-SL'].includes(stateCode)) {
-    holidays.set(formatDate(addDays(easter, 60)), 'Fronleichnam');
-  }
-  // Bayern pauschal (83% kath. Gemeinden) + Saarland
-  if (['DE-BY', 'DE-SL'].includes(stateCode)) {
-    holidays.set(`${year}-08-15`, 'Mariae Himmelfahrt');
-  }
-  if (['DE-TH'].includes(stateCode)) {
-    holidays.set(`${year}-09-20`, 'Weltkindertag');
-  }
-  if (['DE-BB', 'DE-HB', 'DE-HH', 'DE-MV', 'DE-NI', 'DE-SN', 'DE-ST', 'DE-SH', 'DE-TH'].includes(stateCode)) {
-    holidays.set(`${year}-10-31`, 'Reformationstag');
-  }
-  if (['DE-BW', 'DE-BY', 'DE-NW', 'DE-RP', 'DE-SL'].includes(stateCode)) {
-    holidays.set(`${year}-11-01`, 'Allerheiligen');
-  }
-  if (['DE-SN'].includes(stateCode)) {
-    const nov23 = new Date(year, 10, 23);
-    const dayOfWeek = nov23.getDay();
-    const daysBack = (dayOfWeek + 7 - 3) % 7;
-    const bussUndBettag = new Date(nov23);
-    bussUndBettag.setDate(nov23.getDate() - (daysBack === 0 ? 7 : daysBack));
-    holidays.set(formatDate(bussUndBettag), 'Buss- u. Bettag');
-  }
-
-  return holidays;
-};
+// Zentralisiert ab v7.4.6 in src/lib/holidays/germanHolidays.ts
+// Siehe Import-Block ganz oben. Funktionen: getGermanHolidays, normalizeStateCode
 
 // ============================================================================
 // KOMPONENTE
@@ -554,12 +465,18 @@ export default function TimesheetForm({
   // EFFECTS
   // ============================================================================
 
-  // Feiertage berechnen
+  // Feiertage berechnen - inkl. kommunaler Sonderregelung (v7.4.6)
   useEffect(() => {
     if (company?.federal_state) {
-      setHolidays(getGermanHolidays(selectedYear, normalizeStateCode(company.federal_state)));
+      setHolidays(
+        getGermanHolidays(
+          selectedYear,
+          company.federal_state,
+          (company.holiday_region ?? undefined) as HolidayRegion,
+        ),
+      );
     }
-  }, [selectedYear, company?.federal_state]);
+  }, [selectedYear, company?.federal_state, company?.holiday_region]);
 
   // Unterschriftsdatum
   useEffect(() => {

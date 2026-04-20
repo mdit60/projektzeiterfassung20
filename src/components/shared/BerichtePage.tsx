@@ -2,7 +2,13 @@
 // ============================================================================
 // PZE V7 - Shared Component: Berichte & Controlling
 // ============================================================================
-// Version: 7.4.4-4
+// Version: 7.4.6-1
+// Datum: 20. April 2026
+// v7.4.6-1: Feiertagsberechnung konsolidiert - nutzt zentrale Utility
+//   src/lib/holidays/germanHolidays.ts. Lokale getEasterSunday/getGermanHolidays/
+//   normalizeStateCode entfernt. Company-Query und Interface um holiday_region
+//   erweitert (kommunale Sonderfaelle).
+//
 // v7.4.4-4: Employee-Query um employment_start/end erweitert,
 //   ProjectAssignment um assignment_start/end erweitert
 //   (fuer Matrix-Einschraenkung pro MA)
@@ -10,7 +16,6 @@
 //   - Laedt v7_timesheet_notes fuer aktive Projekte
 //   - Uebergibt notes-Prop an StundennachweisMatrix
 // v7.4.4-2: FIX: Zeiterfassungsstatus-Tabelle sortiert nach MA-Nr. (employee_number)
-// Datum: 17. April 2026
 //
 // Ersetzt berichte-page (Firma) und berater-berichte-page (Berater).
 // portal-Parameter steuert Farbe und Navigation.
@@ -32,6 +37,10 @@ import PortalNav from '@/components/shared/PortalNav';
 import ProjektFortschrittPanel from '@/components/shared/ProjektFortschrittPanel';
 import StundennachweisMatrix from '@/components/shared/StundennachweisMatrix';
 import ZAPanel, { loadProjectAssignments } from '@/components/shared/ZAPanel';
+import {
+  getGermanHolidays,
+  type HolidayRegion,
+} from '@/lib/holidays/germanHolidays';
 import {
   BarChart3,
   FolderKanban,
@@ -85,6 +94,7 @@ interface Company {
   id: string;
   name: string;
   federal_state: string | null;
+  holiday_region: string | null;  // v7.4.6
 }
 
 interface Project {
@@ -200,68 +210,8 @@ const getWorkingDaysInMonth = (year: number, month: number, holidays: Map<string
   return workingDays;
 };
 
-const getEasterSunday = (year: number): Date => {
-  const a = year % 19;
-  const b = Math.floor(year / 100);
-  const c = year % 100;
-  const d = Math.floor(b / 4);
-  const e = b % 4;
-  const f = Math.floor((b + 8) / 25);
-  const g = Math.floor((b - f + 1) / 3);
-  const h = (19 * a + b - d - g + 15) % 30;
-  const i = Math.floor(c / 4);
-  const k = c % 4;
-  const l = (32 + 2 * e + 2 * i - h - k) % 7;
-  const m = Math.floor((a + 11 * h + 22 * l) / 451);
-  const month = Math.floor((h + l - 7 * m + 114) / 31) - 1;
-  const day = ((h + l - 7 * m + 114) % 31) + 1;
-  return new Date(year, month, day);
-};
-
-const normalizeStateCode = (state: string | null | undefined): string => {
-  if (!state) return '';
-  if (state.startsWith('DE-')) return state;
-  const map: Record<string, string> = {
-    'Baden-Wuerttemberg': 'DE-BW', 'Bayern': 'DE-BY', 'Bavaria': 'DE-BY',
-    'Berlin': 'DE-BE', 'Brandenburg': 'DE-BB', 'Bremen': 'DE-HB', 'Hamburg': 'DE-HH',
-    'Hessen': 'DE-HE', 'Hesse': 'DE-HE', 'Mecklenburg-Vorpommern': 'DE-MV',
-    'Niedersachsen': 'DE-NI', 'Lower Saxony': 'DE-NI', 'Nordrhein-Westfalen': 'DE-NW',
-    'North Rhine-Westphalia': 'DE-NW', 'Rheinland-Pfalz': 'DE-RP',
-    'Rhineland-Palatinate': 'DE-RP', 'Saarland': 'DE-SL', 'Sachsen': 'DE-SN',
-    'Saxony': 'DE-SN', 'Sachsen-Anhalt': 'DE-ST', 'Schleswig-Holstein': 'DE-SH',
-    'Thueringen': 'DE-TH', 'Thuringia': 'DE-TH',
-  };
-  return map[state] || state;
-};
-
-const getGermanHolidays = (year: number, stateCode: string): Map<string, string> => {
-  const holidays = new Map<string, string>();
-  const easter = getEasterSunday(year);
-  const fmt = (d: Date): string => {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-  };
-  const addDays = (d: Date, days: number): Date => {
-    const r = new Date(d); r.setDate(d.getDate() + days); return r;
-  };
-  holidays.set(`${year}-01-01`, 'Neujahr');
-  holidays.set(fmt(addDays(easter, -2)), 'Karfreitag');
-  holidays.set(fmt(addDays(easter, 1)), 'Ostermontag');
-  holidays.set(`${year}-05-01`, 'Tag der Arbeit');
-  holidays.set(fmt(addDays(easter, 39)), 'Chr. Himmelfahrt');
-  holidays.set(fmt(addDays(easter, 50)), 'Pfingstmontag');
-  holidays.set(`${year}-10-03`, 'Tag d. Dt. Einheit');
-  holidays.set(`${year}-12-25`, '1. Weihnachtstag');
-  holidays.set(`${year}-12-26`, '2. Weihnachtstag');
-  if (['DE-BW', 'DE-BY', 'DE-ST'].includes(stateCode)) holidays.set(`${year}-01-06`, 'Hl. Drei Koenige');
-  if (['DE-BW', 'DE-BY', 'DE-HE', 'DE-NW', 'DE-RP', 'DE-SL'].includes(stateCode)) holidays.set(fmt(addDays(easter, 60)), 'Fronleichnam');
-  if (['DE-BY', 'DE-SL'].includes(stateCode)) holidays.set(`${year}-08-15`, 'Mariae Himmelfahrt');
-  if (['DE-BB', 'DE-HB', 'DE-HH', 'DE-MV', 'DE-NI', 'DE-SN', 'DE-ST', 'DE-SH', 'DE-TH'].includes(stateCode)) holidays.set(`${year}-10-31`, 'Reformationstag');
-  if (['DE-BW', 'DE-BY', 'DE-NW', 'DE-RP', 'DE-SL'].includes(stateCode)) holidays.set(`${year}-11-01`, 'Allerheiligen');
-  return holidays;
-};
+// Feiertagsberechnung ausgelagert in src/lib/holidays/germanHolidays.ts (v7.4.6)
+// Import oben: getGermanHolidays, HolidayRegion
 
 const formatPM = (pm: number): string => pm.toFixed(1).replace('.', ',');
 
@@ -301,8 +251,12 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
 
   const holidays = useMemo(() => {
     if (!company?.federal_state) return new Map<string, string>();
-    return getGermanHolidays(selectedYear, normalizeStateCode(company.federal_state));
-  }, [selectedYear, company?.federal_state]);
+    return getGermanHolidays(
+      selectedYear,
+      company.federal_state,
+      (company.holiday_region ?? undefined) as HolidayRegion,
+    );
+  }, [selectedYear, company?.federal_state, company?.holiday_region]);
 
   // Portal-spezifische Farben
   const colors = portal === 'berater'
@@ -347,7 +301,7 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
         // Company
         const { data: companyData, error: companyError } = await supabase
           .from('v7_client_companies')
-          .select('id, name, federal_state')
+          .select('id, name, federal_state, holiday_region')
           .eq('id', companyId)
           .single();
         if (companyError || !companyData) { setError('Firma nicht gefunden'); return; }

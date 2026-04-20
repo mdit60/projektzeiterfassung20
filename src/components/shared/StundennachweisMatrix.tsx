@@ -2,7 +2,15 @@
 // ============================================================================
 // PZE V7 - Shared Component: Stundennachweis-Matrix
 // ============================================================================
-// Version: 7.4.4-4
+// Version: 7.4.6-1
+// Datum: 20. April 2026
+// v7.4.6-1: Feiertagsberechnung konsolidiert - nutzt zentrale Utility
+//   src/lib/holidays/germanHolidays.ts. Lokale getGermanHolidays/
+//   normalizeStateCode entfernt. Company-Interface um holiday_region erweitert.
+//   Hinweis: Die lokale Version normalisierte auf Kurzcode ("BY" statt "DE-BY")
+//   und fehlte Buss-/Bettag, Frauentag, Weltkindertag. Utility ist vollstaendig
+//   und liefert bei identischem Input die korrekten Ergebnisse.
+//
 // v7.4.4-4: NEU: Monats-Zellen grau wenn MA nicht im Unternehmen/Projekt
 //   - Employee um employment_start/end erweitert
 //   - ProjectAssignment um assignment_start/end erweitert
@@ -14,7 +22,6 @@
 // v7.4.4-2: FIX: Stundennachweis-Matrix sortiert nach MA-Nr. (employee_number)
 //   - projectAssignments als neues Prop ergaenzt
 //   - matrixEmployees wird nach employee_number sortiert
-// Datum: 1. April 2026
 //
 // Wird von beiden Portalen genutzt:
 // - Firmen-Portal:  /v7/firma/berichte
@@ -39,6 +46,11 @@
 
 import React, { useMemo } from 'react';
 import { Grid3x3, CheckCircle, AlertTriangle, XCircle } from 'lucide-react';
+import {
+  getGermanHolidays,
+  countWorkdaysInMonth,
+  type HolidayRegion,
+} from '@/lib/holidays/germanHolidays';
 
 // ============================================================================
 // FOERDERFORMAT-LABELS
@@ -109,6 +121,7 @@ interface Completion {
 
 interface Company {
   federal_state: string | null;
+  holiday_region: string | null;  // v7.4.6
 }
 
 interface TimesheetNote {
@@ -156,96 +169,9 @@ interface StundennachweisMatrixProps {
 
 const MONTH_SHORT = ['Jan','Feb','Mrz','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
 
-function normalizeStateCode(state: string | null | undefined): string {
-  if (!state) return 'BY';
-  const s = state.toUpperCase().trim();
-  const map: Record<string, string> = {
-    'BAYERN': 'BY', 'BAVARIA': 'BY',
-    'BERLIN': 'BE', 'BRANDENBURG': 'BB',
-    'BREMEN': 'HB', 'HAMBURG': 'HH',
-    'HESSEN': 'HE', 'HESSE': 'HE',
-    'MECKLENBURG-VORPOMMERN': 'MV', 'MV': 'MV',
-    'NIEDERSACHSEN': 'NI', 'LOWER SAXONY': 'NI',
-    'NORDRHEIN-WESTFALEN': 'NW', 'NRW': 'NW',
-    'RHEINLAND-PFALZ': 'RP',
-    'SAARLAND': 'SL',
-    'SACHSEN': 'SN', 'SAXONY': 'SN',
-    'SACHSEN-ANHALT': 'ST',
-    'SCHLESWIG-HOLSTEIN': 'SH',
-    'THUERINGEN': 'TH', 'THURINGIA': 'TH',
-    'BADEN-WUERTTEMBERG': 'BW', 'BW': 'BW',
-  };
-  return map[s] || s.substring(0, 2) || 'BY';
-}
-
-function getGermanHolidays(year: number, state: string): Map<string, string> {
-  const holidays = new Map<string, string>();
-  const add = (month: number, day: number, name: string) => {
-    holidays.set(`${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`, name);
-  };
-  // Ostern berechnen (Gauss)
-  const a = year % 19, b = Math.floor(year/100), c = year % 100;
-  const d = Math.floor(b/4), e = b % 4, f = Math.floor((b+8)/25);
-  const g = Math.floor((b-f+1)/3), h = (19*a+b-d-g+15) % 30;
-  const i = Math.floor(c/4), k = c % 4;
-  const l = (32+2*e+2*i-h-k) % 7;
-  const m = Math.floor((a+11*h+22*l)/451);
-  const month = Math.floor((h+l-7*m+114)/31);
-  const day = ((h+l-7*m+114) % 31)+1;
-  const easter = new Date(year, month-1, day);
-  const addDays = (d: Date, n: number) => new Date(d.getTime()+n*86400000);
-  const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-
-  holidays.set(fmt(addDays(easter,-2)), 'Karfreitag');
-  holidays.set(fmt(easter), 'Ostersonntag');
-  holidays.set(fmt(addDays(easter,1)), 'Ostermontag');
-  holidays.set(fmt(addDays(easter,39)), 'Himmelfahrt');
-  holidays.set(fmt(addDays(easter,49)), 'Pfingstsonntag');
-  holidays.set(fmt(addDays(easter,50)), 'Pfingstmontag');
-
-  add(1,1,'Neujahr'); add(5,1,'Tag der Arbeit');
-  add(10,3,'Tag der Deutschen Einheit'); add(12,25,'1. Weihnachtstag');
-  add(12,26,'2. Weihnachtstag');
-
-  const stateHolidays: Record<string, Array<[number,number,string]>> = {
-    BY: [[1,6,'Heilige Drei Koenige'],[8,15,'Mariae Himmelfahrt'],[11,1,'Allerheiligen']],
-    BW: [[1,6,'Heilige Drei Koenige'],[11,1,'Allerheiligen']],
-    NW: [[11,1,'Allerheiligen']],
-    RP: [[11,1,'Allerheiligen']],
-    SL: [[8,15,'Mariae Himmelfahrt'],[11,1,'Allerheiligen']],
-    SN: [[10,31,'Reformationstag']],
-    TH: [[10,31,'Reformationstag']],
-    ST: [[10,31,'Reformationstag']],
-    BB: [[10,31,'Reformationstag']],
-    MV: [[10,31,'Reformationstag']],
-    SH: [],
-    HH: [],
-    HB: [],
-    NI: [],
-    HE: [],
-    BE: [],
-  };
-  const extra = stateHolidays[state] || [];
-  extra.forEach(([m,d,n]) => add(m,d,n));
-
-  const corpusChristi = addDays(easter, 60);
-  if (['BY','BW','HE','NW','RP','SL'].includes(state)) {
-    holidays.set(fmt(corpusChristi), 'Fronleichnam');
-  }
-  return holidays;
-}
-
-function getWorkingDaysInMonth(year: number, month: number, holidays: Map<string, string>): number {
-  let count = 0;
-  const daysInMonth = new Date(year, month, 0).getDate();
-  for (let d = 1; d <= daysInMonth; d++) {
-    const dow = new Date(year, month-1, d).getDay();
-    if (dow === 0 || dow === 6) continue;
-    const ds = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    if (!holidays.has(ds)) count++;
-  }
-  return count;
-}
+// Feiertagsberechnung + Sollarbeitstage ausgelagert in
+// src/lib/holidays/germanHolidays.ts (v7.4.6).
+// Import oben: getGermanHolidays, countWorkdaysInMonth, HolidayRegion
 
 // ============================================================================
 // COMPONENT
@@ -317,9 +243,11 @@ export default function StundennachweisMatrix({
         return (a.display_name || '').localeCompare(b.display_name || '', 'de');
       });
 
+    // Feiertagsmap pro Jahr einmal berechnen (v7.4.6: inkl. holiday_region)
+    const holidayRegion = (company?.holiday_region ?? undefined) as HolidayRegion;
     const holidaysByYear: Record<number, Map<string, string>> = {};
     years.forEach(y => {
-      holidaysByYear[y] = getGermanHolidays(y, normalizeStateCode(company?.federal_state));
+      holidaysByYear[y] = getGermanHolidays(y, company?.federal_state ?? null, holidayRegion);
     });
 
     const cells: MatrixCell[] = [];
@@ -356,7 +284,7 @@ export default function StundennachweisMatrix({
           return d.getFullYear() === year && d.getMonth() + 1 === month;
         });
         const hoursRecorded = monthTimesheets.reduce((sum, t) => sum + (t.hours || 0), 0);
-        const workingDays = getWorkingDaysInMonth(year, month, holidaysByYear[year] || new Map());
+        const workingDays = countWorkdaysInMonth(year, month, company?.federal_state ?? null, holidayRegion);
         const daysWithEntries = new Set(
           monthTimesheets.filter(t => (t.hours || 0) > 0).map(t => t.work_date)
         ).size;
