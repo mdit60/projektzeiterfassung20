@@ -2,8 +2,8 @@
 
 // ============================================================================
 // SHARED COMPONENT: FirmendatenCard
-// Version: 7.4.4-2
-// Datum: 20. Maerz 2026
+// Version: 7.4.6-1
+// Datum: 20. April 2026
 //
 // Verwendung:
 //   - Berater-Portal: /v7/berater/foerderung/firma/[id] (Tab: Firmendaten)
@@ -14,6 +14,10 @@
 //   portal   : 'berater'|'firma' - steuert Farbe (blau/gruen)
 //   canEdit  : boolean        - Bearbeiten-Button sichtbar?
 //
+// v7.4.6-1: NEU: Feld holiday_region (kommunaler Feiertags-Override)
+//            - Dropdown im Modal: sichtbar nur bei Bayern/Sachsen/Thueringen
+//            - Info-Banner in Anzeige: wenn Bundesland Sonderregelung hat und
+//              holiday_region noch NULL -> Hinweis "bitte pruefen"
 // v7.4.4-2: NEU: Feld standard_weekly_hours (Regelarbeitszeit des Unternehmens)
 //            Wird fuer Feiertagsstunden-Berechnung in TimesheetForm genutzt
 // v7.4.4-1: Erstversion als Shared Component
@@ -30,7 +34,14 @@ import {
   Loader2,
   AlertCircle,
   CheckCircle,
+  Info,
 } from 'lucide-react';
+import {
+  normalizeStateCode,
+  HOLIDAY_REGION_VALUES,
+  HOLIDAY_REGION_LABELS,
+  STATES_WITH_HOLIDAY_REGION,
+} from '@/lib/holidays/germanHolidays';
 
 // ============================================================================
 // KONSTANTEN
@@ -72,6 +83,7 @@ interface ClientCompany {
   zip_code: string | null;
   city: string | null;
   federal_state: string | null;
+  holiday_region: string | null;  // v7.4.6
   contact_person: string | null;
   contact_email: string | null;
   contact_phone: string | null;
@@ -86,6 +98,7 @@ interface EditForm {
   zip_code: string;
   city: string;
   federal_state: string;
+  holiday_region: string;  // v7.4.6 - '' = NULL
   contact_person: string;
   contact_email: string;
   contact_phone: string;
@@ -116,6 +129,7 @@ function companyToForm(firma: ClientCompany): EditForm {
     zip_code: firma.zip_code || '',
     city: firma.city || '',
     federal_state: firma.federal_state || '',
+    holiday_region: firma.holiday_region || '',
     contact_person: firma.contact_person || '',
     contact_email: firma.contact_email || '',
     contact_phone: firma.contact_phone || '',
@@ -160,7 +174,7 @@ export default function FirmendatenCard({
       setLoadError(null);
       const { data, error } = await supabase
         .from('v7_client_companies')
-        .select('id, name, short_name, street, zip_code, city, federal_state, contact_person, contact_email, contact_phone, created_at, standard_weekly_hours')
+        .select('id, name, short_name, street, zip_code, city, federal_state, holiday_region, contact_person, contact_email, contact_phone, created_at, standard_weekly_hours')
         .eq('id', firmaId)
         .single();
 
@@ -217,6 +231,14 @@ export default function FirmendatenCard({
 
     setSaving(true);
     try {
+      // Wenn Bundesland nicht mehr zu den Sonderregelungs-Laendern gehoert,
+      // holiday_region automatisch auf NULL setzen (sonst haette man inkonsistente
+      // Daten: z.B. federal_state=Berlin, holiday_region=BY_EVAN).
+      const stateCode = normalizeStateCode(form.federal_state);
+      const regionForSave = STATES_WITH_HOLIDAY_REGION.includes(stateCode)
+        ? (form.holiday_region || null)
+        : null;
+
       const { error } = await supabase
         .from('v7_client_companies')
         .update({
@@ -226,6 +248,7 @@ export default function FirmendatenCard({
           zip_code: form.zip_code.trim() || null,
           city: form.city.trim() || null,
           federal_state: form.federal_state,
+          holiday_region: regionForSave,
           contact_person: form.contact_person.trim() || null,
           contact_email: form.contact_email.trim() || null,
           contact_phone: form.contact_phone.trim() || null,
@@ -336,6 +359,35 @@ export default function FirmendatenCard({
               </div>
             </div>
 
+            {/* Feiertagsregion (v7.4.6): Anzeige und Info-Banner */}
+            {firma.holiday_region && (
+              <div>
+                <div className="text-sm text-gray-500 mb-1">Feiertagsregion</div>
+                <div className="text-gray-900 text-sm">
+                  {HOLIDAY_REGION_LABELS[firma.holiday_region as keyof typeof HOLIDAY_REGION_LABELS] || firma.holiday_region}
+                </div>
+              </div>
+            )}
+            {!firma.holiday_region && STATES_WITH_HOLIDAY_REGION.includes(normalizeStateCode(firma.federal_state)) && (
+              <div className="flex items-start gap-2 bg-amber-50 border border-amber-300 rounded-md px-3 py-2 text-xs text-amber-800">
+                <Info className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-600" />
+                <div>
+                  <div className="font-semibold">Feiertagsregion pruefen</div>
+                  <div className="mt-0.5">
+                    {normalizeStateCode(firma.federal_state) === 'DE-BY' && (
+                      <span>In Bayern gilt Mariae Himmelfahrt nur in ueberwiegend katholischen Gemeinden als Feiertag. In Mittelfranken (z.B. Nuernberg, Fuerth, Schwabach) ist der 15.08. Arbeitstag. Bitte im Bearbeiten-Modus die passende Region auswaehlen.</span>
+                    )}
+                    {normalizeStateCode(firma.federal_state) === 'DE-SN' && (
+                      <span>In Sachsen ist Fronleichnam nur im sorbischen Siedlungsgebiet Feiertag. Bitte im Bearbeiten-Modus pruefen.</span>
+                    )}
+                    {normalizeStateCode(firma.federal_state) === 'DE-TH' && (
+                      <span>In Thueringen ist Fronleichnam nur im Eichsfeld und Teilen des Unstrut-Hainich/Wartburgkreises Feiertag. Bitte im Bearbeiten-Modus pruefen.</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div>
               <div className="text-sm text-gray-500 mb-1">Angelegt am</div>
               <div className="text-gray-900">{formatDate(firma.created_at)}</div>
@@ -373,7 +425,7 @@ export default function FirmendatenCard({
               <div className="text-sm text-gray-500 mb-1">Regelarbeitszeit</div>
               <div className="text-gray-900">
                 {firma.standard_weekly_hours
-                  ? <>{String(firma.standard_weekly_hours).replace('.', ',')} h/Woche ({(firma.standard_weekly_hours / 5).toFixed(1).replace('.', ',')} h/Tag)</>
+                  ? <span>{String(firma.standard_weekly_hours).replace('.', ',')} h/Woche ({(firma.standard_weekly_hours / 5).toFixed(1).replace('.', ',')} h/Tag)</span>
                   : <span className="text-gray-400">40 h/Woche (Standard)</span>
                 }
               </div>
@@ -533,7 +585,18 @@ export default function FirmendatenCard({
                 </label>
                 <select
                   value={form.federal_state}
-                  onChange={(e) => setForm({ ...form, federal_state: e.target.value })}
+                  onChange={(e) => {
+                    const newState = e.target.value;
+                    // Wenn Bundesland gewechselt wird und neues BL nicht zu Sonder-
+                    // regelungs-Laendern gehoert, holiday_region zuruecksetzen.
+                    const newStateCode = normalizeStateCode(newState);
+                    const keepRegion = STATES_WITH_HOLIDAY_REGION.includes(newStateCode);
+                    setForm({
+                      ...form,
+                      federal_state: newState,
+                      holiday_region: keepRegion ? form.holiday_region : '',
+                    });
+                  }}
                   className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg
                              focus:outline-none focus:ring-2 focus:border-transparent bg-white"
                   disabled={saving}
@@ -544,6 +607,39 @@ export default function FirmendatenCard({
                   ))}
                 </select>
               </div>
+
+              {/* Feiertagsregion (v7.4.6) - nur bei BY/SN/TH sichtbar */}
+              {STATES_WITH_HOLIDAY_REGION.includes(normalizeStateCode(form.federal_state)) && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Feiertagsregion <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <select
+                    value={form.holiday_region}
+                    onChange={(e) => setForm({ ...form, holiday_region: e.target.value })}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg
+                               focus:outline-none focus:ring-2 focus:border-transparent bg-white"
+                    disabled={saving}
+                  >
+                    <option value="">Standard (Bundesland-Regel)</option>
+                    {HOLIDAY_REGION_VALUES
+                      .filter((v) => {
+                        const sc = normalizeStateCode(form.federal_state);
+                        if (sc === 'DE-BY') return v.startsWith('BY_');
+                        if (sc === 'DE-SN') return v === 'SN_SORB';
+                        if (sc === 'DE-TH') return v === 'TH_EICHSFELD';
+                        return false;
+                      })
+                      .map((v) => (
+                        <option key={v} value={v}>{HOLIDAY_REGION_LABELS[v]}</option>
+                      ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Nur aendern, wenn eine kommunale Sonderregelung fuer diese Firma gilt.
+                    Standard = alle gesetzlichen Feiertage des Bundeslands.
+                  </p>
+                </div>
+              )}
 
               {/* Abschnitt: Kontakt */}
               <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider pt-2">

@@ -2,12 +2,13 @@
 // ============================================================================
 // PZE V7 - TypeScript Interfaces
 // ============================================================================
-// Datum: 23. Februar 2026
-// Version: 7.4.0
+// Datum: 20. April 2026
+// Version: 7.4.6-1
 // 
 // Diese Datei enthaelt alle TypeScript-Typen fuer die V7-Datenbankstruktur.
 // Erweitert um Portal-Rollen und Kapazitaetsmanagement.
 //
+// v7.4.6-1: holiday_region in V7ClientCompany fuer kommunale Feiertags-Sonderfaelle
 // v7.4.0: V7_NAV_BERATER um 'Zeiterfassungen' (/v7/berater/timesheets) erweitert
 // v7.3.86: employee_number zu V7Employee hinzugefuegt (optional)
 // ============================================================================
@@ -429,6 +430,7 @@ export interface V7ClientCompany {
   zip_code: string | null;
   city: string | null;
   federal_state: string;
+  holiday_region: string | null;  // v7.4.6: kommunaler Feiertags-Override
   contact_person: string | null;
   contact_email: string | null;
   contact_phone: string | null;
@@ -449,6 +451,7 @@ export interface V7ClientCompanyInsert {
   zip_code?: string | null;
   city?: string | null;
   federal_state: string;
+  holiday_region?: string | null;  // v7.4.6
   contact_person?: string | null;
   contact_email?: string | null;
   contact_phone?: string | null;
@@ -466,6 +469,7 @@ export interface V7ClientCompanyUpdate {
   zip_code?: string | null;
   city?: string | null;
   federal_state?: string;
+  holiday_region?: string | null;  // v7.4.6
   contact_person?: string | null;
   contact_email?: string | null;
   contact_phone?: string | null;

@@ -2,9 +2,11 @@
 // ============================================================================
 // PZE V7 - Zeiterfassung Seite (Firmen-Portal)
 // ============================================================================
-// Version: 7.3.94
-// Datum: 17. April 2026
+// Version: 7.4.6-1
+// Datum: 20. April 2026
 //
+// v7.4.6-1: Company-Query um holiday_region erweitert (wird an TimesheetForm
+//           durchgereicht fuer kommunale Feiertags-Sonderfaelle)
 // v7.3.94: Employee-Query um employment_start, employment_end erweitert
 //          Project-Query um start_date, end_date erweitert
 //          (benoeigt fuer TimesheetForm v7.4.3-19 Monats-Einschraenkung)
@@ -49,6 +51,7 @@ interface ClientCompany {
   id: string;
   name: string;
   federal_state: string | null;
+  holiday_region: string | null;  // v7.4.6
   standard_weekly_hours: number | null;
 }
 
@@ -146,7 +149,7 @@ function ZeiterfassungContent() {
         // 2. Company
         const { data: companyData, error: companyError } = await supabase
           .from('v7_client_companies')
-          .select('id, name, federal_state, standard_weekly_hours')
+          .select('id, name, federal_state, holiday_region, standard_weekly_hours')
           .eq('id', companyId)
           .single();
         
