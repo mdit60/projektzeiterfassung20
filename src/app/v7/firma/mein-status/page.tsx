@@ -2,7 +2,12 @@
 // ============================================================================
 // PZE V7 - Mein Status (Firmen-Portal)
 // ============================================================================
-// Version: 7.4.4-10
+// Version: 7.4.4-11
+// v7.4.4-11: FIX: Download-Link Firmen-Administrator korrigiert
+//   - Pfad: PZE_Schnellstart_Firmen-Administrator.pdf -> PZE_Anleitung_Firmen-Administrator.pdf
+//   - Label: "Schnellstart-Anleitung Firmen-Administrator" -> "Anleitung Firmen-Administrator"
+//   - Grund: Datei existiert im public/manuals/ als "Anleitung_...", nicht als "Schnellstart_..."
+//   - 404-Fehler bei Download ist damit behoben
 // v7.4.4-10: NEU: Offene Rueckfragen-Abschnitt fuer Admin/PL
 //   - Laedt offene v7_timesheet_notes der eigenen Firma
 //   - Tabelle mit MA/Projekt/Monat/Notiz + Direktlink zur ZE
@@ -813,8 +818,8 @@ export default function MeinStatusPage() {
         {(() => {
           const manualMap: Record<string, { file: string; label: string }> = {
             client_admin: {
-              file: '/manuals/PZE_Schnellstart_Firmen-Administrator.pdf',
-              label: 'Schnellstart-Anleitung Firmen-Administrator',
+              file: '/manuals/PZE_Anleitung_Firmen-Administrator.pdf',
+              label: 'Anleitung Firmen-Administrator',
             },
             project_leader: {
               file: '/manuals/PZE_Anleitung_Projektleiter.pdf',
