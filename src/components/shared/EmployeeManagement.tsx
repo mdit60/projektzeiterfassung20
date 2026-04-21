@@ -3,15 +3,22 @@
 // PZE V7 - Shared Employee Management Component
 // ============================================================================
 // Datum: 21. April 2026
-// Version: 7.3.95-7
-// v7.3.95-7: FIX Position-Dropdown: "Sonstige"-Auswahl funktioniert jetzt auch
-//   bei leerem position_title. Neuer lokaler State sonstigeAktiv merkt sich,
-//   ob User bewusst "Sonstige" gewaehlt hat, damit Dropdown nicht auf
-//   "-- Bitte waehlen --" zurueckspringt.
-// v7.3.95-6: PHASE 1 Arbeitszeitgrenzen: position_title als Dropdown mit
-//   Freitext-Fallback "Sonstige". GF-Hinweis bei Auswahl von
-//   'Geschaeftsfuehrer' / 'Gesellschafter-Geschaeftsfuehrer'.
+// Version: 7.3.95-8
+// v7.3.95-8: PHASE 1 Arbeitszeitgrenzen auf Basis der echten v7.3.95-7.
+//   Forward-Fix nach versehentlichem Ueberschreiben in Session 24.
+//   - position_title als Dropdown mit Sonstige-Fallback
+//   - GF-Hinweis bei Auswahl Geschaeftsfuehrer / Gesellschafter-Geschaeftsfuehrer
+//   - State sonstigeAktiv fuer korrekte Dropdown-Anzeige bei Sonstige-Auswahl
+//   - Ausgeschieden-Feature (isEmpActive) und employment_end-Sync BLEIBEN.
 //   Siehe KONZEPT-ARBEITSZEITGRENZEN-v1_3.md.
+// v7.3.95-7:
+//   1. Status-Anzeige: "Ausgeschieden" wenn employment_end in der Vergangenheit
+//      (zusaetzlich zu "Inaktiv" bei manuellem is_active=false)
+//      Helper-Funktion isEmpActive(emp) steuert alle Status-Checks.
+//   2. employment_end -> assignment_end automatisch uebertragen:
+//      Wenn employment_end gesetzt wird und kleiner als bestehendes assignment_end
+//      (oder assignment_end leer), werden alle Projektteam-Eintraege dieses MA
+//      automatisch auf employment_end gekappt.
 // v7.3.95-5: 'Student' zur QUALIFICATION_OPTIONS Liste hinzugefuegt
 // v7.3.95-4: REFACTOR: handleCreateLogin auf atomare API-Route /api/v7/create-employee-login
 //   umgestellt. Alle 3 Schritte (Auth + Profil + Employee) server-seitig und atomar.
@@ -56,6 +63,8 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
+// v7.3.95-8: Phase 1 - Position-Dropdown-Konstanten aus zentralem Types-Modul
+import { POSITION_OPTIONS, GF_POSITIONS } from '@/types/v7-types';
 import {
   Users,
   Search,
@@ -69,7 +78,6 @@ import {
   Link2,
   Check,
 } from 'lucide-react';
-import { POSITION_OPTIONS, GF_POSITIONS } from '@/types/v7-types';
 
 // ============================================================================
 // TYPEN
@@ -147,6 +155,14 @@ const QUALIFICATION_OPTIONS = [
   'Promotion',
 ];
 
+// Helper: MA gilt als aktiv wenn is_active=true UND employment_end nicht ueberschritten
+function isEmpActive(emp: { is_active: boolean; employment_end: string | null }): boolean {
+  if (!emp.is_active) return false;
+  if (!emp.employment_end) return true;
+  const today = new Date().toISOString().split('T')[0];
+  return emp.employment_end >= today;
+}
+
 const PORTAL_ROLE_OPTIONS = [
   { value: 'employee', label: 'Mitarbeiter', description: 'Kann nur eigene Zeiterfassung sehen' },
   { value: 'project_leader', label: 'Projektleiter', description: 'Kann zugeordnete Projekte und deren MA sehen' },
@@ -199,7 +215,7 @@ export default function EmployeeManagement({
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [formData, setFormData] = useState<EmployeeFormData>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
-  // v7.3.95-7: Merkt sich ob User im Position-Dropdown "Sonstige" gewaehlt hat.
+  // v7.3.95-8: Merkt sich ob User im Position-Dropdown "Sonstige" gewaehlt hat.
   // Brauchen wir, weil position_title dann '' wird und sonst nicht zu
   // unterscheiden waere von "noch nicht gewaehlt".
   const [sonstigeAktiv, setSonstigeAktiv] = useState(false);
@@ -351,7 +367,7 @@ export default function EmployeeManagement({
     setEditingEmployee(null);
     setFormData(EMPTY_FORM);
     setFormError(null);
-    setSonstigeAktiv(false);  // v7.3.95-7
+    setSonstigeAktiv(false);  // v7.3.95-8
     setShowModal(true);
   };
 
@@ -370,7 +386,7 @@ export default function EmployeeManagement({
       employment_end: emp.employment_end || '',
       portal_role: emp.portal_role || 'employee',
     });
-    // v7.3.95-7: sonstigeAktiv true, wenn position_title nicht in Standardrollen
+    // v7.3.95-8: sonstigeAktiv true, wenn position_title nicht in Standardrollen
     // ist (d.h. Freitext-Altbestand wie "Entwickler", "GF" usw.).
     const pt = emp.position_title || '';
     const istStandard =
@@ -387,7 +403,7 @@ export default function EmployeeManagement({
     setEditingEmployee(null);
     setFormData(EMPTY_FORM);
     setFormError(null);
-    setSonstigeAktiv(false);  // v7.3.95-7
+    setSonstigeAktiv(false);  // v7.3.95-8
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -458,6 +474,26 @@ export default function EmployeeManagement({
           .eq('id', editingEmployee.id);
 
         if (error) throw error;
+
+        // Automatisch alle Projektteam-Eintraege kappen wenn employment_end gesetzt
+        if (saveData.employment_end) {
+          const { data: assignments } = await supabase
+            .from('v7_project_assignments')
+            .select('id, assignment_end')
+            .eq('employee_id', editingEmployee.id);
+
+          if (assignments && assignments.length > 0) {
+            const toUpdate = assignments.filter(a =>
+              !a.assignment_end || a.assignment_end > saveData.employment_end!
+            );
+            if (toUpdate.length > 0) {
+              await supabase
+                .from('v7_project_assignments')
+                .update({ assignment_end: saveData.employment_end })
+                .in('id', toUpdate.map((a: { id: string }) => a.id));
+            }
+          }
+        }
       }
 
       closeModal();
@@ -721,8 +757,8 @@ export default function EmployeeManagement({
     (e.position_title && e.position_title.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  const activeCount = employees.filter(e => e.is_active).length;
-  const inactiveCount = employees.filter(e => !e.is_active).length;
+  const activeCount = employees.filter(e => isEmpActive(e)).length;
+  const inactiveCount = employees.filter(e => !isEmpActive(e)).length;
 
   // ============================================================================
   // RENDER - LOADING
@@ -816,7 +852,7 @@ export default function EmployeeManagement({
                 {filteredEmployees.map((emp) => (
                   <tr
                     key={emp.id}
-                    className={`hover:bg-gray-50 ${!emp.is_active ? 'opacity-50' : ''}`}
+                    className={`hover:bg-gray-50 ${!isEmpActive(emp) ? 'opacity-50' : ''}`}
                   >
                     <td className="px-6 py-4">
                       <div className="font-medium text-gray-900">{emp.display_name}</div>
@@ -849,9 +885,13 @@ export default function EmployeeManagement({
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex flex-col gap-1">
-                        {emp.is_active ? (
+                        {isEmpActive(emp) ? (
                           <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700">
                             Aktiv
+                          </span>
+                        ) : emp.is_active && emp.employment_end ? (
+                          <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-orange-100 text-orange-700">
+                            Ausgeschieden {formatDate(emp.employment_end)}
                           </span>
                         ) : (
                           <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-gray-200 text-gray-600">
@@ -874,7 +914,7 @@ export default function EmployeeManagement({
                       <td className="px-6 py-4 text-right">
                         <div className="flex justify-end gap-2">
                           {/* Login erstellen/verknuepfen - nur wenn noch nicht verknuepft und E-Mail vorhanden */}
-                          {!emp.user_id && emp.email && emp.is_active && (
+                          {!emp.user_id && emp.email && isEmpActive(emp) && (
                             <button
                               onClick={() => openLoginModal(emp)}
                               className={`p-1.5 rounded ${
@@ -894,7 +934,7 @@ export default function EmployeeManagement({
                             </button>
                           )}
                           {/* Passwort zuruecksetzen - nur wenn MA bereits Login hat */}
-                          {emp.user_id && emp.is_active && (
+                          {emp.user_id && isEmpActive(emp) && (
                             <button
                               onClick={() => openResetPwModal(emp)}
                               className="p-1.5 text-amber-600 hover:text-amber-800 rounded"
@@ -1057,6 +1097,7 @@ export default function EmployeeManagement({
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Position/Funktion</label>
+                  {/* v7.3.95-8: Phase 1 - Dropdown mit Sonstige-Fallback */}
                   {(() => {
                     // Ableitung: Welchen Dropdown-Wert anzeigen?
                     // - Leerer aktuellerWert + sonstigeAktiv=false -> "-- Bitte waehlen --"
@@ -1068,7 +1109,6 @@ export default function EmployeeManagement({
                       aktuellerWert !== '' &&
                       POSITION_OPTIONS.includes(aktuellerWert as (typeof POSITION_OPTIONS)[number]) &&
                       aktuellerWert !== 'Sonstige';
-                    // v7.3.95-7: Dropdown-Wert jetzt mit Beruecksichtigung von sonstigeAktiv
                     let dropdownValue: string;
                     if (istStandardRolle) {
                       dropdownValue = aktuellerWert;
@@ -1083,7 +1123,6 @@ export default function EmployeeManagement({
                     const handleDropdownChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
                       const neu = e.target.value;
                       if (neu === 'Sonstige') {
-                        // v7.3.95-7: Sonstige aktiv merken, damit Dropdown nicht zurueckspringt
                         setSonstigeAktiv(true);
                         setFormData(prev => ({ ...prev, position_title: '' }));
                       } else {
@@ -1113,14 +1152,14 @@ export default function EmployeeManagement({
                             type="text"
                             value={aktuellerWert}
                             onChange={handleFreitextChange}
+                            placeholder="Bitte eigene Bezeichnung eintragen"
                             className={`mt-2 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
-                            placeholder="Funktion als Freitext eingeben"
                           />
                         )}
                         {istGF && (
-                          <p className="mt-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                          <div className="mt-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-900">
                             Bei Geschaeftsfuehrern gilt die 50%-Regel fuer Projektzeit (ZIM-Richtlinie).
-                          </p>
+                          </div>
                         )}
                       </>
                     );
