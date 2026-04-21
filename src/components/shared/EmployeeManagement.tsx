@@ -2,8 +2,15 @@
 // ============================================================================
 // PZE V7 - Shared Employee Management Component
 // ============================================================================
-// Datum: 31. Maerz 2026
-// Version: 7.3.95-7
+// Datum: 21. April 2026
+// Version: 7.3.95-8
+// v7.3.95-8: PHASE 1 Arbeitszeitgrenzen auf Basis der echten v7.3.95-7.
+//   Forward-Fix nach versehentlichem Ueberschreiben in Session 24.
+//   - position_title als Dropdown mit Sonstige-Fallback
+//   - GF-Hinweis bei Auswahl Geschaeftsfuehrer / Gesellschafter-Geschaeftsfuehrer
+//   - State sonstigeAktiv fuer korrekte Dropdown-Anzeige bei Sonstige-Auswahl
+//   - Ausgeschieden-Feature (isEmpActive) und employment_end-Sync BLEIBEN.
+//   Siehe KONZEPT-ARBEITSZEITGRENZEN-v1_3.md.
 // v7.3.95-7:
 //   1. Status-Anzeige: "Ausgeschieden" wenn employment_end in der Vergangenheit
 //      (zusaetzlich zu "Inaktiv" bei manuellem is_active=false)
@@ -56,6 +63,8 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
+// v7.3.95-8: Phase 1 - Position-Dropdown-Konstanten aus zentralem Types-Modul
+import { POSITION_OPTIONS, GF_POSITIONS } from '@/types/v7-types';
 import {
   Users,
   Search,
@@ -206,6 +215,10 @@ export default function EmployeeManagement({
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [formData, setFormData] = useState<EmployeeFormData>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
+  // v7.3.95-8: Merkt sich ob User im Position-Dropdown "Sonstige" gewaehlt hat.
+  // Brauchen wir, weil position_title dann '' wird und sonst nicht zu
+  // unterscheiden waere von "noch nicht gewaehlt".
+  const [sonstigeAktiv, setSonstigeAktiv] = useState(false);
 
   // State - Delete Confirm
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -354,6 +367,7 @@ export default function EmployeeManagement({
     setEditingEmployee(null);
     setFormData(EMPTY_FORM);
     setFormError(null);
+    setSonstigeAktiv(false);  // v7.3.95-8
     setShowModal(true);
   };
 
@@ -372,6 +386,14 @@ export default function EmployeeManagement({
       employment_end: emp.employment_end || '',
       portal_role: emp.portal_role || 'employee',
     });
+    // v7.3.95-8: sonstigeAktiv true, wenn position_title nicht in Standardrollen
+    // ist (d.h. Freitext-Altbestand wie "Entwickler", "GF" usw.).
+    const pt = emp.position_title || '';
+    const istStandard =
+      pt !== '' &&
+      POSITION_OPTIONS.includes(pt as (typeof POSITION_OPTIONS)[number]) &&
+      pt !== 'Sonstige';
+    setSonstigeAktiv(pt !== '' && !istStandard);
     setFormError(null);
     setShowModal(true);
   };
@@ -381,6 +403,7 @@ export default function EmployeeManagement({
     setEditingEmployee(null);
     setFormData(EMPTY_FORM);
     setFormError(null);
+    setSonstigeAktiv(false);  // v7.3.95-8
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -1074,14 +1097,73 @@ export default function EmployeeManagement({
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Position/Funktion</label>
-                  <input
-                    type="text"
-                    name="position_title"
-                    value={formData.position_title}
-                    onChange={handleInputChange}
-                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
-                    placeholder="z.B. Geschaeftsfuehrer, Entwickler"
-                  />
+                  {/* v7.3.95-8: Phase 1 - Dropdown mit Sonstige-Fallback */}
+                  {(() => {
+                    // Ableitung: Welchen Dropdown-Wert anzeigen?
+                    // - Leerer aktuellerWert + sonstigeAktiv=false -> "-- Bitte waehlen --"
+                    // - Leerer aktuellerWert + sonstigeAktiv=true  -> "Sonstige" + leeres Freitext
+                    // - Standardrolle aus POSITION_OPTIONS         -> direkt anzeigen
+                    // - Freitext-Alt-Wert (nicht in Liste)         -> "Sonstige" + Freitext mit Alt-Wert
+                    const aktuellerWert = formData.position_title || '';
+                    const istStandardRolle =
+                      aktuellerWert !== '' &&
+                      POSITION_OPTIONS.includes(aktuellerWert as (typeof POSITION_OPTIONS)[number]) &&
+                      aktuellerWert !== 'Sonstige';
+                    let dropdownValue: string;
+                    if (istStandardRolle) {
+                      dropdownValue = aktuellerWert;
+                    } else if (aktuellerWert !== '' || sonstigeAktiv) {
+                      dropdownValue = 'Sonstige';
+                    } else {
+                      dropdownValue = '';
+                    }
+                    const zeigeFreitext = dropdownValue === 'Sonstige';
+                    const istGF = GF_POSITIONS.includes(aktuellerWert);
+
+                    const handleDropdownChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+                      const neu = e.target.value;
+                      if (neu === 'Sonstige') {
+                        setSonstigeAktiv(true);
+                        setFormData(prev => ({ ...prev, position_title: '' }));
+                      } else {
+                        setSonstigeAktiv(false);
+                        setFormData(prev => ({ ...prev, position_title: neu }));
+                      }
+                    };
+
+                    const handleFreitextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+                      setFormData(prev => ({ ...prev, position_title: e.target.value }));
+                    };
+
+                    return (
+                      <>
+                        <select
+                          value={dropdownValue}
+                          onChange={handleDropdownChange}
+                          className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
+                        >
+                          <option value="">-- Bitte waehlen --</option>
+                          {POSITION_OPTIONS.map(p => (
+                            <option key={p} value={p}>{p}</option>
+                          ))}
+                        </select>
+                        {zeigeFreitext && (
+                          <input
+                            type="text"
+                            value={aktuellerWert}
+                            onChange={handleFreitextChange}
+                            placeholder="Bitte eigene Bezeichnung eintragen"
+                            className={`mt-2 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
+                          />
+                        )}
+                        {istGF && (
+                          <div className="mt-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-900">
+                            Bei Geschaeftsfuehrern gilt die 50%-Regel fuer Projektzeit (ZIM-Richtlinie).
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Qualifikation</label>
