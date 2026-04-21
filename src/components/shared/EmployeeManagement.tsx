@@ -3,7 +3,10 @@
 // PZE V7 - Shared Employee Management Component
 // ============================================================================
 // Datum: 21. April 2026
-// Version: 7.3.95-11
+// Version: 7.3.95-12
+// v7.3.95-12: UI-Feinschliff. Historie-Tabelle: feste Spaltenbreiten, damit
+//   Stundenwert und Notiz nicht mehr aneinander kleben. Kopfzeile klarer
+//   ("Gueltig ab", "Std./Wo.", "Notiz").
 // v7.3.95-11: UI-Feinschliff. Auto-generierte Notiz-Texte werden in der
 //   Historie-Tabelle ausgeblendet (Anzeige "-" wie bei leerer Notiz).
 //   Betrifft drei Marker-Strings aus Migration und Create-Flow.
@@ -1598,8 +1601,8 @@ export default function EmployeeManagement({
                                 <table className="w-full text-xs">
                                   <thead>
                                     <tr className="text-gray-600 border-b">
-                                      <th className="text-left py-1 font-semibold">Gueltig ab</th>
-                                      <th className="text-right py-1 font-semibold">Std/Wo</th>
+                                      <th className="text-left py-1 pr-2 font-semibold w-24">Gueltig ab</th>
+                                      <th className="text-right py-1 pr-4 font-semibold w-16">Std./Wo.</th>
                                       <th className="text-left py-1 font-semibold">Notiz</th>
                                       <th className="w-8"></th>
                                     </tr>
@@ -1607,8 +1610,8 @@ export default function EmployeeManagement({
                                   <tbody>
                                     {hoursHistory.map(h => (
                                       <tr key={h.id} className="border-b last:border-b-0">
-                                        <td className="py-1">{formatDateDE(h.gueltig_ab)}</td>
-                                        <td className="py-1 text-right">{h.weekly_hours}</td>
+                                        <td className="py-1 pr-2">{formatDateDE(h.gueltig_ab)}</td>
+                                        <td className="py-1 pr-4 text-right tabular-nums">{h.weekly_hours}</td>
                                         <td className="py-1 text-gray-600">
                                           {isAutoNotiz(h.notiz) ? '-' : (h.notiz || '-')}
                                         </td>
