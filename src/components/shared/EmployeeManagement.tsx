@@ -3,7 +3,34 @@
 // PZE V7 - Shared Employee Management Component
 // ============================================================================
 // Datum: 21. April 2026
-// Version: 7.3.95-8
+// Version: 7.3.95-11
+// v7.3.95-11: UI-Feinschliff. Auto-generierte Notiz-Texte werden in der
+//   Historie-Tabelle ausgeblendet (Anzeige "-" wie bei leerer Notiz).
+//   Betrifft drei Marker-Strings aus Migration und Create-Flow.
+// v7.3.95-10: BUGFIX in handleDeleteHistoryEntry + konsistente Anzeige.
+//   Beim Loeschen des aktuell wirksamen Eintrags wurde das Alt-Feld
+//   v7_employees.weekly_hours faelschlich auf einen zukuenftigen
+//   History-Eintrag gesetzt (Fallback || verbleibend[0]).
+//   Fix 1: Alt-Feld wird NUR aktualisiert, wenn nach dem Loeschen ein
+//          Eintrag mit gueltig_ab <= heute existiert. Sonst unveraendert.
+//   Fix 2: getCurrentHistoryEntry() liefert null statt Zukunftseintrag,
+//          wenn alle Eintraege in der Zukunft liegen.
+//   Neu:   getNextFutureEntry() - zeigt anstehenden Wechsel als Hinweis
+//          "Ab TT.MM.JJJJ: X h/Woche" (gelb) unter dem aktuellen Wert.
+// v7.3.95-9: PHASE 2 Arbeitszeitgrenzen - Teilzeit-Historie-UI.
+//   Basiert auf v7.3.95-8 (Phase 1), nur punktuelle Ergaenzungen.
+//   - Edit-Modal: "Wochenstunden (pWAZ)"-Feld wird durch Historie-Block ersetzt.
+//     Anzeige "Aktuell: X h/Woche (seit TT.MM.JJJJ)" + aufklappbare Historie.
+//   - Historie-Tabelle: gueltig_ab | Wochenstunden | Notiz | Loeschen
+//   - "+ Neuen Eintrag hinzufuegen"-Sub-Modal mit Datum/Stunden/Notiz
+//     + Validierung gueltig_ab.getDate() === 1 (weiche Warnung).
+//   - Create-Modal: Zahlenfeld bleibt wie bisher. Beim Anlegen wird zusaetzlich
+//     automatisch ein History-Eintrag (gueltig_ab = employment_start oder heute,
+//     weekly_hours = Feldwert) erzeugt.
+//   - Alt-Feld v7_employees.weekly_hours wird synchronisiert, wenn ein neuer
+//     History-Eintrag mit gueltig_ab <= heute angelegt oder der aktuell
+//     wirksame Eintrag geloescht wird.
+//   Siehe KONZEPT-ARBEITSZEITGRENZEN-v1_3.md Phase 2.
 // v7.3.95-8: PHASE 1 Arbeitszeitgrenzen auf Basis der echten v7.3.95-7.
 //   Forward-Fix nach versehentlichem Ueberschreiben in Session 24.
 //   - position_title als Dropdown mit Sonstige-Fallback
@@ -64,7 +91,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 // v7.3.95-8: Phase 1 - Position-Dropdown-Konstanten aus zentralem Types-Modul
-import { POSITION_OPTIONS, GF_POSITIONS } from '@/types/v7-types';
+// v7.3.95-9: Phase 2 - V7EmployeeHoursHistory-Interface fuer Teilzeit-Historie
+import {
+  POSITION_OPTIONS,
+  GF_POSITIONS,
+  V7EmployeeHoursHistory,
+} from '@/types/v7-types';
 import {
   Users,
   Search,
@@ -77,6 +109,9 @@ import {
   KeyRound,
   Link2,
   Check,
+  Trash2,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 
 // ============================================================================
@@ -215,10 +250,26 @@ export default function EmployeeManagement({
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [formData, setFormData] = useState<EmployeeFormData>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
-  // v7.3.95-8: Merkt sich ob User im Position-Dropdown "Sonstige" gewaehlt hat.
+  // v7.3.95-9: Merkt sich ob User im Position-Dropdown "Sonstige" gewaehlt hat.
   // Brauchen wir, weil position_title dann '' wird und sonst nicht zu
   // unterscheiden waere von "noch nicht gewaehlt".
   const [sonstigeAktiv, setSonstigeAktiv] = useState(false);
+
+  // v7.3.95-9: Phase 2 - Teilzeit-Historie
+  // Liste der History-Eintraege fuer den gerade bearbeiteten MA (sortiert: neuester zuerst)
+  const [hoursHistory, setHoursHistory] = useState<V7EmployeeHoursHistory[]>([]);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  // Sub-Modal "Neuer History-Eintrag"
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [historyForm, setHistoryForm] = useState({
+    gueltig_ab: '',
+    weekly_hours: '40',
+    notiz: '',
+  });
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyWarning, setHistoryWarning] = useState<string | null>(null);
+  const [historySaving, setHistorySaving] = useState(false);
 
   // State - Delete Confirm
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -359,6 +410,258 @@ export default function EmployeeManagement({
   };
 
   // ============================================================================
+  // TEILZEIT-HISTORIE (v7.3.95-9, Phase 2)
+  // ============================================================================
+
+  /**
+   * Laedt die History-Eintraege eines Mitarbeiters, sortiert nach gueltig_ab DESC
+   * (neuester Eintrag oben).
+   */
+  const loadHoursHistory = async (employeeId: string) => {
+    setHistoryLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('v7_employee_hours_history')
+        .select('id, employee_id, weekly_hours, gueltig_ab, created_at, created_by, notiz')
+        .eq('employee_id', employeeId)
+        .order('gueltig_ab', { ascending: false });
+      if (error) throw error;
+      setHoursHistory(data || []);
+    } catch (err) {
+      console.error('Fehler beim Laden der Wochenstunden-Historie:', err);
+      setHoursHistory([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  /**
+   * Gibt den aktuell wirksamen History-Eintrag zurueck (groesstes gueltig_ab
+   * das <= heute ist).
+   *
+   * v7.3.95-10: Gibt null zurueck, wenn KEIN Eintrag <= heute existiert
+   * (z.B. MA noch nicht gestartet, alle Eintraege liegen in der Zukunft).
+   * Frueher: Fallback auf hoursHistory[0] - das hat Zukunftseintraege
+   * faelschlich als "aktuell" angezeigt und beim Loeschen auch falsch
+   * ins Alt-Feld geschrieben.
+   */
+  const getCurrentHistoryEntry = (): V7EmployeeHoursHistory | null => {
+    if (hoursHistory.length === 0) return null;
+    const today = new Date().toISOString().split('T')[0];
+    // hoursHistory ist DESC sortiert -> erster Treffer = groesstes gueltig_ab <= heute
+    return hoursHistory.find(h => h.gueltig_ab <= today) || null;
+  };
+
+  /**
+   * Gibt den naechsten Zukunfts-Eintrag zurueck (kleinstes gueltig_ab > heute).
+   * Fuer informative Anzeige "ab TT.MM.JJJJ: X h/Woche".
+   */
+  const getNextFutureEntry = (): V7EmployeeHoursHistory | null => {
+    if (hoursHistory.length === 0) return null;
+    const today = new Date().toISOString().split('T')[0];
+    // DESC-sortierte Liste nach asc filtern
+    const zukunft = hoursHistory.filter(h => h.gueltig_ab > today);
+    if (zukunft.length === 0) return null;
+    // kleinstes Datum = letztes in DESC-Liste
+    return zukunft[zukunft.length - 1];
+  };
+
+  const openHistoryModal = () => {
+    // Vorschlag: naechster Monatserster
+    const now = new Date();
+    const naechsterMonat = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const vorschlagDatum = naechsterMonat.toISOString().split('T')[0];
+    // Stunden-Vorschlag: aktueller Wert
+    const current = getCurrentHistoryEntry();
+    const vorschlagStunden = current ? current.weekly_hours.toString() : '40';
+    setHistoryForm({
+      gueltig_ab: vorschlagDatum,
+      weekly_hours: vorschlagStunden,
+      notiz: '',
+    });
+    setHistoryError(null);
+    setHistoryWarning(null);
+    setShowHistoryModal(true);
+  };
+
+  const closeHistoryModal = () => {
+    setShowHistoryModal(false);
+    setHistoryError(null);
+    setHistoryWarning(null);
+    setHistorySaving(false);
+  };
+
+  /**
+   * Prueft die Eingaben. Harte Fehler verhindern das Speichern, weiche
+   * Warnungen muessen nur beim zweiten Klick uebersteuert werden.
+   * Rueckgabe: 'hard' | 'soft' | 'ok'
+   */
+  const validateHistoryForm = (): 'hard' | 'soft' | 'ok' => {
+    setHistoryError(null);
+    setHistoryWarning(null);
+    const datum = historyForm.gueltig_ab;
+    if (!datum) {
+      setHistoryError('Bitte ein Gueltig-ab-Datum angeben.');
+      return 'hard';
+    }
+    const stunden = parseFloat(historyForm.weekly_hours.replace(',', '.'));
+    if (isNaN(stunden) || stunden <= 0 || stunden > 60) {
+      setHistoryError('Wochenstunden muessen zwischen 0 und 60 liegen.');
+      return 'hard';
+    }
+    // Duplikatspruefung (gleicher Tag schon vorhanden)
+    if (hoursHistory.some(h => h.gueltig_ab === datum)) {
+      setHistoryError('Fuer dieses Datum gibt es bereits einen Eintrag.');
+      return 'hard';
+    }
+    // Weiche Warnung: Nicht Monats-Erster
+    const datumObj = new Date(datum + 'T00:00:00');
+    if (datumObj.getDate() !== 1) {
+      setHistoryWarning(
+        'Das Datum ist nicht der 1. eines Monats. Teilzeit-Wechsel erfolgen '
+        + 'i.d.R. zum Monatsersten. Moechten Sie trotzdem speichern?'
+      );
+      return 'soft';
+    }
+    return 'ok';
+  };
+
+  const handleSaveHistoryEntry = async (force: boolean = false) => {
+    if (!editingEmployee) return;
+    const status = validateHistoryForm();
+    if (status === 'hard') return;
+    if (status === 'soft' && !force) return;  // Zweiten Klick abwarten
+
+    setHistorySaving(true);
+    try {
+      const stunden = parseFloat(historyForm.weekly_hours.replace(',', '.'));
+      const insertData = {
+        employee_id: editingEmployee.id,
+        weekly_hours: stunden,
+        gueltig_ab: historyForm.gueltig_ab,
+        notiz: historyForm.notiz.trim() || null,
+      };
+      const { error } = await supabase
+        .from('v7_employee_hours_history')
+        .insert(insertData);
+      if (error) throw error;
+
+      // Alt-Feld v7_employees.weekly_hours synchronisieren,
+      // wenn neuer Eintrag "aktuell wirksam" ist (gueltig_ab <= heute UND
+      // neuester wirksamer Eintrag).
+      const today = new Date().toISOString().split('T')[0];
+      if (historyForm.gueltig_ab <= today) {
+        // Neuer Eintrag wirkt ab heute oder war schon in der Vergangenheit.
+        // Pruefen, ob er der aktuell wirksame ist (neuester gueltig_ab <= heute).
+        const neuerEintragIstAktuell = !hoursHistory.some(
+          h => h.gueltig_ab > historyForm.gueltig_ab && h.gueltig_ab <= today
+        );
+        if (neuerEintragIstAktuell) {
+          await supabase
+            .from('v7_employees')
+            .update({
+              weekly_hours: stunden,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', editingEmployee.id);
+          // Lokales formData-Feld nachziehen, damit die Anzeige stimmt
+          setFormData(prev => ({ ...prev, weekly_hours: stunden.toString() }));
+        }
+      }
+
+      // History neu laden
+      await loadHoursHistory(editingEmployee.id);
+      // Liste oben auch aktualisieren (weekly_hours koennte sich geaendert haben)
+      await loadEmployees();
+      closeHistoryModal();
+    } catch (err: any) {
+      console.error('Fehler beim Speichern des History-Eintrags:', err);
+      setHistoryError(err.message || 'Fehler beim Speichern.');
+      setHistorySaving(false);
+    }
+  };
+
+  const handleDeleteHistoryEntry = async (entry: V7EmployeeHoursHistory) => {
+    if (!editingEmployee) return;
+    // Letzten Eintrag nicht loeschen (sonst kein Ankerwert)
+    if (hoursHistory.length <= 1) {
+      alert('Der letzte Eintrag kann nicht geloescht werden.');
+      return;
+    }
+    if (!window.confirm(
+      `Eintrag vom ${formatDateDE(entry.gueltig_ab)} (${entry.weekly_hours} h) wirklich loeschen?`
+    )) {
+      return;
+    }
+    try {
+      const { error } = await supabase
+        .from('v7_employee_hours_history')
+        .delete()
+        .eq('id', entry.id);
+      if (error) throw error;
+
+      // Falls der geloeschte Eintrag der aktuell wirksame war,
+      // Alt-Feld auf neuen aktuell wirksamen Eintrag setzen.
+      // v7.3.95-10 FIX: Kein Fallback auf verbleibend[0]. Wenn nach dem
+      // Loeschen KEIN Eintrag mit gueltig_ab <= heute existiert (z.B. alle
+      // verbleibenden Eintraege liegen in der Zukunft), bleibt das Alt-Feld
+      // unveraendert - sonst wuerde ein Zukunftswert faelschlich als
+      // "aktuell" gelten.
+      const today = new Date().toISOString().split('T')[0];
+      const current = getCurrentHistoryEntry();
+      if (current && current.id === entry.id) {
+        // Der aktuell wirksame Eintrag wird geloescht.
+        // hoursHistory ist DESC sortiert -> .find nimmt den groessten
+        // gueltig_ab, der <= heute ist.
+        const verbleibend = hoursHistory.filter(h => h.id !== entry.id);
+        const neuAktiv = verbleibend.find(h => h.gueltig_ab <= today);
+        if (neuAktiv) {
+          await supabase
+            .from('v7_employees')
+            .update({
+              weekly_hours: neuAktiv.weekly_hours,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', editingEmployee.id);
+          setFormData(prev => ({ ...prev, weekly_hours: neuAktiv.weekly_hours.toString() }));
+        }
+        // else: Kein wirksamer Eintrag mehr vorhanden - Alt-Feld
+        // bleibt unveraendert. Die Historie-Anzeige zeigt dann
+        // ggf. "Aktuell: (letzter vor heute existiert nicht)" bzw.
+        // rutscht auf den fruehesten Zukunftseintrag nur fuer Anzeige
+        // ueber getCurrentHistoryEntry() - das darf das Alt-Feld
+        // aber nicht beeinflussen.
+      }
+
+      await loadHoursHistory(editingEmployee.id);
+      await loadEmployees();
+    } catch (err: any) {
+      console.error('Fehler beim Loeschen:', err);
+      alert('Fehler beim Loeschen: ' + (err.message || 'Unbekannt'));
+    }
+  };
+
+  // Helfer: Datum DE formatieren (TT.MM.JJJJ)
+  const formatDateDE = (iso: string): string => {
+    if (!iso) return '';
+    const [y, m, d] = iso.split('-');
+    return `${d}.${m}.${y}`;
+  };
+
+  // v7.3.95-11: Auto-/Migrations-Notizen, die in der UI ausgeblendet werden.
+  // Der Text bleibt in der DB als Audit-Spur ("woher kommt der Wert"),
+  // ist aber fuer Admins irrelevant und verstopft nur die Tabelle.
+  const AUTO_NOTIZ_TEXTE = [
+    'Initialimport aus v7_employees.weekly_hours (v7.4.7)',
+    'Initialimport aus Alt-Feld',
+    'Initialeintrag beim Anlegen',
+  ];
+  const isAutoNotiz = (notiz: string | null): boolean => {
+    if (!notiz) return false;
+    return AUTO_NOTIZ_TEXTE.includes(notiz.trim());
+  };
+
+  // ============================================================================
   // MODAL FUNKTIONEN
   // ============================================================================
 
@@ -368,6 +671,9 @@ export default function EmployeeManagement({
     setFormData(EMPTY_FORM);
     setFormError(null);
     setSonstigeAktiv(false);  // v7.3.95-8
+    // v7.3.95-9: Phase 2 - History-State zuruecksetzen
+    setHoursHistory([]);
+    setHistoryExpanded(false);
     setShowModal(true);
   };
 
@@ -395,6 +701,10 @@ export default function EmployeeManagement({
       pt !== 'Sonstige';
     setSonstigeAktiv(pt !== '' && !istStandard);
     setFormError(null);
+    // v7.3.95-9: Phase 2 - History-Eintraege fuer diesen MA laden
+    setHoursHistory([]);
+    setHistoryExpanded(false);
+    loadHoursHistory(emp.id);
     setShowModal(true);
   };
 
@@ -404,6 +714,9 @@ export default function EmployeeManagement({
     setFormData(EMPTY_FORM);
     setFormError(null);
     setSonstigeAktiv(false);  // v7.3.95-8
+    // v7.3.95-9: Phase 2 - History-State zuruecksetzen
+    setHoursHistory([]);
+    setHistoryExpanded(false);
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -458,15 +771,40 @@ export default function EmployeeManagement({
       };
 
       if (modalMode === 'create') {
-        const { error } = await supabase
+        // v7.3.95-9: Phase 2 - insert gibt die neue MA-ID zurueck, damit wir
+        // anschliessend den initialen History-Eintrag anlegen koennen.
+        const { data: inserted, error } = await supabase
           .from('v7_employees')
           .insert({
             ...saveData,
             client_company_id: companyId,
             is_active: true,
-          });
+          })
+          .select('id')
+          .single();
 
         if (error) throw error;
+
+        // Initialen History-Eintrag anlegen (Anker-Wert).
+        // gueltig_ab = employment_start wenn gesetzt, sonst heute.
+        // Fehler werden nur geloggt, nicht als Save-Fehler gewertet,
+        // damit der MA nicht ohne Anker bleibt, aber Create trotzdem
+        // als erfolgreich gilt.
+        if (inserted?.id && saveData.weekly_hours) {
+          const gueltigAb = saveData.employment_start
+            || new Date().toISOString().split('T')[0];
+          const { error: histErr } = await supabase
+            .from('v7_employee_hours_history')
+            .insert({
+              employee_id: inserted.id,
+              weekly_hours: saveData.weekly_hours,
+              gueltig_ab: gueltigAb,
+              notiz: 'Initialeintrag beim Anlegen',
+            });
+          if (histErr) {
+            console.warn('History-Initialeintrag konnte nicht angelegt werden:', histErr);
+          }
+        }
       } else if (editingEmployee) {
         const { error } = await supabase
           .from('v7_employees')
@@ -1182,22 +1520,131 @@ export default function EmployeeManagement({
               </div>
 
               {/* Wochenstunden und Beschaeftigt seit/bis */}
+              {/* v7.3.95-9: Phase 2 - Im Create-Modus weiterhin einfaches Feld.
+                  Im Edit-Modus wird das Feld zum Historie-Block (aktueller Wert +
+                  aufklappbare Historie + "Neuer Eintrag"). */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Wochenstunden (pWAZ) <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="number"
-                    name="weekly_hours"
-                    value={formData.weekly_hours}
-                    onChange={handleInputChange}
-                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
-                    min="0"
-                    max="60"
-                    step="0.5"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">Persoenliche Wochenarbeitszeit lt. Vertrag</p>
+                  {modalMode === 'create' ? (
+                    <>
+                      <input
+                        type="number"
+                        name="weekly_hours"
+                        value={formData.weekly_hours}
+                        onChange={handleInputChange}
+                        className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
+                        min="0"
+                        max="60"
+                        step="0.5"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Persoenliche Wochenarbeitszeit lt. Vertrag</p>
+                    </>
+                  ) : (
+                    (() => {
+                      const current = getCurrentHistoryEntry();
+                      const nextFuture = getNextFutureEntry();
+                      return (
+                        <div className="border border-gray-300 rounded-lg bg-gray-50">
+                          <div className="flex items-center justify-between px-3 py-2">
+                            <div className="text-sm text-gray-900">
+                              {historyLoading ? (
+                                <span className="text-gray-500">Laden...</span>
+                              ) : current ? (
+                                <>
+                                  <strong>Aktuell: {current.weekly_hours} h/Woche</strong>
+                                  <span className="text-gray-500 ml-2">
+                                    (seit {formatDateDE(current.gueltig_ab)})
+                                  </span>
+                                  {nextFuture && (
+                                    <div className="text-xs text-amber-700 mt-0.5">
+                                      Ab {formatDateDE(nextFuture.gueltig_ab)}: {nextFuture.weekly_hours} h/Woche
+                                    </div>
+                                  )}
+                                </>
+                              ) : nextFuture ? (
+                                <>
+                                  <span className="text-gray-500">Noch nicht aktiv.</span>
+                                  <div className="text-xs text-gray-700 mt-0.5">
+                                    Ab {formatDateDE(nextFuture.gueltig_ab)}: {nextFuture.weekly_hours} h/Woche
+                                  </div>
+                                </>
+                              ) : (
+                                <span className="text-gray-500">
+                                  Keine Historie vorhanden (Alt-Feld: {formData.weekly_hours} h)
+                                </span>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setHistoryExpanded(e => !e)}
+                              className="text-xs text-gray-600 hover:text-gray-900 flex items-center gap-1"
+                            >
+                              Historie
+                              {historyExpanded
+                                ? <ChevronUp size={14} />
+                                : <ChevronDown size={14} />}
+                            </button>
+                          </div>
+                          {historyExpanded && (
+                            <div className="border-t border-gray-200 bg-white px-3 py-2">
+                              {hoursHistory.length === 0 ? (
+                                <p className="text-xs text-gray-500 py-2">
+                                  Keine Eintraege.
+                                </p>
+                              ) : (
+                                <table className="w-full text-xs">
+                                  <thead>
+                                    <tr className="text-gray-600 border-b">
+                                      <th className="text-left py-1 font-semibold">Gueltig ab</th>
+                                      <th className="text-right py-1 font-semibold">Std/Wo</th>
+                                      <th className="text-left py-1 font-semibold">Notiz</th>
+                                      <th className="w-8"></th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {hoursHistory.map(h => (
+                                      <tr key={h.id} className="border-b last:border-b-0">
+                                        <td className="py-1">{formatDateDE(h.gueltig_ab)}</td>
+                                        <td className="py-1 text-right">{h.weekly_hours}</td>
+                                        <td className="py-1 text-gray-600">
+                                          {isAutoNotiz(h.notiz) ? '-' : (h.notiz || '-')}
+                                        </td>
+                                        <td className="py-1 text-right">
+                                          {canEdit && hoursHistory.length > 1 && (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleDeleteHistoryEntry(h)}
+                                              className="text-red-600 hover:text-red-800"
+                                              title="Eintrag loeschen"
+                                            >
+                                              <Trash2 size={14} />
+                                            </button>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              )}
+                              {canEdit && (
+                                <button
+                                  type="button"
+                                  onClick={openHistoryModal}
+                                  className={`mt-2 text-xs ${colors.text} ${colors.hover} flex items-center gap-1`}
+                                >
+                                  <Plus size={14} />
+                                  Neuen Eintrag hinzufuegen
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Beschaeftigt seit</label>
@@ -1519,6 +1966,107 @@ export default function EmployeeManagement({
                   {resettingPw ? 'Setze zurueck...' : 'Passwort setzen'}
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================================================================ */}
+      {/* MODAL: Neuer History-Eintrag (v7.3.95-9, Phase 2)             */}
+      {/* ================================================================ */}
+      {showHistoryModal && editingEmployee && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <div className="flex justify-between items-center px-6 py-4 border-b">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Wochenstunden-Eintrag hinzufuegen
+              </h3>
+              <button onClick={closeHistoryModal} className="text-gray-400 hover:text-gray-600">
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="px-6 py-4 space-y-4">
+              {historyError && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+                  {historyError}
+                </div>
+              )}
+              {historyWarning && (
+                <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-lg text-sm">
+                  {historyWarning}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Gueltig ab <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  value={historyForm.gueltig_ab}
+                  onChange={e => {
+                    setHistoryForm(p => ({ ...p, gueltig_ab: e.target.value }));
+                    setHistoryError(null);
+                    setHistoryWarning(null);
+                  }}
+                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Empfohlen: 1. eines Monats.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Wochenstunden <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  value={historyForm.weekly_hours}
+                  onChange={e => {
+                    setHistoryForm(p => ({ ...p, weekly_hours: e.target.value }));
+                    setHistoryError(null);
+                  }}
+                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
+                  min="0"
+                  max="60"
+                  step="0.5"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Notiz (optional)
+                </label>
+                <input
+                  type="text"
+                  value={historyForm.notiz}
+                  onChange={e => setHistoryForm(p => ({ ...p, notiz: e.target.value }))}
+                  placeholder="z.B. Elternzeit, Wechsel auf Teilzeit"
+                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50">
+              <button
+                onClick={closeHistoryModal}
+                className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={() => handleSaveHistoryEntry(!!historyWarning)}
+                disabled={historySaving}
+                className={`px-4 py-2 text-white rounded-lg disabled:opacity-50 flex items-center gap-2 ${colors.button}`}
+              >
+                {historySaving && (
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                )}
+                <Save size={18} />
+                {historyWarning ? 'Trotzdem speichern' : 'Speichern'}
+              </button>
             </div>
           </div>
         </div>
