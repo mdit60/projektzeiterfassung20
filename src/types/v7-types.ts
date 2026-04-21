@@ -2,12 +2,18 @@
 // ============================================================================
 // PZE V7 - TypeScript Interfaces
 // ============================================================================
-// Datum: 20. April 2026
-// Version: 7.4.6-1
+// Datum: 21. April 2026
+// Version: 7.4.7-1
 // 
 // Diese Datei enthaelt alle TypeScript-Typen fuer die V7-Datenbankstruktur.
 // Erweitert um Portal-Rollen und Kapazitaetsmanagement.
 //
+// v7.4.7-1: Arbeitszeitgrenzen Phase 1:
+//           - V7EmployeeHoursHistory Interface + Insert/Update
+//           - V7Employee.position_title um Dropdown-Werte erweitert
+//           - Konstanten POSITION_OPTIONS, GF_POSITIONS
+//           - Konstanten MONATSGRENZE_VOLLZEIT, TAGESGRENZE_PT, GF_PROJEKT_FAKTOR
+//           - Helper istGeschaeftsfuehrer()
 // v7.4.6-1: holiday_region in V7ClientCompany fuer kommunale Feiertags-Sonderfaelle
 // v7.4.0: V7_NAV_BERATER um 'Zeiterfassungen' (/v7/berater/timesheets) erweitert
 // v7.3.86: employee_number zu V7Employee hinzugefuegt (optional)
@@ -986,6 +992,137 @@ export const V7_NAV_FIRMA: V7NavItem[] = [
   { key: 'mein-status', label: 'Mein Status', href: '/v7/firma/mein-status', roles: ['client_user'], portalRoles: ['project_leader', 'employee'] },
   { key: 'berichte', label: 'Berichte', href: '/v7/firma/berichte', roles: ['client_admin', 'client_user'], portalRoles: ['client_admin', 'project_leader'] },
 ];
+
+
+// ============================================================================
+// ARBEITSZEITGRENZEN (v7.4.7)
+// ============================================================================
+// Siehe KONZEPT-ARBEITSZEITGRENZEN-v1_3.md fuer Hintergrund und Herleitung.
+//
+// Drei Grenzen:
+// 1. Monatsgrenze:  173,33 h x (weekly_hours / 40)   -- weich (Warnung)
+// 2. GF-Anteil:     50% der Monatsgrenze fuer Projektstunden -- weich (Warnung)
+// 3. Tagesgrenze:   9 h (Projekt + Sonstige)         -- hart (Sperre)
+// ============================================================================
+
+/**
+ * Monatliche Maximalstunden-Grenze bei Vollzeit (40h/Woche).
+ * Entspricht 2080 h Jahresarbeitszeit / 12 Monate.
+ * Gilt in JEDEM Monat identisch, unabhaengig von Arbeitstagen.
+ */
+export const MONATSGRENZE_VOLLZEIT = 173.33;
+
+/**
+ * Tagesgrenze fuer projektbezogene und sonstige Arbeitszeit (h).
+ * Vorgabe Projekttraeger ZIM: Stunden darueber werden gekappt.
+ * HART durchgesetzt (Speichern blockiert).
+ */
+export const TAGESGRENZE_PT = 9;
+
+/**
+ * Maximaler Anteil der Projektzeit an der Gesamtarbeitszeit
+ * fuer Geschaeftsfuehrer (50% gemaess ZIM-Richtlinie).
+ */
+export const GF_PROJEKT_FAKTOR = 0.5;
+
+/**
+ * Referenz fuer die Teilzeit-Berechnung: Standard-Wochenstunden Vollzeit.
+ */
+export const VOLLZEIT_WOCHENSTUNDEN = 40;
+
+/**
+ * Standardrollen fuer das Feld position_title in der Mitarbeiter-Verwaltung.
+ * Dropdown-Werte. "Sonstige" triggert ein zusaetzliches Freitext-Feld.
+ */
+export const POSITION_OPTIONS = [
+  'Geschäftsführer',
+  'Gesellschafter-Geschäftsführer',
+  'Prokurist',
+  'Abteilungsleiter',
+  'Projektleiter',
+  'Mitarbeiter',
+  'Sonstige',
+] as const;
+
+export type PositionOption = typeof POSITION_OPTIONS[number];
+
+/**
+ * Position-Werte, die die 50%-GF-Regel ausloesen.
+ * Exakter String-Match (inkl. Umlaute).
+ */
+export const GF_POSITIONS: readonly string[] = [
+  'Geschäftsführer',
+  'Gesellschafter-Geschäftsführer',
+] as const;
+
+/**
+ * Prueft, ob ein Mitarbeiter als Geschaeftsfuehrer gilt (50%-Regel).
+ * Abgeleitet aus position_title, nicht separat gespeichert.
+ * 
+ * @param employee Mitarbeiter-Datensatz
+ * @returns true wenn position_title exakt einem GF_POSITIONS-Wert entspricht
+ */
+export function istGeschaeftsfuehrer(
+  employee: Pick<V7Employee, 'position_title'>
+): boolean {
+  if (!employee.position_title) return false;
+  return GF_POSITIONS.includes(employee.position_title);
+}
+
+/**
+ * Berechnet die Monatsgrenze fuer einen Mitarbeiter mit gegebenen 
+ * Wochenstunden (linear zu Vollzeit-Grenze 173,33).
+ * 
+ * @param weeklyHours Wochenstunden des Mitarbeiters (aus Historie)
+ * @returns Monatliche Maximalstunden
+ */
+export function berechneMonatsgrenze(weeklyHours: number): number {
+  return MONATSGRENZE_VOLLZEIT * (weeklyHours / VOLLZEIT_WOCHENSTUNDEN);
+}
+
+/**
+ * Berechnet die GF-Projektstunden-Grenze (50% der Monatsgrenze).
+ * Nur relevant wenn istGeschaeftsfuehrer() true ist.
+ */
+export function berechneGfProjektgrenze(weeklyHours: number): number {
+  return berechneMonatsgrenze(weeklyHours) * GF_PROJEKT_FAKTOR;
+}
+
+
+// ============================================================================
+// TEILZEIT-HISTORIE (v7.4.7)
+// ============================================================================
+
+/**
+ * Eintrag in der Wochenstunden-Historie eines Mitarbeiters.
+ * Tabelle: v7_employee_hours_history
+ * 
+ * Ein neuer Eintrag wird angelegt, wenn sich der Teilzeitfaktor aendert
+ * (z.B. Wechsel von Vollzeit auf Teilzeit, Elternzeit etc.).
+ * gueltig_ab sollte idR der 1. eines Monats sein.
+ */
+export interface V7EmployeeHoursHistory {
+  id: string;
+  employee_id: string;
+  weekly_hours: number;
+  gueltig_ab: string;        // ISO-Date, YYYY-MM-DD
+  created_at: string;
+  created_by: string | null;
+  notiz: string | null;
+}
+
+export interface V7EmployeeHoursHistoryInsert {
+  employee_id: string;
+  weekly_hours: number;
+  gueltig_ab: string;
+  notiz?: string | null;
+}
+
+export interface V7EmployeeHoursHistoryUpdate {
+  weekly_hours?: number;
+  gueltig_ab?: string;
+  notiz?: string | null;
+}
 
 
 // ============================================================================

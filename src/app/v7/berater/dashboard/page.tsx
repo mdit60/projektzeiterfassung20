@@ -4,9 +4,13 @@
 // ============================================================================
 // PZE V7 - Berater-Dashboard
 // ============================================================================
-// Version: 7.4.4-9
-// Datum: 17. April 2026
+// Version: 7.4.4-10
+// Datum: 21. April 2026
 //
+// v7.4.4-10: BUGFIX: ReferenceError 'offeneNotizen is not defined' in Zeile 247.
+//   Die Variable war innerhalb des inner-blocks via `let` deklariert und beim
+//   setStats() ausserhalb bereits wieder out-of-scope. Fix: Deklaration nach
+//   oben zu projekteAnzahl/nwmAnzahl/offeneEA gezogen. Keine Logikaenderung.
 // v7.4.4-9: NEU: Offene Rueckfragen-Abschnitt mit Direktlinks zur ZE
 //   - Laedt offene v7_timesheet_notes mit MA-/Projekt-Details
 //   - Klick navigiert direkt zur Zeiterfassung des MA/Monats
@@ -145,6 +149,7 @@ export default function BeraterDashboardPage() {
             let projekteAnzahl = 0;
             let nwmAnzahl = 0;
             let offeneEA = 0;
+            let offeneNotizen = 0;  // v7.4.4-10: nach oben gezogen (Scope-Fix)
 
             if (companyIds.length > 0) {
               // Alle Projekte
@@ -177,7 +182,7 @@ export default function BeraterDashboardPage() {
 
               // NEU v7.4.4-9: Offene Timesheet-Notizen mit Details laden
               // Unabhaengig von companyIds - system_admin sieht alle
-              let offeneNotizen = 0;
+              // v7.4.4-10: Deklaration von offeneNotizen nach oben verschoben (Scope-Fix)
               {
                 const { data: notesRaw } = await supabase
                   .from('v7_timesheet_notes')

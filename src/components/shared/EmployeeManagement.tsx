@@ -2,16 +2,16 @@
 // ============================================================================
 // PZE V7 - Shared Employee Management Component
 // ============================================================================
-// Datum: 31. Maerz 2026
+// Datum: 21. April 2026
 // Version: 7.3.95-7
-// v7.3.95-7:
-//   1. Status-Anzeige: "Ausgeschieden" wenn employment_end in der Vergangenheit
-//      (zusaetzlich zu "Inaktiv" bei manuellem is_active=false)
-//      Helper-Funktion isEmpActive(emp) steuert alle Status-Checks.
-//   2. employment_end -> assignment_end automatisch uebertragen:
-//      Wenn employment_end gesetzt wird und kleiner als bestehendes assignment_end
-//      (oder assignment_end leer), werden alle Projektteam-Eintraege dieses MA
-//      automatisch auf employment_end gekappt.
+// v7.3.95-7: FIX Position-Dropdown: "Sonstige"-Auswahl funktioniert jetzt auch
+//   bei leerem position_title. Neuer lokaler State sonstigeAktiv merkt sich,
+//   ob User bewusst "Sonstige" gewaehlt hat, damit Dropdown nicht auf
+//   "-- Bitte waehlen --" zurueckspringt.
+// v7.3.95-6: PHASE 1 Arbeitszeitgrenzen: position_title als Dropdown mit
+//   Freitext-Fallback "Sonstige". GF-Hinweis bei Auswahl von
+//   'Geschaeftsfuehrer' / 'Gesellschafter-Geschaeftsfuehrer'.
+//   Siehe KONZEPT-ARBEITSZEITGRENZEN-v1_3.md.
 // v7.3.95-5: 'Student' zur QUALIFICATION_OPTIONS Liste hinzugefuegt
 // v7.3.95-4: REFACTOR: handleCreateLogin auf atomare API-Route /api/v7/create-employee-login
 //   umgestellt. Alle 3 Schritte (Auth + Profil + Employee) server-seitig und atomar.
@@ -69,6 +69,7 @@ import {
   Link2,
   Check,
 } from 'lucide-react';
+import { POSITION_OPTIONS, GF_POSITIONS } from '@/types/v7-types';
 
 // ============================================================================
 // TYPEN
@@ -146,14 +147,6 @@ const QUALIFICATION_OPTIONS = [
   'Promotion',
 ];
 
-// Helper: MA gilt als aktiv wenn is_active=true UND employment_end nicht ueberschritten
-function isEmpActive(emp: { is_active: boolean; employment_end: string | null }): boolean {
-  if (!emp.is_active) return false;
-  if (!emp.employment_end) return true;
-  const today = new Date().toISOString().split('T')[0];
-  return emp.employment_end >= today;
-}
-
 const PORTAL_ROLE_OPTIONS = [
   { value: 'employee', label: 'Mitarbeiter', description: 'Kann nur eigene Zeiterfassung sehen' },
   { value: 'project_leader', label: 'Projektleiter', description: 'Kann zugeordnete Projekte und deren MA sehen' },
@@ -206,6 +199,10 @@ export default function EmployeeManagement({
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [formData, setFormData] = useState<EmployeeFormData>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
+  // v7.3.95-7: Merkt sich ob User im Position-Dropdown "Sonstige" gewaehlt hat.
+  // Brauchen wir, weil position_title dann '' wird und sonst nicht zu
+  // unterscheiden waere von "noch nicht gewaehlt".
+  const [sonstigeAktiv, setSonstigeAktiv] = useState(false);
 
   // State - Delete Confirm
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -354,6 +351,7 @@ export default function EmployeeManagement({
     setEditingEmployee(null);
     setFormData(EMPTY_FORM);
     setFormError(null);
+    setSonstigeAktiv(false);  // v7.3.95-7
     setShowModal(true);
   };
 
@@ -372,6 +370,14 @@ export default function EmployeeManagement({
       employment_end: emp.employment_end || '',
       portal_role: emp.portal_role || 'employee',
     });
+    // v7.3.95-7: sonstigeAktiv true, wenn position_title nicht in Standardrollen
+    // ist (d.h. Freitext-Altbestand wie "Entwickler", "GF" usw.).
+    const pt = emp.position_title || '';
+    const istStandard =
+      pt !== '' &&
+      POSITION_OPTIONS.includes(pt as (typeof POSITION_OPTIONS)[number]) &&
+      pt !== 'Sonstige';
+    setSonstigeAktiv(pt !== '' && !istStandard);
     setFormError(null);
     setShowModal(true);
   };
@@ -381,6 +387,7 @@ export default function EmployeeManagement({
     setEditingEmployee(null);
     setFormData(EMPTY_FORM);
     setFormError(null);
+    setSonstigeAktiv(false);  // v7.3.95-7
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -451,26 +458,6 @@ export default function EmployeeManagement({
           .eq('id', editingEmployee.id);
 
         if (error) throw error;
-
-        // Automatisch alle Projektteam-Eintraege kappen wenn employment_end gesetzt
-        if (saveData.employment_end) {
-          const { data: assignments } = await supabase
-            .from('v7_project_assignments')
-            .select('id, assignment_end')
-            .eq('employee_id', editingEmployee.id);
-
-          if (assignments && assignments.length > 0) {
-            const toUpdate = assignments.filter(a =>
-              !a.assignment_end || a.assignment_end > saveData.employment_end!
-            );
-            if (toUpdate.length > 0) {
-              await supabase
-                .from('v7_project_assignments')
-                .update({ assignment_end: saveData.employment_end })
-                .in('id', toUpdate.map((a: { id: string }) => a.id));
-            }
-          }
-        }
       }
 
       closeModal();
@@ -734,8 +721,8 @@ export default function EmployeeManagement({
     (e.position_title && e.position_title.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  const activeCount = employees.filter(e => isEmpActive(e)).length;
-  const inactiveCount = employees.filter(e => !isEmpActive(e)).length;
+  const activeCount = employees.filter(e => e.is_active).length;
+  const inactiveCount = employees.filter(e => !e.is_active).length;
 
   // ============================================================================
   // RENDER - LOADING
@@ -829,7 +816,7 @@ export default function EmployeeManagement({
                 {filteredEmployees.map((emp) => (
                   <tr
                     key={emp.id}
-                    className={`hover:bg-gray-50 ${!isEmpActive(emp) ? 'opacity-50' : ''}`}
+                    className={`hover:bg-gray-50 ${!emp.is_active ? 'opacity-50' : ''}`}
                   >
                     <td className="px-6 py-4">
                       <div className="font-medium text-gray-900">{emp.display_name}</div>
@@ -862,13 +849,9 @@ export default function EmployeeManagement({
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex flex-col gap-1">
-                        {isEmpActive(emp) ? (
+                        {emp.is_active ? (
                           <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700">
                             Aktiv
-                          </span>
-                        ) : emp.is_active && emp.employment_end ? (
-                          <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-orange-100 text-orange-700">
-                            Ausgeschieden {formatDate(emp.employment_end)}
                           </span>
                         ) : (
                           <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-gray-200 text-gray-600">
@@ -891,7 +874,7 @@ export default function EmployeeManagement({
                       <td className="px-6 py-4 text-right">
                         <div className="flex justify-end gap-2">
                           {/* Login erstellen/verknuepfen - nur wenn noch nicht verknuepft und E-Mail vorhanden */}
-                          {!emp.user_id && emp.email && isEmpActive(emp) && (
+                          {!emp.user_id && emp.email && emp.is_active && (
                             <button
                               onClick={() => openLoginModal(emp)}
                               className={`p-1.5 rounded ${
@@ -911,7 +894,7 @@ export default function EmployeeManagement({
                             </button>
                           )}
                           {/* Passwort zuruecksetzen - nur wenn MA bereits Login hat */}
-                          {emp.user_id && isEmpActive(emp) && (
+                          {emp.user_id && emp.is_active && (
                             <button
                               onClick={() => openResetPwModal(emp)}
                               className="p-1.5 text-amber-600 hover:text-amber-800 rounded"
@@ -1074,14 +1057,74 @@ export default function EmployeeManagement({
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Position/Funktion</label>
-                  <input
-                    type="text"
-                    name="position_title"
-                    value={formData.position_title}
-                    onChange={handleInputChange}
-                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
-                    placeholder="z.B. Geschaeftsfuehrer, Entwickler"
-                  />
+                  {(() => {
+                    // Ableitung: Welchen Dropdown-Wert anzeigen?
+                    // - Leerer aktuellerWert + sonstigeAktiv=false -> "-- Bitte waehlen --"
+                    // - Leerer aktuellerWert + sonstigeAktiv=true  -> "Sonstige" + leeres Freitext
+                    // - Standardrolle aus POSITION_OPTIONS         -> direkt anzeigen
+                    // - Freitext-Alt-Wert (nicht in Liste)         -> "Sonstige" + Freitext mit Alt-Wert
+                    const aktuellerWert = formData.position_title || '';
+                    const istStandardRolle =
+                      aktuellerWert !== '' &&
+                      POSITION_OPTIONS.includes(aktuellerWert as (typeof POSITION_OPTIONS)[number]) &&
+                      aktuellerWert !== 'Sonstige';
+                    // v7.3.95-7: Dropdown-Wert jetzt mit Beruecksichtigung von sonstigeAktiv
+                    let dropdownValue: string;
+                    if (istStandardRolle) {
+                      dropdownValue = aktuellerWert;
+                    } else if (aktuellerWert !== '' || sonstigeAktiv) {
+                      dropdownValue = 'Sonstige';
+                    } else {
+                      dropdownValue = '';
+                    }
+                    const zeigeFreitext = dropdownValue === 'Sonstige';
+                    const istGF = GF_POSITIONS.includes(aktuellerWert);
+
+                    const handleDropdownChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+                      const neu = e.target.value;
+                      if (neu === 'Sonstige') {
+                        // v7.3.95-7: Sonstige aktiv merken, damit Dropdown nicht zurueckspringt
+                        setSonstigeAktiv(true);
+                        setFormData(prev => ({ ...prev, position_title: '' }));
+                      } else {
+                        setSonstigeAktiv(false);
+                        setFormData(prev => ({ ...prev, position_title: neu }));
+                      }
+                    };
+
+                    const handleFreitextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+                      setFormData(prev => ({ ...prev, position_title: e.target.value }));
+                    };
+
+                    return (
+                      <>
+                        <select
+                          value={dropdownValue}
+                          onChange={handleDropdownChange}
+                          className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
+                        >
+                          <option value="">-- Bitte waehlen --</option>
+                          {POSITION_OPTIONS.map(p => (
+                            <option key={p} value={p}>{p}</option>
+                          ))}
+                        </select>
+                        {zeigeFreitext && (
+                          <input
+                            type="text"
+                            value={aktuellerWert}
+                            onChange={handleFreitextChange}
+                            className={`mt-2 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
+                            placeholder="Funktion als Freitext eingeben"
+                          />
+                        )}
+                        {istGF && (
+                          <p className="mt-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                            Bei Geschaeftsfuehrern gilt die 50%-Regel fuer Projektzeit (ZIM-Richtlinie).
+                          </p>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Qualifikation</label>
