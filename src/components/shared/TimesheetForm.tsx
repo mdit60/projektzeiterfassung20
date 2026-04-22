@@ -3,7 +3,20 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 22. April 2026
-// Version: 7.4.6-2
+// Version: 7.4.6-4
+// v7.4.6-4: Vorbelegte AP-Zeilen werden nach ap_number/ap_sub_number
+//   aufsteigend sortiert. Bisher kamen sie in der zufaelligen Reihenfolge
+//   der DB-Query (v7_work_package_assignments) -> 5,7,3,4,6,8 statt 3,4,5,6,7,8.
+//
+// v7.4.6-3: Trennung von Vorbelegung und Dropdown:
+//   - Matrix-Vorbelegung bei leerem Monat beachtet jetzt den Laufzeit-Check
+//     (end_date + 2 Monate >= Monatsende). Alte APs werden nicht mehr
+//     vorbelegt, selbst wenn sie noch offene Stunden haben.
+//   - Dropdown "Weitere AP" zeigt wieder ALLE uebrigen echten APs des
+//     Projekts (ohne Laufzeit-Check), damit Vertretungsfaelle moeglich
+//     bleiben. Nur Ueberschriften (PM=0) und APs ohne Datum bleiben
+//     auch hier ausgeblendet.
+//
 // v7.4.6-2: AP-Dropdown gefiltert:
 //   - "Ueberschriften"-APs (total_person_months NULL oder 0) erscheinen
 //     NIE mehr im Dropdown (weder zugeordnet noch Weitere AP)
@@ -381,8 +394,10 @@ export default function TimesheetForm({
     return endPlus2 >= ref;
   };
 
-  // Weitere AP: echte APs mit PM & Datum, die NICHT in "Zugeordnete" landen.
-  // Dazu gehoeren: abgelaufene zugeordnete, nicht zugewiesene, ausgeschoepfte.
+  // Weitere AP (v7.4.6-3): Alle uebrigen echten APs (mit PM > 0 und Datum),
+  // die nicht bereits in "Zugeordnete AP" sichtbar sind. Kein Laufzeit-Check
+  // hier, damit Vertretungsfaelle (Uebernahme von einem anderen MA) moeglich
+  // bleiben. Nur Ueberschriften und APs ohne Datum werden ausgeblendet.
   const isAPInWeitereGroup = (wp: WorkPackage): boolean => {
     if (!isSelectableAP(wp)) return false;
     return !isAPInAssignedGroup(wp);
@@ -921,19 +936,40 @@ export default function TimesheetForm({
       const hasAssignmentData = Object.keys(plannedHoursPerWP).length > 0;
       
       if (wpEntryMap.size === 0 && absenceEntries.size === 0 && assignedWPIds.length > 0 && hasAssignmentData) {
-        // Nur APs vorbelegen die dem MA zugeordnet sind UND noch Stunden offen haben
+        // v7.4.6-3: Nur APs vorbelegen, die dem MA zugeordnet sind, noch Stunden
+        // offen haben UND deren Laufzeit zeitlich passt (end_date + 2 Monate
+        // >= Monatsende). Damit werden alte APs (z.B. Spezifikation aus Mai)
+        // nicht mehr automatisch in spaete Monate (z.B. Januar) gezogen.
         const relevantAssigned = assignedWPIds.filter(id => {
           if (!wpIds.includes(id)) return false;
+          const wp = safeWorkPackages.find(w => w.id === id);
+          if (!wp) return false;
+          // Gleiche Filterregel wie Dropdown "Zugeordnete AP"
+          if (!isAPInAssignedGroup(wp)) {
+            console.log(`[TimesheetForm] AP ${id} uebersprungen (Filter Dropdown/Laufzeit)`);
+            return false;
+          }
           const planned = plannedHoursPerWP[id] || 0;
           const booked = totalBookedPerWP[id] || 0;
           const remaining = planned - booked;
           console.log(`[TimesheetForm] AP ${id}: planned=${planned.toFixed(0)}h, booked=${booked.toFixed(0)}h, remaining=${remaining.toFixed(0)}h`);
-          return planned > 0 && remaining > 0; // nur wenn noch offen
+          return true;
         });
-        console.log('[TimesheetForm] Vorbelege APs mit offenen Stunden:', relevantAssigned.length);
-        
+        console.log('[TimesheetForm] Vorbelege APs (zugeordnet + offen + Laufzeit ok):', relevantAssigned.length);
+
+        // v7.4.6-4: Sortiere nach ap_number/ap_sub_number aufsteigend,
+        // damit die Reihenfolge in der Matrix mit dem Arbeitsplan uebereinstimmt
+        // (sonst liefert die Assignments-Query eine zufaellige Reihenfolge).
+        const sortedAssigned = [...relevantAssigned].sort((aId, bId) => {
+          const a = safeWorkPackages.find(w => w.id === aId);
+          const b = safeWorkPackages.find(w => w.id === bId);
+          if (!a || !b) return 0;
+          if (a.ap_number !== b.ap_number) return a.ap_number - b.ap_number;
+          return (a.ap_sub_number || 0) - (b.ap_sub_number || 0);
+        });
+
         // Erstelle Zeilen fuer zugeordnete APs + eine leere Zeile
-        const prefilledRows: APRow[] = relevantAssigned.map(wpId => ({
+        const prefilledRows: APRow[] = sortedAssigned.map(wpId => ({
           workPackageId: wpId,
           entries: {},
         }));
