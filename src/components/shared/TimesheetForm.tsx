@@ -2,8 +2,19 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 20. April 2026
-// Version: 7.4.6-1
+// Datum: 22. April 2026
+// Version: 7.4.6-2
+// v7.4.6-2: AP-Dropdown gefiltert:
+//   - "Ueberschriften"-APs (total_person_months NULL oder 0) erscheinen
+//     NIE mehr im Dropdown (weder zugeordnet noch Weitere AP)
+//   - APs ohne start_date/end_date werden konservativ ausgeblendet
+//   - "Zugeordnete AP" zeigt nur APs, deren end_date + 2 Monate >=
+//     Monatsende des gewaehlten Timesheet-Monats liegt
+//   - "Weitere AP" enthaelt alle anderen echten APs (mit PM & Datum):
+//     abgelaufene zugeordnete, nicht zugewiesene, ausgeschoepfte
+//   - WorkPackage-Interface um total_person_months, start_date, end_date
+//     erweitert (wird von berater-ze-seite / zeiterfassung-page geliefert)
+//
 // v7.4.6-1: Feiertagsberechnung konsolidiert - nutzt zentrale Utility
 //   src/lib/holidays/germanHolidays.ts. Lokale getEasterSunday/getGermanHolidays/
 //   normalizeStateCode entfernt. Neues Feld company.holiday_region wird
@@ -169,6 +180,9 @@ interface WorkPackage {
   ap_code: string | null;
   name: string;
   is_technical?: boolean | null;  // NEU: Technisches AP (fuer ZIM_DS)
+  total_person_months: number | null;  // v7.4.6-2: Ueberschriften-Filter
+  start_date: string | null;            // v7.4.6-2: Laufzeit-Filter
+  end_date: string | null;              // v7.4.6-2: Laufzeit-Filter
 }
 
 interface ClientCompany {
@@ -324,6 +338,54 @@ export default function TimesheetForm({
     const val = wp.is_technical as unknown;
     if (val === true || val === 'true' || val === 'TRUE' || val === '1' || val === 1) return true;
     return false;
+  };
+
+  // ==========================================================================
+  // v7.4.6-2: AP-Gruppenzuordnung fuer Dropdown
+  // --------------------------------------------------------------------------
+  // Ein AP ist nur dann ueberhaupt waehlbar, wenn:
+  //   1. total_person_months > 0   (keine Ueberschriften)
+  //   2. start_date UND end_date sind gesetzt   (keine Altdaten)
+  // ==========================================================================
+
+  const isSelectableAP = (wp: WorkPackage): boolean => {
+    const pm = wp.total_person_months ?? 0;
+    if (pm <= 0) return false;
+    if (!wp.start_date || !wp.end_date) return false;
+    return true;
+  };
+
+  // Referenzdatum = Monatsende des gewaehlten Timesheet-Monats
+  // (getDaysInMonth wird inline repliziert, da es erst weiter unten im
+  //  File deklariert ist und const-Funktionen nicht gehoistet werden)
+  const getReferenceDate = (): Date => {
+    const daysInMonth = new Date(selectedYear, selectedMonth, 0).getDate();
+    return new Date(selectedYear, selectedMonth - 1, daysInMonth);
+  };
+
+  // Zugeordnete AP: dem MA zugewiesen, mit offenen Stunden, und
+  // end_date + 2 Monate >= Monatsende des gewaehlten Timesheet-Monats.
+  const isAPInAssignedGroup = (wp: WorkPackage): boolean => {
+    if (!isSelectableAP(wp)) return false;
+    if (!assignedWPIds.includes(wp.id)) return false;
+    const planned = plannedHoursPerWP[wp.id] || 0;
+    const booked = totalBookedPerWP[wp.id] || 0;
+    if (planned <= 0) return false;
+    if ((planned - booked) <= 0) return false;
+    // Laufzeit-Check: end_date + 2 volle Monate
+    // Wir vergleichen nur monatsgenau, deshalb den Tag auf 1 setzen
+    // (vermeidet JS-Rollover bei Monatsenden wie 31.7 -> 1.10)
+    const endDate = new Date(wp.end_date as string);
+    const endPlus2 = new Date(endDate.getFullYear(), endDate.getMonth() + 3, 0); // letzter Tag von Monat + 2
+    const ref = getReferenceDate();
+    return endPlus2 >= ref;
+  };
+
+  // Weitere AP: echte APs mit PM & Datum, die NICHT in "Zugeordnete" landen.
+  // Dazu gehoeren: abgelaufene zugeordnete, nicht zugewiesene, ausgeschoepfte.
+  const isAPInWeitereGroup = (wp: WorkPackage): boolean => {
+    if (!isSelectableAP(wp)) return false;
+    return !isAPInAssignedGroup(wp);
   };
 
   const allRowsFilled = apRows.every(row => row.workPackageId !== null);
@@ -1887,21 +1949,11 @@ export default function TimesheetForm({
                         className="w-full h-full p-1 text-xs border-0 bg-transparent print:appearance-none text-center"
                       >
                         <option value="">-</option>
-                        {/* NEU v7.4.3-3: Zugeordnete APs mit offenen Stunden zuerst */}
-                        {assignedWPIds.length > 0 && availableWorkPackages.some(wp => {
-                          if (!assignedWPIds.includes(wp.id)) return false;
-                          const planned = plannedHoursPerWP[wp.id] || 0;
-                          const booked = totalBookedPerWP[wp.id] || 0;
-                          return planned > 0 && (planned - booked) > 0;
-                        }) && (
+                        {/* v7.4.6-2: AP-Gruppen ueber Helper-Funktionen */}
+                        {availableWorkPackages.some(wp => isAPInAssignedGroup(wp)) && (
                           <optgroup label="Zugeordnete AP">
                             {availableWorkPackages
-                              .filter(wp => {
-                                if (!assignedWPIds.includes(wp.id)) return false;
-                                const planned = plannedHoursPerWP[wp.id] || 0;
-                                const booked = totalBookedPerWP[wp.id] || 0;
-                                return planned > 0 && (planned - booked) > 0;
-                              })
+                              .filter(wp => isAPInAssignedGroup(wp))
                               .map(wp => {
                                 const apDisplay = wp.ap_code
                                   ? wp.ap_code.replace(/^AP/i, '')
@@ -1914,21 +1966,10 @@ export default function TimesheetForm({
                               })}
                           </optgroup>
                         )}
-                        {/* Weitere APs (nicht zugeordnet oder ausgeschoepft) */}
-                        {availableWorkPackages.some(wp => {
-                          if (!assignedWPIds.includes(wp.id)) return true;
-                          const planned = plannedHoursPerWP[wp.id] || 0;
-                          const booked = totalBookedPerWP[wp.id] || 0;
-                          return planned <= 0 || (planned - booked) <= 0;
-                        }) && (
+                        {availableWorkPackages.some(wp => isAPInWeitereGroup(wp)) && (
                           <optgroup label="Weitere AP">
                             {availableWorkPackages
-                              .filter(wp => {
-                                if (!assignedWPIds.includes(wp.id)) return true;
-                                const planned = plannedHoursPerWP[wp.id] || 0;
-                                const booked = totalBookedPerWP[wp.id] || 0;
-                                return planned <= 0 || (planned - booked) <= 0;
-                              })
+                              .filter(wp => isAPInWeitereGroup(wp))
                               .map(wp => {
                                 const apDisplay = wp.ap_code
                                   ? wp.ap_code.replace(/^AP/i, '')
@@ -1941,17 +1982,6 @@ export default function TimesheetForm({
                               })}
                           </optgroup>
                         )}
-                        {/* Fallback wenn keine Gruppen */}
-                        {assignedWPIds.length === 0 && availableWorkPackages.map(wp => {
-                          const apDisplay = wp.ap_code
-                            ? wp.ap_code.replace(/^AP/i, '')
-                            : `${wp.ap_number}${wp.ap_sub_number ? `.${wp.ap_sub_number}` : ''}`;
-                          return (
-                            <option key={wp.id} value={wp.id}>
-                              {apDisplay}
-                            </option>
-                          );
-                        })}
                       </select>
                     </td>
                     <td className="border p-1 text-[10px] leading-tight" style={{ maxWidth: '180px' }}>
