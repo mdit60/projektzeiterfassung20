@@ -2,9 +2,12 @@
 // ============================================================================
 // PZE V7 - Zeiterfassung Seite (Firmen-Portal)
 // ============================================================================
-// Version: 7.4.6-1
-// Datum: 20. April 2026
+// Version: 7.4.6-2
+// Datum: 22. April 2026
 //
+// v7.4.6-2: WorkPackage-Query um total_person_months, start_date, end_date
+//           erweitert. Wird in TimesheetForm benoetigt, um AP-Ueberschriften
+//           (ohne PM) und abgelaufene APs aus dem Dropdown zu filtern.
 // v7.4.6-1: Company-Query um holiday_region erweitert (wird an TimesheetForm
 //           durchgereicht fuer kommunale Feiertags-Sonderfaelle)
 // v7.3.94: Employee-Query um employment_start, employment_end erweitert
@@ -83,6 +86,9 @@ interface WorkPackage {
   ap_code: string | null;
   name: string;
   is_technical?: boolean | null;
+  total_person_months: number | null;  // v7.4.6-2: fuer Ueberschriften-Filter
+  start_date: string | null;            // v7.4.6-2: fuer Laufzeit-Filter
+  end_date: string | null;              // v7.4.6-2: fuer Laufzeit-Filter
 }
 
 // ============================================================================
@@ -219,7 +225,7 @@ function ZeiterfassungContent() {
         if (projectIds.length > 0) {
           const { data: wpData } = await supabase
             .from('v7_work_packages')
-            .select('id, project_id, ap_number, ap_sub_number, ap_code, name, is_technical')
+            .select('id, project_id, ap_number, ap_sub_number, ap_code, name, is_technical, total_person_months, start_date, end_date')
             .in('project_id', projectIds)
             .eq('is_active', true)
             .order('ap_number');
