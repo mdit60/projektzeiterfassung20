@@ -2,8 +2,14 @@
 // ============================================================================
 // PZE V7 - Shared Employee Management Component
 // ============================================================================
-// Datum: 21. April 2026
-// Version: 7.3.95-12
+// Datum: 22. April 2026
+// Version: 7.3.95-13
+// v7.3.95-13: Tailwind-v4-Syntax-Modernisierung (2 Stellen). Keine
+//   funktionale Aenderung - nur Syntax fuer Tailwind v4 angepasst:
+//   - flex-shrink-0 -> shrink-0 (Kurzform-Utility seit Tailwind v3.3)
+//   - z-[60] -> z-60 (Standard-Utility-Klasse seit Tailwind v4)
+//   Die VSCode Tailwind-IntelliSense hatte beide als Modernisierungs-
+//   Vorschlaege markiert.
 // v7.3.95-12: UI-Feinschliff. Historie-Tabelle: feste Spaltenbreiten, damit
 //   Stundenwert und Notiz nicht mehr aneinander kleben. Kopfzeile klarer
 //   ("Gueltig ab", "Std./Wo.", "Notiz").
@@ -1802,7 +1808,7 @@ export default function EmployeeManagement({
 
                   {existingUserId && (
                     <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg text-sm flex items-start gap-2">
-                      <Check size={18} className="mt-0.5 flex-shrink-0" />
+                      <Check size={18} className="mt-0.5 shrink-0" />
                       <div>
                         Der Mitarbeiter kann sich mit seinen bestehenden Zugangsdaten einloggen.
                       </div>
@@ -1978,7 +1984,7 @@ export default function EmployeeManagement({
       {/* MODAL: Neuer History-Eintrag (v7.3.95-9, Phase 2)             */}
       {/* ================================================================ */}
       {showHistoryModal && editingEmployee && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-60 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
             <div className="flex justify-between items-center px-6 py-4 border-b">
               <h3 className="text-lg font-semibold text-gray-900">
