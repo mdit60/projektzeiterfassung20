@@ -4,7 +4,7 @@
 // ============================================================================
 // PZE V7 - Kapazitaetsplanungs-Tool (Berater-Portal)
 // ============================================================================
-// Version: 7.4.8-4
+// Version: 7.4.8-5
 // Datum: 23. April 2026
 //
 // Zwei Bereiche:
@@ -205,6 +205,10 @@ function Kapazitaetsmatrix({ maListe, monate, loading }: KapazitaetsmatrixProps)
                 style={{ minWidth: '52px' }}>
               Frei h
             </th>
+            <th className="text-right px-2 py-2 font-medium border-l border-blue-800 text-blue-200"
+                style={{ minWidth: '58px' }}>
+              Frei PM
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -272,6 +276,14 @@ function Kapazitaetsmatrix({ maListe, monate, loading }: KapazitaetsmatrixProps)
                     style={{ fontSize: '12px', minWidth: '52px' }}>
                   <span className={gesamtFrei > 0 ? 'text-green-700' : 'text-red-500'}>
                     {gesamtFrei.toFixed(0)}
+                  </span>
+                </td>
+
+                {/* Gesamt frei PM */}
+                <td className="px-2 py-2 text-right font-bold border-l border-gray-300"
+                    style={{ fontSize: '12px', minWidth: '58px' }}>
+                  <span className={gesamtFrei > 0 ? 'text-green-700' : 'text-red-500'}>
+                    {(gesamtFrei / 173.33).toFixed(2)}
                   </span>
                 </td>
               </tr>
