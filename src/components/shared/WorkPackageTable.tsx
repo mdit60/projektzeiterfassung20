@@ -89,6 +89,8 @@ interface WorkPackageTableProps {
   onDeleteAP?: (wp: WorkPackage) => void;
   portal?: 'berater' | 'firma';
   fundingFormat?: string | null;
+  filterDateFrom?: string | null;  // NWM: nur Timesheets ab diesem Datum
+  filterDateTo?: string | null;    // NWM: nur Timesheets bis zu diesem Datum
 }
 
 // ============================================================================
@@ -331,6 +333,8 @@ export default function WorkPackageTable({
   onDeleteAP,
   portal = 'firma',
   fundingFormat,
+  filterDateFrom,
+  filterDateTo,
 }: WorkPackageTableProps) {
   const colors = PORTAL_COLORS[portal];
   const isZimDS = fundingFormat === 'ZIM_DS';
@@ -351,18 +355,30 @@ export default function WorkPackageTable({
     const loadTimesheetHours = async () => {
       if (!projectId || workPackages.length === 0) return;
 
+      // Zuerst zuruecksetzen damit alte Werte nicht sichtbar bleiben
+      setHoursPerWP({});
+      setHoursPerEmployee({});
+      setTimesheetLoaded(false);
+
       try {
         const supabase = createClient();
 
-        const { data: entries, error } = await supabase
+        let query = supabase
           .from('v7_timesheets')
           .select('work_package_id, employee_id, hours')
           .eq('project_id', projectId)
           .eq('is_active', true)
           .eq('is_billable', true);
 
+        // NWM: Datumsfilter fuer jahresspezifische Ansicht
+        if (filterDateFrom) query = query.gte('work_date', filterDateFrom);
+        if (filterDateTo) query = query.lte('work_date', filterDateTo);
+
+        const { data: entries, error } = await query;
+
         if (error) {
           console.error('[WorkPackageTable] Fehler beim Laden der Timesheet-Daten:', error);
+          setTimesheetLoaded(true);
           return;
         }
 
@@ -390,11 +406,12 @@ export default function WorkPackageTable({
         setTimesheetLoaded(true);
       } catch (err) {
         console.error('[WorkPackageTable] Timesheet-Lade-Fehler:', err);
+        setTimesheetLoaded(true);
       }
     };
 
     loadTimesheetHours();
-  }, [projectId, workPackages.length]);
+  }, [projectId, workPackages.length, filterDateFrom ?? '', filterDateTo ?? '']);
 
   const hasTimesheetData = timesheetLoaded && (
     Object.values(hoursPerWP).some(h => h > 0) ||

@@ -4,7 +4,7 @@
 // ============================================================================
 // PZE V7 - Kapazitaetsplanungs-Tool (Berater-Portal)
 // ============================================================================
-// Version: 7.4.8-3
+// Version: 7.4.8-4
 // Datum: 23. April 2026
 //
 // Zwei Bereiche:
@@ -607,7 +607,7 @@ export default function MultiprojektPage() {
 
       const employeeIds = employees.map((e: {id: string}) => e.id);
 
-      // Alle aktiven Projekte der Firma (mit Namen)
+      // Alle aktiven Projekte der Firma (mit Namen und Foerderformat)
       const { data: projekte } = await supabase
         .from('v7_projects')
         .select('id, name, short_name, funding_format, start_date, end_date')
@@ -615,19 +615,26 @@ export default function MultiprojektPage() {
         .eq('is_active', true);
 
       const projektIds = (projekte || []).map((p: {id: string}) => p.id);
-      // Projekt-Lookup fuer Tooltip
       const projektMap: Record<string, { name: string; funding_format: string }> = {};
       (projekte || []).forEach((p: { id: string; name: string; short_name: string | null; funding_format: string }) => {
         projektMap[p.id] = { name: p.short_name || p.name, funding_format: p.funding_format };
       });
 
-      // Arbeitspakete mit Laufzeit
+      // NWM vs. Standard-Projekte trennen
+      const nwmProjektIds = (projekte || [])
+        .filter((p: { funding_format: string }) => p.funding_format === 'ZIM_NETZWERK')
+        .map((p: { id: string }) => p.id);
+      const standardProjektIds = (projekte || [])
+        .filter((p: { funding_format: string }) => p.funding_format !== 'ZIM_NETZWERK')
+        .map((p: { id: string }) => p.id);
+
+      // Standard-Projekte: Arbeitspakete laden
       let apMap: Record<string, { start: string; end: string; project_id: string }> = {};
-      if (projektIds.length > 0) {
+      if (standardProjektIds.length > 0) {
         const { data: aps } = await supabase
           .from('v7_work_packages')
           .select('id, project_id, start_date, end_date')
-          .in('project_id', projektIds)
+          .in('project_id', standardProjektIds)
           .not('start_date', 'is', null)
           .not('end_date', 'is', null);
         (aps || []).forEach((ap: { id: string; project_id: string; start_date: string; end_date: string }) => {
@@ -635,12 +642,8 @@ export default function MultiprojektPage() {
         });
       }
 
-      // Work Package Assignments (geplante PM)
-      let wpaData: Array<{
-        employee_id: string;
-        work_package_id: string;
-        planned_person_months: number;
-      }> = [];
+      // Standard-Projekte: Work Package Assignments
+      let wpaData: Array<{ employee_id: string; work_package_id: string; planned_person_months: number }> = [];
       if (Object.keys(apMap).length > 0) {
         const { data: wpa } = await supabase
           .from('v7_work_package_assignments')
@@ -652,7 +655,44 @@ export default function MultiprojektPage() {
         wpaData = wpa || [];
       }
 
-      // Verbuchte Stunden mit Projekt-ID
+      // NWM-Projekte: Foerderzeitraeume + AP-Planung
+      let nwmApData: Array<{
+        employee_id: string; work_package_id: string; planned_pm: number;
+        start_datum: string; ende_datum: string; project_id: string;
+      }> = [];
+
+      if (nwmProjektIds.length > 0) {
+        const { data: fzData } = await supabase
+          .from('v7_nwm_foerderzeitraeume')
+          .select('id, project_id, netzwerkjahr, start_datum, ende_datum')
+          .in('project_id', nwmProjektIds)
+          .lte('start_datum', `${jahr}-12-31`)
+          .gte('ende_datum', `${jahr}-01-01`);
+
+        const fzIds = (fzData || []).map((fz: { id: string }) => fz.id);
+        const fzProjektMap: Record<string, string> = {};
+        (fzData || []).forEach((fz: { id: string; project_id: string }) => {
+          fzProjektMap[fz.id] = fz.project_id;
+        });
+
+        if (fzIds.length > 0) {
+          const { data: apPlanung } = await supabase
+            .from('v7_nwm_ap_planung')
+            .select('employee_id, work_package_id, planned_pm, start_datum, ende_datum, foerderzeitraum_id')
+            .in('employee_id', employeeIds)
+            .in('foerderzeitraum_id', fzIds)
+            .not('planned_pm', 'is', null);
+
+          (apPlanung || []).forEach((ap: {
+            employee_id: string; work_package_id: string; planned_pm: number;
+            start_datum: string; ende_datum: string; foerderzeitraum_id: string;
+          }) => {
+            nwmApData.push({ ...ap, project_id: fzProjektMap[ap.foerderzeitraum_id] ?? '' });
+          });
+        }
+      }
+
+      // Verbuchte Stunden
       const startDatum = `${jahr}-01-01`;
       const endeDatum = `${jahr}-12-31`;
       let tsData: Array<{ employee_id: string; project_id: string; work_date: string; hours: number }> = [];
@@ -668,8 +708,6 @@ export default function MultiprojektPage() {
         tsData = ts || [];
       }
 
-      // Verbuchte Stunden pro MA, Monat UND Projekt
-      // verbucht[employee_id][monat][projekt_id] = stunden
       const verbucht: Record<string, Record<number, Record<string, number>>> = {};
       tsData.forEach(ts => {
         const m = parseInt(ts.work_date.split('-')[1]);
@@ -679,42 +717,49 @@ export default function MultiprojektPage() {
           (verbucht[ts.employee_id][m][ts.project_id] || 0) + Number(ts.hours);
       });
 
-      // Geplante Stunden pro MA, Monat UND Projekt
-      // geplant[employee_id][monat][projekt_id] = stunden
-      const geplant: Record<string, Record<number, Record<string, number>>> = {};
-
-      wpaData.forEach(wpa => {
-        const ap = apMap[wpa.work_package_id];
-        if (!ap || !wpa.planned_person_months) return;
-
-        const apStart = new Date(ap.start);
-        const apEnd   = new Date(ap.end);
-        const totalH  = wpa.planned_person_months * 173.33;
-
-        const apMonate: {jahr: number; monat: number}[] = [];
-        let cur = new Date(apStart.getFullYear(), apStart.getMonth(), 1);
-        const endM = new Date(apEnd.getFullYear(), apEnd.getMonth(), 1);
+      // Hilfsfunktion: PM gleichmaessig auf Monate verteilen
+      const verteileAufMonate = (
+        empId: string, pid: string, pm: number, apStart: string, apEnd: string,
+        geplantMap: Record<string, Record<number, Record<string, number>>>
+      ) => {
+        const start = new Date(apStart);
+        const end   = new Date(apEnd);
+        const totalH = pm * 173.33;
+        const apMonate: {j: number; m: number}[] = [];
+        let cur = new Date(start.getFullYear(), start.getMonth(), 1);
+        const endM = new Date(end.getFullYear(), end.getMonth(), 1);
         while (cur <= endM) {
-          apMonate.push({ jahr: cur.getFullYear(), monat: cur.getMonth() + 1 });
+          apMonate.push({ j: cur.getFullYear(), m: cur.getMonth() + 1 });
           cur.setMonth(cur.getMonth() + 1);
         }
-
         if (apMonate.length === 0) return;
         const hProMonat = totalH / apMonate.length;
-
-        apMonate.forEach(({ jahr: j, monat: m }) => {
+        apMonate.forEach(({ j, m }) => {
           if (j !== jahr) return;
           const istVergangenheit = j < heute.getFullYear() ||
             (j === heute.getFullYear() && m < heute.getMonth() + 1);
           if (istVergangenheit) return;
-
-          const pid = ap.project_id;
-          if (!geplant[wpa.employee_id]) geplant[wpa.employee_id] = {};
-          if (!geplant[wpa.employee_id][m]) geplant[wpa.employee_id][m] = {};
-          geplant[wpa.employee_id][m][pid] =
-            (geplant[wpa.employee_id][m][pid] || 0) + hProMonat;
+          if (!geplantMap[empId]) geplantMap[empId] = {};
+          if (!geplantMap[empId][m]) geplantMap[empId][m] = {};
+          geplantMap[empId][m][pid] = (geplantMap[empId][m][pid] || 0) + hProMonat;
         });
+      };
+
+      const geplant: Record<string, Record<number, Record<string, number>>> = {};
+
+      // Standard-Projekte
+      wpaData.forEach(wpa => {
+        const ap = apMap[wpa.work_package_id];
+        if (!ap || !wpa.planned_person_months) return;
+        verteileAufMonate(wpa.employee_id, ap.project_id, wpa.planned_person_months, ap.start, ap.end, geplant);
       });
+
+      // NWM-Projekte (aus v7_nwm_ap_planung)
+      nwmApData.forEach(ap => {
+        if (!ap.planned_pm || !ap.start_datum || !ap.ende_datum || !ap.project_id) return;
+        verteileAufMonate(ap.employee_id, ap.project_id, ap.planned_pm, ap.start_datum, ap.ende_datum, geplant);
+      });
+
 
       // MaKapazitaet zusammenbauen
       const result: MaKapazitaet[] = employees.map((emp: { id: string; display_name: string; weekly_hours: number }) => {

@@ -3,7 +3,8 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 18. April 2026
-// Version: 7.4.4-49
+// Version: 7.4.4-54
+// v7.4.4-50: NWM Arbeitsplan: Jahres-Navigation + Daten aus v7_nwm_ap_planung
 //
 // v7.4.4-49: FIX: Zurueck-Button NWM navigiert zur NWM-Uebersicht statt Firma
 //   - fromNWMList als useState (stabil bei Re-Render)
@@ -346,6 +347,15 @@ export default function ProjectDetailPage({
   // State Arbeitspakete
   const [workPackages, setWorkPackages] = useState<WorkPackage[]>([]);
   const [wpAssignments, setWpAssignments] = useState<WPAssignment[]>([]);
+
+  // NWM: Foerderzeitraeume und Jahres-Navigation
+  const [nwmFoerderzeitraeume, setNwmFoerderzeitraeume] = useState<Array<{
+    id: string; netzwerkjahr: number; start_datum: string;
+    ende_datum: string; foerderquote: number;
+  }>>([]);
+  const [nwmAnzeigeJahr, setNwmAnzeigeJahr] = useState<number>(1);
+  // NWM: jahresspezifische AP-Zeitraeume (wp_id -> {start, end})
+  const [nwmApZeitraeume, setNwmApZeitraeume] = useState<Record<string, {start: string; end: string}>>({});
   const [allEmployees, setAllEmployees] = useState<WPEmployee[]>([]);
   const [projectEmployeeIds, setProjectEmployeeIds] = useState<string[]>([]);
 
@@ -409,6 +419,47 @@ export default function ProjectDetailPage({
   // ============================================================================
   // DATEN LADEN
   // ============================================================================
+
+  // NWM: AP-Assignments fuer ein bestimmtes Netzwerkjahr laden
+  const ladeNwmAssignments = async (foerderzeitraumId: string, wpIds: string[]) => {
+    if (wpIds.length === 0) { setWpAssignments([]); setNwmApZeitraeume({}); return; }
+    const { data } = await supabase
+      .from('v7_nwm_ap_planung')
+      .select('id, work_package_id, employee_id, planned_pm, start_datum, ende_datum')
+      .eq('foerderzeitraum_id', foerderzeitraumId)
+      .in('work_package_id', wpIds);
+
+    const mapped: WPAssignment[] = (data || []).map(a => ({
+      id: a.id,
+      work_package_id: a.work_package_id,
+      employee_id: a.employee_id,
+      planned_pm: a.planned_pm || 0,
+    }));
+    setWpAssignments(mapped);
+
+    // Jahresspezifische Zeitraeume pro AP ermitteln (MIN start, MAX end)
+    const zeitraeume: Record<string, {start: string; end: string}> = {};
+    (data || []).forEach(a => {
+      if (!a.start_datum || !a.ende_datum) return;
+      const wp = a.work_package_id;
+      if (!zeitraeume[wp]) {
+        zeitraeume[wp] = { start: a.start_datum, end: a.ende_datum };
+      } else {
+        if (a.start_datum < zeitraeume[wp].start) zeitraeume[wp].start = a.start_datum;
+        if (a.ende_datum > zeitraeume[wp].end) zeitraeume[wp].end = a.ende_datum;
+      }
+    });
+    setNwmApZeitraeume(zeitraeume);
+  };
+
+  // NWM: Jahreswechsel
+  const handleNwmJahrWechsel = async (netzwerkjahr: number) => {
+    setNwmAnzeigeJahr(netzwerkjahr);
+    const fz = nwmFoerderzeitraeume.find(f => f.netzwerkjahr === netzwerkjahr);
+    if (fz) {
+      await ladeNwmAssignments(fz.id, workPackages.map(wp => wp.id));
+    }
+  };
 
   const loadData = useCallback(async () => {
     try {
@@ -540,6 +591,20 @@ export default function ProjectDetailPage({
         setWpAssignments(mappedAssignments);
       } else {
         setWpAssignments([]);
+      }
+
+      // NWM: Foerderzeitraeume laden
+      if ((projectData.funding_format || '').toUpperCase().trim() === 'ZIM_NETZWERK') {
+        const { data: fzData } = await supabase
+          .from('v7_nwm_foerderzeitraeume')
+          .select('id, netzwerkjahr, start_datum, ende_datum, foerderquote')
+          .eq('project_id', projectId)
+          .order('netzwerkjahr');
+        setNwmFoerderzeitraeume(fzData || []);
+        // NWM-Assignments fuer Jahr 1 laden (Default)
+        if (fzData && fzData.length > 0) {
+          await ladeNwmAssignments(fzData[0].id, loadedWPs.map(wp => wp.id));
+        }
       }
 
       // Projekt-Assignments (Team) laden
@@ -1497,6 +1562,32 @@ export default function ProjectDetailPage({
               )}
             </div>
 
+            {/* NWM: Jahres-Navigation */}
+            {(project?.funding_format || '').toUpperCase().trim() === 'ZIM_NETZWERK' && nwmFoerderzeitraeume.length > 0 && (
+              <div className="flex items-center gap-2 mb-4 p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                <span className="text-sm font-medium text-gray-600 mr-2">Netzwerkjahr:</span>
+                {nwmFoerderzeitraeume.map(fz => (
+                  <button
+                    key={fz.netzwerkjahr}
+                    onClick={() => handleNwmJahrWechsel(fz.netzwerkjahr)}
+                    className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                      nwmAnzeigeJahr === fz.netzwerkjahr
+                        ? 'bg-[#002451] text-white shadow'
+                        : 'bg-white text-gray-600 border border-gray-300 hover:border-[#002451]'
+                    }`}
+                  >
+                    Jahr {fz.netzwerkjahr}
+                    <span className="ml-2 text-xs opacity-75">
+                      {new Date(fz.start_datum).toLocaleDateString('de-DE', {month:'2-digit',year:'numeric'})}
+                      {' ? '}
+                      {new Date(fz.ende_datum).toLocaleDateString('de-DE', {month:'2-digit',year:'numeric'})}
+                      {' | '}{fz.foerderquote}%
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
             {teamMembers.length === 0 && (
               <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg flex items-start gap-2">
                 <AlertCircle size={16} className="text-yellow-600 mt-0.5 shrink-0" />
@@ -1520,18 +1611,49 @@ export default function ProjectDetailPage({
             <WorkPackageTable
               portal={portal}
               projectId={projectId}
-              workPackages={workPackages.map(wp => ({
-                id: wp.id,
-                ap_code: wp.ap_code ?? `AP${wp.ap_number}`,
-                ap_number: wp.ap_number,
-                ap_sub_number: wp.ap_sub_number,
-                name: wp.name,
-                description: wp.description,
-                start_date: wp.start_date,
-                end_date: wp.end_date,
-                planned_pm: wp.planned_pm,
-                is_technical: wp.is_technical,
-              }))}
+              workPackages={(() => {
+                const isNwm = (project?.funding_format || '').toUpperCase().trim() === 'ZIM_NETZWERK';
+                // Fuer NWM: nur APs anzeigen die im gewaehlten Jahr Planung haben
+                // Ein AP-Ueberschriften-Eintrag (sub_number=null) wird behalten wenn
+                // mindestens ein Kind-AP im Jahr vorkommt
+                const wpAssignmentIds = new Set(wpAssignments.map(a => a.work_package_id));
+
+                // Welche ap_numbers haben Eintraege in diesem Jahr?
+                const apNummernMitEintraegen = new Set<number>();
+                workPackages.forEach(wp => {
+                  if (wp.ap_sub_number !== null && wp.ap_sub_number !== undefined) {
+                    if (wpAssignmentIds.has(wp.id)) {
+                      apNummernMitEintraegen.add(wp.ap_number);
+                    }
+                  }
+                });
+
+                return workPackages
+                  .filter(wp => {
+                    if (!isNwm) return true;
+                    // Ueberschriften-APs (sub_number null): behalten wenn Kinder vorhanden
+                    if (wp.ap_sub_number === null || wp.ap_sub_number === undefined) {
+                      return apNummernMitEintraegen.has(wp.ap_number);
+                    }
+                    // Sub-APs: nur wenn Eintrag in diesem Jahr
+                    return wpAssignmentIds.has(wp.id);
+                  })
+                  .map(wp => {
+                    const nwmZr = isNwm ? nwmApZeitraeume[wp.id] : undefined;
+                    return {
+                      id: wp.id,
+                      ap_code: wp.ap_code ?? `AP${wp.ap_number}`,
+                      ap_number: wp.ap_number,
+                      ap_sub_number: wp.ap_sub_number,
+                      name: wp.name,
+                      description: wp.description,
+                      start_date: nwmZr ? nwmZr.start : (isNwm ? null : wp.start_date),
+                      end_date: nwmZr ? nwmZr.end : (isNwm ? null : wp.end_date),
+                      planned_pm: wp.planned_pm,
+                      is_technical: wp.is_technical,
+                    };
+                  });
+              })()}
               employees={allEmployees}
               assignments={wpAssignments}
               projectTeam={wpProjectTeam}
@@ -1546,6 +1668,16 @@ export default function ProjectDetailPage({
                 if (full) openDeleteConfirmation(full);
               } : undefined}
               fundingFormat={project.funding_format}
+              filterDateFrom={
+                (project?.funding_format || '').toUpperCase().trim() === 'ZIM_NETZWERK'
+                  ? (nwmFoerderzeitraeume.find(f => f.netzwerkjahr === nwmAnzeigeJahr)?.start_datum ?? null)
+                  : null
+              }
+              filterDateTo={
+                (project?.funding_format || '').toUpperCase().trim() === 'ZIM_NETZWERK'
+                  ? (nwmFoerderzeitraeume.find(f => f.netzwerkjahr === nwmAnzeigeJahr)?.ende_datum ?? null)
+                  : null
+              }
             />
           </div>
         )}
