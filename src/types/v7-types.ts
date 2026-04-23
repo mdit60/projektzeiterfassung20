@@ -2,11 +2,17 @@
 // ============================================================================
 // PZE V7 - TypeScript Interfaces
 // ============================================================================
-// Datum: 21. April 2026
-// Version: 7.4.7-1
-// 
+// Datum: 23. April 2026
+// Version: 7.4.8-1
+//
 // Diese Datei enthaelt alle TypeScript-Typen fuer die V7-Datenbankstruktur.
 // Erweitert um Portal-Rollen und Kapazitaetsmanagement.
+//
+// v7.4.8-1: FZul-Modul / Multiprojekt-Tool:
+//           - V7FzulVorhaben Interface + Insert/Update
+//           - V7FzulTimesheet Interface + Insert/Update
+//           - V7FzulDayType, V7FzulStatus Typen
+//           - V7FzulJahresberechnung (Berechnungsergebnis fuer Export)
 //
 // v7.4.7-1: Arbeitszeitgrenzen Phase 1:
 //           - V7EmployeeHoursHistory Interface + Insert/Update
@@ -134,7 +140,7 @@ export type V7FundingFormat =
   | 'BMBF_KMU'             // BMBF KMU-innovativ
   | 'BMBF_VERBUND'         // BMBF Verbundprojekt
   // Forschungszulage
-  | 'FZUL'                 // Forschungszulage (Ã‚Â§35a EStG)
+  | 'FZUL'                 // Forschungszulage (SS35a EStG)
   // Sonstige
   | 'LANDES_FOERDERUNG'    // Landesfoerderprogramme
   | 'EU_FOERDERUNG'        // EU-Foerderprogramme
@@ -1035,8 +1041,8 @@ export const VOLLZEIT_WOCHENSTUNDEN = 40;
  * Dropdown-Werte. "Sonstige" triggert ein zusaetzliches Freitext-Feld.
  */
 export const POSITION_OPTIONS = [
-  'Geschäftsführer',
-  'Gesellschafter-Geschäftsführer',
+  'Geschaeftsfuehrer',
+  'Gesellschafter-Geschaeftsfuehrer',
   'Prokurist',
   'Abteilungsleiter',
   'Projektleiter',
@@ -1051,8 +1057,8 @@ export type PositionOption = typeof POSITION_OPTIONS[number];
  * Exakter String-Match (inkl. Umlaute).
  */
 export const GF_POSITIONS: readonly string[] = [
-  'Geschäftsführer',
-  'Gesellschafter-Geschäftsführer',
+  'Geschaeftsfuehrer',
+  'Gesellschafter-Geschaeftsfuehrer',
 ] as const;
 
 /**
@@ -1122,6 +1128,191 @@ export interface V7EmployeeHoursHistoryUpdate {
   weekly_hours?: number;
   gueltig_ab?: string;
   notiz?: string | null;
+}
+
+
+// ============================================================================
+// FZUL-MODUL / MULTIPROJEKT-TOOL (v7.4.8)
+// ============================================================================
+
+/**
+ * Status eines FZul-Vorhabens
+ */
+export type V7FzulStatus = 'entwurf' | 'abgeschlossen';
+
+/**
+ * Tagestyp im FZul-Timesheet
+ */
+export type V7FzulDayType = 'workday' | 'weekend' | 'holiday';
+
+/**
+ * FZul-Vorhaben (v7_fzul_vorhaben)
+ * Pro Firma, FuE-Thema und Wirtschaftsjahr ein Eintrag.
+ * Wird vom Berater angelegt.
+ */
+export interface V7FzulVorhaben {
+  id: string;
+  client_company_id: string;
+  created_by: string | null;
+  title: string;
+  vorhaben_id: string | null;        // BSFZ-Bescheinigungsnummer (optional)
+  wirtschaftsjahr: number;
+  start_monat: number;               // 1-12
+  ende_monat: number;                // 1-12
+  bundesland: string | null;
+  status: V7FzulStatus;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface V7FzulVorhabenInsert {
+  client_company_id: string;
+  created_by?: string | null;
+  title: string;
+  vorhaben_id?: string | null;
+  wirtschaftsjahr: number;
+  start_monat?: number;
+  ende_monat?: number;
+  bundesland?: string | null;
+  status?: V7FzulStatus;
+  notes?: string | null;
+}
+
+export interface V7FzulVorhabenUpdate {
+  title?: string;
+  vorhaben_id?: string | null;
+  wirtschaftsjahr?: number;
+  start_monat?: number;
+  ende_monat?: number;
+  bundesland?: string | null;
+  status?: V7FzulStatus;
+  notes?: string | null;
+}
+
+/**
+ * FZul-Vorhaben mit angereicherten Anzeigedaten (JOIN mit client_companies)
+ */
+export interface V7FzulVorhabenWithCompany extends V7FzulVorhaben {
+  company_name: string;
+  company_short_name: string | null;
+  ma_count: number;                  // Anzahl zugeordneter Mitarbeiter
+}
+
+/**
+ * FZul-Timesheet - tagesweise Stunden pro MA und Vorhaben (v7_fzul_timesheets)
+ */
+export interface V7FzulTimesheet {
+  id: string;
+  vorhaben_id: string;
+  employee_id: string;
+  work_date: string;                 // ISO-Date YYYY-MM-DD
+
+  // Stunden-Felder
+  fue_hours: number;                 // FZul-Stunden (editierbar)
+  gefoerdert_hours: number;          // Aus gefoerderten Projekten (read-only)
+  verfuegbar_hours: number;          // Tagesarbeitszeit - gefoerdert_hours (read-only)
+
+  // MA-spezifisch
+  taetigkeitsbezeichnung: string | null;
+
+  // Tagestyp
+  day_type: V7FzulDayType;
+  holiday_label: string | null;
+
+  // Abwesenheiten
+  urlaub_hours: number;
+  krank_hours: number;
+  sonderurlaub_hours: number;
+
+  // Metadaten
+  notes: string | null;
+  locked: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface V7FzulTimesheetInsert {
+  vorhaben_id: string;
+  employee_id: string;
+  work_date: string;
+  fue_hours?: number;
+  gefoerdert_hours?: number;
+  verfuegbar_hours?: number;
+  taetigkeitsbezeichnung?: string | null;
+  day_type?: V7FzulDayType;
+  holiday_label?: string | null;
+  urlaub_hours?: number;
+  krank_hours?: number;
+  sonderurlaub_hours?: number;
+  notes?: string | null;
+  locked?: boolean;
+}
+
+export interface V7FzulTimesheetUpdate {
+  fue_hours?: number;
+  taetigkeitsbezeichnung?: string | null;
+  urlaub_hours?: number;
+  krank_hours?: number;
+  sonderurlaub_hours?: number;
+  notes?: string | null;
+  locked?: boolean;
+}
+
+/**
+ * Ergebnis der Jahresarbeitszeit-Berechnung pro MA (fuer Export und Vorschau)
+ * Berechnung gemaess BSFZ-Formular (SS35a EStG / FZulG)
+ */
+export interface V7FzulJahresberechnung {
+  employee_id: string;
+  employee_name: string;
+  taetigkeitsbezeichnung: string | null;
+  weekly_hours: number;
+
+  // Abschnitt 1: Massgebliche Jahresarbeitszeit
+  jahresarbeitsstunden: number;       // weekly_hours * 52
+  urlaub_tage: number;
+  urlaub_stunden: number;
+  krank_tage: number;
+  krank_stunden: number;
+  sonderurlaub_tage: number;
+  sonderurlaub_stunden: number;
+  feiertag_tage: number;
+  feiertag_stunden: number;
+  jahresarbeitszeit_massgeblich: number;  // Nach Abzuegen
+
+  // Kuerung bei unterjaehrigem Vorhaben
+  monate_aktiv: number;               // start_monat bis ende_monat
+  jahresarbeitszeit_gekuerzt: number; // * (monate_aktiv / 12)
+
+  // Abschnitt 2: FuE-Anteil
+  fue_stunden_gesamt: number;         // Summe fue_hours
+  fue_anteil: number;                 // fue_stunden / jahresarbeitszeit_gekuerzt (max 1.0)
+  hoechstgrenze: number;              // (monate_aktiv / 12) * 2080
+
+  // Warnungen
+  anteil_ueberschritten: boolean;     // fue_anteil > 1.0 vor Kappung
+  hoechstgrenze_ueberschritten: boolean;
+}
+
+/**
+ * MA-Zeile in der Vorhaben-Uebersicht (Tab 1)
+ */
+export interface V7FzulMaUebersicht {
+  employee_id: string;
+  display_name: string;
+  taetigkeitsbezeichnung: string | null;
+  weekly_hours: number;
+  hat_gefoerderte_projekte: boolean;  // Gruppe A oder B
+
+  // Aggregierte Werte aus v7_fzul_timesheets
+  gefoerdert_stunden_gesamt: number;
+  fue_stunden_gesamt: number;
+  verfuegbar_stunden_gesamt: number;
+
+  // Status
+  timesheet_vorhanden: boolean;       // Import bereits durchgefuehrt?
+  locked: boolean;
 }
 
 

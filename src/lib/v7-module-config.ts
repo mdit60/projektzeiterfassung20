@@ -2,8 +2,10 @@
 // ============================================================================
 // PZE V7 - Modul-Konfiguration
 // ============================================================================
-// Datum: 12. Februar 2026
-// Version: 7.3.90-6
+// Datum: 23. April 2026
+// Version: 7.3.90-7
+// v7.3.90-7: Multiprojekt-Tool aktiviert (coming_soon -> active, Route gesetzt)
+//
 // v7.3.90-6: NEU: NWM-Kachel aktiv mit Link zur Firmenuebersicht (filter=nwm)
 //
 // v7.3.90-4: Sortierung: Berichte nach Zeiterfassung (Reihe 1),
@@ -285,11 +287,10 @@ export const V7_MODULES: V7ModuleDefinition[] = [
     sortOrder: 9,
     berater: {
       visible: true,
-      status: 'coming_soon',
-      href: '',
+      status: 'active',
+      href: '/v7/berater/multiprojekt',
       roles: ['system_admin', 'consultant'],
-      description: '173h-Pruefung: MA-Abgrenzung ueber alle Projekte',
-      plannedRelease: 'Q2/2026',
+      description: 'FZul-Kapazitaeten ermitteln: MA-Stunden ueber alle Projekte',
     },
     firma: {
       visible: false,

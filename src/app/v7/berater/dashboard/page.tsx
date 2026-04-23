@@ -4,9 +4,10 @@
 // ============================================================================
 // PZE V7 - Berater-Dashboard
 // ============================================================================
-// Version: 7.4.4-10
-// Datum: 21. April 2026
+// Version: 7.4.4-11
+// Datum: 23. April 2026
 //
+// v7.4.4-11: Multiprojekt-Tool-Kachel aktiviert (active, Route gesetzt)
 // v7.4.4-10: BUGFIX: ReferenceError 'offeneNotizen is not defined' in Zeile 247.
 //   Die Variable war innerhalb des inner-blocks via `let` deklariert und beim
 //   setStats() ausserhalb bereits wieder out-of-scope. Fix: Deklaration nach
@@ -323,13 +324,13 @@ export default function BeraterDashboardPage() {
     {
       id: 'multiprojekt',
       titel: 'Multiprojekt-Tool',
-      beschreibung: '173h-Pruefung: MA-Abgrenzung ueber alle Projekte',
+      beschreibung: 'FZul-Kapazitaeten ermitteln: MA-Stunden ueber alle Projekte',
       icon: Layers,
-      iconBg: 'bg-gray-100',
-      iconColor: 'text-gray-400',
-      borderHover: '',
-      status: 'coming_soon' as const,
-      href: null,
+      iconBg: 'bg-blue-50',
+      iconColor: 'text-[#002451]',
+      borderHover: 'hover:border-[#002451]',
+      status: 'active' as const,
+      href: '/v7/berater/multiprojekt',
       stats: [],
     },
     {
