@@ -4,7 +4,7 @@
 // ============================================================================
 // PZE V7 - Berater-Dashboard
 // ============================================================================
-// Version: 7.4.4-11
+// Version: 7.4.4-13
 // Datum: 23. April 2026
 //
 // v7.4.4-11: Multiprojekt-Tool-Kachel aktiviert (active, Route gesetzt)
@@ -323,8 +323,8 @@ export default function BeraterDashboardPage() {
     },
     {
       id: 'multiprojekt',
-      titel: 'Multiprojekt-Tool',
-      beschreibung: 'FZul-Kapazitaeten ermitteln: MA-Stunden ueber alle Projekte',
+      titel: 'Kapazitaetsplanung',
+      beschreibung: 'Freie Kapazitaeten ermitteln fuer neue FuE-Vorhaben',
       icon: Layers,
       iconBg: 'bg-blue-50',
       iconColor: 'text-[#002451]',
@@ -336,7 +336,7 @@ export default function BeraterDashboardPage() {
     {
       id: 'fzul',
       titel: 'Forschungszulage',
-      beschreibung: 'Verfuegbare FuE-Kapazitaeten fuer FZul-Antraege',
+      beschreibung: '',
       icon: FlaskConical,
       iconBg: 'bg-gray-100',
       iconColor: 'text-gray-400',

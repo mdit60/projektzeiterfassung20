@@ -2,16 +2,14 @@
 
 // src/app/v7/berater/multiprojekt/page.tsx
 // ============================================================================
-// PZE V7 - Multiprojekt-Tool / FZul-Kapazitaetsplanung (Berater-Portal)
+// PZE V7 - Kapazitaetsplanungs-Tool (Berater-Portal)
 // ============================================================================
-// Version: 7.4.8-1
+// Version: 7.4.8-3
 // Datum: 23. April 2026
 //
-// Uebersichtsseite aller FZul-Vorhaben des Beraters.
-// Funktionen:
-//   - Liste aller Vorhaben (gruppiert nach Firma)
-//   - Neues Vorhaben anlegen (Modal)
-//   - Navigation zur Vorhaben-Detailseite
+// Zwei Bereiche:
+//   A) Kapazitaetsmatrix: MA x Monat Ampel-Uebersicht (neu)
+//   B) FZul-Vorhaben: Liste bestehender Vorhaben (unveraendert)
 // ============================================================================
 
 import { useEffect, useState, useCallback } from 'react';
@@ -32,8 +30,16 @@ import {
   AlertCircle,
   X,
   Loader2,
+  BarChart3,
+  ChevronLeft,
+  ChevronDown,
 } from 'lucide-react';
-import { V7UserRole, V7FzulVorhaben, V7FzulVorhabenInsert } from '@/types/v7-types';
+import {
+  V7UserRole,
+  V7FzulVorhaben,
+  V7FzulVorhabenInsert,
+  V7_PUBLIC_FUNDING_FORMATS,
+} from '@/types/v7-types';
 
 // ============================================================================
 // TYPEN
@@ -62,26 +68,285 @@ interface VorhabenMitFirma extends V7FzulVorhaben {
   ma_count: number;
 }
 
+// Projektbeitrag pro Monat (fuer Tooltip)
+interface ProjektBeitrag {
+  projekt_id: string;
+  projekt_name: string;
+  funding_format: string;
+  geplant: number;
+  verbucht: number;
+}
+
+// Kapazitaets-Daten pro MA und Monat
+interface MonatKapazitaet {
+  monat: number;
+  jahr: number;
+  gesamt: number;
+  geplant: number;
+  verbucht: number;
+  frei: number;
+  freiProzent: number;
+  projekte: ProjektBeitrag[];   // Aufschluesselung nach Projekten
+}
+
+interface MaKapazitaet {
+  employee_id: string;
+  display_name: string;
+  weekly_hours: number;
+  monate: MonatKapazitaet[];
+}
+
 // ============================================================================
 // HILFSFUNKTIONEN
 // ============================================================================
 
-const MONAT_LABELS = [
-  'Jan', 'Feb', 'Mrz', 'Apr', 'Mai', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez',
-];
+const MONAT_KURZ = ['Jan','Feb','Mrz','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
 
-function formatZeitraum(startMonat: number, endeMonat: number, jahr: number): string {
-  const start = MONAT_LABELS[startMonat - 1];
-  const ende = MONAT_LABELS[endeMonat - 1];
-  if (startMonat === 1 && endeMonat === 12) return `Gj. ${jahr}`;
-  if (startMonat === endeMonat) return `${start} ${jahr}`;
-  return `${start}-${ende} ${jahr}`;
+function getAmpelklasse(freiProzent: number): string {
+  if (freiProzent > 50) return 'bg-green-500';
+  if (freiProzent > 20) return 'bg-yellow-400';
+  if (freiProzent > 5)  return 'bg-orange-500';
+  return 'bg-red-500';
+}
+
+function getAmpelText(freiProzent: number): string {
+  if (freiProzent > 50) return 'text-green-700';
+  if (freiProzent > 20) return 'text-yellow-700';
+  if (freiProzent > 5)  return 'text-orange-700';
+  return 'text-red-700';
+}
+
+function getAmpelBg(freiProzent: number): string {
+  if (freiProzent > 50) return 'bg-green-50 border-green-200';
+  if (freiProzent > 20) return 'bg-yellow-50 border-yellow-200';
+  if (freiProzent > 5)  return 'bg-orange-50 border-orange-200';
+  return 'bg-red-50 border-red-200';
+}
+
+// Monatsarbeitszeit
+function monatsKapazitaet(weeklyHours: number): number {
+  return Math.round((weeklyHours / 40) * 173.33 * 10) / 10;
+}
+
+// Generiere Liste der naechsten N Monate ab einem Startpunkt
+function generiereMonateListe(startJahr: number, startMonat: number, anzahl: number): {jahr: number; monat: number}[] {
+  const liste = [];
+  let j = startJahr;
+  let m = startMonat;
+  for (let i = 0; i < anzahl; i++) {
+    liste.push({ jahr: j, monat: m });
+    m++;
+    if (m > 12) { m = 1; j++; }
+  }
+  return liste;
 }
 
 // ============================================================================
-// MODAL: NEUES VORHABEN ANLEGEN
+// KAPAZITAETSMATRIX KOMPONENTE
 // ============================================================================
+
+interface KapazitaetsmatrixProps {
+  maListe: MaKapazitaet[];
+  monate: {jahr: number; monat: number}[];
+  loading: boolean;
+}
+
+function Kapazitaetsmatrix({ maListe, monate, loading }: KapazitaetsmatrixProps) {
+
+  const [tooltip, setTooltip] = useState<{
+    ma: MaKapazitaet;
+    monat: MonatKapazitaet;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12 text-gray-400">
+        <Loader2 className="w-5 h-5 animate-spin mr-2" />
+        <span className="text-sm">Kapazitaeten werden berechnet...</span>
+      </div>
+    );
+  }
+
+  if (maListe.length === 0) {
+    return (
+      <div className="text-center py-12 text-gray-400">
+        <Users className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+        <p className="text-sm">Keine Mitarbeiter gefunden.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto" onMouseLeave={() => setTooltip(null)}>
+      <table className="border-collapse text-xs" style={{ minWidth: '800px' }}>
+        <thead>
+          <tr className="bg-[#002451] text-white">
+            <th className="text-left px-3 py-2 font-semibold sticky left-0 bg-[#002451] z-10 border-r border-blue-800"
+                style={{ minWidth: '160px' }}>
+              Mitarbeiter
+            </th>
+            <th className="text-right px-2 py-2 font-medium border-r border-blue-800 text-blue-200"
+                style={{ minWidth: '40px' }}>
+              h/W
+            </th>
+            {monate.map(({ jahr, monat }) => (
+              <th key={`${jahr}-${monat}`}
+                  className="text-center py-2 font-medium border-l border-blue-800"
+                  style={{ minWidth: '52px', width: '52px' }}>
+                <div style={{ fontSize: '10px' }} className="text-blue-200">
+                  {monat === 1 ? String(jahr) : ''}
+                </div>
+                <div>{MONAT_KURZ[monat - 1]}</div>
+              </th>
+            ))}
+            <th className="text-right px-2 py-2 font-medium border-l border-blue-800 text-blue-200"
+                style={{ minWidth: '52px' }}>
+              Frei h
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {maListe.map((ma, idx) => {
+            const gesamtFrei = ma.monate.reduce((s, m) => s + m.frei, 0);
+            const isOdd = idx % 2 === 0;
+
+            return (
+              <tr key={ma.employee_id}
+                  className={`border-b border-gray-200 ${isOdd ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50`}>
+
+                {/* Name sticky */}
+                <td className={`px-3 py-2 font-semibold text-gray-800 sticky left-0 z-10 border-r border-gray-300 ${isOdd ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50`}
+                    style={{ minWidth: '160px', fontSize: '12px' }}>
+                  {ma.display_name}
+                </td>
+
+                {/* WAZ */}
+                <td className="px-2 py-2 text-right text-gray-400 border-r border-gray-200"
+                    style={{ fontSize: '11px' }}>
+                  {ma.weekly_hours}
+                </td>
+
+                {/* Monats-Ampeln */}
+                {monate.map(({ jahr, monat }) => {
+                  const md = ma.monate.find(m => m.jahr === jahr && m.monat === monat);
+                  if (!md) {
+                    return (
+                      <td key={`${jahr}-${monat}`}
+                          className="border-l border-gray-200 text-center bg-gray-100"
+                          style={{ width: '52px' }}>
+                        <span className="text-gray-300" style={{ fontSize: '10px' }}>--</span>
+                      </td>
+                    );
+                  }
+
+                  const ampelBg = getAmpelBg(md.freiProzent);
+                  const ampelText = getAmpelText(md.freiProzent);
+                  const ampelDot = getAmpelklasse(md.freiProzent);
+
+                  return (
+                    <td key={`${jahr}-${monat}`}
+                        className={`border-l border-gray-200 text-center cursor-pointer ${ampelBg} border`}
+                        style={{ width: '52px', padding: '4px 2px' }}
+                        onMouseEnter={(e) => setTooltip({
+                          ma,
+                          monat: md,
+                          x: e.clientX,
+                          y: e.clientY,
+                        })}
+                        onMouseMove={(e) => setTooltip(prev => prev ? { ...prev, x: e.clientX, y: e.clientY } : null)}
+                    >
+                      <div className="flex flex-col items-center gap-0.5">
+                        <div className={`w-2 h-2 rounded-full ${ampelDot}`}></div>
+                        <div className={`font-bold ${ampelText}`} style={{ fontSize: '11px' }}>
+                          {md.frei > 0 ? md.frei.toFixed(0) : '0'}
+                        </div>
+                      </div>
+                    </td>
+                  );
+                })}
+
+                {/* Gesamt frei */}
+                <td className="px-2 py-2 text-right font-bold border-l border-gray-300"
+                    style={{ fontSize: '12px', minWidth: '52px' }}>
+                  <span className={gesamtFrei > 0 ? 'text-green-700' : 'text-red-500'}>
+                    {gesamtFrei.toFixed(0)}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+
+      {/* Tooltip */}
+      {tooltip && (
+        <div
+          className="fixed z-50 bg-white border border-gray-200 rounded-xl shadow-xl p-3 text-xs"
+          style={{ left: tooltip.x + 12, top: tooltip.y - 120, minWidth: '240px', maxWidth: '300px', pointerEvents: 'none' }}
+        >
+          <div className="font-bold text-gray-800 mb-2 border-b border-gray-100 pb-1.5">
+            {tooltip.ma.display_name} -- {MONAT_KURZ[tooltip.monat.monat - 1]} {tooltip.monat.jahr}
+          </div>
+          <div className="space-y-0.5 text-gray-600 mb-2">
+            <div className="flex justify-between">
+              <span className="text-gray-400">Monatskapazitaet:</span>
+              <span className="font-medium">{tooltip.monat.gesamt.toFixed(1)} h</span>
+            </div>
+          </div>
+          {tooltip.monat.projekte.length > 0 && (
+            <div className="space-y-1 mb-2">
+              <div className="text-gray-400 text-xs font-medium uppercase tracking-wide">Projekte</div>
+              {tooltip.monat.projekte.map((p) => (
+                <div key={p.projekt_id} className="bg-gray-50 rounded px-2 py-1">
+                  <div className="font-semibold text-gray-700 truncate" style={{fontSize:'11px'}}>{p.projekt_name}</div>
+                  <div className="flex justify-between mt-0.5">
+                    {p.geplant > 0 && (
+                      <span className="text-orange-600">geplant: -{p.geplant.toFixed(1)}h</span>
+                    )}
+                    {p.verbucht > 0 && (
+                      <span className="text-red-600">verbucht: -{p.verbucht.toFixed(1)}h</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="border-t border-gray-200 pt-1.5 flex justify-between font-bold">
+            <span>Frei:</span>
+            <span className={getAmpelText(tooltip.monat.freiProzent)}>
+              {tooltip.monat.frei.toFixed(1)} h ({tooltip.monat.freiProzent.toFixed(0)}%)
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Legende */}
+      <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
+        <span className="flex items-center gap-1">
+          <span className="w-3 h-3 rounded-full bg-green-500 inline-block"></span> &gt;50% frei
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="w-3 h-3 rounded-full bg-yellow-400 inline-block"></span> 20-50% frei
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="w-3 h-3 rounded-full bg-orange-500 inline-block"></span> 5-20% frei
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="w-3 h-3 rounded-full bg-red-500 inline-block"></span> &lt;5% frei
+        </span>
+        <span className="text-gray-400 ml-2">Zahl = freie Stunden im Monat</span>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// MODAL: NEUES VORHABEN
+// ============================================================================
+
+const MONAT_LABELS = ['Jan','Feb','Mrz','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
 
 interface NeuesVorhabenModalProps {
   isOpen: boolean;
@@ -92,9 +357,7 @@ interface NeuesVorhabenModalProps {
   error: string | null;
 }
 
-function NeuesVorhabenModal({
-  isOpen, onClose, onSave, companies, saving, error,
-}: NeuesVorhabenModalProps) {
+function NeuesVorhabenModal({ isOpen, onClose, onSave, companies, saving, error }: NeuesVorhabenModalProps) {
   const [firmId, setFirmId] = useState('');
   const [title, setTitle] = useState('');
   const [vorhabenId, setVorhabenId] = useState('');
@@ -102,17 +365,12 @@ function NeuesVorhabenModal({
   const [startMonat, setStartMonat] = useState(1);
   const [endeMonat, setEndeMonat] = useState(12);
 
-  // Bundesland aus gewaehlter Firma
   const selectedCompany = companies.find((c) => c.id === firmId);
 
   useEffect(() => {
     if (!isOpen) {
-      setFirmId('');
-      setTitle('');
-      setVorhabenId('');
-      setJahr(new Date().getFullYear());
-      setStartMonat(1);
-      setEndeMonat(12);
+      setFirmId(''); setTitle(''); setVorhabenId('');
+      setJahr(new Date().getFullYear()); setStartMonat(1); setEndeMonat(12);
     }
   }, [isOpen]);
 
@@ -137,156 +395,78 @@ function NeuesVorhabenModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg">
-
-        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <h2 className="text-lg font-semibold text-gray-900">Neues FZul-Vorhaben</h2>
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 text-gray-500">
             <X className="w-5 h-5" />
           </button>
         </div>
-
-        {/* Body */}
         <div className="px-6 py-5 space-y-4">
-
-          {/* Firma */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Firma <span className="text-red-500">*</span>
             </label>
-            <select
-              value={firmId}
-              onChange={(e) => setFirmId(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
+            <select value={firmId} onChange={(e) => setFirmId(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
               <option value="">Firma waehlen...</option>
-              {companies.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
+              {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
-            {selectedCompany?.federal_state && (
-              <p className="text-xs text-gray-500 mt-1">
-                Bundesland: {selectedCompany.federal_state} (fuer Feiertagsberechnung)
-              </p>
-            )}
           </div>
-
-          {/* Titel */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Kurzbezeichnung des FuE-Vorhabens <span className="text-red-500">*</span>
+              Kurzbezeichnung FuE-Vorhaben <span className="text-red-500">*</span>
             </label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
+            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)}
               placeholder="z.B. Entwicklung eines KI-Diagnosesystems"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              Sollte der Kurzbezeichnung in der BSFZ-Bescheinigung entsprechen.
-            </p>
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
-
-          {/* Vorhaben-ID */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Vorhaben-ID (BSFZ)
-              <span className="ml-1 text-xs font-normal text-gray-400">optional</span>
+              Vorhaben-ID (BSFZ) <span className="text-xs font-normal text-gray-400">optional</span>
             </label>
-            <input
-              type="text"
-              value={vorhabenId}
-              onChange={(e) => setVorhabenId(e.target.value)}
+            <input type="text" value={vorhabenId} onChange={(e) => setVorhabenId(e.target.value)}
               placeholder="z.B. 210-577-509/2024-1/1"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              Aus der Bescheinigung nach SS6 FZulG (kann spaeter ergaenzt werden).
-            </p>
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
-
-          {/* Wirtschaftsjahr + Zeitraum */}
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Wirtschaftsjahr <span className="text-red-500">*</span>
-              </label>
-              <select
-                value={jahr}
-                onChange={(e) => setJahr(Number(e.target.value))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                {[2023, 2024, 2025, 2026, 2027].map((y) => (
-                  <option key={y} value={y}>{y}</option>
-                ))}
+              <label className="block text-sm font-medium text-gray-700 mb-1">Jahr *</label>
+              <select value={jahr} onChange={(e) => setJahr(Number(e.target.value))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                {[2023,2024,2025,2026,2027,2028].map((y) => <option key={y} value={y}>{y}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Von Monat
-              </label>
-              <select
-                value={startMonat}
-                onChange={(e) => setStartMonat(Number(e.target.value))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                {MONAT_LABELS.map((m, i) => (
-                  <option key={i + 1} value={i + 1}>{m}</option>
-                ))}
+              <label className="block text-sm font-medium text-gray-700 mb-1">Von</label>
+              <select value={startMonat} onChange={(e) => setStartMonat(Number(e.target.value))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                {MONAT_LABELS.map((m, i) => <option key={i+1} value={i+1}>{m}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Bis Monat
-              </label>
-              <select
-                value={endeMonat}
-                onChange={(e) => setEndeMonat(Number(e.target.value))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                {MONAT_LABELS.map((m, i) => (
-                  <option key={i + 1} value={i + 1} disabled={i + 1 < startMonat}>{m}</option>
-                ))}
+              <label className="block text-sm font-medium text-gray-700 mb-1">Bis</label>
+              <select value={endeMonat} onChange={(e) => setEndeMonat(Number(e.target.value))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                {MONAT_LABELS.map((m, i) => <option key={i+1} value={i+1} disabled={i+1 < startMonat}>{m}</option>)}
               </select>
             </div>
           </div>
-          {startMonat > endeMonat && (
-            <p className="text-xs text-red-600">
-              Endmonat muss gleich oder nach dem Startmonat liegen.
-            </p>
-          )}
-
-          {/* Error */}
           {error && (
             <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-              <AlertCircle className="w-4 h-4 flex-shrink-0" />
-              {error}
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />{error}
             </div>
           )}
         </div>
-
-        {/* Footer */}
         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-          >
+          <button onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
             Abbrechen
           </button>
-          <button
-            onClick={handleSubmit}
-            disabled={!isValid || saving}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#002451] rounded-lg hover:bg-[#001a3a] disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {saving ? (
-              <><Loader2 className="w-4 h-4 animate-spin" /> Speichern...</>
-            ) : (
-              <><Plus className="w-4 h-4" /> Vorhaben anlegen</>
-            )}
+          <button onClick={handleSubmit} disabled={!isValid || saving}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#002451] rounded-lg hover:bg-[#001a3a] disabled:opacity-50">
+            {saving ? <><Loader2 className="w-4 h-4 animate-spin" /> Speichern...</> : <><Plus className="w-4 h-4" /> Anlegen</>}
           </button>
         </div>
-
       </div>
     </div>
   );
@@ -302,19 +482,25 @@ export default function MultiprojektPage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [companies, setCompanies] = useState<ClientCompany[]>([]);
   const [vorhaben, setVorhaben] = useState<VorhabenMitFirma[]>([]);
-
   const [suche, setSuche] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [savingModal, setSavingModal] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
+  const [neuesVorhabenDropdownOpen, setNeuesVorhabenDropdownOpen] = useState(false);
 
-  // --------------------------------------------------------------------------
-  // DATEN LADEN
-  // --------------------------------------------------------------------------
+  // Kapazitaetsmatrix State
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
+  const [maKapazitaeten, setMaKapazitaeten] = useState<MaKapazitaet[]>([]);
+  const [kapazitaetLoading, setKapazitaetLoading] = useState(false);
+  const [anzeigeJahr, setAnzeigeJahr] = useState(new Date().getFullYear());
+  const MONATE_ANZEIGE = 12; // Jahresansicht
+
+  // ============================================================================
+  // BASISDATEN LADEN
+  // ============================================================================
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -323,20 +509,17 @@ export default function MultiprojektPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { router.push('/v7/login'); return; }
 
-      // Profil
       const { data: profile, error: pErr } = await supabase
         .from('v7_user_profiles')
         .select('id, email, role, display_name, first_name, last_name, consultant_company_id')
         .eq('id', user.id)
         .single();
-      if (pErr || !profile) throw new Error('Profil nicht gefunden.');
+      if (pErr || !profile) { router.push('/v7/login'); return; }
       if (!['consultant', 'system_admin'].includes(profile.role)) {
-        router.push('/v7/firma/dashboard');
-        return;
+        router.push('/v7/firma/dashboard'); return;
       }
       setUserProfile(profile);
 
-      // Firmen dieses Beraters
       let qCompanies = supabase
         .from('v7_client_companies')
         .select('id, name, short_name, federal_state')
@@ -351,18 +534,14 @@ export default function MultiprojektPage() {
 
       if (!comps || comps.length === 0) { setLoading(false); return; }
 
+      // FZul-Vorhaben
       const companyIds = comps.map((c: ClientCompany) => c.id);
-
-      // Vorhaben laden
-      const { data: vorhabenRaw, error: vErr } = await supabase
+      const { data: vorhabenRaw } = await supabase
         .from('v7_fzul_vorhaben')
         .select('*')
         .in('client_company_id', companyIds)
-        .order('wirtschaftsjahr', { ascending: false })
-        .order('created_at', { ascending: false });
-      if (vErr) throw vErr;
+        .order('wirtschaftsjahr', { ascending: false });
 
-      // MA-Anzahl pro Vorhaben ermitteln
       const vorhabenIds = (vorhabenRaw || []).map((v: V7FzulVorhaben) => v.id);
       let maCounts: Record<string, number> = {};
       if (vorhabenIds.length > 0) {
@@ -376,47 +555,232 @@ export default function MultiprojektPage() {
             if (!grouped[r.vorhaben_id]) grouped[r.vorhaben_id] = new Set();
             grouped[r.vorhaben_id].add(r.employee_id);
           });
-          Object.entries(grouped).forEach(([vid, set]) => {
-            maCounts[vid] = set.size;
-          });
+          Object.entries(grouped).forEach(([vid, set]) => { maCounts[vid] = set.size; });
         }
       }
 
-      // Mit Firmendaten anreichern
       const compMap = Object.fromEntries(comps.map((c: ClientCompany) => [c.id, c]));
-      const enriched: VorhabenMitFirma[] = (vorhabenRaw || []).map((v: V7FzulVorhaben) => ({
+      setVorhaben((vorhabenRaw || []).map((v: V7FzulVorhaben) => ({
         ...v,
         company_name: compMap[v.client_company_id]?.name ?? '-',
         company_short_name: compMap[v.client_company_id]?.short_name ?? null,
         ma_count: maCounts[v.id] ?? 0,
-      }));
+      })));
 
-      setVorhaben(enriched);
+      // Erste Firma vorauswaehlen
+      if (comps.length > 0 && !selectedCompanyId) {
+        setSelectedCompanyId(comps[0].id);
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Unbekannter Fehler');
     } finally {
       setLoading(false);
     }
-  }, [supabase, router]);
+  }, [supabase, router, selectedCompanyId]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // --------------------------------------------------------------------------
+  // ============================================================================
+  // KAPAZITAETSMATRIX BERECHNEN
+  // ============================================================================
+
+  const ladeKapazitaeten = useCallback(async (companyId: string, jahr: number) => {
+    if (!companyId) return;
+    setKapazitaetLoading(true);
+    try {
+      const heute = new Date();
+      const monate = generiereMonateListe(jahr, 1, 12);
+
+      // Mitarbeiter der Firma
+      const { data: employees } = await supabase
+        .from('v7_employees')
+        .select('id, display_name, weekly_hours')
+        .eq('client_company_id', companyId)
+        .eq('is_active', true)
+        .order('display_name');
+
+      if (!employees || employees.length === 0) {
+        setMaKapazitaeten([]);
+        setKapazitaetLoading(false);
+        return;
+      }
+
+      const employeeIds = employees.map((e: {id: string}) => e.id);
+
+      // Alle aktiven Projekte der Firma (mit Namen)
+      const { data: projekte } = await supabase
+        .from('v7_projects')
+        .select('id, name, short_name, funding_format, start_date, end_date')
+        .eq('client_company_id', companyId)
+        .eq('is_active', true);
+
+      const projektIds = (projekte || []).map((p: {id: string}) => p.id);
+      // Projekt-Lookup fuer Tooltip
+      const projektMap: Record<string, { name: string; funding_format: string }> = {};
+      (projekte || []).forEach((p: { id: string; name: string; short_name: string | null; funding_format: string }) => {
+        projektMap[p.id] = { name: p.short_name || p.name, funding_format: p.funding_format };
+      });
+
+      // Arbeitspakete mit Laufzeit
+      let apMap: Record<string, { start: string; end: string; project_id: string }> = {};
+      if (projektIds.length > 0) {
+        const { data: aps } = await supabase
+          .from('v7_work_packages')
+          .select('id, project_id, start_date, end_date')
+          .in('project_id', projektIds)
+          .not('start_date', 'is', null)
+          .not('end_date', 'is', null);
+        (aps || []).forEach((ap: { id: string; project_id: string; start_date: string; end_date: string }) => {
+          apMap[ap.id] = { start: ap.start_date, end: ap.end_date, project_id: ap.project_id };
+        });
+      }
+
+      // Work Package Assignments (geplante PM)
+      let wpaData: Array<{
+        employee_id: string;
+        work_package_id: string;
+        planned_person_months: number;
+      }> = [];
+      if (Object.keys(apMap).length > 0) {
+        const { data: wpa } = await supabase
+          .from('v7_work_package_assignments')
+          .select('employee_id, work_package_id, planned_person_months')
+          .in('employee_id', employeeIds)
+          .in('work_package_id', Object.keys(apMap))
+          .eq('is_active', true)
+          .not('planned_person_months', 'is', null);
+        wpaData = wpa || [];
+      }
+
+      // Verbuchte Stunden mit Projekt-ID
+      const startDatum = `${jahr}-01-01`;
+      const endeDatum = `${jahr}-12-31`;
+      let tsData: Array<{ employee_id: string; project_id: string; work_date: string; hours: number }> = [];
+      if (projektIds.length > 0) {
+        const { data: ts } = await supabase
+          .from('v7_timesheets')
+          .select('employee_id, project_id, work_date, hours')
+          .in('employee_id', employeeIds)
+          .in('project_id', projektIds)
+          .gte('work_date', startDatum)
+          .lte('work_date', endeDatum)
+          .eq('is_active', true);
+        tsData = ts || [];
+      }
+
+      // Verbuchte Stunden pro MA, Monat UND Projekt
+      // verbucht[employee_id][monat][projekt_id] = stunden
+      const verbucht: Record<string, Record<number, Record<string, number>>> = {};
+      tsData.forEach(ts => {
+        const m = parseInt(ts.work_date.split('-')[1]);
+        if (!verbucht[ts.employee_id]) verbucht[ts.employee_id] = {};
+        if (!verbucht[ts.employee_id][m]) verbucht[ts.employee_id][m] = {};
+        verbucht[ts.employee_id][m][ts.project_id] =
+          (verbucht[ts.employee_id][m][ts.project_id] || 0) + Number(ts.hours);
+      });
+
+      // Geplante Stunden pro MA, Monat UND Projekt
+      // geplant[employee_id][monat][projekt_id] = stunden
+      const geplant: Record<string, Record<number, Record<string, number>>> = {};
+
+      wpaData.forEach(wpa => {
+        const ap = apMap[wpa.work_package_id];
+        if (!ap || !wpa.planned_person_months) return;
+
+        const apStart = new Date(ap.start);
+        const apEnd   = new Date(ap.end);
+        const totalH  = wpa.planned_person_months * 173.33;
+
+        const apMonate: {jahr: number; monat: number}[] = [];
+        let cur = new Date(apStart.getFullYear(), apStart.getMonth(), 1);
+        const endM = new Date(apEnd.getFullYear(), apEnd.getMonth(), 1);
+        while (cur <= endM) {
+          apMonate.push({ jahr: cur.getFullYear(), monat: cur.getMonth() + 1 });
+          cur.setMonth(cur.getMonth() + 1);
+        }
+
+        if (apMonate.length === 0) return;
+        const hProMonat = totalH / apMonate.length;
+
+        apMonate.forEach(({ jahr: j, monat: m }) => {
+          if (j !== jahr) return;
+          const istVergangenheit = j < heute.getFullYear() ||
+            (j === heute.getFullYear() && m < heute.getMonth() + 1);
+          if (istVergangenheit) return;
+
+          const pid = ap.project_id;
+          if (!geplant[wpa.employee_id]) geplant[wpa.employee_id] = {};
+          if (!geplant[wpa.employee_id][m]) geplant[wpa.employee_id][m] = {};
+          geplant[wpa.employee_id][m][pid] =
+            (geplant[wpa.employee_id][m][pid] || 0) + hProMonat;
+        });
+      });
+
+      // MaKapazitaet zusammenbauen
+      const result: MaKapazitaet[] = employees.map((emp: { id: string; display_name: string; weekly_hours: number }) => {
+        const gesamt = monatsKapazitaet(emp.weekly_hours || 40);
+
+        const monatsDaten: MonatKapazitaet[] = monate.map(({ jahr: j, monat: m }) => {
+          // Geplante Stunden gesamt + pro Projekt
+          const geplantProjekte = geplant[emp.id]?.[m] || {};
+          const g = Math.round(Object.values(geplantProjekte).reduce((s, v) => s + v, 0) * 10) / 10;
+
+          // Verbuchte Stunden gesamt + pro Projekt
+          const verbuchtProjekte = verbucht[emp.id]?.[m] || {};
+          const v = Math.round(Object.values(verbuchtProjekte).reduce((s, h) => s + h, 0) * 10) / 10;
+
+          const frei = Math.max(0, Math.round((gesamt - g - v) * 10) / 10);
+          const freiProzent = gesamt > 0 ? (frei / gesamt) * 100 : 100;
+
+          // Projektbeitraege fuer Tooltip
+          const alleProjektIds = new Set([
+            ...Object.keys(geplantProjekte),
+            ...Object.keys(verbuchtProjekte),
+          ]);
+          const projBeitraege: ProjektBeitrag[] = Array.from(alleProjektIds).map(pid => ({
+            projekt_id: pid,
+            projekt_name: projektMap[pid]?.name ?? pid,
+            funding_format: projektMap[pid]?.funding_format ?? '',
+            geplant: Math.round((geplantProjekte[pid] || 0) * 10) / 10,
+            verbucht: Math.round((verbuchtProjekte[pid] || 0) * 10) / 10,
+          }));
+
+          return { monat: m, jahr: j, gesamt, geplant: g, verbucht: v, frei, freiProzent, projekte: projBeitraege };
+        });
+
+        return {
+          employee_id: emp.id,
+          display_name: emp.display_name,
+          weekly_hours: emp.weekly_hours || 40,
+          monate: monatsDaten,
+        };
+      });
+
+      setMaKapazitaeten(result);
+    } catch (err) {
+      console.error('Fehler bei Kapazitaetsberechnung:', err);
+    } finally {
+      setKapazitaetLoading(false);
+    }
+  }, [supabase]);
+
+  useEffect(() => {
+    if (selectedCompanyId) ladeKapazitaeten(selectedCompanyId, anzeigeJahr);
+  }, [selectedCompanyId, anzeigeJahr, ladeKapazitaeten]);
+
+  // ============================================================================
   // VORHABEN ANLEGEN
-  // --------------------------------------------------------------------------
+  // ============================================================================
 
   const handleSaveVorhaben = async (data: V7FzulVorhabenInsert) => {
-    setSavingModal(true);
-    setModalError(null);
+    setSavingModal(true); setModalError(null);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Nicht angemeldet.');
-
       const { error: iErr } = await supabase
         .from('v7_fzul_vorhaben')
         .insert({ ...data, created_by: user.id });
       if (iErr) throw iErr;
-
       setModalOpen(false);
       await loadData();
     } catch (err: unknown) {
@@ -426,55 +790,31 @@ export default function MultiprojektPage() {
     }
   };
 
-  // --------------------------------------------------------------------------
-  // FILTER
-  // --------------------------------------------------------------------------
+  // ============================================================================
+  // FILTER FZul-VORHABEN
+  // ============================================================================
 
   const gefilterteVorhaben = vorhaben.filter((v) => {
     if (!suche) return true;
     const q = suche.toLowerCase();
-    return (
-      v.title.toLowerCase().includes(q) ||
+    return v.title.toLowerCase().includes(q) ||
       v.company_name.toLowerCase().includes(q) ||
-      String(v.wirtschaftsjahr).includes(q) ||
-      (v.vorhaben_id ?? '').toLowerCase().includes(q)
-    );
+      String(v.wirtschaftsjahr).includes(q);
   });
 
-  // Gruppierung nach Firma
-  const grouped: Record<string, VorhabenMitFirma[]> = {};
+  const groupedVorhaben: Record<string, VorhabenMitFirma[]> = {};
   gefilterteVorhaben.forEach((v) => {
-    if (!grouped[v.client_company_id]) grouped[v.client_company_id] = [];
-    grouped[v.client_company_id].push(v);
+    if (!groupedVorhaben[v.client_company_id]) groupedVorhaben[v.client_company_id] = [];
+    groupedVorhaben[v.client_company_id].push(v);
   });
 
-  // --------------------------------------------------------------------------
-  // RENDER-HILFSFUNKTIONEN
-  // --------------------------------------------------------------------------
-
-  const userName = userProfile
-    ? (userProfile.display_name || userProfile.email)
-    : '';
+  const userName = userProfile ? (userProfile.display_name || userProfile.email) : '';
   const userRole = userProfile?.role ?? 'consultant';
+  const monate = generiereMonateListe(anzeigeJahr, 1, MONATE_ANZEIGE);
 
-  function StatusBadge({ status }: { status: string }) {
-    if (status === 'abgeschlossen') {
-      return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
-          <CheckCircle className="w-3 h-3" /> Abgeschlossen
-        </span>
-      );
-    }
-    return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">
-        <Clock className="w-3 h-3" /> Entwurf
-      </span>
-    );
-  }
-
-  // --------------------------------------------------------------------------
+  // ============================================================================
   // RENDER
-  // --------------------------------------------------------------------------
+  // ============================================================================
 
   if (loading) {
     return (
@@ -482,10 +822,7 @@ export default function MultiprojektPage() {
         <PortalHeader portal="berater" userName={userName} userRole={userRole} />
         <PortalNav portal="berater" userRole={userRole} />
         <main className="flex-1 flex items-center justify-center">
-          <div className="flex items-center gap-3 text-gray-500">
-            <Loader2 className="w-6 h-6 animate-spin" />
-            <span>Wird geladen...</span>
-          </div>
+          <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
         </main>
       </div>
     );
@@ -493,153 +830,184 @@ export default function MultiprojektPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-
       <PortalHeader portal="berater" userName={userName} userRole={userRole} />
       <PortalNav portal="berater" userRole={userRole} />
 
-      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+      <main className="flex-1 w-full">
 
-        {/* Seitenkopf */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-[#002451] rounded-xl">
-              <Layers className="w-6 h-6 text-white" />
+        {/* ================================================================ */}
+        {/* BEREICH A: KAPAZITAETSMATRIX                                      */}
+        {/* ================================================================ */}
+
+        <div className="bg-white border-b border-gray-200 px-4 sm:px-6 lg:px-8 py-6">
+          <div className="max-w-screen-2xl mx-auto">
+
+            {/* Zurueck-Button */}
+            <button
+              onClick={() => router.push('/v7/berater/dashboard')}
+              className="flex items-center gap-1 text-sm text-gray-400 hover:text-[#002451] mb-4">
+              <ChevronLeft className="w-4 h-4" /> Dashboard
+            </button>
+
+            {/* Header */}
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-[#002451] rounded-xl">
+                  <BarChart3 className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h1 className="text-lg font-bold text-gray-900">Kapazitaetsplanung</h1>
+                  <p className="text-xs text-gray-500">Freie MA-Kapazitaeten auf einen Blick</p>
+                </div>
+              </div>
+
+              {/* Firmen-Selektor + Jahr-Navigation */}
+              <div className="flex items-center gap-3">
+                <select
+                  value={selectedCompanyId}
+                  onChange={(e) => setSelectedCompanyId(e.target.value)}
+                  className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Firma waehlen...</option>
+                  {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+
+                <div className="flex items-center gap-1 border border-gray-300 rounded-lg px-2 py-1.5">
+                  <button onClick={() => setAnzeigeJahr(j => j - 1)}
+                    className="p-0.5 hover:bg-gray-100 rounded text-gray-500">
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <span className="text-sm font-semibold text-gray-700 w-10 text-center">
+                    {anzeigeJahr}
+                  </span>
+                  <button onClick={() => setAnzeigeJahr(j => j + 1)}
+                    className="p-0.5 hover:bg-gray-100 rounded text-gray-500">
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
             </div>
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">Multiprojekt-Tool</h1>
-              <p className="text-sm text-gray-500">
-                FZul-Kapazitaeten ermitteln und Stundenformulare erstellen
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={() => { setModalError(null); setModalOpen(true); }}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#002451] rounded-lg hover:bg-[#001a3a] transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Neues FZul-Vorhaben
-          </button>
-        </div>
 
-        {/* Fehler */}
-        {error && (
-          <div className="mb-6 flex items-center gap-2 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
-            <AlertCircle className="w-5 h-5 flex-shrink-0" />
-            {error}
-          </div>
-        )}
-
-        {/* Suchfeld */}
-        {vorhaben.length > 0 && (
-          <div className="relative mb-6 max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Vorhaben oder Firma suchen..."
-              value={suche}
-              onChange={(e) => setSuche(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            {/* Matrix */}
+            <Kapazitaetsmatrix
+              maListe={maKapazitaeten}
+              monate={monate}
+              loading={kapazitaetLoading}
             />
           </div>
-        )}
+        </div>
 
-        {/* Leer-Zustand */}
-        {vorhaben.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="p-4 bg-gray-100 rounded-2xl mb-4">
-              <Layers className="w-10 h-10 text-gray-400" />
+        {/* ================================================================ */}
+        {/* BEREICH B: FZUL-VORHABEN                                         */}
+        {/* ================================================================ */}
+
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-gray-100 rounded-xl">
+                <Layers className="w-5 h-5 text-gray-600" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-gray-900">FuE-Vorhaben</h2>
+                <p className="text-xs text-gray-500">Uebersicht freier Kapazitaeten auf Basis geplanter und gebuchter Foerderprojektstunden</p>
+              </div>
             </div>
-            <h3 className="text-lg font-semibold text-gray-700 mb-2">
-              Noch keine FZul-Vorhaben angelegt
-            </h3>
-            <p className="text-sm text-gray-500 max-w-md mb-6">
-              Legen Sie ein Vorhaben fuer eine Ihrer Kundenfirmen an. Das Tool
-              ermittelt automatisch die verfuegbaren FZul-Kapazitaeten aus den
-              vorhandenen Zeiterfassungsdaten.
-            </p>
-            <button
-              onClick={() => { setModalError(null); setModalOpen(true); }}
-              className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-[#002451] rounded-lg hover:bg-[#001a3a]"
-            >
-              <Plus className="w-4 h-4" />
-              Erstes Vorhaben anlegen
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setNeuesVorhabenDropdownOpen(o => !o)}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white bg-[#002451] rounded-lg hover:bg-[#001a3a]">
+                <Plus className="w-4 h-4" /> Neues FuE-Vorhaben
+                <ChevronDown className="w-3 h-3" />
+              </button>
+              {neuesVorhabenDropdownOpen && (
+                <div className="absolute right-0 top-10 z-30 bg-white border border-gray-200 rounded-xl shadow-xl py-1 w-56">
+                  {[
+                    { label: 'ZIM Einzelprojekt', id: 'zim_einzel' },
+                    { label: 'ZIM Kooperation', id: 'zim_koop' },
+                    { label: 'ZIM Netzwerk', id: 'zim_netzwerk' },
+                    { label: 'BMBF / KMU Innovativ', id: 'bmbf' },
+                    { label: 'EU-Projekt', id: 'eu' },
+                    { label: 'Forschungszulage (FZul)', id: 'fzul' },
+                    { label: 'Sonstiges', id: 'sonstiges' },
+                  ].map((typ) => (
+                    <button key={typ.id}
+                      onClick={() => {
+                        setNeuesVorhabenDropdownOpen(false);
+                        if (typ.id === 'fzul') { setModalError(null); setModalOpen(true); }
+                      }}
+                      className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 flex items-center justify-between gap-2">
+                      <span>{typ.label}</span>
+                      <span className="text-xs text-gray-300 italic">iV</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
-        )}
 
-        {/* Vorhaben-Liste gruppiert nach Firma */}
-        {Object.entries(grouped).map(([companyId, vorhabenGruppe]) => (
-          <div key={companyId} className="mb-8">
-
-            {/* Firmen-Header */}
-            <div className="flex items-center gap-2 mb-3">
-              <Building2 className="w-4 h-4 text-gray-400" />
-              <h2 className="text-sm font-semibold text-gray-600 uppercase tracking-wide">
-                {vorhabenGruppe[0].company_name}
-              </h2>
-              <span className="text-xs text-gray-400">
-                ({vorhabenGruppe.length} {vorhabenGruppe.length === 1 ? 'Vorhaben' : 'Vorhaben'})
-              </span>
+          {vorhaben.length > 0 && (
+            <div className="relative mb-5 max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input type="text" placeholder="Vorhaben oder Firma suchen..."
+                value={suche} onChange={(e) => setSuche(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
+          )}
 
-            {/* Karten */}
-            <div className="space-y-3">
-              {vorhabenGruppe.map((v) => (
-                <button
-                  key={v.id}
-                  onClick={() => router.push(`/v7/berater/multiprojekt/${v.id}`)}
-                  className="w-full text-left bg-white border border-gray-200 rounded-xl p-5 hover:shadow-md hover:border-[#002451] transition-all duration-200 group"
-                >
-                  <div className="flex items-start justify-between gap-4">
+          {vorhaben.length === 0 && (
+            <div className="text-center py-10 text-gray-400">
+              <Layers className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+              <p className="text-sm">Noch keine FZul-Vorhaben angelegt.</p>
+            </div>
+          )}
 
-                    {/* Links: Titel + Meta */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-3 mb-2">
-                        <h3 className="text-base font-semibold text-gray-900 truncate">
-                          {v.title}
-                        </h3>
-                        <StatusBadge status={v.status} />
-                      </div>
-
-                      <div className="flex items-center gap-4 text-sm text-gray-500 flex-wrap">
-                        <span className="flex items-center gap-1">
-                          <Calendar className="w-3.5 h-3.5" />
-                          {formatZeitraum(v.start_monat, v.ende_monat, v.wirtschaftsjahr)}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Users className="w-3.5 h-3.5" />
-                          {v.ma_count === 0
-                            ? 'Noch keine Mitarbeiter'
-                            : `${v.ma_count} Mitarbeiter`}
-                        </span>
-                        {v.vorhaben_id && (
-                          <span className="font-mono text-xs bg-gray-100 px-2 py-0.5 rounded">
-                            {v.vorhaben_id}
+          {Object.entries(groupedVorhaben).map(([companyId, gruppe]) => (
+            <div key={companyId} className="mb-6">
+              <div className="flex items-center gap-2 mb-2">
+                <Building2 className="w-4 h-4 text-gray-400" />
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  {gruppe[0].company_name}
+                </h3>
+              </div>
+              <div className="space-y-2">
+                {gruppe.map((v) => (
+                  <button key={v.id}
+                    onClick={() => router.push(`/v7/berater/multiprojekt/${v.id}`)}
+                    className="w-full text-left bg-white border border-gray-200 rounded-xl p-4 hover:shadow-md hover:border-[#002451] transition-all group">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-3 mb-1">
+                          <h4 className="text-sm font-semibold text-gray-900 truncate">{v.title}</h4>
+                          {v.status === 'abgeschlossen'
+                            ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-700">
+                                <CheckCircle className="w-3 h-3" /> Abgeschlossen
+                              </span>
+                            : <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-yellow-100 text-yellow-700">
+                                <Clock className="w-3 h-3" /> Entwurf
+                              </span>
+                          }
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-gray-400">
+                          <span className="flex items-center gap-1">
+                            <Calendar className="w-3 h-3" /> Gj. {v.wirtschaftsjahr}
                           </span>
-                        )}
+                          <span className="flex items-center gap-1">
+                            <Users className="w-3 h-3" />
+                            {v.ma_count === 0 ? 'Keine Mitarbeiter' : `${v.ma_count} Mitarbeiter`}
+                          </span>
+                        </div>
                       </div>
+                      <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-[#002451] flex-shrink-0" />
                     </div>
-
-                    {/* Rechts: Pfeil */}
-                    <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-[#002451] flex-shrink-0 mt-0.5 transition-colors" />
-                  </div>
-                </button>
-              ))}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
-
-        {/* Keine Suchergebnisse */}
-        {vorhaben.length > 0 && gefilterteVorhaben.length === 0 && (
-          <div className="text-center py-12 text-gray-500">
-            <Search className="w-8 h-8 mx-auto mb-3 text-gray-300" />
-            <p className="text-sm">Keine Vorhaben gefunden fuer "{suche}"</p>
-          </div>
-        )}
-
+          ))}
+        </div>
       </main>
 
-      {/* Modal: Neues Vorhaben */}
       <NeuesVorhabenModal
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
@@ -648,7 +1016,6 @@ export default function MultiprojektPage() {
         saving={savingModal}
         error={modalError}
       />
-
     </div>
   );
 }
