@@ -2,7 +2,13 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-30
+// Version: 7.4.4-31
+// v7.4.4-31: Deckblatt Kopfzeilen-Umstrukturierung (3 Zeilen)
+//   - Zeile 1 (gelb): FKZ | Datum Zuwendungsbescheid
+//   - Zeile 2 (gruen): Projektlaufzeit von...bis | Bewilligte Foerdersumme
+//   - Zeile 3 (blau): ZA-Nr. | Abrechnungszeitraum von...bis
+//   Farbzuordnung zeilenweise einheitlich (wie bisher je Feld, jetzt je Zeile)
+//
 // v7.4.4-30: FIX: hourly_rate_approved wird bevorzugt verwendet
 //   - Interface ZAProjectAssignment: hourly_rate_approved ergaenzt
 //   - loadProjectAssignments: Feld aus DB geladen
@@ -742,12 +748,32 @@ export default function ZAPanel({
                   {isDS ? ' fuer Durchfuehrbarkeitsstudien' : ''}
                 </div>
 
-                {/* Kopfdaten - Zeile 1: Foerderkennzeichen + Bewilligte Summe */}
+                {/* Kopfdaten - Zeile 1 (gelb): Foerderkennzeichen | Datum Zuwendungsbescheid */}
                 <div className="grid grid-cols-2 gap-3 mb-2">
                   <div>
                     <div className="text-xs text-gray-500 mb-1">Foerderkennzeichen</div>
                     <div className="font-medium text-sm bg-yellow-50 border border-gray-300 rounded px-2 py-1 min-h-[28px]">
                       {zaProject?.funding_reference || <span className="text-gray-400 italic">nicht hinterlegt</span>}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-500 mb-1">Datum Zuwendungsbescheid</div>
+                    <div className="text-sm bg-yellow-50 border border-gray-300 rounded px-2 py-1 min-h-[28px] text-gray-800">
+                      {zaProjectExtra.bewilligung_datum
+                        ? new Date(zaProjectExtra.bewilligung_datum).toLocaleDateString('de-DE')
+                        : <span className="text-gray-400 italic">nicht hinterlegt</span>}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Kopfdaten - Zeile 2 (gruen): Projektlaufzeit | Bewilligte Foerdersumme */}
+                <div className="grid grid-cols-2 gap-3 mb-2">
+                  <div>
+                    <div className="text-xs text-gray-500 mb-1">Projektlaufzeit</div>
+                    <div className="text-sm bg-green-50 border border-gray-300 rounded px-2 py-1 min-h-[28px] text-gray-800">
+                      {zaProject?.start_date && zaProject?.end_date
+                        ? <>{new Date(zaProject.start_date).toLocaleDateString('de-DE')} &ndash; {new Date(zaProject.end_date).toLocaleDateString('de-DE')}</>
+                        : <span className="text-gray-400 italic">nicht hinterlegt</span>}
                     </div>
                   </div>
                   <div>
@@ -759,7 +785,8 @@ export default function ZAPanel({
                     </div>
                   </div>
                 </div>
-                {/* Kopfdaten - Zeile 2: ZA-Nr + Bescheid-Datum + Zeitraum von/bis */}
+
+                {/* Kopfdaten - Zeile 3 (blau): ZA-Nr. | Abrechnungszeitraum von...bis */}
                 <div className="grid grid-cols-4 gap-3 mb-4 pb-3 border-b border-gray-300">
                   <div>
                     <div className="text-xs text-gray-500 mb-1">Zahlungsanforderung Nr.</div>
@@ -768,12 +795,7 @@ export default function ZAPanel({
                       className={`w-full px-2 py-1 text-sm font-medium border border-gray-300 rounded bg-blue-50 ${colors.inputFocus}`} />
                   </div>
                   <div>
-                    <div className="text-xs text-gray-500 mb-1">Datum Zuwendungsbescheid</div>
-                    <div className="text-sm bg-yellow-50 border border-gray-300 rounded px-2 py-1 min-h-[28px] text-gray-800">
-                      {zaProjectExtra.bewilligung_datum
-                        ? new Date(zaProjectExtra.bewilligung_datum).toLocaleDateString('de-DE')
-                        : <span className="text-gray-400 italic">nicht hinterlegt</span>}
-                    </div>
+                    {/* Platzhalter fuer optischen Ausgleich */}
                   </div>
                   <div>
                     <div className="text-xs text-gray-500 mb-1">Abrechnungszeitraum von</div>

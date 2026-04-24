@@ -2,47 +2,41 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Grafische Auswertung
 // ============================================================================
-// Version: 7.4.5-11
-// Datum: 24. April 2026
+// Version: 7.4.5-18
+// Datum: 25. April 2026
 //
-// v7.4.5-10: Szenario-Labels um MA-Anzahl ergaenzt
-//   - "Weiter wie bisher" -> "Weiter wie bisher (X aktive MA)"
-//   - "Vollast alle N MA" bleibt unveraendert
-//   - "Fuer 100% Ziel benoetigt" -> "Fuer 100% Ziel (alle N MA)"
+// v7.4.5-18: PDF-Export auf window.print() umgestellt
+//   - html2canvas inkompatibel mit Tailwind CSS v4 + Next.js (oklch-Problem)
+//   - Neuer Ansatz: Druckfenster mit isoliertem HTML + Inline-SVG-Styles
+//   - Dateiname wird als window.title gesetzt (macOS/Chrome: "Als PDF" nutzt Title)
+//   - Druckbereich: Monatsverlauf + Zielerreichungs-Prognose
+//   - pdfAreaRef und html2canvas/jspdf-Imports entfernt
 //
-// v7.4.5-9: 3-Spalten-Layout mit Foerder-Konsequenzen (siehe dort)
-// Datum: 24. April 2026
+// v7.4.5-17: FIX oklch - Stylesheets im DOM-Klon entfernen (hat nicht funktioniert)
+// v7.4.5-12: Projektlaufzeit im Header + PDF-Export
+//   - getComputedStyle liefert immer rgb()/rgba() - auch fuer oklch-Werte
+//   - Diese RGB-Werte direkt als inline style setzen, kein replace durch transparent
+//   - Behebt: Text und Zahlen fehlen im PDF
 //
-// v7.4.5-9: 3-Spalten-Layout im Prognose-Block
-//   - Spalte 1: Aktuelle Situation (MA, Intensitaet, GF-Grenzen)
-//   - Spalte 2: Was waere noetig? (Szenarien mit h/Tag je MA)
-//   - Spalte 3: Konsequenzen (Foerderkosten, verschenkte Foerdermittel)
-//   - Kosten-Prognose auf Basis echter Stundensaetze je MA (keine Schaetzung)
-//   - Foerdersatz aus project.foerdersatz (nur wenn vorhanden, sonst Spalte leer)
-//   - Prognose-Kosten: proportional nach MA-Ist-Anteil verteilt
+// v7.4.5-15: FIX PDF einseitig dynamische Seitenhoehe
+//   - Tailwind CSS v4 nutzt oklch() - wird von html2canvas nicht unterstuetzt
+//   - onclone-Handler ersetzt alle oklch()-Werte durch transparent
+//   - Verhindert "Attempting to parse an unsupported color function oklch"
 //
-// v7.4.5-8: Layout-Aufraeum (siehe dort)
-// Datum: 24. April 2026
+// v7.4.5-13: FIX html2canvas Import fuer Next.js
+//   - Robuster Import: (module as any).default ?? module
+//   - Behebt "can't access property split, file is undefined"
 //
-// v7.4.5-7: Zweite Projektions-Linie im Diagramm
-//   - 'Ziel Projektion' (gruen): zeigt Verlauf wenn MA ab jetzt Zieltempo fahren
-//   - 'Ist Projektion' (orange): bisheriges Tempo weitergeschrieben (unveraendert)
-//   - Zieltempo = benoetigte Team-h/Monat fuer 100% Foerderziel
-//   - Nur sichtbar wenn Ziel physikalisch erreichbar (maxErreichbarPct >= 90)
-//   - zielStundenProMonat als neues Berechnungsfeld im analysis-Objekt
+// v7.4.5-12: Projektlaufzeit im Header + PDF-Export
+//   - Projektlaufzeit <Startdatum> - <Enddatum> neben FKZ und Foerderprogramm
+//     (gilt fuer Einzel- und Multi-Projekt-Ansicht)
+//   - Button "Als PDF speichern" im Monatsverlauf/Prognose-Bereich
+//     Export via html2canvas + jsPDF
+//     Dateiname: <Projektname>_<FKZ>_Projektfortschritt_JJJJMMDD.pdf
+//     Druckbereich: Monatsverlauf-Diagramm + Zielerreichungs-Prognose
 //
-// v7.4.5-6: Korrekturen Zielerreichungs-Prognose
-//   - Employee-Interface um position_title erweitert (GF-Erkennung)
-//   - Intensitaet jetzt als Oe je MA (nicht Team-Summe) angezeigt
-//   - Zusaetzlich: Team-Summe h/Tag als Kontextinformation
-//   - MA-individuelle Obergrenzen: GF max. 86,67 h/Monat (50%-Regel ZIM),
-//     normale MA max. 173,33 h/Monat (x Teilzeitfaktor)
-//   - Team-Maximum korrekt aus Summe der individuellen Obergrenzen berechnet
-//   - Szenarien zeigen benoetigte h/Tag je MA (nicht Team-Summe)
-//   - Szenario-Erreichbarkeit prueft gegen individuelle Obergrenzen (GF / MA)
-//   - GF_POSITIONS: 'Geschaeftsfuehrer', 'Gesellschafter-Geschaeftsfuehrer'
-//
-// v7.4.5-5: Zielerreichungs-Prognose (Basisversion - siehe dort)
+// v7.4.5-11: Szenario-Labels um MA-Anzahl ergaenzt
+// v7.4.5-10: (Vorgaenger - siehe dort)
 // ============================================================================
 
 'use client';
@@ -60,7 +54,7 @@ import {
   BarChart,
   ResponsiveContainer,
 } from 'recharts';
-import { TrendingUp, Clock, Euro, Users, CheckCircle, AlertCircle, Target } from 'lucide-react';
+import { TrendingUp, Clock, Euro, Users, CheckCircle, AlertCircle, Target, Printer } from 'lucide-react';
 
 // Foerderformat-Labels
 const FUNDING_FORMAT_LABELS: Record<string, string> = {
@@ -158,6 +152,14 @@ const fmtEur = (v: number) =>
   v.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' EUR';
 const fmtH = (v: number) =>
   v.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' h';
+
+// Datum DD.MM.YYYY
+const fmtDateDE = (d: string | null | undefined): string => {
+  if (!d) return '--';
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return '--';
+  return dt.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+};
 
 // ============================================================================
 // HILFSFUNKTIONEN
@@ -296,6 +298,10 @@ export default function ProjektFortschrittPanel({
   const [selectedProjectId, setSelectedProjectId] = useState<string>(
     initialProjectId || projects[0]?.id || ''
   );
+  const [isPrinting, setIsPrinting] = useState(false);
+
+  // ID fuer den Druckbereich (Monatsverlauf + Prognose)
+  const printAreaId = 'pfp-print-area';
 
   const project = projects.find(p => p.id === selectedProjectId) || projects[0];
 
@@ -466,7 +472,6 @@ export default function ProjektFortschrittPanel({
       : 0;
 
     // ---- MA-individuelle Obergrenzen ----
-    // Fuer jeden MA im Projekt: max. Projektstunden/Monat und h/Tag
     const maObergrenzen = alleMAIds.map(empId => {
       const emp = employees.find(e => e.id === empId);
       const maxProMonat = maxProjektstundenMonat(emp);
@@ -474,14 +479,12 @@ export default function ProjektFortschrittPanel({
       return { empId, maxProMonat, isGF, emp };
     });
 
-    // Team-Maximum gesamt pro Monat (Summe aller individuellen Obergrenzen)
+    // Team-Maximum gesamt pro Monat
     const teamMaxProMonat = maObergrenzen.reduce((s, ma) => s + ma.maxProMonat, 0);
 
-    // Aufschluesseln: wie viele GF, wie viele normale MA
     const gfCount = maObergrenzen.filter(ma => ma.isGF).length;
     const normalMACount = gesamtMACount - gfCount;
 
-    // Durchschnittliche Obergrenzen fuer Anzeige
     const avgMaxProTagGF = gfCount > 0
       ? maObergrenzen.filter(ma => ma.isGF).reduce((s, ma) => s + ma.maxProMonat, 0) / gfCount / 21.7
       : 0;
@@ -504,20 +507,16 @@ export default function ProjektFortschrittPanel({
     const restStunden = Math.max(0, gesamtPlanStunden - gesamtIstStunden);
 
     // ---- Szenarien ----
-    // Jedes Szenario zeigt benoetigte h/Tag JE MA (nicht Team-Summe)
-    // und prueft gegen individuelle Obergrenzen
-
     const szenarien: Array<{
       label: string;
-      hProTagJeMA: number;       // benoetigte h/Tag je eingesetztem MA (Durchschnitt)
-      teamHProTag: number;       // Team-Summe h/Tag (Info)
+      hProTagJeMA: number;
+      teamHProTag: number;
       erreichbar: boolean;
       hinweis?: string;
     }> = [];
 
     if (restArbeitstage > 0) {
 
-      // Szenario 1: Weiter wie bisher (Ist-Tempo)
       const teamMaxErreichbar = teamMaxProMonat * verbleibendeMonateAb;
       const maxErreichbarGesamt = gesamtIstStunden + teamMaxErreichbar;
       const maxErreichbarPct = gesamtPlanStunden > 0
@@ -531,8 +530,6 @@ export default function ProjektFortschrittPanel({
         erreichbar: erreichungsgrad >= 90,
       });
 
-      // Szenario 2: Vollast aller MA (physikalisches Maximum)
-      // Zeigt was maximal noch erreichbar ist
       if (maxErreichbarPct < 100) {
         szenarien.push({
           label: `Vollast alle ${gesamtMACount} MA (Maximum)`,
@@ -545,17 +542,12 @@ export default function ProjektFortschrittPanel({
         });
       }
 
-      // Szenario 3: Benoetigt fuer 100% Ziel - nur wenn ueberhaupt erreichbar
       if (restArbeitstage > 0 && restStunden > 0 && maxErreichbarPct >= 90) {
-        // Benoetigte Team-Stunden pro Tag
         const benoetigtTeamHProTag = restStunden / restArbeitstage;
-        // Aufteilen auf MA unter Beruecksichtigung GF-Grenze:
-        // Versuche gleichmaessige Verteilung auf alle MA
         const benoetigtJeMAHProTag = gesamtMACount > 0
           ? benoetigtTeamHProTag / gesamtMACount
           : 0;
 
-        // Pruefe ob GF-Anteil realistisch
         const gfMaxHProTag = gfCount > 0 ? avgMaxProTagGF : 0;
         const maMaxHProTag = normalMACount > 0 ? avgMaxProTagMA : 0;
 
@@ -581,53 +573,37 @@ export default function ProjektFortschrittPanel({
       }
     }
 
-    // ---- Kosten-Prognose (nur mit echten Daten) ----
-    // Foerdersatz aus Projekt (z.B. 45 = 45%)
+    // ---- Kosten-Prognose ----
     const foerdersatz = project.foerdersatz ?? null;
     const kostenDatenVorhanden = foerdersatz !== null && gesamtPlanKosten > 0 && gesamtIstKosten > 0;
 
-    // Prognostizierte Kosten: MA-proportional aus Ist-Kosten hochgerechnet
-    // Fuer jeden MA: Ist-Kosten / Ist-Stunden = realer Stundensatz inkl. Overhead
-    // Prognose-Stunden je MA: proportional nach Ist-Anteil an Team-Gesamtstunden
     let prognostizierteGesamtKosten = gesamtIstKosten;
-    let zielKosten = gesamtPlanKosten; // 100%-Ziel = Plankosten
 
     if (kostenDatenVorhanden && prognostizierteGesamtStunden > gesamtIstStunden) {
       const progDeltaStunden = prognostizierteGesamtStunden - gesamtIstStunden;
-      // Gewichteter Durchschnittsstundensatz aus echten MA-Daten
-      // = gesamtIstKosten / gesamtIstStunden (nur wenn Ist-Stunden > 0)
       if (gesamtIstStunden > 0) {
         const avgStundensatz = gesamtIstKosten / gesamtIstStunden;
         prognostizierteGesamtKosten = gesamtIstKosten + progDeltaStunden * avgStundensatz;
       } else {
-        // Kein Ist vorhanden: Plan-Stundensatz verwenden
         const avgPlanStundensatz = gesamtPlanKosten / gesamtPlanStunden;
         prognostizierteGesamtKosten = prognostizierteGesamtStunden * avgPlanStundensatz;
       }
     }
 
-    // Foerderbare Betraege je Szenario
     const fs = (foerdersatz ?? 0) / 100;
     const foerderbarIst     = gesamtIstKosten * fs;
     const foerderbarProg    = Math.min(prognostizierteGesamtKosten, gesamtPlanKosten) * fs;
-    const foerderbarPlan    = gesamtPlanKosten * fs; // = bewilligter Betrag
+    const foerderbarPlan    = gesamtPlanKosten * fs;
     const verschenktProg    = Math.max(0, foerderbarPlan - foerderbarProg);
-
-    // Ziel-Szenario (100%): Plankosten voll abrufbar
     const foerderbarZiel    = gesamtPlanKosten * fs;
     const verschenktZiel    = 0;
 
-    // ---- Zieltempo-Kosten (fuer 100%-Szenario) ----
-    // Bereits als zielKosten = gesamtPlanKosten definiert
-
-    // ---- Zieltempo: benoetigte Teamstunden pro Monat fuer 100% Foerderziel ----
-    // Nur berechnen wenn Ziel noch erreichbar (maxErreichbarPct >= 90)
+    // ---- Zieltempo ----
     const teamMaxErreichbarGesamt = gesamtIstStunden + teamMaxProMonat * verbleibendeMonateAb;
     const maxErreichbarPct = gesamtPlanStunden > 0
       ? Math.round((teamMaxErreichbarGesamt / gesamtPlanStunden) * 100)
       : 0;
     const zielErreichbar = maxErreichbarPct >= 90;
-    // Benoetigte Teamstunden pro Monat ab jetzt fuer genau 100% Ziel
     const zielStundenProMonat = (zielErreichbar && verbleibendeMonateAb > 0)
       ? restStunden / verbleibendeMonateAb
       : 0;
@@ -649,7 +625,6 @@ export default function ProjektFortschrittPanel({
         cur.setMonth(cur.getMonth() + 1);
       }
 
-      // Soll-Map
       const sollMap: Record<string, number> = {};
       projWPs.forEach(wp => {
         if (!wp.start_date || !wp.end_date) return;
@@ -676,7 +651,6 @@ export default function ProjektFortschrittPanel({
         });
       });
 
-      // Kombinierte Daten mit Projektion
       let sollKumuliert = 0;
       let istKumuliert = 0;
       let projektionKumuliert = gesamtIstStunden;
@@ -699,16 +673,13 @@ export default function ProjektFortschrittPanel({
 
         if (!istVergangenheit || istAktuell) {
           if (istAktuell) {
-            // Startpunkt beider Linien = aktueller Ist-Wert
             projektion = istKumuliert;
             projektionKumuliert = istKumuliert;
             zielProjektion = istKumuliert;
             zielProjektionKumuliert = istKumuliert;
           } else {
-            // Ist-Tempo Projektion (orange)
             projektionKumuliert += basisStunden;
             projektion = Math.round(Math.min(projektionKumuliert, gesamtPlanStunden));
-            // Ziel-Tempo Projektion (gruen) - nur wenn Ziel erreichbar
             if (zielErreichbar && zielStundenProMonat > 0) {
               zielProjektionKumuliert += zielStundenProMonat;
               zielProjektion = Math.round(Math.min(zielProjektionKumuliert, gesamtPlanStunden));
@@ -748,7 +719,6 @@ export default function ProjektFortschrittPanel({
       gesamtIstKosten,
       maData,
       monatData,
-      // Prognose
       prognoseAktiv,
       erreichungsgrad,
       fehlendStunden,
@@ -758,7 +728,6 @@ export default function ProjektFortschrittPanel({
       letzten3Count: letzten3.length,
       zielErreichbar,
       zielStundenProMonat,
-      // Kosten-Prognose
       kostenDatenVorhanden,
       foerdersatz,
       foerderbarIst,
@@ -768,7 +737,6 @@ export default function ProjektFortschrittPanel({
       foerderbarZiel,
       verschenktZiel,
       prognostizierteGesamtKosten,
-      // Beteiligung & Intensitaet
       aktivCount,
       gesamtMACount,
       gfCount,
@@ -794,6 +762,65 @@ export default function ProjektFortschrittPanel({
   const xAxisInterval = Math.max(0, Math.floor(analysis.monatData.length / 12) - 1);
 
   // ============================================================================
+  // DRUCK / PDF-EXPORT via window.print()
+  // ============================================================================
+
+  const handlePrint = () => {
+    const el = document.getElementById(printAreaId);
+    if (!el) return;
+    setIsPrinting(true);
+
+    const today = new Date();
+    const dateStr = [
+      today.getFullYear(),
+      String(today.getMonth() + 1).padStart(2, '0'),
+      String(today.getDate()).padStart(2, '0'),
+    ].join('');
+    const projName = (project.short_name || project.name).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const fkz = (project.funding_reference || 'keinFKZ').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const docTitle = `${projName}_${fkz}_Projektfortschritt_${dateStr}`;
+
+    // Alle Styles des aktuellen Dokuments sammeln
+    const styles = Array.from(document.styleSheets)
+      .map(ss => {
+        try {
+          return Array.from(ss.cssRules).map(r => r.cssText).join('\n');
+        } catch { return ''; }
+      })
+      .join('\n');
+
+    const printWin = window.open('', '_blank', 'width=1200,height=900');
+    if (!printWin) { setIsPrinting(false); return; }
+
+    printWin.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${docTitle}</title>
+  <style>
+    ${styles}
+    @page { size: A4 landscape; margin: 10mm; }
+    @media print {
+      body { margin: 0; padding: 0; background: white; }
+      button { display: none !important; }
+    }
+    body { background: white; font-family: sans-serif; padding: 10px; }
+  </style>
+</head>
+<body>
+  ${el.outerHTML}
+</body>
+</html>`);
+    printWin.document.close();
+    printWin.focus();
+    setTimeout(() => {
+      printWin.print();
+      printWin.close();
+      setIsPrinting(false);
+    }, 600);
+  };
+
+  // ============================================================================
   // RENDER
   // ============================================================================
 
@@ -802,7 +829,7 @@ export default function ProjektFortschrittPanel({
 
       {/* Projekt-Auswahl oder Projektname */}
       {projects.length > 1 ? (
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <label className="text-sm font-medium text-gray-700">Projekt:</label>
           <select
             value={selectedProjectId}
@@ -816,9 +843,15 @@ export default function ProjektFortschrittPanel({
               </option>
             ))}
           </select>
+          {/* Laufzeit auch beim Multi-Projekt-Dropdown */}
+          {(project.start_date || project.end_date) && (
+            <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
+              {fmtDateDE(project.start_date)} &ndash; {fmtDateDE(project.end_date)}
+            </span>
+          )}
         </div>
       ) : (
-        <div className="flex items-center gap-2 pb-3 border-b border-gray-100">
+        <div className="flex items-center gap-2 flex-wrap pb-3 border-b border-gray-100">
           <span className="text-base font-bold text-gray-900">
             {project.short_name || project.name}
           </span>
@@ -830,6 +863,12 @@ export default function ProjektFortschrittPanel({
           {project.funding_format && (
             <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">
               {getFundingLabel(project.funding_format)}
+            </span>
+          )}
+          {/* NEU: Projektlaufzeit */}
+          {(project.start_date || project.end_date) && (
+            <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded ml-1">
+              {fmtDateDE(project.start_date)} &ndash; {fmtDateDE(project.end_date)}
             </span>
           )}
         </div>
@@ -971,309 +1010,324 @@ export default function ProjektFortschrittPanel({
         </div>
       )}
 
-      {/* ---- Monatsverlauf: ComposedChart ---- */}
-      {analysis.monatData.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <h4 className="text-sm font-semibold text-gray-700 mb-1">
-            Monatsverlauf Projektstunden
-          </h4>
-          <p className="text-xs text-gray-400 mb-4">
-            Saeulen: geplante vs. erfasste Stunden je Monat &nbsp;&middot;&nbsp;
-            Linien: kumulierter Soll- und Ist-Verlauf
-            {analysis.prognoseAktiv && (
-              <> &nbsp;&middot;&nbsp;
-                <span style={{ color: analysis.pFarbe.stroke }}>
-                  Gestrichelt: Prognose bei aktuellem Tempo
-                </span>
-              </>
-            )}
-          </p>
-          <ResponsiveContainer width="100%" height={300}>
-            <ComposedChart
-              data={analysis.monatData}
-              margin={{ top: 10, right: 60, left: 0, bottom: 5 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="monat" tick={{ fontSize: 10 }} interval={xAxisInterval} />
-              <YAxis yAxisId="monat" orientation="left" tick={{ fontSize: 10 }} unit=" h" width={52} />
-              <YAxis yAxisId="kumuliert" orientation="right" tick={{ fontSize: 10 }} unit=" h" width={60} />
-              <Tooltip content={<MonatTooltip />} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
+      {/* ---- PDF-Export-Bereich (Monatsverlauf + Prognose) ---- */}
+      <div id={printAreaId} className="space-y-5">
 
-              <Bar yAxisId="monat" dataKey="Soll" fill="#cbd5e1" radius={[2, 2, 0, 0]} name="Soll (Monat)" maxBarSize={16} />
-              <Bar yAxisId="monat" dataKey="Ist" fill={accentColor} fillOpacity={0.8} radius={[2, 2, 0, 0]} name="Ist (Monat)" maxBarSize={16} />
+        {/* ---- Monatsverlauf: ComposedChart ---- */}
+        {analysis.monatData.length > 0 && (
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            {/* Header mit PDF-Button */}
+            <div className="flex items-start justify-between mb-1">
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700">
+                  Monatsverlauf Projektstunden
+                </h4>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Saeulen: geplante vs. erfasste Stunden je Monat &nbsp;&middot;&nbsp;
+                  Linien: kumulierter Soll- und Ist-Verlauf
+                  {analysis.prognoseAktiv && (
+                    <> &nbsp;&middot;&nbsp;
+                      <span style={{ color: analysis.pFarbe.stroke }}>
+                        Gestrichelt: Prognose bei aktuellem Tempo
+                      </span>
+                    </>
+                  )}
+                </p>
+              </div>
+              <button
+                onClick={handlePrint}
+                disabled={isPrinting}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ml-4 shrink-0"
+                title="Monatsverlauf und Prognose drucken / als PDF speichern"
+              >
+                <Printer size={14} />
+                {isPrinting ? 'Wird vorbereitet...' : 'Drucken / PDF'}
+              </button>
+            </div>
+            <ResponsiveContainer width="100%" height={300}>
+              <ComposedChart
+                data={analysis.monatData}
+                margin={{ top: 10, right: 60, left: 0, bottom: 5 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="monat" tick={{ fontSize: 10 }} interval={xAxisInterval} />
+                <YAxis yAxisId="monat" orientation="left" tick={{ fontSize: 10 }} unit=" h" width={52} />
+                <YAxis yAxisId="kumuliert" orientation="right" tick={{ fontSize: 10 }} unit=" h" width={60} />
+                <Tooltip content={<MonatTooltip />} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
 
-              <Line yAxisId="kumuliert" type="monotone" dataKey="Soll kumuliert" stroke="#94a3b8" strokeWidth={2} strokeDasharray="6 3" dot={false} name="Soll kumuliert" />
-              <Line yAxisId="kumuliert" type="monotone" dataKey="Ist kumuliert" stroke={accentColor} strokeWidth={2.5} dot={false} name="Ist kumuliert" connectNulls={false} />
+                <Bar yAxisId="monat" dataKey="Soll" fill="#cbd5e1" radius={[2, 2, 0, 0]} name="Soll (Monat)" maxBarSize={16} />
+                <Bar yAxisId="monat" dataKey="Ist" fill={accentColor} fillOpacity={0.8} radius={[2, 2, 0, 0]} name="Ist (Monat)" maxBarSize={16} />
 
-              {analysis.prognoseAktiv && (
-                <Line yAxisId="kumuliert" type="monotone" dataKey="Ist Projektion" stroke={analysis.pFarbe.stroke} strokeWidth={2} strokeDasharray="4 4" dot={false} name="Prognose kumuliert" connectNulls={true} />
-              )}
+                <Line yAxisId="kumuliert" type="monotone" dataKey="Soll kumuliert" stroke="#94a3b8" strokeWidth={2} strokeDasharray="6 3" dot={false} name="Soll kumuliert" />
+                <Line yAxisId="kumuliert" type="monotone" dataKey="Ist kumuliert" stroke={accentColor} strokeWidth={2.5} dot={false} name="Ist kumuliert" connectNulls={false} />
 
-              {/* Ziel-Projektion: steiler Verlauf zum Foerderziel (gruen) */}
-              {analysis.prognoseAktiv && analysis.zielErreichbar && (
-                <Line yAxisId="kumuliert" type="monotone" dataKey="Ziel Projektion" stroke="#16a34a" strokeWidth={2} strokeDasharray="4 4" dot={false} name="Zieltempo kumuliert" connectNulls={true} />
-              )}
-            </ComposedChart>
-          </ResponsiveContainer>
-          <p className="text-xs text-gray-400 mt-2">
-            Nur foerderbare Projektstunden (is_billable = true).
-            Soll-Verteilung gleichmaessig ueber AP-Laufzeit je Arbeitspaket.
-          </p>
-        </div>
-      )}
+                {analysis.prognoseAktiv && (
+                  <Line yAxisId="kumuliert" type="monotone" dataKey="Ist Projektion" stroke={analysis.pFarbe.stroke} strokeWidth={2} strokeDasharray="4 4" dot={false} name="Prognose kumuliert" connectNulls={true} />
+                )}
 
-      {/* ---- Zielerreichungs-Prognose ---- */}
-      {analysis.prognoseAktiv && (
-        <div className={`rounded-xl border p-4 ${analysis.pFarbe.bg} ${
-          analysis.pFarbe.icon === 'rot' ? 'border-red-200' :
-          analysis.pFarbe.icon === 'gelb' ? 'border-amber-200' : 'border-green-200'
-        }`}>
-
-          {/* Header */}
-          <div className="flex items-center gap-2 mb-4">
-            <Target size={18} className={analysis.pFarbe.text} />
-            <h4 className={`text-sm font-semibold ${analysis.pFarbe.text}`}>
-              Zielerreichungs-Prognose
-            </h4>
-            <span className={`ml-auto text-xs font-bold px-2.5 py-1 rounded-full ${
-              analysis.pFarbe.icon === 'rot' ? 'bg-red-100 text-red-700' :
-              analysis.pFarbe.icon === 'gelb' ? 'bg-amber-100 text-amber-700' :
-              'bg-green-100 text-green-700'
-            }`}>
-              {analysis.pFarbe.icon === 'rot' ? '\u26a0 Kritisch' :
-               analysis.pFarbe.icon === 'gelb' ? '\u26a0 Gefaehrdet' : '\u2713 Erreichbar'}
-            </span>
+                {analysis.prognoseAktiv && analysis.zielErreichbar && (
+                  <Line yAxisId="kumuliert" type="monotone" dataKey="Ziel Projektion" stroke="#16a34a" strokeWidth={2} strokeDasharray="4 4" dot={false} name="Zieltempo kumuliert" connectNulls={true} />
+                )}
+              </ComposedChart>
+            </ResponsiveContainer>
+            <p className="text-xs text-gray-400 mt-2">
+              Nur foerderbare Projektstunden (is_billable = true).
+              Soll-Verteilung gleichmaessig ueber AP-Laufzeit je Arbeitspaket.
+            </p>
           </div>
+        )}
 
-          {/* Zwei Bloecke untereinander: volle Breite, klare Trennung */}
-          <div className="space-y-3">
+        {/* ---- Zielerreichungs-Prognose ---- */}
+        {analysis.prognoseAktiv && (
+          <div className={`rounded-xl border p-4 ${analysis.pFarbe.bg} ${
+            analysis.pFarbe.icon === 'rot' ? 'border-red-200' :
+            analysis.pFarbe.icon === 'gelb' ? 'border-amber-200' : 'border-green-200'
+          }`}>
 
-            {/* Block 1: Hochrechnung (volle Breite) */}
-            <div className="bg-white bg-opacity-70 rounded-lg p-4">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                Hochrechnung
-              </p>
-              <div className="grid grid-cols-3 gap-4 mb-3">
-                <div>
-                  <div className="text-xs text-gray-500 mb-0.5">Ziel (Plan)</div>
-                  <div className="text-sm font-semibold text-gray-900">{fmtH(analysis.gesamtPlanStunden)}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-500 mb-0.5">Bisher verbucht</div>
-                  <div className="text-sm font-semibold text-gray-900">{fmtH(analysis.gesamtIstStunden)}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-500 mb-0.5">Prognose gesamt</div>
-                  <div className={`text-sm font-bold ${analysis.pFarbe.text}`}>
-                    {fmtH(Math.round(analysis.prognostizierteGesamtStunden))}
-                  </div>
-                </div>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2 mb-1">
-                <div
-                  className="h-2 rounded-full transition-all"
-                  style={{
-                    width: `${Math.min(100, analysis.erreichungsgrad)}%`,
-                    backgroundColor: analysis.pFarbe.stroke,
-                  }}
-                />
-              </div>
-              <div className="flex justify-between text-xs">
-                <span className="text-gray-400">
-                  Basis: {Math.round(analysis.basisStunden)} h/Monat (Team, letzte {analysis.letzten3Count} Monate)
-                </span>
-                <span className={`font-bold ${analysis.pFarbe.text}`}>
-                  {Math.min(analysis.erreichungsgrad, 100)}% des Foerderziels
-                </span>
-              </div>
-              {analysis.fehlendStunden > 0 && (
-                <div className="text-xs text-gray-500 mt-1">
-                  Fehlende Stunden bei aktuellem Tempo:
-                  <span className="font-semibold text-gray-700 ml-1">{fmtH(Math.round(analysis.fehlendStunden))}</span>
-                </div>
-              )}
+            {/* Header */}
+            <div className="flex items-center gap-2 mb-4">
+              <Target size={18} className={analysis.pFarbe.text} />
+              <h4 className={`text-sm font-semibold ${analysis.pFarbe.text}`}>
+                Zielerreichungs-Prognose
+              </h4>
+              <span className={`ml-auto text-xs font-bold px-2.5 py-1 rounded-full ${
+                analysis.pFarbe.icon === 'rot' ? 'bg-red-100 text-red-700' :
+                analysis.pFarbe.icon === 'gelb' ? 'bg-amber-100 text-amber-700' :
+                'bg-green-100 text-green-700'
+              }`}>
+                {analysis.pFarbe.icon === 'rot' ? '\u26a0 Kritisch' :
+                 analysis.pFarbe.icon === 'gelb' ? '\u26a0 Gefaehrdet' : '\u2713 Erreichbar'}
+              </span>
             </div>
 
-            {/* Block 2: 3 Spalten - Situation / Szenarien / Konsequenzen */}
-            <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-3">
 
-              {/* Spalte 1: Aktuelle Situation */}
+              {/* Block 1: Hochrechnung (volle Breite) */}
               <div className="bg-white bg-opacity-70 rounded-lg p-4">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                  Aktuelle Situation
+                  Hochrechnung
                 </p>
-                <div className="space-y-2">
+                <div className="grid grid-cols-3 gap-4 mb-3">
                   <div>
-                    <div className="text-xs text-gray-500">Aktive Mitarbeiter</div>
-                    <div className={`text-sm font-semibold mt-0.5 ${
-                      analysis.aktivCount < analysis.gesamtMACount ? 'text-amber-600' : 'text-green-600'
-                    }`}>
-                      {analysis.aktivCount} / {analysis.gesamtMACount}
-                      {analysis.gfCount > 0 && (
-                        <span className="text-gray-400 font-normal text-xs ml-1">
-                          ({analysis.gfCount} GF + {analysis.normalMACount} MA)
-                        </span>
-                      )}
-                    </div>
+                    <div className="text-xs text-gray-500 mb-0.5">Ziel (Plan)</div>
+                    <div className="text-sm font-semibold text-gray-900">{fmtH(analysis.gesamtPlanStunden)}</div>
                   </div>
                   <div>
-                    <div className="text-xs text-gray-500">Intensitaet je MA</div>
-                    <div className="text-sm font-semibold text-gray-900 mt-0.5">
-                      {analysis.istHProTagJeMA > 0
-                        ? `${Math.round(analysis.istHProTagJeMA * 10) / 10} h/Tag`
-                        : '--'}
-                    </div>
+                    <div className="text-xs text-gray-500 mb-0.5">Bisher verbucht</div>
+                    <div className="text-sm font-semibold text-gray-900">{fmtH(analysis.gesamtIstStunden)}</div>
                   </div>
                   <div>
-                    <div className="text-xs text-gray-500">Team gesamt</div>
-                    <div className="text-sm font-semibold text-gray-900 mt-0.5">
-                      {analysis.istHProTagTeam > 0
-                        ? `${Math.round(analysis.istHProTagTeam * 10) / 10} h/Tag`
-                        : '--'}
+                    <div className="text-xs text-gray-500 mb-0.5">Prognose gesamt</div>
+                    <div className={`text-sm font-bold ${analysis.pFarbe.text}`}>
+                      {fmtH(Math.round(analysis.prognostizierteGesamtStunden))}
                     </div>
                   </div>
-                  {analysis.gfCount > 0 && (
-                    <div className="pt-2 border-t border-gray-100 space-y-1">
-                      <p className="text-xs text-gray-400">Max. moeglich je Tag:</p>
-                      <div className="flex justify-between text-xs">
-                        <span className="text-gray-500">GF (50%-Regel)</span>
-                        <span className="font-medium text-gray-700">
-                          {Math.round(analysis.avgMaxProTagGF * 10) / 10} h
-                        </span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2 mb-1">
+                  <div
+                    className="h-2 rounded-full transition-all"
+                    style={{
+                      width: `${Math.min(100, analysis.erreichungsgrad)}%`,
+                      backgroundColor: analysis.pFarbe.stroke,
+                    }}
+                  />
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-400">
+                    Basis: {Math.round(analysis.basisStunden)} h/Monat (Team, letzte {analysis.letzten3Count} Monate)
+                  </span>
+                  <span className={`font-bold ${analysis.pFarbe.text}`}>
+                    {Math.min(analysis.erreichungsgrad, 100)}% des Foerderziels
+                  </span>
+                </div>
+                {analysis.fehlendStunden > 0 && (
+                  <div className="text-xs text-gray-500 mt-1">
+                    Fehlende Stunden bei aktuellem Tempo:
+                    <span className="font-semibold text-gray-700 ml-1">{fmtH(Math.round(analysis.fehlendStunden))}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Block 2: 3 Spalten - Situation / Szenarien / Konsequenzen */}
+              <div className="grid grid-cols-3 gap-3">
+
+                {/* Spalte 1: Aktuelle Situation */}
+                <div className="bg-white bg-opacity-70 rounded-lg p-4">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                    Aktuelle Situation
+                  </p>
+                  <div className="space-y-2">
+                    <div>
+                      <div className="text-xs text-gray-500">Aktive Mitarbeiter</div>
+                      <div className={`text-sm font-semibold mt-0.5 ${
+                        analysis.aktivCount < analysis.gesamtMACount ? 'text-amber-600' : 'text-green-600'
+                      }`}>
+                        {analysis.aktivCount} / {analysis.gesamtMACount}
+                        {analysis.gfCount > 0 && (
+                          <span className="text-gray-400 font-normal text-xs ml-1">
+                            ({analysis.gfCount} GF + {analysis.normalMACount} MA)
+                          </span>
+                        )}
                       </div>
-                      {analysis.normalMACount > 0 && (
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500">Intensitaet je MA</div>
+                      <div className="text-sm font-semibold text-gray-900 mt-0.5">
+                        {analysis.istHProTagJeMA > 0
+                          ? `${Math.round(analysis.istHProTagJeMA * 10) / 10} h/Tag`
+                          : '--'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500">Team gesamt</div>
+                      <div className="text-sm font-semibold text-gray-900 mt-0.5">
+                        {analysis.istHProTagTeam > 0
+                          ? `${Math.round(analysis.istHProTagTeam * 10) / 10} h/Tag`
+                          : '--'}
+                      </div>
+                    </div>
+                    {analysis.gfCount > 0 && (
+                      <div className="pt-2 border-t border-gray-100 space-y-1">
+                        <p className="text-xs text-gray-400">Max. moeglich je Tag:</p>
                         <div className="flex justify-between text-xs">
-                          <span className="text-gray-500">Mitarbeiter</span>
+                          <span className="text-gray-500">GF (50%-Regel)</span>
                           <span className="font-medium text-gray-700">
-                            {Math.round(analysis.avgMaxProTagMA * 10) / 10} h
+                            {Math.round(analysis.avgMaxProTagGF * 10) / 10} h
                           </span>
                         </div>
-                      )}
+                        {analysis.normalMACount > 0 && (
+                          <div className="flex justify-between text-xs">
+                            <span className="text-gray-500">Mitarbeiter</span>
+                            <span className="font-medium text-gray-700">
+                              {Math.round(analysis.avgMaxProTagMA * 10) / 10} h
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-xs text-gray-400 mt-3 pt-2 border-t border-gray-100">
+                    Basis: letzte {analysis.letzten3Count} abgeschl. Monate
+                  </div>
+                </div>
+
+                {/* Spalte 2: Was waere noetig? */}
+                <div className="bg-white bg-opacity-70 rounded-lg p-4">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                    Was waere noetig?
+                  </p>
+                  {analysis.szenarien.length > 0 ? (
+                    <div className="space-y-4">
+                      {analysis.szenarien.map((sz, i) => (
+                        <div key={i} className="flex items-start gap-2">
+                          {sz.erreichbar
+                            ? <CheckCircle size={14} className="text-green-500 mt-0.5 shrink-0" />
+                            : <AlertCircle size={14} className="text-red-400 mt-0.5 shrink-0" />
+                          }
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs text-gray-500">{sz.label}</div>
+                            <div className={`text-sm font-bold mt-0.5 ${sz.erreichbar ? 'text-green-700' : 'text-red-600'}`}>
+                              {sz.hProTagJeMA > 0 ? `${sz.hProTagJeMA} h/Tag je MA` : 'wie bisher'}
+                            </div>
+                            <div className="text-xs text-gray-400">
+                              Team: {sz.teamHProTag} h/Tag
+                            </div>
+                            {sz.hinweis && (
+                              <div className="text-xs text-red-500 mt-0.5">{sz.hinweis}</div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-400">Keine Szenarien verfuegbar.</p>
+                  )}
+                  {analysis.verbleibendeMonateAb > 0 && (
+                    <div className="text-xs text-gray-400 mt-3 pt-2 border-t border-gray-100">
+                      Noch {analysis.verbleibendeMonateAb} Monate bis Projektende
                     </div>
                   )}
+                  <div className="text-xs text-gray-400 mt-2 pt-2 border-t border-gray-100 italic">
+                    Durchschnittswerte zur Orientierung. Individuelle Buchung
+                    je Mitarbeiter gemaess Arbeitsplan.
+                  </div>
                 </div>
-                <div className="text-xs text-gray-400 mt-3 pt-2 border-t border-gray-100">
-                  Basis: letzte {analysis.letzten3Count} abgeschl. Monate
-                </div>
-              </div>
 
-              {/* Spalte 2: Was waere noetig? */}
-              <div className="bg-white bg-opacity-70 rounded-lg p-4">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                  Was waere noetig?
-                </p>
-                {analysis.szenarien.length > 0 ? (
-                  <div className="space-y-4">
-                    {analysis.szenarien.map((sz, i) => (
-                      <div key={i} className="flex items-start gap-2">
-                        {sz.erreichbar
-                          ? <CheckCircle size={14} className="text-green-500 mt-0.5 shrink-0" />
-                          : <AlertCircle size={14} className="text-red-400 mt-0.5 shrink-0" />
-                        }
-                        <div className="flex-1 min-w-0">
-                          <div className="text-xs text-gray-500">{sz.label}</div>
-                          <div className={`text-sm font-bold mt-0.5 ${sz.erreichbar ? 'text-green-700' : 'text-red-600'}`}>
-                            {sz.hProTagJeMA > 0 ? `${sz.hProTagJeMA} h/Tag je MA` : 'wie bisher'}
+                {/* Spalte 3: Foerder-Konsequenzen */}
+                <div className="bg-white bg-opacity-70 rounded-lg p-4">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                    Foerder-Konsequenzen
+                  </p>
+                  {analysis.kostenDatenVorhanden ? (
+                    <div className="space-y-4">
+
+                      {analysis.szenarien[0] && (
+                        <div>
+                          <div className="flex items-center gap-1 mb-1">
+                            <AlertCircle size={12} className={analysis.szenarien[0].erreichbar ? 'text-green-500' : 'text-red-400'} />
+                            <span className="text-xs text-gray-500">{analysis.szenarien[0].label}</span>
                           </div>
-                          <div className="text-xs text-gray-400">
-                            Team: {sz.teamHProTag} h/Tag
+                          <div className="text-xs space-y-0.5">
+                            <div className="flex justify-between">
+                              <span className="text-gray-500">Abrufbar:</span>
+                              <span className="font-semibold text-gray-800">
+                                {fmtEur(Math.round(analysis.foerderbarProg))}
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-500">Erreichungsgrad:</span>
+                              <span className={`font-semibold ${analysis.pFarbe.text}`}>
+                                {Math.min(analysis.erreichungsgrad, 100)}%
+                              </span>
+                            </div>
+                            {analysis.verschenktProg > 0 && (
+                              <div className="flex justify-between text-red-600 font-semibold mt-1 pt-1 border-t border-red-100">
+                                <span>Verschenkt:</span>
+                                <span>{fmtEur(Math.round(analysis.verschenktProg))}</span>
+                              </div>
+                            )}
                           </div>
-                          {sz.hinweis && (
-                            <div className="text-xs text-red-500 mt-0.5">{sz.hinweis}</div>
-                          )}
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-xs text-gray-400">Keine Szenarien verfuegbar.</p>
-                )}
-                {analysis.verbleibendeMonateAb > 0 && (
-                  <div className="text-xs text-gray-400 mt-3 pt-2 border-t border-gray-100">
-                    Noch {analysis.verbleibendeMonateAb} Monate bis Projektende
-                  </div>
-                )}
-                <div className="text-xs text-gray-400 mt-2 pt-2 border-t border-gray-100 italic">
-                  Durchschnittswerte zur Orientierung. Individuelle Buchung
-                  je Mitarbeiter gemaess Arbeitsplan.
-                </div>
-              </div>
+                      )}
 
-              {/* Spalte 3: Konsequenzen (Foerderkosten) */}
-              <div className="bg-white bg-opacity-70 rounded-lg p-4">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                  Foerder-Konsequenzen
-                </p>
-                {analysis.kostenDatenVorhanden ? (
-                  <div className="space-y-4">
-
-                    {/* Weiter wie bisher */}
-                    {analysis.szenarien[0] && (
-                      <div>
+                      <div className="pt-2 border-t border-gray-100">
                         <div className="flex items-center gap-1 mb-1">
-                          <AlertCircle size={12} className={analysis.szenarien[0].erreichbar ? 'text-green-500' : 'text-red-400'} />
-                          <span className="text-xs text-gray-500">{analysis.szenarien[0].label}</span>
+                          <CheckCircle size={12} className="text-green-500" />
+                          <span className="text-xs text-gray-500">Bei 100% Zielerreichung</span>
                         </div>
                         <div className="text-xs space-y-0.5">
                           <div className="flex justify-between">
                             <span className="text-gray-500">Abrufbar:</span>
-                            <span className="font-semibold text-gray-800">
-                              {fmtEur(Math.round(analysis.foerderbarProg))}
+                            <span className="font-semibold text-green-700">
+                              {fmtEur(Math.round(analysis.foerderbarPlan))}
                             </span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-500">Erreichungsgrad:</span>
-                            <span className={`font-semibold ${analysis.pFarbe.text}`}>
-                              {Math.min(analysis.erreichungsgrad, 100)}%
-                            </span>
+                            <span className="text-gray-500">Verschenkt:</span>
+                            <span className="font-semibold text-green-700">0 EUR</span>
                           </div>
-                          {analysis.verschenktProg > 0 && (
-                            <div className="flex justify-between text-red-600 font-semibold mt-1 pt-1 border-t border-red-100">
-                              <span>Verschenkt:</span>
-                              <span>{fmtEur(Math.round(analysis.verschenktProg))}</span>
-                            </div>
-                          )}
                         </div>
                       </div>
-                    )}
 
-                    {/* Ziel 100% */}
-                    <div className="pt-2 border-t border-gray-100">
-                      <div className="flex items-center gap-1 mb-1">
-                        <CheckCircle size={12} className="text-green-500" />
-                        <span className="text-xs text-gray-500">Bei 100% Zielerreichung</span>
-                      </div>
-                      <div className="text-xs space-y-0.5">
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Abrufbar:</span>
-                          <span className="font-semibold text-green-700">
-                            {fmtEur(Math.round(analysis.foerderbarPlan))}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Verschenkt:</span>
-                          <span className="font-semibold text-green-700">0 EUR</span>
-                        </div>
+                      <div className="text-xs text-gray-400 pt-1 border-t border-gray-100">
+                        Foerdersatz: {analysis.foerdersatz}% &nbsp;&middot;&nbsp; Basis: echte Stundensaetze
                       </div>
                     </div>
-
-                    <div className="text-xs text-gray-400 pt-1 border-t border-gray-100">
-                      Foerdersatz: {analysis.foerdersatz}% &nbsp;&middot;&nbsp; Basis: echte Stundensaetze
+                  ) : (
+                    <div className="text-xs text-gray-400 space-y-1">
+                      <p>Keine Kostendaten verfuegbar.</p>
+                      <p>Bitte Stundensaetze und Foerdersatz im Projekt hinterlegen.</p>
                     </div>
-                  </div>
-                ) : (
-                  <div className="text-xs text-gray-400 space-y-1">
-                    <p>Keine Kostendaten verfuegbar.</p>
-                    <p>Bitte Stundensaetze und Foerdersatz im Projekt hinterlegen.</p>
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
 
-            </div>{/* Ende grid cols-3 */}
+              </div>{/* Ende grid cols-3 */}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+
+      </div>{/* Ende Druckbereich */}
 
       {/* Fallback: keine Daten */}
       {analysis.maData.length === 0 && analysis.monatData.length === 0 && (
