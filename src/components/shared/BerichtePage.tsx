@@ -2,20 +2,15 @@
 // ============================================================================
 // PZE V7 - Shared Component: Berichte & Controlling
 // ============================================================================
-// Version: 7.4.6-1
-// Datum: 20. April 2026
-// v7.4.6-1: Feiertagsberechnung konsolidiert - nutzt zentrale Utility
-//   src/lib/holidays/germanHolidays.ts. Lokale getEasterSunday/getGermanHolidays/
-//   normalizeStateCode entfernt. Company-Query und Interface um holiday_region
-//   erweitert (kommunale Sonderfaelle).
+// Version: 7.4.6-3
+// Datum: 24. April 2026
 //
-// v7.4.4-4: Employee-Query um employment_start/end erweitert,
-//   ProjectAssignment um assignment_start/end erweitert
-//   (fuer Matrix-Einschraenkung pro MA)
-// v7.4.4-3: NEU: Timesheet-Notizen (offene Rueckfragen) an Matrix uebergeben
-//   - Laedt v7_timesheet_notes fuer aktive Projekte
-//   - Uebergibt notes-Prop an StundennachweisMatrix
-// v7.4.4-2: FIX: Zeiterfassungsstatus-Tabelle sortiert nach MA-Nr. (employee_number)
+// v7.4.6-3: Accordion-Prinzip fuer Report-Kacheln
+//   - Einzelner activePanel-State ersetzt showMatrix/showZA/showFortschritt/showPKPanel
+//   - Klick auf Kachel oeffnet diese und schliesst alle anderen automatisch
+//   - Zweiter Klick auf aktive Kachel schliesst sie (Toggle)
+//
+// v7.4.6-2: Kundenfirmen-Link + Zeiterfassungs-Status unter Matrix (siehe dort)
 //
 // Ersetzt berichte-page (Firma) und berater-berichte-page (Berater).
 // portal-Parameter steuert Farbe und Navigation.
@@ -239,14 +234,21 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
   const [timesheetNotes, setTimesheetNotes] = useState<{employee_id: string; project_id: string; year: number; month: number; status: string}[]>([]);
   const [exportLoading, setExportLoading] = useState(false);
 
-  const [showPKPanel, setShowPKPanel] = useState(false);
+  // Accordion: immer nur ein Panel offen
+  type ActivePanel = 'pk' | 'matrix' | 'fortschritt' | 'za' | null;
+  const [activePanel, setActivePanel] = useState<ActivePanel>(null);
+  const togglePanel = (panel: ActivePanel) =>
+    setActivePanel(prev => prev === panel ? null : panel);
+
+  const showPKPanel    = activePanel === 'pk';
+  const showMatrix     = activePanel === 'matrix';
+  const showFortschritt = activePanel === 'fortschritt';
+  const showZA         = activePanel === 'za';
+
   const [pkProjectId, setPKProjectId] = useState<string>('');
   const [pkVon, setPKVon] = useState<string>('');
   const [pkBis, setPKBis] = useState<string>('');
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-  const [showMatrix, setShowMatrix] = useState(false);
-  const [showZA, setShowZA] = useState(false);
-  const [showFortschritt, setShowFortschritt] = useState(false);
   const [matrixProjectId, setMatrixProjectId] = useState<string | null>(null);
 
   const holidays = useMemo(() => {
@@ -706,11 +708,19 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
 
       <main className="max-w-7xl mx-auto px-4 py-8">
 
-        {/* Zurueck-Link (nur Berater) */}
-        {zurueckUrl && (
-          <a href={zurueckUrl} className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 mb-4 text-sm">
-            &larr; Zurueck zur Firma
-          </a>
+        {/* Navigation Links (nur Berater) */}
+        {portal === 'berater' && (
+          <div className="flex items-center gap-4 mb-4">
+            {zurueckUrl && (
+              <a href={zurueckUrl} className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm">
+                &larr; Zurueck zur Firma
+              </a>
+            )}
+            <span className="text-gray-300">|</span>
+            <a href="/v7/berater/foerderung" className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm">
+              Kundenfirmen
+            </a>
+          </div>
         )}
 
         {/* Header */}
@@ -855,73 +865,6 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
           </div>
         </div>
 
-        {/* Zeiterfassungs-Status */}
-        <div className="bg-white rounded-lg shadow mb-8">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Zeiterfassungs-Status</h2>
-            <p className="text-sm text-gray-500 mt-1">Stundenbudget pro Mitarbeiter (Gesamtprojekt)</p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Mitarbeiter</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Projekt(e)</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Soll (h)</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Erfasst (h)</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Offen (h)</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" style={{ minWidth: '200px' }}>Fortschritt</th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Aktion</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {employeeTimesheetStatus.length === 0 ? (
-                  <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-500">Keine Mitarbeiter mit Projektzuordnung</td></tr>
-                ) : (
-                  employeeTimesheetStatus.map(ets => {
-                    const progressCapped = Math.min(100, ets.progressPercent);
-                    const barColor = ets.budgetStatus === 'exceeded' ? 'bg-red-500' : ets.budgetStatus === 'warning' ? 'bg-orange-400' : 'bg-green-500';
-                    const offenColor = ets.offenHours < 0 ? 'text-red-600' : 'text-green-700';
-                    return (
-                      <tr key={ets.employee.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 font-medium text-gray-900">{ets.employee.display_name}</td>
-                        <td className="px-6 py-4 text-sm text-gray-500">{ets.projects.join(', ') || '-'}</td>
-                        <td className="px-6 py-4 text-right text-gray-700 tabular-nums">{ets.sollHours > 0 ? Math.round(ets.sollHours).toLocaleString('de-DE') : '-'}</td>
-                        <td className={`px-6 py-4 text-right tabular-nums font-medium ${ets.budgetStatus === 'warning' ? 'bg-orange-50' : ''}`}>
-                          {ets.erfasstHours > 0 ? Math.round(ets.erfasstHours).toLocaleString('de-DE') : '-'}
-                        </td>
-                        <td className={`px-6 py-4 text-right tabular-nums font-medium ${offenColor}`}>
-                          {ets.sollHours > 0 ? Math.round(ets.offenHours).toLocaleString('de-DE') : '-'}
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-3">
-                            <div className="flex-1 bg-gray-200 rounded-full h-2.5">
-                              <div className={`h-2.5 rounded-full ${barColor}`} style={{ width: `${progressCapped}%` }} />
-                            </div>
-                            <span className="text-sm font-medium text-gray-700 w-12 text-right">{Math.round(ets.progressPercent)}%</span>
-                            {ets.budgetStatus === 'exceeded' && <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />}
-                            {ets.budgetStatus === 'warning' && <AlertTriangle className="w-4 h-4 text-orange-500 flex-shrink-0" />}
-                            {ets.budgetStatus === 'on-track' && ets.erfasstHours > 0 && <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <button
-                            onClick={() => router.push(zeiterfassungUrl(ets.employee.id))}
-                            className={`inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${colors.btn}`}
-                          >
-                            <ExternalLink className="w-4 h-4" />
-                            Erfassen
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
         {/* Reports */}
         <div className="bg-white rounded-lg shadow">
           <div className="px-6 py-4 border-b border-gray-200">
@@ -933,7 +876,7 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
               {/* Personalkosten */}
               <div className="flex flex-col">
                 <button
-                  onClick={() => setShowPKPanel(prev => !prev)}
+                  onClick={() => togglePanel('pk')}
                   disabled={projects.length === 0}
                   className={`flex flex-col items-center p-6 border-2 rounded-lg transition-colors ${
                     projects.length === 0 ? 'border-dashed border-gray-300 text-gray-400 cursor-not-allowed'
@@ -973,7 +916,7 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
                       </div>
                     </div>
                     <button
-                      onClick={() => { handlePersonalkostenExport(pkProjectId, pkVon, pkBis); setShowPKPanel(false); }}
+                      onClick={() => { handlePersonalkostenExport(pkProjectId, pkVon, pkBis); togglePanel(null); }}
                       disabled={exportLoading || !pkVon || !pkBis}
                       className={`w-full py-2 ${portal === 'berater' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'} disabled:bg-gray-300 text-white text-sm font-medium rounded transition-colors flex items-center justify-center gap-2`}
                     >
@@ -986,7 +929,7 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
 
               {/* Stundennachweis */}
               <button
-                onClick={() => { if (projects.length > 0 && !matrixProjectId) setMatrixProjectId(projects[0].id); setShowMatrix(prev => !prev); }}
+                onClick={() => { if (projects.length > 0 && !matrixProjectId) setMatrixProjectId(projects[0].id); togglePanel('matrix'); }}
                 className={`flex flex-col items-center p-6 border-2 rounded-lg transition-colors cursor-pointer ${showMatrix ? colors.btnActive : `${colors.border} ${colors.btn}`}`}
               >
                 <Grid3x3 className="w-10 h-10 mb-3" />
@@ -1000,7 +943,7 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
 
               {/* Projektfortschritt */}
               <button
-                onClick={() => setShowFortschritt(prev => !prev)}
+                onClick={() => togglePanel('fortschritt')}
                 className={`flex flex-col items-center p-6 border-2 rounded-lg transition-colors cursor-pointer ${showFortschritt ? colors.btnActive : `${colors.border} ${colors.btn}`}`}
               >
                 <BarChart3 className="w-10 h-10 mb-3" />
@@ -1014,7 +957,7 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
 
               {/* Zahlungsanforderung */}
               <button
-                onClick={() => setShowZA(prev => !prev)}
+                onClick={() => togglePanel('za')}
                 className={`flex flex-col items-center p-6 border-2 rounded-lg transition-colors cursor-pointer ${showZA ? colors.btnActive : `${colors.border} ${colors.btn}`}`}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10 mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
@@ -1057,25 +1000,94 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
 
             {/* Stundennachweis-Matrix */}
             {showMatrix && (
-              <StundennachweisMatrix
-                portal={portal}
-                companyId={company?.id || ''}
-                projects={projects}
-                workPackages={workPackages}
-                wpAssignments={wpAssignments}
-                projectAssignments={projectAssignments}
-                employees={employees}
-                timesheets={timesheets}
-                completions={completions}
-                notes={timesheetNotes}
-                company={company}
-                matrixProjectId={matrixProjectId}
-                onProjectChange={(id) => setMatrixProjectId(id)}
-                onNavigateToZE={(empId, year, month) => {
-                  const returnUrl = encodeURIComponent(matrixReturnUrl);
-                  router.push(zeiterfassungUrl(empId) + `&year=${year}&month=${month}&returnUrl=${returnUrl}`);
-                }}
-              />
+              <>
+                <StundennachweisMatrix
+                  portal={portal}
+                  companyId={company?.id || ''}
+                  projects={projects}
+                  workPackages={workPackages}
+                  wpAssignments={wpAssignments}
+                  projectAssignments={projectAssignments}
+                  employees={employees}
+                  timesheets={timesheets}
+                  completions={completions}
+                  notes={timesheetNotes}
+                  company={company}
+                  matrixProjectId={matrixProjectId}
+                  onProjectChange={(id) => setMatrixProjectId(id)}
+                  onNavigateToZE={(empId, year, month) => {
+                    const returnUrl = encodeURIComponent(matrixReturnUrl);
+                    router.push(zeiterfassungUrl(empId) + `&year=${year}&month=${month}&returnUrl=${returnUrl}`);
+                  }}
+                />
+
+                {/* Zeiterfassungs-Status: unterhalb der Matrix */}
+                <div className="bg-white rounded-lg shadow mt-6">
+                  <div className="px-6 py-4 border-b border-gray-200">
+                    <h2 className="text-lg font-semibold text-gray-900">Zeiterfassungs-Status</h2>
+                    <p className="text-sm text-gray-500 mt-1">Stundenbudget pro Mitarbeiter (Gesamtprojekt)</p>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Mitarbeiter</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Projekt(e)</th>
+                          <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Soll (h)</th>
+                          <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Erfasst (h)</th>
+                          <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Offen (h)</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" style={{ minWidth: '200px' }}>Fortschritt</th>
+                          <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Aktion</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {employeeTimesheetStatus.length === 0 ? (
+                          <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-500">Keine Mitarbeiter mit Projektzuordnung</td></tr>
+                        ) : (
+                          employeeTimesheetStatus.map(ets => {
+                            const progressCapped = Math.min(100, ets.progressPercent);
+                            const barColor = ets.budgetStatus === 'exceeded' ? 'bg-red-500' : ets.budgetStatus === 'warning' ? 'bg-orange-400' : 'bg-green-500';
+                            const offenColor = ets.offenHours < 0 ? 'text-red-600' : 'text-green-700';
+                            return (
+                              <tr key={ets.employee.id} className="hover:bg-gray-50">
+                                <td className="px-6 py-4 font-medium text-gray-900">{ets.employee.display_name}</td>
+                                <td className="px-6 py-4 text-sm text-gray-500">{ets.projects.join(', ') || '-'}</td>
+                                <td className="px-6 py-4 text-right text-gray-700 tabular-nums">{ets.sollHours > 0 ? Math.round(ets.sollHours).toLocaleString('de-DE') : '-'}</td>
+                                <td className={`px-6 py-4 text-right tabular-nums font-medium ${ets.budgetStatus === 'warning' ? 'bg-orange-50' : ''}`}>
+                                  {ets.erfasstHours > 0 ? Math.round(ets.erfasstHours).toLocaleString('de-DE') : '-'}
+                                </td>
+                                <td className={`px-6 py-4 text-right tabular-nums font-medium ${offenColor}`}>
+                                  {ets.sollHours > 0 ? Math.round(ets.offenHours).toLocaleString('de-DE') : '-'}
+                                </td>
+                                <td className="px-6 py-4">
+                                  <div className="flex items-center gap-3">
+                                    <div className="flex-1 bg-gray-200 rounded-full h-2.5">
+                                      <div className={`h-2.5 rounded-full ${barColor}`} style={{ width: `${progressCapped}%` }} />
+                                    </div>
+                                    <span className="text-sm font-medium text-gray-700 w-12 text-right">{Math.round(ets.progressPercent)}%</span>
+                                    {ets.budgetStatus === 'exceeded' && <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />}
+                                    {ets.budgetStatus === 'warning' && <AlertTriangle className="w-4 h-4 text-orange-500 flex-shrink-0" />}
+                                    {ets.budgetStatus === 'on-track' && ets.erfasstHours > 0 && <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />}
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4 text-center">
+                                  <button
+                                    onClick={() => router.push(zeiterfassungUrl(ets.employee.id))}
+                                    className={`inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${colors.btn}`}
+                                  >
+                                    <ExternalLink className="w-4 h-4" />
+                                    Erfassen
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
             )}
           </div>
         </div>
