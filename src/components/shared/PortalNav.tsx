@@ -1,21 +1,26 @@
+'use client';
+
 // src/components/shared/PortalNav.tsx
 // ============================================================================
 // PZE V7 - Portal-Navigation
 // ============================================================================
-// Datum: 10. Maerz 2026
-// Version: 7.4.4-1
+// Datum: 24. April 2026
+// Version: 7.4.4-3
 //
+// v7.4.4-3: Berater-Nav kontextsensitiv: aktive Seite wird ausgeblendet.
+//           Neue Links: Kundenfirmen, Netzwerk, Kapazitaetsplanung.
+//           usePathname() intern — kein currentPath-Prop mehr noetig.
+//           Administration bleibt immer ganz rechts (nur system_admin).
+// v7.4.4-2: Administration-Link ganz rechts (ml-auto)
 // v7.4.4-1: Kunden + Berichte aus Berater-Nav entfernt (Schnellzugriff im Dashboard)
-// v7.4.0: NAV_BERATER um 'Zeiterfassungen' (/v7/berater/timesheets) erweitert
 // v7.3.95-2: "Import" aus Berater-Navigation entfernt
 // v7.3.95: print:hidden hinzugefuegt
 // v7.3.92: Kumulative Rollen, Employee/PL/Admin-Navigation
 // ============================================================================
 
-'use client';
-
 import React from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import {
   BarChart3,
   Building2,
@@ -23,6 +28,7 @@ import {
   FolderKanban,
   Settings,
   Users,
+  Network,
 } from 'lucide-react';
 
 // ============================================================================
@@ -30,7 +36,7 @@ import {
 // ============================================================================
 
 type PortalType = 'berater' | 'firma';
-type UserRole = 'system_admin' | 'consultant' | 'client_admin' | 'client_user';
+type UserRole = 'system_admin' | 'consultant' | 'client_user';
 type PortalRole = 'client_admin' | 'project_leader' | 'employee';
 
 interface NavItem {
@@ -38,13 +44,14 @@ interface NavItem {
   label: string;
   href: string;
   icon: React.ReactNode;
+  isAdmin?: boolean;
 }
 
 interface PortalNavProps {
   portal: PortalType;
   userRole: UserRole | string;
   portalRole?: PortalRole | string;
-  currentPath?: string;
+  currentPath?: string; // bleibt fuer Abwaertskompatibilitaet, wird nicht mehr benoetigt
 }
 
 // ============================================================================
@@ -58,26 +65,21 @@ const PORTAL_COLORS = {
 
 // ============================================================================
 // BERATER-PORTAL NAVIGATION
+// Alle vier Hauptbereiche + Administration ganz rechts.
+// Aktive Seite wird ausgeblendet (kontextsensitiv).
 // ============================================================================
-// Kunden + Berichte entfernt: Schnellzugriff direkt im Dashboard pro Firma.
-// Nav zeigt nur noch firmenuebergreifende Funktionen.
 
 const NAV_BERATER: NavItem[] = [
-  { key: 'timesheets',  label: 'Zeiterfassungen',  href: '/v7/berater/timesheets',  icon: <Clock size={18} /> },
-];
-
-const NAV_BERATER_ADMIN: NavItem[] = [
-  { key: 'admin', label: 'Administration', href: '/v7/berater/admin', icon: <Settings size={18} /> },
+  { key: 'timesheets',   label: 'Zeiterfassungen',   href: '/v7/berater/timesheets',   icon: <Clock size={18} /> },
+  { key: 'foerderung',   label: 'Kundenfirmen',       href: '/v7/berater/foerderung',   icon: <Building2 size={18} /> },
+  { key: 'netzwerk',     label: 'Netzwerk',           href: '/v7/berater/netzwerk',     icon: <Network size={18} /> },
+  { key: 'multiprojekt', label: 'Kapazitaetsplanung', href: '/v7/berater/multiprojekt', icon: <BarChart3 size={18} /> },
+  { key: 'admin',        label: 'Administration',     href: '/v7/berater/admin',        icon: <Settings size={18} />, isAdmin: true },
 ];
 
 // ============================================================================
 // FIRMEN-PORTAL NAVIGATION - KUMULATIV
 // ============================================================================
-//
-// Employee:        Mein Status | Meine Zeiterfassung
-// Project Leader:  + Meine Projekte | Zeiterfassung | Berichte
-// Client Admin:    + Mitarbeiter | Firmendaten
-//
 
 const NAV_FIRMA_BASE: NavItem[] = [
   { key: 'mein-status',         label: 'Mein Status',         href: '/v7/firma/mein-status',    icon: <BarChart3 size={18} /> },
@@ -104,11 +106,10 @@ function getNavItems(
   portalRole?: string
 ): NavItem[] {
   if (portal === 'berater') {
-    const items = [...NAV_BERATER];
-    if (userRole === 'system_admin') {
-      items.push(...NAV_BERATER_ADMIN);
-    }
-    return items;
+    return NAV_BERATER.filter(item => {
+      if (item.isAdmin) return userRole === 'system_admin';
+      return true;
+    });
   }
 
   // Firmen-Portal: Kumulative Navigation
@@ -117,21 +118,13 @@ function getNavItems(
     : (portalRole || 'employee');
 
   const items = [...NAV_FIRMA_BASE];
-
   if (effectiveRole === 'project_leader' || effectiveRole === 'client_admin') {
     items.push(...NAV_FIRMA_PL_EXTRAS);
   }
-
   if (effectiveRole === 'client_admin') {
     items.push(...NAV_FIRMA_ADMIN_EXTRAS);
   }
-
   return items;
-}
-
-function isActiveLink(href: string, currentPath?: string): boolean {
-  if (!currentPath) return false;
-  return currentPath === href || currentPath.startsWith(href + '/');
 }
 
 // ============================================================================
@@ -142,30 +135,37 @@ export default function PortalNav({
   portal,
   userRole,
   portalRole,
-  currentPath,
 }: PortalNavProps) {
   const colors = PORTAL_COLORS[portal];
+  const pathname = usePathname();
   const navItems = getNavItems(portal, userRole, portalRole);
 
   return (
     <nav className="bg-white border-b border-gray-200 shadow-sm print:hidden">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center space-x-1 overflow-x-auto py-1 -mb-px">
+        <div className="flex items-center overflow-x-auto py-1 -mb-px">
           {navItems.map((item) => {
-            const isActive = isActiveLink(item.href, currentPath);
+            // Aktive Seite ausblenden (kontextsensitiv) -- nur im Berater-Portal
+            if (portal === 'berater' && pathname && pathname.startsWith(item.href)) {
+              return null;
+            }
+
+            const isActive = pathname
+              ? pathname === item.href || pathname.startsWith(item.href + '/')
+              : false;
 
             return (
               <Link
                 key={item.key}
                 href={item.href}
-                className={`
-                  flex items-center space-x-2 px-4 py-3 text-sm font-medium
-                  border-b-2 transition-colors duration-150 whitespace-nowrap
-                  ${isActive
+                className={[
+                  'flex items-center space-x-2 px-4 py-3 text-sm font-medium',
+                  'border-b-2 transition-colors duration-150 whitespace-nowrap',
+                  item.isAdmin ? 'ml-auto' : '',
+                  isActive
                     ? 'border-current'
-                    : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
-                  }
-                `}
+                    : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300',
+                ].join(' ')}
                 style={isActive ? { color: colors.primary, borderColor: colors.primary } : {}}
               >
                 {item.icon}
