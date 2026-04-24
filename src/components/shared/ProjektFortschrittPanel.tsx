@@ -2,7 +2,7 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Grafische Auswertung
 // ============================================================================
-// Version: 7.4.5-10
+// Version: 7.4.5-11
 // Datum: 24. April 2026
 //
 // v7.4.5-10: Szenario-Labels um MA-Anzahl ergaenzt
@@ -1194,6 +1194,10 @@ export default function ProjektFortschrittPanel({
                     Noch {analysis.verbleibendeMonateAb} Monate bis Projektende
                   </div>
                 )}
+                <div className="text-xs text-gray-400 mt-2 pt-2 border-t border-gray-100 italic">
+                  Durchschnittswerte zur Orientierung. Individuelle Buchung
+                  je Mitarbeiter gemaess Arbeitsplan.
+                </div>
               </div>
 
               {/* Spalte 3: Konsequenzen (Foerderkosten) */}
