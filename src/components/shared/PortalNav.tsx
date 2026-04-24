@@ -7,15 +7,17 @@
 // Datum: 24. April 2026
 // Version: 7.4.4-3
 //
-// v7.4.4-3: Berater-Nav kontextsensitiv: aktive Seite wird ausgeblendet.
-//           Neue Links: Kundenfirmen, Netzwerk, Kapazitaetsplanung.
-//           usePathname() intern — kein currentPath-Prop mehr noetig.
-//           Administration bleibt immer ganz rechts (nur system_admin).
-// v7.4.4-2: Administration-Link ganz rechts (ml-auto)
-// v7.4.4-1: Kunden + Berichte aus Berater-Nav entfernt (Schnellzugriff im Dashboard)
-// v7.3.95-2: "Import" aus Berater-Navigation entfernt
-// v7.3.95: print:hidden hinzugefuegt
-// v7.3.92: Kumulative Rollen, Employee/PL/Admin-Navigation
+// Version: 7.4.4-4
+// Datum: 24. April 2026
+//
+// v7.4.4-4: Kundenfirmen-Link immer sichtbar im Berater-Portal
+//   - "foerderung"-Eintrag wird nicht mehr ausgeblendet wenn Pfad mit
+//     /v7/berater/foerderung beginnt (Unterseiten wie Berichte, Zeiterfassung)
+//   - Nur auf der exakten Kundenfirmen-Listenseite (/v7/berater/foerderung)
+//     wird der Link wie bisher ausgeblendet
+//   - Alle anderen Links bleiben kontextsensitiv (ausgeblendet auf aktiver Seite)
+//
+// v7.4.4-3: Berater-Nav kontextsensitiv (siehe dort)
 // ============================================================================
 
 import React from 'react';
@@ -145,9 +147,17 @@ export default function PortalNav({
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center overflow-x-auto py-1 -mb-px">
           {navItems.map((item) => {
-            // Aktive Seite ausblenden (kontextsensitiv) -- nur im Berater-Portal
-            if (portal === 'berater' && pathname && pathname.startsWith(item.href)) {
-              return null;
+            // Kontextsensitiv: aktive Seite ausblenden -- nur im Berater-Portal
+            // Ausnahme: "Kundenfirmen" (/v7/berater/foerderung) wird nur auf der
+            // exakten Listenseite ausgeblendet, nicht auf Unterseiten (Firma, Berichte etc.)
+            if (portal === 'berater' && pathname) {
+              if (item.key === 'foerderung') {
+                // Nur ausblenden wenn exakt auf der Kundenfirmen-Liste
+                if (pathname === '/v7/berater/foerderung') return null;
+              } else {
+                // Alle anderen: ausblenden wenn Pfad mit href beginnt
+                if (pathname.startsWith(item.href)) return null;
+              }
             }
 
             const isActive = pathname
