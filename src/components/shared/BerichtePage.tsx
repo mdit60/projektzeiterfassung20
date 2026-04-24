@@ -708,19 +708,11 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
 
       <main className="max-w-7xl mx-auto px-4 py-8">
 
-        {/* Navigation Links (nur Berater) */}
-        {portal === 'berater' && (
-          <div className="flex items-center gap-4 mb-4">
-            {zurueckUrl && (
-              <a href={zurueckUrl} className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm">
-                &larr; Zurueck zur Firma
-              </a>
-            )}
-            <span className="text-gray-300">|</span>
-            <a href="/v7/berater/foerderung" className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm">
-              Kundenfirmen
-            </a>
-          </div>
+        {/* Zurueck-Link (nur Berater) */}
+        {zurueckUrl && (
+          <a href={zurueckUrl} className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 mb-4 text-sm">
+            &larr; Zurueck zur Firma
+          </a>
         )}
 
         {/* Header */}
