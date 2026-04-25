@@ -2,8 +2,18 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Grafische Auswertung
 // ============================================================================
-// Version: 7.4.5-18
+// Version: 7.4.5-21
 // Datum: 25. April 2026
+//
+// v7.4.5-20: Custom Legend fuer bessere Lesbarkeit
+//   - Soll-Serien (hell) bekommen dunklere Label-Farbe in der Legende
+//   - Farbkästchen bleibt original, nur Text-Label wird dunkler
+//
+// v7.4.5-19: Kontrast-Verbesserung - Anthrazit fuer alle Texte
+//   - text-gray-700/500 -> text-gray-700 (#374151) fuer alle Beschriftungen
+//   - Chart-Achsen tick fill: #374151
+//   - Chart-Legende color: #374151
+//   - Icons: text-gray-700 -> text-gray-700
 //
 // v7.4.5-18: PDF-Export auf window.print() umgestellt
 //   - html2canvas inkompatibel mit Tailwind CSS v4 + Next.js (oklch-Problem)
@@ -232,6 +242,45 @@ function prognoseFarbe(erreichungsgrad: number): {
 // ============================================================================
 // CUSTOM TOOLTIPS
 // ============================================================================
+
+// ============================================================================
+// CUSTOM LEGEND
+// ============================================================================
+
+const LEGENDE_LABEL_OVERRIDE: Record<string, string> = {
+  'Soll (Monat)':   '#475569',
+  'Soll kumuliert': '#475569',
+  'Plan PM':        '#475569',
+  'Plan EUR':       '#475569',
+};
+
+const CustomLegend = ({ payload }: any) => {
+  if (!payload?.length) return null;
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '4px 16px', marginTop: 4 }}>
+      {payload.map((entry: any, i: number) => {
+        const labelColor = LEGENDE_LABEL_OVERRIDE[entry.value] || '#374151';
+        const iconColor = entry.color || '#374151';
+        const dashes = entry.payload?.strokeDasharray;
+        const isLine = entry.type === 'line' || !!dashes;
+        return (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            {isLine ? (
+              <svg width="20" height="10" style={{ flexShrink: 0 }}>
+                <line x1="0" y1="5" x2="20" y2="5"
+                  stroke={iconColor} strokeWidth="2.5"
+                  strokeDasharray={dashes || '0'} />
+              </svg>
+            ) : (
+              <span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: 2, backgroundColor: iconColor, flexShrink: 0 }} />
+            )}
+            <span style={{ fontSize: 11, color: labelColor }}>{entry.value}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 const PMTooltip = ({ active, payload, label }: any) => {
   if (!active || !payload?.length) return null;
@@ -753,7 +802,7 @@ export default function ProjektFortschrittPanel({
 
   if (!project || !analysis) {
     return (
-      <div className="p-8 text-center text-gray-400">
+      <div className="p-8 text-center text-gray-700">
         Kein Projekt ausgewaehlt.
       </div>
     );
@@ -845,7 +894,7 @@ export default function ProjektFortschrittPanel({
           </select>
           {/* Laufzeit auch beim Multi-Projekt-Dropdown */}
           {(project.start_date || project.end_date) && (
-            <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
+            <span className="text-xs text-gray-700 bg-gray-100 px-2 py-0.5 rounded">
               {fmtDateDE(project.start_date)} &ndash; {fmtDateDE(project.end_date)}
             </span>
           )}
@@ -856,7 +905,7 @@ export default function ProjektFortschrittPanel({
             {project.short_name || project.name}
           </span>
           {project.funding_reference && (
-            <span className="text-sm text-gray-500 font-mono bg-gray-100 px-2 py-0.5 rounded">
+            <span className="text-sm text-gray-700 font-mono bg-gray-100 px-2 py-0.5 rounded">
               {project.funding_reference}
             </span>
           )}
@@ -867,7 +916,7 @@ export default function ProjektFortschrittPanel({
           )}
           {/* NEU: Projektlaufzeit */}
           {(project.start_date || project.end_date) && (
-            <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded ml-1">
+            <span className="text-xs text-gray-700 bg-gray-100 px-2 py-0.5 rounded ml-1">
               {fmtDateDE(project.start_date)} &ndash; {fmtDateDE(project.end_date)}
             </span>
           )}
@@ -880,15 +929,15 @@ export default function ProjektFortschrittPanel({
         {/* Laufzeit */}
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <div className="flex items-center gap-2 mb-2">
-            <Clock size={16} className="text-gray-400" />
-            <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+            <Clock size={16} className="text-gray-700" />
+            <span className="text-xs font-medium text-gray-700 uppercase tracking-wide">
               Laufzeit
             </span>
           </div>
           <div className="text-3xl font-bold mb-1" style={{ color: accentColor }}>
             {analysis.laufzeitPct}%
           </div>
-          <div className="text-xs text-gray-500 mb-2">{analysis.laufzeitLabel}</div>
+          <div className="text-xs text-gray-700 mb-2">{analysis.laufzeitLabel}</div>
           <div className="w-full bg-gray-100 rounded-full h-2">
             <div
               className="h-2 rounded-full transition-all"
@@ -903,8 +952,8 @@ export default function ProjektFortschrittPanel({
         {/* PM-Fortschritt */}
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <div className="flex items-center gap-2 mb-2">
-            <Users size={16} className="text-gray-400" />
-            <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+            <Users size={16} className="text-gray-700" />
+            <span className="text-xs font-medium text-gray-700 uppercase tracking-wide">
               Personenmonate
             </span>
           </div>
@@ -916,7 +965,7 @@ export default function ProjektFortschrittPanel({
           >
             {analysis.pmPct}%
           </div>
-          <div className="text-xs text-gray-500 mb-2">
+          <div className="text-xs text-gray-700 mb-2">
             {fmt1(analysis.gesamtIstPM)} / {fmt1(analysis.gesamtPlanPM)} PM
           </div>
           <div className="w-full bg-gray-100 rounded-full h-2">
@@ -933,8 +982,8 @@ export default function ProjektFortschrittPanel({
         {/* Kosten-Fortschritt */}
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <div className="flex items-center gap-2 mb-2">
-            <Euro size={16} className="text-gray-400" />
-            <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+            <Euro size={16} className="text-gray-700" />
+            <span className="text-xs font-medium text-gray-700 uppercase tracking-wide">
               Kosten
             </span>
           </div>
@@ -946,7 +995,7 @@ export default function ProjektFortschrittPanel({
           >
             {analysis.kostenPct}%
           </div>
-          <div className="text-xs text-gray-500 mb-2">
+          <div className="text-xs text-gray-700 mb-2">
             {fmtEur(analysis.gesamtIstKosten)} / {fmtEur(analysis.gesamtPlanKosten)}
           </div>
           <div className="w-full bg-gray-100 rounded-full h-2">
@@ -974,10 +1023,10 @@ export default function ProjektFortschrittPanel({
                 margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} unit=" PM" width={45} />
+                <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#374151" }} />
+                <YAxis tick={{ fontSize: 11, fill: "#374151" }} unit=" PM" width={45} />
                 <Tooltip content={<PMTooltip />} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Legend content={<CustomLegend />} />
                 <Bar dataKey="Plan PM" fill="#e2e8f0" radius={[3, 3, 0, 0]} />
                 <Bar dataKey="Ist PM" fill={accentColor} radius={[3, 3, 0, 0]} />
               </BarChart>
@@ -994,14 +1043,14 @@ export default function ProjektFortschrittPanel({
                 margin={{ top: 5, right: 10, left: 10, bottom: 5 }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#374151" }} />
                 <YAxis
-                  tick={{ fontSize: 11 }}
+                  tick={{ fontSize: 11, fill: "#374151" }}
                   tickFormatter={v => `${(v / 1000).toFixed(0)}k`}
                   width={45}
                 />
                 <Tooltip content={<KostenTooltip />} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Legend content={<CustomLegend />} />
                 <Bar dataKey="Plan EUR" fill="#e2e8f0" radius={[3, 3, 0, 0]} />
                 <Bar dataKey="Ist EUR" fill={accentColor} radius={[3, 3, 0, 0]} />
               </BarChart>
@@ -1022,7 +1071,7 @@ export default function ProjektFortschrittPanel({
                 <h4 className="text-sm font-semibold text-gray-700">
                   Monatsverlauf Projektstunden
                 </h4>
-                <p className="text-xs text-gray-400 mt-0.5">
+                <p className="text-xs text-gray-700 mt-0.5">
                   Saeulen: geplante vs. erfasste Stunden je Monat &nbsp;&middot;&nbsp;
                   Linien: kumulierter Soll- und Ist-Verlauf
                   {analysis.prognoseAktiv && (
@@ -1050,11 +1099,11 @@ export default function ProjektFortschrittPanel({
                 margin={{ top: 10, right: 60, left: 0, bottom: 5 }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="monat" tick={{ fontSize: 10 }} interval={xAxisInterval} />
-                <YAxis yAxisId="monat" orientation="left" tick={{ fontSize: 10 }} unit=" h" width={52} />
-                <YAxis yAxisId="kumuliert" orientation="right" tick={{ fontSize: 10 }} unit=" h" width={60} />
+                <XAxis dataKey="monat" tick={{ fontSize: 10, fill: "#374151" }} interval={xAxisInterval} />
+                <YAxis yAxisId="monat" orientation="left" tick={{ fontSize: 10, fill: "#374151" }} unit=" h" width={52} />
+                <YAxis yAxisId="kumuliert" orientation="right" tick={{ fontSize: 10, fill: "#374151" }} unit=" h" width={60} />
                 <Tooltip content={<MonatTooltip />} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Legend content={<CustomLegend />} />
 
                 <Bar yAxisId="monat" dataKey="Soll" fill="#cbd5e1" radius={[2, 2, 0, 0]} name="Soll (Monat)" maxBarSize={16} />
                 <Bar yAxisId="monat" dataKey="Ist" fill={accentColor} fillOpacity={0.8} radius={[2, 2, 0, 0]} name="Ist (Monat)" maxBarSize={16} />
@@ -1071,9 +1120,8 @@ export default function ProjektFortschrittPanel({
                 )}
               </ComposedChart>
             </ResponsiveContainer>
-            <p className="text-xs text-gray-400 mt-2">
-              Nur foerderbare Projektstunden (is_billable = true).
-              Soll-Verteilung gleichmaessig ueber AP-Laufzeit je Arbeitspaket.
+            <p className="text-xs text-gray-700 mt-2">
+              Nur foerderbare Projektstunden. Soll-Verteilung gleichmaessig ueber AP-Laufzeit je Arbeitspaket.
             </p>
           </div>
         )}
@@ -1105,20 +1153,20 @@ export default function ProjektFortschrittPanel({
 
               {/* Block 1: Hochrechnung (volle Breite) */}
               <div className="bg-white bg-opacity-70 rounded-lg p-4">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3">
                   Hochrechnung
                 </p>
                 <div className="grid grid-cols-3 gap-4 mb-3">
                   <div>
-                    <div className="text-xs text-gray-500 mb-0.5">Ziel (Plan)</div>
+                    <div className="text-xs text-gray-700 mb-0.5">Ziel (Plan)</div>
                     <div className="text-sm font-semibold text-gray-900">{fmtH(analysis.gesamtPlanStunden)}</div>
                   </div>
                   <div>
-                    <div className="text-xs text-gray-500 mb-0.5">Bisher verbucht</div>
+                    <div className="text-xs text-gray-700 mb-0.5">Bisher verbucht</div>
                     <div className="text-sm font-semibold text-gray-900">{fmtH(analysis.gesamtIstStunden)}</div>
                   </div>
                   <div>
-                    <div className="text-xs text-gray-500 mb-0.5">Prognose gesamt</div>
+                    <div className="text-xs text-gray-700 mb-0.5">Prognose gesamt</div>
                     <div className={`text-sm font-bold ${analysis.pFarbe.text}`}>
                       {fmtH(Math.round(analysis.prognostizierteGesamtStunden))}
                     </div>
@@ -1134,7 +1182,7 @@ export default function ProjektFortschrittPanel({
                   />
                 </div>
                 <div className="flex justify-between text-xs">
-                  <span className="text-gray-400">
+                  <span className="text-gray-700">
                     Basis: {Math.round(analysis.basisStunden)} h/Monat (Team, letzte {analysis.letzten3Count} Monate)
                   </span>
                   <span className={`font-bold ${analysis.pFarbe.text}`}>
@@ -1142,7 +1190,7 @@ export default function ProjektFortschrittPanel({
                   </span>
                 </div>
                 {analysis.fehlendStunden > 0 && (
-                  <div className="text-xs text-gray-500 mt-1">
+                  <div className="text-xs text-gray-700 mt-1">
                     Fehlende Stunden bei aktuellem Tempo:
                     <span className="font-semibold text-gray-700 ml-1">{fmtH(Math.round(analysis.fehlendStunden))}</span>
                   </div>
@@ -1154,25 +1202,25 @@ export default function ProjektFortschrittPanel({
 
                 {/* Spalte 1: Aktuelle Situation */}
                 <div className="bg-white bg-opacity-70 rounded-lg p-4">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                  <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3">
                     Aktuelle Situation
                   </p>
                   <div className="space-y-2">
                     <div>
-                      <div className="text-xs text-gray-500">Aktive Mitarbeiter</div>
+                      <div className="text-xs text-gray-700">Aktive Mitarbeiter</div>
                       <div className={`text-sm font-semibold mt-0.5 ${
                         analysis.aktivCount < analysis.gesamtMACount ? 'text-amber-600' : 'text-green-600'
                       }`}>
                         {analysis.aktivCount} / {analysis.gesamtMACount}
                         {analysis.gfCount > 0 && (
-                          <span className="text-gray-400 font-normal text-xs ml-1">
+                          <span className="text-gray-700 font-normal text-xs ml-1">
                             ({analysis.gfCount} GF + {analysis.normalMACount} MA)
                           </span>
                         )}
                       </div>
                     </div>
                     <div>
-                      <div className="text-xs text-gray-500">Intensitaet je MA</div>
+                      <div className="text-xs text-gray-700">Intensitaet je MA</div>
                       <div className="text-sm font-semibold text-gray-900 mt-0.5">
                         {analysis.istHProTagJeMA > 0
                           ? `${Math.round(analysis.istHProTagJeMA * 10) / 10} h/Tag`
@@ -1180,7 +1228,7 @@ export default function ProjektFortschrittPanel({
                       </div>
                     </div>
                     <div>
-                      <div className="text-xs text-gray-500">Team gesamt</div>
+                      <div className="text-xs text-gray-700">Team gesamt</div>
                       <div className="text-sm font-semibold text-gray-900 mt-0.5">
                         {analysis.istHProTagTeam > 0
                           ? `${Math.round(analysis.istHProTagTeam * 10) / 10} h/Tag`
@@ -1189,16 +1237,16 @@ export default function ProjektFortschrittPanel({
                     </div>
                     {analysis.gfCount > 0 && (
                       <div className="pt-2 border-t border-gray-100 space-y-1">
-                        <p className="text-xs text-gray-400">Max. moeglich je Tag:</p>
+                        <p className="text-xs text-gray-700">Max. moeglich je Tag:</p>
                         <div className="flex justify-between text-xs">
-                          <span className="text-gray-500">GF (50%-Regel)</span>
+                          <span className="text-gray-700">GF (50%-Regel)</span>
                           <span className="font-medium text-gray-700">
                             {Math.round(analysis.avgMaxProTagGF * 10) / 10} h
                           </span>
                         </div>
                         {analysis.normalMACount > 0 && (
                           <div className="flex justify-between text-xs">
-                            <span className="text-gray-500">Mitarbeiter</span>
+                            <span className="text-gray-700">Mitarbeiter</span>
                             <span className="font-medium text-gray-700">
                               {Math.round(analysis.avgMaxProTagMA * 10) / 10} h
                             </span>
@@ -1207,14 +1255,14 @@ export default function ProjektFortschrittPanel({
                       </div>
                     )}
                   </div>
-                  <div className="text-xs text-gray-400 mt-3 pt-2 border-t border-gray-100">
+                  <div className="text-xs text-gray-700 mt-3 pt-2 border-t border-gray-100">
                     Basis: letzte {analysis.letzten3Count} abgeschl. Monate
                   </div>
                 </div>
 
                 {/* Spalte 2: Was waere noetig? */}
                 <div className="bg-white bg-opacity-70 rounded-lg p-4">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                  <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3">
                     Was waere noetig?
                   </p>
                   {analysis.szenarien.length > 0 ? (
@@ -1226,11 +1274,11 @@ export default function ProjektFortschrittPanel({
                             : <AlertCircle size={14} className="text-red-400 mt-0.5 shrink-0" />
                           }
                           <div className="flex-1 min-w-0">
-                            <div className="text-xs text-gray-500">{sz.label}</div>
+                            <div className="text-xs text-gray-700">{sz.label}</div>
                             <div className={`text-sm font-bold mt-0.5 ${sz.erreichbar ? 'text-green-700' : 'text-red-600'}`}>
                               {sz.hProTagJeMA > 0 ? `${sz.hProTagJeMA} h/Tag je MA` : 'wie bisher'}
                             </div>
-                            <div className="text-xs text-gray-400">
+                            <div className="text-xs text-gray-700">
                               Team: {sz.teamHProTag} h/Tag
                             </div>
                             {sz.hinweis && (
@@ -1241,14 +1289,14 @@ export default function ProjektFortschrittPanel({
                       ))}
                     </div>
                   ) : (
-                    <p className="text-xs text-gray-400">Keine Szenarien verfuegbar.</p>
+                    <p className="text-xs text-gray-700">Keine Szenarien verfuegbar.</p>
                   )}
                   {analysis.verbleibendeMonateAb > 0 && (
-                    <div className="text-xs text-gray-400 mt-3 pt-2 border-t border-gray-100">
+                    <div className="text-xs text-gray-700 mt-3 pt-2 border-t border-gray-100">
                       Noch {analysis.verbleibendeMonateAb} Monate bis Projektende
                     </div>
                   )}
-                  <div className="text-xs text-gray-400 mt-2 pt-2 border-t border-gray-100 italic">
+                  <div className="text-xs text-gray-700 mt-2 pt-2 border-t border-gray-100 italic">
                     Durchschnittswerte zur Orientierung. Individuelle Buchung
                     je Mitarbeiter gemaess Arbeitsplan.
                   </div>
@@ -1256,7 +1304,7 @@ export default function ProjektFortschrittPanel({
 
                 {/* Spalte 3: Foerder-Konsequenzen */}
                 <div className="bg-white bg-opacity-70 rounded-lg p-4">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                  <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3">
                     Foerder-Konsequenzen
                   </p>
                   {analysis.kostenDatenVorhanden ? (
@@ -1266,17 +1314,17 @@ export default function ProjektFortschrittPanel({
                         <div>
                           <div className="flex items-center gap-1 mb-1">
                             <AlertCircle size={12} className={analysis.szenarien[0].erreichbar ? 'text-green-500' : 'text-red-400'} />
-                            <span className="text-xs text-gray-500">{analysis.szenarien[0].label}</span>
+                            <span className="text-xs text-gray-700">{analysis.szenarien[0].label}</span>
                           </div>
                           <div className="text-xs space-y-0.5">
                             <div className="flex justify-between">
-                              <span className="text-gray-500">Abrufbar:</span>
+                              <span className="text-gray-700">Abrufbar:</span>
                               <span className="font-semibold text-gray-800">
                                 {fmtEur(Math.round(analysis.foerderbarProg))}
                               </span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-gray-500">Erreichungsgrad:</span>
+                              <span className="text-gray-700">Erreichungsgrad:</span>
                               <span className={`font-semibold ${analysis.pFarbe.text}`}>
                                 {Math.min(analysis.erreichungsgrad, 100)}%
                               </span>
@@ -1294,28 +1342,28 @@ export default function ProjektFortschrittPanel({
                       <div className="pt-2 border-t border-gray-100">
                         <div className="flex items-center gap-1 mb-1">
                           <CheckCircle size={12} className="text-green-500" />
-                          <span className="text-xs text-gray-500">Bei 100% Zielerreichung</span>
+                          <span className="text-xs text-gray-700">Bei 100% Zielerreichung</span>
                         </div>
                         <div className="text-xs space-y-0.5">
                           <div className="flex justify-between">
-                            <span className="text-gray-500">Abrufbar:</span>
+                            <span className="text-gray-700">Abrufbar:</span>
                             <span className="font-semibold text-green-700">
                               {fmtEur(Math.round(analysis.foerderbarPlan))}
                             </span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-500">Verschenkt:</span>
+                            <span className="text-gray-700">Verschenkt:</span>
                             <span className="font-semibold text-green-700">0 EUR</span>
                           </div>
                         </div>
                       </div>
 
-                      <div className="text-xs text-gray-400 pt-1 border-t border-gray-100">
+                      <div className="text-xs text-gray-700 pt-1 border-t border-gray-100">
                         Foerdersatz: {analysis.foerdersatz}% &nbsp;&middot;&nbsp; Basis: echte Stundensaetze
                       </div>
                     </div>
                   ) : (
-                    <div className="text-xs text-gray-400 space-y-1">
+                    <div className="text-xs text-gray-700 space-y-1">
                       <p>Keine Kostendaten verfuegbar.</p>
                       <p>Bitte Stundensaetze und Foerdersatz im Projekt hinterlegen.</p>
                     </div>
@@ -1331,7 +1379,7 @@ export default function ProjektFortschrittPanel({
 
       {/* Fallback: keine Daten */}
       {analysis.maData.length === 0 && analysis.monatData.length === 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-400">
+        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-700">
           <TrendingUp size={40} className="mx-auto mb-3 opacity-30" />
           <p className="text-sm">Noch keine Zeiterfassungsdaten vorhanden.</p>
         </div>
