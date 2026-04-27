@@ -2,7 +2,15 @@
 // ============================================================================
 // PZE V7 - Shared Component: Berichte & Controlling
 // ============================================================================
-// Version: 7.4.6-4
+// Version: 7.4.6-5
+// v7.4.6-5: BerichtePage Umstrukturierung
+//   - Projekt-Selektor-Kachel an erster Stelle (Dropdown fuer Projektauswahl)
+//   - 3 Report-Kacheln direkt daneben (Stundennachweis, Fortschritt, ZA)
+//   - 4 Kennzahl-Kacheln entfernt
+//   - "Reports erstellen" Header entfernt
+//   - Panels oeffnen direkt unter den Kacheln
+//   - Projekt-Uebersicht-Tabelle darunter
+//   - Personalkosten-Export vorerst ausgeblendet (spaeter neu platzieren)
 // v7.4.6-4: FIX bewilligte_summe in DB-Select ergaenzt fuer ProjektFortschrittPanel
 // Datum: 24. April 2026
 //
@@ -241,6 +249,9 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
   const [activePanel, setActivePanel] = useState<ActivePanel>(null);
   const togglePanel = (panel: ActivePanel) =>
     setActivePanel(prev => prev === panel ? null : panel);
+
+  // Projekt-Selektor fuer Reports (null = erstes Projekt / alle)
+  const [selectedReportProjectId, setSelectedReportProjectId] = useState<string | null>(null);
 
   const showPKPanel    = activePanel === 'pk';
   const showMatrix     = activePanel === 'matrix';
@@ -734,69 +745,137 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
           </p>
         </div>
 
-        {/* Kennzahlen-Kacheln */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Foerderprojekte</p>
-                <p className={`text-3xl font-bold ${colors.primary}`}>{stats.projectCount}</p>
-                <p className="text-xs text-gray-400 mt-1">aktiv</p>
+        {/* ================================================================ */}
+        {/* REPORT-KACHELN + PROJEKT-SELEKTOR (oberste Stelle)              */}
+        {/* ================================================================ */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+
+          {/* Kachel 1: Projekt-Auswahl */}
+          <div className={`flex flex-col border-2 rounded-xl p-4 bg-white ${colors.border}`}>
+            <div className="flex items-center gap-2 mb-3">
+              <div className={`w-8 h-8 ${colors.bg} rounded-lg flex items-center justify-center`}>
+                <FolderKanban className={`w-4 h-4 ${colors.primary}`} />
               </div>
-              <div className={`w-12 h-12 ${colors.bg} rounded-lg flex items-center justify-center`}>
-                <FolderKanban className={`w-6 h-6 ${colors.primary}`} />
-              </div>
+              <span className="text-sm font-semibold text-gray-700">Projekt</span>
             </div>
+            <select
+              value={selectedReportProjectId || ''}
+              onChange={e => setSelectedReportProjectId(e.target.value || null)}
+              className={`w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 ${colors.ring} mt-auto`}
+            >
+              {projects.length > 1 && <option value="">Alle Projekte</option>}
+              {projects.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.short_name || p.name}
+                </option>
+              ))}
+            </select>
+            {projects.length === 1 && (
+              <p className="text-xs text-gray-500 mt-2">{projects[0].funding_reference || ''}</p>
+            )}
           </div>
 
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Mitarbeiter</p>
-                <p className="text-3xl font-bold text-blue-600">{stats.employeeCount}</p>
-                <p className="text-xs text-gray-400 mt-1">in Projekten</p>
-              </div>
-              <div className="w-12 h-12 bg-blue-50 rounded-lg flex items-center justify-center">
-                <Users className="w-6 h-6 text-blue-600" />
-              </div>
-            </div>
-          </div>
+          {/* Kachel 2: Stundennachweis */}
+          <button
+            onClick={() => { if (projects.length > 0 && !matrixProjectId) setMatrixProjectId(selectedReportProjectId || projects[0].id); togglePanel('matrix'); }}
+            className={`flex flex-col items-center p-6 border-2 rounded-xl transition-colors cursor-pointer bg-white ${showMatrix ? colors.btnActive : `${colors.border} ${colors.btn}`}`}
+          >
+            <Grid3x3 className="w-10 h-10 mb-3" />
+            <span className="font-medium">Stundennachweis</span>
+            <span className="text-xs mt-1">Matrix-Uebersicht</span>
+            <span className={`text-xs mt-2 ${colors.btnBadge} px-2 py-0.5 rounded flex items-center gap-1`}>
+              {showMatrix ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+              {showMatrix ? 'Schliessen' : 'Oeffnen'}
+            </span>
+          </button>
 
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Geplante PM</p>
-                <p className="text-3xl font-bold text-purple-600">{formatPM(stats.totalPlannedPM)}</p>
-                <p className="text-xs text-gray-400 mt-1">gesamt</p>
-              </div>
-              <div className="w-12 h-12 bg-purple-50 rounded-lg flex items-center justify-center">
-                <Package className="w-6 h-6 text-purple-600" />
-              </div>
-            </div>
-          </div>
+          {/* Kachel 3: Projektfortschritt */}
+          <button
+            onClick={() => togglePanel('fortschritt')}
+            className={`flex flex-col items-center p-6 border-2 rounded-xl transition-colors cursor-pointer bg-white ${showFortschritt ? colors.btnActive : `${colors.border} ${colors.btn}`}`}
+          >
+            <BarChart3 className="w-10 h-10 mb-3" />
+            <span className="font-medium">Projekt-Fortschritt</span>
+            <span className="text-xs mt-1">Grafische Auswertung</span>
+            <span className={`text-xs mt-2 ${colors.btnBadge} px-2 py-0.5 rounded flex items-center gap-1`}>
+              {showFortschritt ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+              {showFortschritt ? 'Schliessen' : 'Oeffnen'}
+            </span>
+          </button>
 
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Erfasste PM</p>
-                <p className="text-3xl font-bold text-green-600">{formatPM(stats.totalActualPM)}</p>
-                <p className="text-xs text-gray-400 mt-1">
-                  {stats.progressPercent.toFixed(0)}% von Plan
-                </p>
-              </div>
-              <div className="w-12 h-12 bg-green-50 rounded-lg flex items-center justify-center">
-                <TrendingUp className="w-6 h-6 text-green-600" />
-              </div>
-            </div>
-          </div>
+          {/* Kachel 4: Zahlungsanforderung */}
+          <button
+            onClick={() => togglePanel('za')}
+            className={`flex flex-col items-center p-6 border-2 rounded-xl transition-colors cursor-pointer bg-white ${showZA ? colors.btnActive : `${colors.border} ${colors.btn}`}`}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10 mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            <span className="font-medium">Daten f. Zahlungsanforderung</span>
+            <span className="text-xs mt-1">Datengrundlage ZIM-Formular</span>
+            <span className={`text-xs mt-2 ${colors.btnBadge} px-2 py-0.5 rounded flex items-center gap-1`}>
+              {showZA ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              {showZA ? 'Schliessen' : 'Oeffnen'}
+            </span>
+          </button>
         </div>
 
-        {/* Projekt-Uebersicht */}
-        <div className="bg-white rounded-lg shadow mb-8">
+        {/* Aufgeklappte Panels direkt unter den Kacheln */}
+        {showFortschritt && (
+          <div className="mb-6 bg-white rounded-xl border border-gray-200 p-5">
+            <ProjektFortschrittPanel
+              portal={portal}
+              projects={selectedReportProjectId ? projects.filter(p => p.id === selectedReportProjectId) : projects}
+              workPackages={workPackages}
+              wpAssignments={wpAssignments}
+              projectAssignments={projectAssignments}
+              employees={employees}
+              timesheets={timesheets}
+            />
+          </div>
+        )}
+
+        {showZA && (
+          <div className="mb-6">
+            <ZAPanel
+              portal={portal}
+              projects={selectedReportProjectId ? projects.filter(p => p.id === selectedReportProjectId) : projects}
+              workPackages={workPackages}
+              wpAssignments={wpAssignments}
+              employees={employees}
+              timesheets={timesheets}
+              projectAssignments={projectAssignments}
+            />
+          </div>
+        )}
+
+        {showMatrix && (
+          <div className="mb-6">
+            <StundennachweisMatrix
+              portal={portal}
+              companyId={company?.id || ''}
+              projects={selectedReportProjectId ? projects.filter(p => p.id === selectedReportProjectId) : projects}
+              workPackages={workPackages}
+              wpAssignments={wpAssignments}
+              projectAssignments={projectAssignments}
+              employees={employees}
+              timesheets={timesheets}
+              completions={completions}
+              notes={timesheetNotes}
+              company={company}
+              matrixProjectId={matrixProjectId}
+              onProjectChange={(id) => setMatrixProjectId(id)}
+              onNavigateToZE={(empId, year, month) => {
+                const returnUrl = encodeURIComponent(matrixReturnUrl);
+                router.push(zeiterfassungUrl(empId) + `&year=${year}&month=${month}&returnUrl=${returnUrl}`);
+              }}
+            />
+          </div>
+        )}
+
+        {/* Projekt-Uebersicht (Tabelle) */}
+        <div className="bg-white rounded-lg shadow mb-6">
           <div className="px-6 py-4 border-b border-gray-200">
             <h2 className="text-lg font-semibold text-gray-900">Projekt-Uebersicht</h2>
-          </div>
-          <div className="overflow-x-auto">
+          </div>          <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
@@ -867,232 +946,111 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
           </div>
         </div>
 
-        {/* Reports */}
-        <div className="bg-white rounded-lg shadow">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Reports erstellen</h2>
-          </div>
-          <div className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-
-              {/* Personalkosten */}
-              <div className="flex flex-col">
-                <button
-                  onClick={() => togglePanel('pk')}
-                  disabled={projects.length === 0}
-                  className={`flex flex-col items-center p-6 border-2 rounded-lg transition-colors ${
-                    projects.length === 0 ? 'border-dashed border-gray-300 text-gray-400 cursor-not-allowed'
-                    : showPKPanel ? `border-2 ${colors.btnActive} cursor-pointer`
-                    : `border-2 ${colors.border} ${colors.btn} cursor-pointer`
-                  }`}
-                >
-                  <FileSpreadsheet className="w-10 h-10 mb-3" />
-                  <span className="font-medium">Personalkosten</span>
-                  <span className="text-xs mt-1">Excel-Export</span>
-                  <span className={`text-xs mt-2 ${colors.btnBadge} px-2 py-0.5 rounded flex items-center gap-1`}>
-                    {showPKPanel ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                    {showPKPanel ? 'Schliessen' : 'Zeitraum waehlen'}
-                  </span>
-                </button>
-                {showPKPanel && (
-                  <div className={`mt-2 p-4 bg-white border ${colors.border} rounded-lg shadow-sm`}>
-                    {projects.length > 1 && (
-                      <div className="mb-3">
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Projekt</label>
-                        <select value={pkProjectId} onChange={e => handlePkProjectChange(e.target.value)}
-                          className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none">
-                          {projects.map(p => <option key={p.id} value={p.id}>{p.short_name || p.name}</option>)}
-                        </select>
-                      </div>
-                    )}
-                    <div className="grid grid-cols-2 gap-3 mb-4">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Von</label>
-                        <input type="date" value={pkVon} onChange={e => setPKVon(e.target.value)}
-                          className="w-full text-sm border border-gray-300 rounded px-2 py-1.5" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Bis</label>
-                        <input type="date" value={pkBis} onChange={e => setPKBis(e.target.value)}
-                          className="w-full text-sm border border-gray-300 rounded px-2 py-1.5" />
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => { handlePersonalkostenExport(pkProjectId, pkVon, pkBis); togglePanel(null); }}
-                      disabled={exportLoading || !pkVon || !pkBis}
-                      className={`w-full py-2 ${portal === 'berater' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'} disabled:bg-gray-300 text-white text-sm font-medium rounded transition-colors flex items-center justify-center gap-2`}
-                    >
-                      <FileSpreadsheet className="w-4 h-4" />
-                      {exportLoading ? 'Wird erstellt...' : 'Excel herunterladen'}
-                    </button>
-                  </div>
-                )}
+        {/* Personalkosten-Export (vorerst ausgeblendet, wird spaeter integriert) */}
+        {showPKPanel && (
+          <div className="mb-6 bg-white rounded-xl border border-gray-200 p-4">
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">Personalkosten Excel-Export</h3>
+            {projects.length > 1 && (
+              <div className="mb-3">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Projekt</label>
+                <select value={pkProjectId} onChange={e => handlePkProjectChange(e.target.value)}
+                  className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none">
+                  {projects.map(p => <option key={p.id} value={p.id}>{p.short_name || p.name}</option>)}
+                </select>
               </div>
-
-              {/* Stundennachweis */}
-              <button
-                onClick={() => { if (projects.length > 0 && !matrixProjectId) setMatrixProjectId(projects[0].id); togglePanel('matrix'); }}
-                className={`flex flex-col items-center p-6 border-2 rounded-lg transition-colors cursor-pointer ${showMatrix ? colors.btnActive : `${colors.border} ${colors.btn}`}`}
-              >
-                <Grid3x3 className="w-10 h-10 mb-3" />
-                <span className="font-medium">Stundennachweis</span>
-                <span className="text-xs mt-1">Matrix-Uebersicht</span>
-                <span className={`text-xs mt-2 ${colors.btnBadge} px-2 py-0.5 rounded flex items-center gap-1`}>
-                  {showMatrix ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
-                  {showMatrix ? 'Schliessen' : 'Oeffnen'}
-                </span>
-              </button>
-
-              {/* Projektfortschritt */}
-              <button
-                onClick={() => togglePanel('fortschritt')}
-                className={`flex flex-col items-center p-6 border-2 rounded-lg transition-colors cursor-pointer ${showFortschritt ? colors.btnActive : `${colors.border} ${colors.btn}`}`}
-              >
-                <BarChart3 className="w-10 h-10 mb-3" />
-                <span className="font-medium">Projekt-Fortschritt</span>
-                <span className="text-xs mt-1">Grafische Auswertung</span>
-                <span className={`text-xs mt-2 ${colors.btnBadge} px-2 py-0.5 rounded flex items-center gap-1`}>
-                  {showFortschritt ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
-                  {showFortschritt ? 'Schliessen' : 'Oeffnen'}
-                </span>
-              </button>
-
-              {/* Zahlungsanforderung */}
-              <button
-                onClick={() => togglePanel('za')}
-                className={`flex flex-col items-center p-6 border-2 rounded-lg transition-colors cursor-pointer ${showZA ? colors.btnActive : `${colors.border} ${colors.btn}`}`}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10 mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-                <span className="font-medium">Daten f. Zahlungsanforderung</span>
-                <span className="text-xs mt-1">Datengrundlage ZIM-Formular</span>
-                <span className={`text-xs mt-2 ${colors.btnBadge} px-2 py-0.5 rounded flex items-center gap-1`}>
-                  {showZA ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                  {showZA ? 'Schliessen' : 'Oeffnen'}
-                </span>
-              </button>
+            )}
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Von</label>
+                <input type="date" value={pkVon} onChange={e => setPKVon(e.target.value)}
+                  className="w-full text-sm border border-gray-300 rounded px-2 py-1.5" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Bis</label>
+                <input type="date" value={pkBis} onChange={e => setPKBis(e.target.value)}
+                  className="w-full text-sm border border-gray-300 rounded px-2 py-1.5" />
+              </div>
             </div>
-
-            {/* Fortschritt-Panel */}
-            {showFortschritt && (
-              <div className="mt-4 bg-white rounded-xl border border-gray-200 p-5">
-                <ProjektFortschrittPanel
-                  portal={portal}
-                  projects={projects}
-                  workPackages={workPackages}
-                  wpAssignments={wpAssignments}
-                  projectAssignments={projectAssignments}
-                  employees={employees}
-                  timesheets={timesheets}
-                />
-              </div>
-            )}
-
-            {/* ZA-Panel */}
-            {showZA && (
-              <ZAPanel
-                portal={portal}
-                projects={projects}
-                workPackages={workPackages}
-                wpAssignments={wpAssignments}
-                employees={employees}
-                timesheets={timesheets}
-                projectAssignments={projectAssignments}
-              />
-            )}
-
-            {/* Stundennachweis-Matrix */}
-            {showMatrix && (
-              <>
-                <StundennachweisMatrix
-                  portal={portal}
-                  companyId={company?.id || ''}
-                  projects={projects}
-                  workPackages={workPackages}
-                  wpAssignments={wpAssignments}
-                  projectAssignments={projectAssignments}
-                  employees={employees}
-                  timesheets={timesheets}
-                  completions={completions}
-                  notes={timesheetNotes}
-                  company={company}
-                  matrixProjectId={matrixProjectId}
-                  onProjectChange={(id) => setMatrixProjectId(id)}
-                  onNavigateToZE={(empId, year, month) => {
-                    const returnUrl = encodeURIComponent(matrixReturnUrl);
-                    router.push(zeiterfassungUrl(empId) + `&year=${year}&month=${month}&returnUrl=${returnUrl}`);
-                  }}
-                />
-
-                {/* Zeiterfassungs-Status: unterhalb der Matrix */}
-                <div className="bg-white rounded-lg shadow mt-6">
-                  <div className="px-6 py-4 border-b border-gray-200">
-                    <h2 className="text-lg font-semibold text-gray-900">Zeiterfassungs-Status</h2>
-                    <p className="text-sm text-gray-500 mt-1">Stundenbudget pro Mitarbeiter (Gesamtprojekt)</p>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Mitarbeiter</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Projekt(e)</th>
-                          <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Soll (h)</th>
-                          <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Erfasst (h)</th>
-                          <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Offen (h)</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" style={{ minWidth: '200px' }}>Fortschritt</th>
-                          <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Aktion</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-200">
-                        {employeeTimesheetStatus.length === 0 ? (
-                          <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-500">Keine Mitarbeiter mit Projektzuordnung</td></tr>
-                        ) : (
-                          employeeTimesheetStatus.map(ets => {
-                            const progressCapped = Math.min(100, ets.progressPercent);
-                            const barColor = ets.budgetStatus === 'exceeded' ? 'bg-red-500' : ets.budgetStatus === 'warning' ? 'bg-orange-400' : 'bg-green-500';
-                            const offenColor = ets.offenHours < 0 ? 'text-red-600' : 'text-green-700';
-                            return (
-                              <tr key={ets.employee.id} className="hover:bg-gray-50">
-                                <td className="px-6 py-4 font-medium text-gray-900">{ets.employee.display_name}</td>
-                                <td className="px-6 py-4 text-sm text-gray-500">{ets.projects.join(', ') || '-'}</td>
-                                <td className="px-6 py-4 text-right text-gray-700 tabular-nums">{ets.sollHours > 0 ? Math.round(ets.sollHours).toLocaleString('de-DE') : '-'}</td>
-                                <td className={`px-6 py-4 text-right tabular-nums font-medium ${ets.budgetStatus === 'warning' ? 'bg-orange-50' : ''}`}>
-                                  {ets.erfasstHours > 0 ? Math.round(ets.erfasstHours).toLocaleString('de-DE') : '-'}
-                                </td>
-                                <td className={`px-6 py-4 text-right tabular-nums font-medium ${offenColor}`}>
-                                  {ets.sollHours > 0 ? Math.round(ets.offenHours).toLocaleString('de-DE') : '-'}
-                                </td>
-                                <td className="px-6 py-4">
-                                  <div className="flex items-center gap-3">
-                                    <div className="flex-1 bg-gray-200 rounded-full h-2.5">
-                                      <div className={`h-2.5 rounded-full ${barColor}`} style={{ width: `${progressCapped}%` }} />
-                                    </div>
-                                    <span className="text-sm font-medium text-gray-700 w-12 text-right">{Math.round(ets.progressPercent)}%</span>
-                                    {ets.budgetStatus === 'exceeded' && <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />}
-                                    {ets.budgetStatus === 'warning' && <AlertTriangle className="w-4 h-4 text-orange-500 flex-shrink-0" />}
-                                    {ets.budgetStatus === 'on-track' && ets.erfasstHours > 0 && <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />}
-                                  </div>
-                                </td>
-                                <td className="px-6 py-4 text-center">
-                                  <button
-                                    onClick={() => router.push(zeiterfassungUrl(ets.employee.id))}
-                                    className={`inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${colors.btn}`}
-                                  >
-                                    <ExternalLink className="w-4 h-4" />
-                                    Erfassen
-                                  </button>
-                                </td>
-                              </tr>
-                            );
-                          })
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </>
-            )}
+            <button
+              onClick={() => { handlePersonalkostenExport(pkProjectId, pkVon, pkBis); togglePanel(null); }}
+              disabled={exportLoading || !pkVon || !pkBis}
+              className={`w-full py-2 ${portal === 'berater' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'} disabled:bg-gray-300 text-white text-sm font-medium rounded transition-colors flex items-center justify-center gap-2`}
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              {exportLoading ? 'Wird erstellt...' : 'Excel herunterladen'}
+            </button>
           </div>
-        </div>
+        )}
+
+        {/* Zeiterfassungs-Status (nur wenn Matrix offen) */}
+        {showMatrix && (
+          <div className="mb-6 bg-white rounded-lg shadow">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900">Zeiterfassungs-Status</h2>
+              <p className="text-sm text-gray-500 mt-1">Stundenbudget pro Mitarbeiter (Gesamtprojekt)</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Mitarbeiter</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Projekt(e)</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Soll (h)</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Erfasst (h)</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Offen (h)</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" style={{ minWidth: '200px' }}>Fortschritt</th>
+                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Aktion</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {employeeTimesheetStatus.length === 0 ? (
+                    <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-500">Keine Mitarbeiter mit Projektzuordnung</td></tr>
+                  ) : (
+                    employeeTimesheetStatus.map(ets => {
+                      const progressCapped = Math.min(100, ets.progressPercent);
+                      const barColor = ets.budgetStatus === 'exceeded' ? 'bg-red-500' : ets.budgetStatus === 'warning' ? 'bg-orange-400' : 'bg-green-500';
+                      const offenColor = ets.offenHours < 0 ? 'text-red-600' : 'text-green-700';
+                      return (
+                        <tr key={ets.employee.id} className="hover:bg-gray-50">
+                          <td className="px-6 py-4 font-medium text-gray-900">{ets.employee.display_name}</td>
+                          <td className="px-6 py-4 text-sm text-gray-500">{ets.projects.join(', ') || '-'}</td>
+                          <td className="px-6 py-4 text-right text-gray-700 tabular-nums">{ets.sollHours > 0 ? Math.round(ets.sollHours).toLocaleString('de-DE') : '-'}</td>
+                          <td className={`px-6 py-4 text-right tabular-nums font-medium ${ets.budgetStatus === 'warning' ? 'bg-orange-50' : ''}`}>
+                            {ets.erfasstHours > 0 ? Math.round(ets.erfasstHours).toLocaleString('de-DE') : '-'}
+                          </td>
+                          <td className={`px-6 py-4 text-right tabular-nums font-medium ${offenColor}`}>
+                            {ets.sollHours > 0 ? Math.round(ets.offenHours).toLocaleString('de-DE') : '-'}
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="flex-1 bg-gray-200 rounded-full h-2.5">
+                                <div className={`h-2.5 rounded-full ${barColor}`} style={{ width: `${progressCapped}%` }} />
+                              </div>
+                              <span className="text-sm font-medium text-gray-700 w-12 text-right">{Math.round(ets.progressPercent)}%</span>
+                              {ets.budgetStatus === 'exceeded' && <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />}
+                              {ets.budgetStatus === 'warning' && <AlertTriangle className="w-4 h-4 text-orange-500 flex-shrink-0" />}
+                              {ets.budgetStatus === 'on-track' && ets.erfasstHours > 0 && <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            <button
+                              onClick={() => router.push(zeiterfassungUrl(ets.employee.id))}
+                              className={`inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${colors.btn}`}
+                            >
+                              <ExternalLink className="w-4 h-4" />
+                              Erfassen
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
       </main>
 
       <footer className="text-center py-4 text-sm text-gray-500 mt-8">
