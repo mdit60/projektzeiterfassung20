@@ -4,7 +4,11 @@
 // ============================================================================
 // PZE V7 - Portal-Navigation
 // ============================================================================
-// Version: 7.4.4-7
+// Version: 7.4.4-8
+// v7.4.4-8: Anleitungen vorerst gesperrt
+//   - Benutzerhandbuch-Links entfernt (werden aktualisiert)
+//   - Hinweistext "Wird aktualisiert" im Hilfe-Dropdown
+//   - FAQ Zeiterfassung bleibt verfuegbar (Inhalt unveraendert)
 // v7.4.4-7: FIX Hilfe-Dropdown sichtbar
 //   - z-index auf 200, overflow-visible in Nav-Container
 //   - icon.type-Vergleich durch Index-Pruefung ersetzt
@@ -114,24 +118,13 @@ interface HilfeItem {
 function getHilfeItems(portalRole: string): HilfeItem[] {
   const items: HilfeItem[] = [];
 
-  if (portalRole === 'employee') {
-    items.push(
-      { label: 'Kurzanleitung Mitarbeiter', subLabel: 'als PDF herunterladen', href: '/manuals/PZE_Kurzanleitung_Mitarbeiter.pdf', icon: <Download size={14} />, isDownload: true },
-      { label: 'FAQ Zeiterfassung',          subLabel: 'als PDF herunterladen', href: '/manuals/PZE-FAQ-Zeiterfassung-v1.pdf',      icon: <Download size={14} />, isDownload: true },
-    );
-  } else if (portalRole === 'project_leader') {
-    items.push(
-      { label: 'Anleitung Projektleiter',   subLabel: 'als PDF herunterladen', href: '/manuals/PZE_Anleitung_Projektleiter.pdf',          icon: <Download size={14} />, isDownload: true },
-      { label: 'FAQ Zeiterfassung',          subLabel: 'als PDF herunterladen', href: '/manuals/PZE-FAQ-Zeiterfassung-v1.pdf',             icon: <Download size={14} />, isDownload: true },
-    );
-  } else if (portalRole === 'client_admin') {
-    items.push(
-      { label: 'Anleitung Administrator',   subLabel: 'als PDF herunterladen', href: '/manuals/PZE_Anleitung_Firmen-Administrator.pdf',   icon: <Download size={14} />, isDownload: true },
-      { label: 'FAQ Zeiterfassung',          subLabel: 'als PDF herunterladen', href: '/manuals/PZE-FAQ-Zeiterfassung-v1.pdf',             icon: <Download size={14} />, isDownload: true },
-    );
-  }
+  // Anleitungen werden aktualisiert - vorerst nicht verfuegbar
+  // FAQ Zeiterfassung ist nicht betroffen und bleibt verfuegbar
+  items.push(
+    { label: 'FAQ Zeiterfassung', subLabel: 'als PDF herunterladen', href: '/manuals/PZE-FAQ-Zeiterfassung-v1.pdf', icon: <Download size={14} />, isDownload: true },
+  );
 
-  // Kontakt immer als letztes (Platzhalter - Kontaktdaten folgen)
+  // Kontakt immer als letztes
   items.push(
     { label: 'Kontakt & Support', subLabel: 'Cubintec GmbH', href: 'mailto:m.ditscherlein@cubintec.com', icon: <Mail size={14} /> },
   );
@@ -203,7 +196,16 @@ function HilfeDropdown({ portalRole, primaryColor }: { portalRole: string; prima
 
       {open && (
         <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-xl z-[200] py-1">
-          {items.map((item, i) => (
+          <div className="px-4 py-2.5 border-b border-gray-100">
+          <div className="flex items-start gap-3">
+            <span className="text-amber-400 mt-0.5 shrink-0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></span>
+            <span className="flex flex-col min-w-0">
+              <span className="text-sm font-medium text-gray-700">Benutzerhandbuch</span>
+              <span className="text-xs text-amber-600">Wird aktualisiert – in Kürze wieder verfügbar</span>
+            </span>
+          </div>
+        </div>
+        {items.map((item, i) => (
             <React.Fragment key={i}>
               {/* Trennlinie vor letztem Eintrag (Kontakt) */}
               {i === items.length - 1 && i > 0 && (
