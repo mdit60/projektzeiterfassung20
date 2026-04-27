@@ -2,7 +2,8 @@
 // ============================================================================
 // PZE V7 - Shared Component: Berichte & Controlling
 // ============================================================================
-// Version: 7.4.6-3
+// Version: 7.4.6-4
+// v7.4.6-4: FIX bewilligte_summe in DB-Select ergaenzt fuer ProjektFortschrittPanel
 // Datum: 24. April 2026
 //
 // v7.4.6-3: Accordion-Prinzip fuer Report-Kacheln
@@ -105,6 +106,7 @@ interface Project {
   overhead_t: number | null;
   overhead_nt: number | null;
   overhead_gleich: boolean | null;
+  bewilligte_summe: number | null;
 }
 
 interface Employee {
@@ -312,7 +314,7 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
         // Projekte
         const { data: projectsData } = await supabase
           .from('v7_projects')
-          .select('id, name, short_name, funding_format, funding_reference, start_date, end_date, is_active, foerdersatz, overhead_t, overhead_nt, overhead_gleich')
+          .select('id, name, short_name, funding_format, funding_reference, start_date, end_date, is_active, foerdersatz, overhead_t, overhead_nt, overhead_gleich, bewilligte_summe')
           .eq('client_company_id', companyId)
           .eq('is_active', true);
         setProjects(projectsData || []);
@@ -708,11 +710,19 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
 
       <main className="max-w-7xl mx-auto px-4 py-8">
 
-        {/* Zurueck-Link (nur Berater) */}
-        {zurueckUrl && (
-          <a href={zurueckUrl} className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 mb-4 text-sm">
-            &larr; Zurueck zur Firma
-          </a>
+        {/* Navigation Links (nur Berater) */}
+        {portal === 'berater' && (
+          <div className="flex items-center gap-4 mb-4">
+            {zurueckUrl && (
+              <a href={zurueckUrl} className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm">
+                &larr; Zurueck zur Firma
+              </a>
+            )}
+            <span className="text-gray-300">|</span>
+            <a href="/v7/berater/foerderung" className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm">
+              Kundenfirmen
+            </a>
+          </div>
         )}
 
         {/* Header */}
