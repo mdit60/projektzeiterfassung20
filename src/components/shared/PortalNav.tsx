@@ -4,23 +4,27 @@
 // ============================================================================
 // PZE V7 - Portal-Navigation
 // ============================================================================
-// Datum: 24. April 2026
-// Version: 7.4.4-3
+// Version: 7.4.4-7
+// v7.4.4-7: FIX Hilfe-Dropdown sichtbar
+//   - z-index auf 200, overflow-visible in Nav-Container
+//   - icon.type-Vergleich durch Index-Pruefung ersetzt
+// v7.4.4-6: FIX doppelter React-Import (str_replace hatte alten Inhalt angehaengt)
 //
-// Version: 7.4.4-4
-// Datum: 24. April 2026
+// v7.4.4-5: Hilfe-Dropdown + MA-Navigation vereinfacht
+// Datum: 28. April 2026
+//
+// v7.4.4-5: Hilfe-Dropdown + MA-Navigation vereinfacht
+//   - "Meine Zeiterfassung" aus Nav entfernt fuer employee (Zeiterfassung
+//     laeuft direkt ueber Monatsbuttons in Mein Status)
+//   - "Mein Status" fuer employee ebenfalls entfernt (einzige Seite = kein Tab noetig)
+//   - Hilfe-Dropdown rechts in der Nav: Kurzanleitung MA + FAQ Zeiterfassung
+//     + Kontakt-Platzhalter (rollenabhaengig, erstmal fuer employee)
 //
 // v7.4.4-4: Kundenfirmen-Link immer sichtbar im Berater-Portal
-//   - "foerderung"-Eintrag wird nicht mehr ausgeblendet wenn Pfad mit
-//     /v7/berater/foerderung beginnt (Unterseiten wie Berichte, Zeiterfassung)
-//   - Nur auf der exakten Kundenfirmen-Listenseite (/v7/berater/foerderung)
-//     wird der Link wie bisher ausgeblendet
-//   - Alle anderen Links bleiben kontextsensitiv (ausgeblendet auf aktiver Seite)
-//
-// v7.4.4-3: Berater-Nav kontextsensitiv (siehe dort)
+// v7.4.4-3: Berater-Nav kontextsensitiv
 // ============================================================================
 
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -31,6 +35,10 @@ import {
   Settings,
   Users,
   Network,
+  HelpCircle,
+  Download,
+  Mail,
+  ChevronDown,
 } from 'lucide-react';
 
 // ============================================================================
@@ -49,54 +57,87 @@ interface NavItem {
   isAdmin?: boolean;
 }
 
-interface PortalNavProps {
-  portal: PortalType;
-  userRole: UserRole | string;
-  portalRole?: PortalRole | string;
-  currentPath?: string; // bleibt fuer Abwaertskompatibilitaet, wird nicht mehr benoetigt
-}
-
 // ============================================================================
 // PORTAL-FARBEN
 // ============================================================================
 
 const PORTAL_COLORS = {
-  berater: { primary: '#002451' },
-  firma: { primary: '#65A655' },
+  berater: { primary: '#002451', hover: '#001a3a' },
+  firma:   { primary: '#65A655', hover: '#4d8a3f' },
 };
 
 // ============================================================================
-// BERATER-PORTAL NAVIGATION
-// Alle vier Hauptbereiche + Administration ganz rechts.
-// Aktive Seite wird ausgeblendet (kontextsensitiv).
+// BERATER-NAVIGATION
 // ============================================================================
 
 const NAV_BERATER: NavItem[] = [
-  { key: 'timesheets',   label: 'Zeiterfassungen',   href: '/v7/berater/timesheets',   icon: <Clock size={18} /> },
-  { key: 'foerderung',   label: 'Kundenfirmen',       href: '/v7/berater/foerderung',   icon: <Building2 size={18} /> },
-  { key: 'netzwerk',     label: 'Netzwerk',           href: '/v7/berater/netzwerk',     icon: <Network size={18} /> },
-  { key: 'multiprojekt', label: 'Kapazitaetsplanung', href: '/v7/berater/multiprojekt', icon: <BarChart3 size={18} /> },
-  { key: 'admin',        label: 'Administration',     href: '/v7/berater/admin',        icon: <Settings size={18} />, isAdmin: true },
+  { key: 'foerderung',    label: 'Kundenfirmen',       href: '/v7/berater/foerderung',    icon: <Building2 size={18} /> },
+  { key: 'zeiterfassung', label: 'Zeiterfassungen',    href: '/v7/berater/zeiterfassung', icon: <Clock size={18} /> },
+  { key: 'netzwerk',      label: 'Netzwerk',           href: '/v7/berater/netzwerk',      icon: <Network size={18} /> },
+  { key: 'multiprojekt',  label: 'Kapazitaetsplanung', href: '/v7/berater/multiprojekt',  icon: <BarChart3 size={18} /> },
+  { key: 'admin',         label: 'Administration',     href: '/v7/berater/admin',         icon: <Settings size={18} />, isAdmin: true },
 ];
 
 // ============================================================================
 // FIRMEN-PORTAL NAVIGATION - KUMULATIV
 // ============================================================================
 
-const NAV_FIRMA_BASE: NavItem[] = [
-  { key: 'mein-status',         label: 'Mein Status',         href: '/v7/firma/mein-status',    icon: <BarChart3 size={18} /> },
-  { key: 'meine-zeiterfassung', label: 'Meine Zeiterfassung', href: '/v7/firma/zeiterfassung',  icon: <Clock size={18} /> },
+// employee: kein "Mein Status" und kein "Meine Zeiterfassung" in der Nav
+// (MA landet direkt auf Mein-Status-Seite; Zeiterfassung ueber Monatsbuttons)
+const NAV_FIRMA_PL_BASE: NavItem[] = [
+  { key: 'mein-status',         label: 'Mein Status',         href: '/v7/firma/mein-status',   icon: <BarChart3 size={18} /> },
+  { key: 'meine-zeiterfassung', label: 'Meine Zeiterfassung', href: '/v7/firma/zeiterfassung', icon: <Clock size={18} /> },
 ];
 
 const NAV_FIRMA_PL_EXTRAS: NavItem[] = [
   { key: 'meine-projekte', label: 'Meine Projekte', href: '/v7/firma/projekte',  icon: <FolderKanban size={18} /> },
-  { key: 'berichte',       label: 'Berichte',        href: '/v7/firma/berichte', icon: <BarChart3 size={18} /> },
+  { key: 'berichte',       label: 'Berichte',       href: '/v7/firma/berichte',  icon: <BarChart3 size={18} /> },
 ];
 
 const NAV_FIRMA_ADMIN_EXTRAS: NavItem[] = [
-  { key: 'mitarbeiter', label: 'Mitarbeiter', href: '/v7/firma/mitarbeiter',  icon: <Users size={18} /> },
-  { key: 'firmendaten', label: 'Firmendaten', href: '/v7/firma/firmendaten',  icon: <Building2 size={18} /> },
+  { key: 'mitarbeiter', label: 'Mitarbeiter', href: '/v7/firma/mitarbeiter', icon: <Users size={18} /> },
+  { key: 'firmendaten', label: 'Firmendaten', href: '/v7/firma/firmendaten', icon: <Building2 size={18} /> },
 ];
+
+// ============================================================================
+// HILFE-EINTRAEGE (rollenabhaengig erweiterbar)
+// ============================================================================
+
+interface HilfeItem {
+  label: string;
+  subLabel?: string;
+  href: string;
+  icon: React.ReactNode;
+  isDownload?: boolean;
+}
+
+function getHilfeItems(portalRole: string): HilfeItem[] {
+  const items: HilfeItem[] = [];
+
+  if (portalRole === 'employee') {
+    items.push(
+      { label: 'Kurzanleitung Mitarbeiter', subLabel: 'als PDF herunterladen', href: '/manuals/PZE_Kurzanleitung_Mitarbeiter.pdf', icon: <Download size={14} />, isDownload: true },
+      { label: 'FAQ Zeiterfassung',          subLabel: 'als PDF herunterladen', href: '/manuals/PZE-FAQ-Zeiterfassung-v1.pdf',      icon: <Download size={14} />, isDownload: true },
+    );
+  } else if (portalRole === 'project_leader') {
+    items.push(
+      { label: 'Anleitung Projektleiter',   subLabel: 'als PDF herunterladen', href: '/manuals/PZE_Anleitung_Projektleiter.pdf',          icon: <Download size={14} />, isDownload: true },
+      { label: 'FAQ Zeiterfassung',          subLabel: 'als PDF herunterladen', href: '/manuals/PZE-FAQ-Zeiterfassung-v1.pdf',             icon: <Download size={14} />, isDownload: true },
+    );
+  } else if (portalRole === 'client_admin') {
+    items.push(
+      { label: 'Anleitung Administrator',   subLabel: 'als PDF herunterladen', href: '/manuals/PZE_Anleitung_Firmen-Administrator.pdf',   icon: <Download size={14} />, isDownload: true },
+      { label: 'FAQ Zeiterfassung',          subLabel: 'als PDF herunterladen', href: '/manuals/PZE-FAQ-Zeiterfassung-v1.pdf',             icon: <Download size={14} />, isDownload: true },
+    );
+  }
+
+  // Kontakt immer als letztes (Platzhalter - Kontaktdaten folgen)
+  items.push(
+    { label: 'Kontakt & Support', subLabel: 'Cubintec GmbH', href: 'mailto:m.ditscherlein@cubintec.com', icon: <Mail size={14} /> },
+  );
+
+  return items;
+}
 
 // ============================================================================
 // HILFSFUNKTIONEN
@@ -119,7 +160,10 @@ function getNavItems(
     ? 'client_admin'
     : (portalRole || 'employee');
 
-  const items = [...NAV_FIRMA_BASE];
+  // employee: leere Nav (kein Tab noetig, nur Hilfe-Dropdown)
+  if (effectiveRole === 'employee') return [];
+
+  const items = [...NAV_FIRMA_PL_BASE];
   if (effectiveRole === 'project_leader' || effectiveRole === 'client_admin') {
     items.push(...NAV_FIRMA_PL_EXTRAS);
   }
@@ -130,6 +174,64 @@ function getNavItems(
 }
 
 // ============================================================================
+// HILFE-DROPDOWN KOMPONENTE
+// ============================================================================
+
+function HilfeDropdown({ portalRole, primaryColor }: { portalRole: string; primaryColor: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const items = getHilfeItems(portalRole);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  return (
+    <div ref={ref} className="relative ml-auto">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1.5 px-4 py-3 text-sm font-medium text-gray-600 hover:text-gray-900 border-b-2 border-transparent hover:border-gray-300 transition-colors whitespace-nowrap"
+      >
+        <HelpCircle size={18} />
+        <span>Hilfe</span>
+        <ChevronDown size={14} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-xl z-[200] py-1">
+          {items.map((item, i) => (
+            <React.Fragment key={i}>
+              {/* Trennlinie vor letztem Eintrag (Kontakt) */}
+              {i === items.length - 1 && i > 0 && (
+                <div className="my-1 border-t border-gray-100" />
+              )}
+              <a
+                href={item.href}
+                download={item.isDownload ? true : undefined}
+                onClick={() => setOpen(false)}
+                className="flex items-start gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors"
+              >
+                <span className="text-gray-400 mt-0.5 shrink-0">{item.icon}</span>
+                <span className="flex flex-col min-w-0">
+                  <span className="text-sm font-medium text-gray-800">{item.label}</span>
+                  {item.subLabel && (
+                    <span className="text-xs text-gray-500">{item.subLabel}</span>
+                  )}
+                </span>
+              </a>
+            </React.Fragment>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
 // KOMPONENTE
 // ============================================================================
 
@@ -137,25 +239,31 @@ export default function PortalNav({
   portal,
   userRole,
   portalRole,
-}: PortalNavProps) {
+}: {
+  portal: PortalType;
+  userRole: string;
+  portalRole?: string;
+}) {
   const colors = PORTAL_COLORS[portal];
   const pathname = usePathname();
   const navItems = getNavItems(portal, userRole, portalRole);
 
+  const effectiveRole = (userRole === 'client_admin' || portalRole === 'client_admin')
+    ? 'client_admin'
+    : (portalRole || 'employee');
+
+  const showHilfe = portal === 'firma'; // Berater-Portal: Hilfe spaeter separat
+
   return (
     <nav className="bg-white border-b border-gray-200 shadow-sm print:hidden">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center overflow-x-auto py-1 -mb-px">
+        <div className="flex items-center py-1 -mb-px overflow-visible">
           {navItems.map((item) => {
-            // Kontextsensitiv: aktive Seite ausblenden -- nur im Berater-Portal
-            // Ausnahme: "Kundenfirmen" (/v7/berater/foerderung) wird nur auf der
-            // exakten Listenseite ausgeblendet, nicht auf Unterseiten (Firma, Berichte etc.)
+            // Kontextsensitiv: aktive Seite ausblenden — nur im Berater-Portal
             if (portal === 'berater' && pathname) {
               if (item.key === 'foerderung') {
-                // Nur ausblenden wenn exakt auf der Kundenfirmen-Liste
                 if (pathname === '/v7/berater/foerderung') return null;
               } else {
-                // Alle anderen: ausblenden wenn Pfad mit href beginnt
                 if (pathname.startsWith(item.href)) return null;
               }
             }
@@ -183,6 +291,11 @@ export default function PortalNav({
               </Link>
             );
           })}
+
+          {/* Hilfe-Dropdown */}
+          {showHilfe && (
+            <HilfeDropdown portalRole={effectiveRole} primaryColor={colors.primary} />
+          )}
         </div>
       </div>
     </nav>
@@ -192,3 +305,4 @@ export default function PortalNav({
 // ============================================================================
 // ENDE
 // ============================================================================
+
