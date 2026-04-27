@@ -2,7 +2,11 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Grafische Auswertung
 // ============================================================================
-// Version: 7.4.5-21
+// Version: 7.4.5-22
+// v7.4.5-22: FIX Foerderbetrags-Berechnung
+//   - bewilligte_summe als Deckel fuer abrufbare Foerdermittel
+//   - Bei 100% Zielerreichung max = bewilligte_summe (nicht Plan x Foerdersatz)
+//   - Verschenkt = bewilligte_summe - prognose (nicht Plan - prognose)
 // Datum: 25. April 2026
 //
 // v7.4.5-20: Custom Legend fuer bessere Lesbarkeit
@@ -95,6 +99,7 @@ interface Project {
   end_date: string | null;
   foerdersatz: number | null;
   overhead_t: number | null;
+  bewilligte_summe?: number | null;
 }
 
 interface WorkPackage {
@@ -624,6 +629,7 @@ export default function ProjektFortschrittPanel({
 
     // ---- Kosten-Prognose ----
     const foerdersatz = project.foerdersatz ?? null;
+    const bewilligteSumme = project.bewilligte_summe ?? null;
     const kostenDatenVorhanden = foerdersatz !== null && gesamtPlanKosten > 0 && gesamtIstKosten > 0;
 
     let prognostizierteGesamtKosten = gesamtIstKosten;
@@ -640,12 +646,21 @@ export default function ProjektFortschrittPanel({
     }
 
     const fs = (foerdersatz ?? 0) / 100;
-    const foerderbarIst     = gesamtIstKosten * fs;
-    const foerderbarProg    = Math.min(prognostizierteGesamtKosten, gesamtPlanKosten) * fs;
-    const foerderbarPlan    = gesamtPlanKosten * fs;
-    const verschenktProg    = Math.max(0, foerderbarPlan - foerderbarProg);
-    const foerderbarZiel    = gesamtPlanKosten * fs;
-    const verschenktZiel    = 0;
+
+    // Foerderbetrag aus Plankosten (rechnerisch)
+    const foerderbarRechnerischProg = Math.min(prognostizierteGesamtKosten, gesamtPlanKosten) * fs;
+    const foerderbarRechnerischPlan = gesamtPlanKosten * fs;
+
+    // Gedeckelt durch bewilligte Fördersumme (niemals mehr als bewilligt!)
+    const deckel = bewilligteSumme ?? Infinity;
+    const foerderbarProg = Math.min(foerderbarRechnerischProg, deckel);
+    const foerderbarPlan = Math.min(foerderbarRechnerischPlan, deckel);
+
+    // Verschenkt = was von der bewilligten Summe nicht abgerufen wird
+    // Basis ist bewilligte_summe falls vorhanden, sonst rechnerischer Plan
+    const foerderMaximum = bewilligteSumme ?? foerderbarRechnerischPlan;
+    const verschenktProg = Math.max(0, foerderMaximum - foerderbarProg);
+    const verschenktZiel  = 0;
 
     // ---- Zieltempo ----
     const teamMaxErreichbarGesamt = gesamtIstStunden + teamMaxProMonat * verbleibendeMonateAb;
@@ -779,11 +794,9 @@ export default function ProjektFortschrittPanel({
       zielStundenProMonat,
       kostenDatenVorhanden,
       foerdersatz,
-      foerderbarIst,
       foerderbarProg,
       foerderbarPlan,
       verschenktProg,
-      foerderbarZiel,
       verschenktZiel,
       prognostizierteGesamtKosten,
       aktivCount,
