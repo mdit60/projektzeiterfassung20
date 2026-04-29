@@ -4,26 +4,15 @@
 // ============================================================================
 // PZE V7 - Portal-Navigation
 // ============================================================================
-// Version: 7.4.4-8
-// v7.4.4-8: Anleitungen vorerst gesperrt
-//   - Benutzerhandbuch-Links entfernt (werden aktualisiert)
-//   - Hinweistext "Wird aktualisiert" im Hilfe-Dropdown
-//   - FAQ Zeiterfassung bleibt verfuegbar (Inhalt unveraendert)
+// Version: 7.4.4-9
+// v7.4.4-9: Anleitungen-Download steuerbar ueber v7_system_config
+//   - manuals_enabled aus Supabase gelesen (key='manuals_enabled')
+//   - true  -> rollenabhaengige PDF-Links sichtbar
+//   - false -> "Wird aktualisiert"-Hinweis wie bisher
+//   - Default-State false (sicher: kein defekter Link beim Laden)
+// v7.4.4-8: Anleitungen vorerst gesperrt (hardcoded)
 // v7.4.4-7: FIX Hilfe-Dropdown sichtbar
-//   - z-index auf 200, overflow-visible in Nav-Container
-//   - icon.type-Vergleich durch Index-Pruefung ersetzt
-// v7.4.4-6: FIX doppelter React-Import (str_replace hatte alten Inhalt angehaengt)
-//
 // v7.4.4-5: Hilfe-Dropdown + MA-Navigation vereinfacht
-// Datum: 28. April 2026
-//
-// v7.4.4-5: Hilfe-Dropdown + MA-Navigation vereinfacht
-//   - "Meine Zeiterfassung" aus Nav entfernt fuer employee (Zeiterfassung
-//     laeuft direkt ueber Monatsbuttons in Mein Status)
-//   - "Mein Status" fuer employee ebenfalls entfernt (einzige Seite = kein Tab noetig)
-//   - Hilfe-Dropdown rechts in der Nav: Kurzanleitung MA + FAQ Zeiterfassung
-//     + Kontakt-Platzhalter (rollenabhaengig, erstmal fuer employee)
-//
 // v7.4.4-4: Kundenfirmen-Link immer sichtbar im Berater-Portal
 // v7.4.4-3: Berater-Nav kontextsensitiv
 // ============================================================================
@@ -31,6 +20,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { createClient } from '@/lib/supabase/client';
 import {
   BarChart3,
   Building2,
@@ -86,8 +76,6 @@ const NAV_BERATER: NavItem[] = [
 // FIRMEN-PORTAL NAVIGATION - KUMULATIV
 // ============================================================================
 
-// employee: kein "Mein Status" und kein "Meine Zeiterfassung" in der Nav
-// (MA landet direkt auf Mein-Status-Seite; Zeiterfassung ueber Monatsbuttons)
 const NAV_FIRMA_PL_BASE: NavItem[] = [
   { key: 'mein-status',         label: 'Mein Status',         href: '/v7/firma/mein-status',   icon: <BarChart3 size={18} /> },
   { key: 'meine-zeiterfassung', label: 'Meine Zeiterfassung', href: '/v7/firma/zeiterfassung', icon: <Clock size={18} /> },
@@ -104,33 +92,14 @@ const NAV_FIRMA_ADMIN_EXTRAS: NavItem[] = [
 ];
 
 // ============================================================================
-// HILFE-EINTRAEGE (rollenabhaengig erweiterbar)
+// MANUAL-PFADE je Rolle
 // ============================================================================
 
-interface HilfeItem {
-  label: string;
-  subLabel?: string;
-  href: string;
-  icon: React.ReactNode;
-  isDownload?: boolean;
-}
-
-function getHilfeItems(portalRole: string): HilfeItem[] {
-  const items: HilfeItem[] = [];
-
-  // Anleitungen werden aktualisiert - vorerst nicht verfuegbar
-  // FAQ Zeiterfassung ist nicht betroffen und bleibt verfuegbar
-  items.push(
-    { label: 'FAQ Zeiterfassung', subLabel: 'als PDF herunterladen', href: '/manuals/PZE-FAQ-Zeiterfassung-v1.pdf', icon: <Download size={14} />, isDownload: true },
-  );
-
-  // Kontakt immer als letztes
-  items.push(
-    { label: 'Kontakt & Support', subLabel: 'Cubintec GmbH', href: 'mailto:m.ditscherlein@cubintec.com', icon: <Mail size={14} /> },
-  );
-
-  return items;
-}
+const MANUAL_BY_ROLE: Record<string, { label: string; href: string }> = {
+  client_admin:   { label: 'Anleitung Firmen-Administrator', href: '/manuals/PZE-Anleitung-Firmen-Administrator-v2_2_0.pdf' },
+  project_leader: { label: 'Anleitung Projektleiter',        href: '/manuals/PZE-Anleitung-Projektleiter-v2_1.pdf' },
+  employee:       { label: 'Anleitung Mitarbeiter',          href: '/manuals/PZE-Anleitung-Mitarbeiter-v2_0.pdf' },
+};
 
 // ============================================================================
 // HILFSFUNKTIONEN
@@ -153,7 +122,6 @@ function getNavItems(
     ? 'client_admin'
     : (portalRole || 'employee');
 
-  // employee: leere Nav (kein Tab noetig, nur Hilfe-Dropdown)
   if (effectiveRole === 'employee') return [];
 
   const items = [...NAV_FIRMA_PL_BASE];
@@ -170,10 +138,18 @@ function getNavItems(
 // HILFE-DROPDOWN KOMPONENTE
 // ============================================================================
 
-function HilfeDropdown({ portalRole, primaryColor }: { portalRole: string; primaryColor: string }) {
+function HilfeDropdown({
+  portalRole,
+  primaryColor,
+  manualsEnabled,
+}: {
+  portalRole: string;
+  primaryColor: string;
+  manualsEnabled: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const items = getHilfeItems(portalRole);
+  const manual = MANUAL_BY_ROLE[portalRole] ?? MANUAL_BY_ROLE['employee'];
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -196,37 +172,66 @@ function HilfeDropdown({ portalRole, primaryColor }: { portalRole: string; prima
 
       {open && (
         <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-xl z-[200] py-1">
-          <div className="px-4 py-2.5 border-b border-gray-100">
-          <div className="flex items-start gap-3">
-            <span className="text-amber-400 mt-0.5 shrink-0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></span>
-            <span className="flex flex-col min-w-0">
-              <span className="text-sm font-medium text-gray-700">Benutzerhandbuch</span>
-              <span className="text-xs text-amber-600">Wird aktualisiert – in Kürze wieder verfügbar</span>
-            </span>
-          </div>
-        </div>
-        {items.map((item, i) => (
-            <React.Fragment key={i}>
-              {/* Trennlinie vor letztem Eintrag (Kontakt) */}
-              {i === items.length - 1 && i > 0 && (
-                <div className="my-1 border-t border-gray-100" />
-              )}
-              <a
-                href={item.href}
-                download={item.isDownload ? true : undefined}
-                onClick={() => setOpen(false)}
-                className="flex items-start gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors"
-              >
-                <span className="text-gray-400 mt-0.5 shrink-0">{item.icon}</span>
-                <span className="flex flex-col min-w-0">
-                  <span className="text-sm font-medium text-gray-800">{item.label}</span>
-                  {item.subLabel && (
-                    <span className="text-xs text-gray-500">{item.subLabel}</span>
-                  )}
+
+          {/* Benutzerhandbuch – je nach Flag */}
+          {manualsEnabled ? (
+            <a
+              href={manual.href}
+              download
+              onClick={() => setOpen(false)}
+              className="flex items-start gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors"
+            >
+              <span className="text-gray-400 mt-0.5 shrink-0"><Download size={14} /></span>
+              <span className="flex flex-col min-w-0">
+                <span className="text-sm font-medium text-gray-800">{manual.label}</span>
+                <span className="text-xs text-gray-500">als PDF herunterladen</span>
+              </span>
+            </a>
+          ) : (
+            <div className="px-4 py-2.5 border-b border-gray-100">
+              <div className="flex items-start gap-3">
+                <span className="text-amber-400 mt-0.5 shrink-0">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="12" y1="8" x2="12" y2="12"/>
+                    <line x1="12" y1="16" x2="12.01" y2="16"/>
+                  </svg>
                 </span>
-              </a>
-            </React.Fragment>
-          ))}
+                <span className="flex flex-col min-w-0">
+                  <span className="text-sm font-medium text-gray-700">Benutzerhandbuch</span>
+                  <span className="text-xs text-amber-600">Wird aktualisiert – in Kürze wieder verfügbar</span>
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* FAQ Zeiterfassung – immer verfügbar */}
+          <a
+            href="/manuals/PZE-FAQ-Zeiterfassung-v1.pdf"
+            download
+            onClick={() => setOpen(false)}
+            className="flex items-start gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors"
+          >
+            <span className="text-gray-400 mt-0.5 shrink-0"><Download size={14} /></span>
+            <span className="flex flex-col min-w-0">
+              <span className="text-sm font-medium text-gray-800">FAQ Zeiterfassung</span>
+              <span className="text-xs text-gray-500">als PDF herunterladen</span>
+            </span>
+          </a>
+
+          {/* Trennlinie + Kontakt */}
+          <div className="my-1 border-t border-gray-100" />
+          <a
+            href="mailto:m.ditscherlein@cubintec.com"
+            onClick={() => setOpen(false)}
+            className="flex items-start gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors"
+          >
+            <span className="text-gray-400 mt-0.5 shrink-0"><Mail size={14} /></span>
+            <span className="flex flex-col min-w-0">
+              <span className="text-sm font-medium text-gray-800">Kontakt & Support</span>
+              <span className="text-xs text-gray-500">Cubintec GmbH</span>
+            </span>
+          </a>
         </div>
       )}
     </div>
@@ -234,7 +239,7 @@ function HilfeDropdown({ portalRole, primaryColor }: { portalRole: string; prima
 }
 
 // ============================================================================
-// KOMPONENTE
+// HAUPTKOMPONENTE
 // ============================================================================
 
 export default function PortalNav({
@@ -254,14 +259,28 @@ export default function PortalNav({
     ? 'client_admin'
     : (portalRole || 'employee');
 
-  const showHilfe = portal === 'firma'; // Berater-Portal: Hilfe spaeter separat
+  const showHilfe = portal === 'firma';
+
+  // ── manuals_enabled aus v7_system_config ──────────────────────────────────
+  const [manualsEnabled, setManualsEnabled] = useState(false);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase
+      .from('v7_system_config')
+      .select('value')
+      .eq('key', 'manuals_enabled')
+      .single()
+      .then(({ data }) => {
+        if (data?.value === 'true') setManualsEnabled(true);
+      });
+  }, []);
 
   return (
     <nav className="bg-white border-b border-gray-200 shadow-sm print:hidden">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center py-1 -mb-px overflow-visible">
           {navItems.map((item) => {
-            // Kontextsensitiv: aktive Seite ausblenden — nur im Berater-Portal
             if (portal === 'berater' && pathname) {
               if (item.key === 'foerderung') {
                 if (pathname === '/v7/berater/foerderung') return null;
@@ -294,9 +313,12 @@ export default function PortalNav({
             );
           })}
 
-          {/* Hilfe-Dropdown */}
           {showHilfe && (
-            <HilfeDropdown portalRole={effectiveRole} primaryColor={colors.primary} />
+            <HilfeDropdown
+              portalRole={effectiveRole}
+              primaryColor={colors.primary}
+              manualsEnabled={manualsEnabled}
+            />
           )}
         </div>
       </div>
@@ -307,4 +329,3 @@ export default function PortalNav({
 // ============================================================================
 // ENDE
 // ============================================================================
-
