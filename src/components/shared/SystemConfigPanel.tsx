@@ -219,9 +219,8 @@ export default function SystemConfigPanel() {
           <p className="text-xs font-medium text-gray-600 mb-2">Verknüpfte Dateien in /public/manuals/</p>
           <div className="space-y-1">
             {[
-              { rolle: 'Firmen-Administrator', datei: 'PZE-Anleitung-Firmen-Administrator-v2_2_0.pdf' },
-              { rolle: 'Projektleiter',        datei: 'PZE-Anleitung-Projektleiter-v2_1.pdf' },
-              { rolle: 'Mitarbeiter',          datei: 'PZE-Anleitung-Mitarbeiter-v2_0.pdf' },
+              { rolle: 'Firmen-Administrator', datei: 'PZE-Anleitung-Firmen-Administrator.pdf' },
+              { rolle: 'Projektleiter',        datei: 'PZE-Anleitung-Projektleiter.pdf' },
               { rolle: 'Alle Rollen (immer)',  datei: 'PZE-FAQ-Zeiterfassung-v1.pdf' },
             ].map(row => (
               <div key={row.datei} className="flex items-baseline gap-2 text-xs text-gray-500">

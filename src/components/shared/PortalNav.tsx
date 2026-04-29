@@ -4,7 +4,9 @@
 // ============================================================================
 // PZE V7 - Portal-Navigation
 // ============================================================================
-// Version: 7.4.4-9
+// Version: 7.4.4-11
+// v7.4.4-11: Mitarbeiter-Anleitung entfernt (nur FAQ fuer MA-Rolle)
+// v7.4.4-10: Dateinamen ohne Versionsnummer (stabile URLs, kein Code-Deploy bei neuem PDF)
 // v7.4.4-9: Anleitungen-Download steuerbar ueber v7_system_config
 //   - manuals_enabled aus Supabase gelesen (key='manuals_enabled')
 //   - true  -> rollenabhaengige PDF-Links sichtbar
@@ -95,10 +97,10 @@ const NAV_FIRMA_ADMIN_EXTRAS: NavItem[] = [
 // MANUAL-PFADE je Rolle
 // ============================================================================
 
+// Mitarbeiter (employee) hat keine eigene Anleitung - nur FAQ (immer sichtbar)
 const MANUAL_BY_ROLE: Record<string, { label: string; href: string }> = {
-  client_admin:   { label: 'Anleitung Firmen-Administrator', href: '/manuals/PZE-Anleitung-Firmen-Administrator-v2_2_0.pdf' },
-  project_leader: { label: 'Anleitung Projektleiter',        href: '/manuals/PZE-Anleitung-Projektleiter-v2_1.pdf' },
-  employee:       { label: 'Anleitung Mitarbeiter',          href: '/manuals/PZE-Anleitung-Mitarbeiter-v2_0.pdf' },
+  client_admin:   { label: 'Anleitung Firmen-Administrator', href: '/manuals/PZE-Anleitung-Firmen-Administrator.pdf' },
+  project_leader: { label: 'Anleitung Projektleiter',        href: '/manuals/PZE-Anleitung-Projektleiter.pdf' },
 };
 
 // ============================================================================
@@ -149,7 +151,7 @@ function HilfeDropdown({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const manual = MANUAL_BY_ROLE[portalRole] ?? MANUAL_BY_ROLE['employee'];
+  const manual = MANUAL_BY_ROLE[portalRole] ?? null;
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -173,36 +175,38 @@ function HilfeDropdown({
       {open && (
         <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-xl z-[200] py-1">
 
-          {/* Benutzerhandbuch – je nach Flag */}
-          {manualsEnabled ? (
-            <a
-              href={manual.href}
-              download
-              onClick={() => setOpen(false)}
-              className="flex items-start gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors"
-            >
-              <span className="text-gray-400 mt-0.5 shrink-0"><Download size={14} /></span>
-              <span className="flex flex-col min-w-0">
-                <span className="text-sm font-medium text-gray-800">{manual.label}</span>
-                <span className="text-xs text-gray-500">als PDF herunterladen</span>
-              </span>
-            </a>
-          ) : (
-            <div className="px-4 py-2.5 border-b border-gray-100">
-              <div className="flex items-start gap-3">
-                <span className="text-amber-400 mt-0.5 shrink-0">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="12" cy="12" r="10"/>
-                    <line x1="12" y1="8" x2="12" y2="12"/>
-                    <line x1="12" y1="16" x2="12.01" y2="16"/>
-                  </svg>
-                </span>
+          {/* Benutzerhandbuch – nur wenn Rolle eine Anleitung hat */}
+          {manual && (
+            manualsEnabled ? (
+              <a
+                href={manual.href}
+                download
+                onClick={() => setOpen(false)}
+                className="flex items-start gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors"
+              >
+                <span className="text-gray-400 mt-0.5 shrink-0"><Download size={14} /></span>
                 <span className="flex flex-col min-w-0">
-                  <span className="text-sm font-medium text-gray-700">Benutzerhandbuch</span>
-                  <span className="text-xs text-amber-600">Wird aktualisiert – in Kürze wieder verfügbar</span>
+                  <span className="text-sm font-medium text-gray-800">{manual.label}</span>
+                  <span className="text-xs text-gray-500">als PDF herunterladen</span>
                 </span>
+              </a>
+            ) : (
+              <div className="px-4 py-2.5 border-b border-gray-100">
+                <div className="flex items-start gap-3">
+                  <span className="text-amber-400 mt-0.5 shrink-0">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="12" cy="12" r="10"/>
+                      <line x1="12" y1="8" x2="12" y2="12"/>
+                      <line x1="12" y1="16" x2="12.01" y2="16"/>
+                    </svg>
+                  </span>
+                  <span className="flex flex-col min-w-0">
+                    <span className="text-sm font-medium text-gray-700">Benutzerhandbuch</span>
+                    <span className="text-xs text-amber-600">Wird aktualisiert – in Kürze wieder verfügbar</span>
+                  </span>
+                </div>
               </div>
-            </div>
+            )
           )}
 
           {/* FAQ Zeiterfassung – immer verfügbar */}
