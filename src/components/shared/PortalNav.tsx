@@ -99,8 +99,8 @@ const NAV_FIRMA_ADMIN_EXTRAS: NavItem[] = [
 
 // Mitarbeiter (employee) hat keine eigene Anleitung - nur FAQ (immer sichtbar)
 const MANUAL_BY_ROLE: Record<string, { label: string; href: string }> = {
-  client_admin:   { label: 'Anleitung Firmen-Administrator', href: '/manuals/PZE-Anleitung-Firmen-Administrator.pdf' },
-  project_leader: { label: 'Anleitung Projektleiter',        href: '/manuals/PZE-Anleitung-Projektleiter.pdf' },
+  client_admin:   { label: 'Anleitung Firmen-Administrator', href: '/manuals/PZE_Anleitung_Firmen-Administrator.pdf' },
+  project_leader: { label: 'Anleitung Projektleiter',        href: '/manuals/PZE_Anleitung_Projektleiter.pdf' },
 };
 
 // ============================================================================
