@@ -3,7 +3,8 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 22. April 2026
-// Version: 7.4.6-5
+// Version: 7.4.6-6
+// v7.4.6-6: AP-Sortierfunktion compareApCode (Versions-Sort fuer dreistellige AP-Nummern)
 // v7.4.6-5: AP-Spalte 30->55px, Summe-Monat 50->25px (Druck-neutral), offen 50->25px, Summe-Header -> Sigma
 // v7.4.6-4: Vorbelegte AP-Zeilen werden nach ap_number/ap_sub_number
 //   aufsteigend sortiert. Bisher kamen sie in der zufaelligen Reihenfolge
@@ -352,6 +353,27 @@ export default function TimesheetForm({
     const val = wp.is_technical as unknown;
     if (val === true || val === 'true' || val === 'TRUE' || val === '1' || val === 1) return true;
     return false;
+  };
+
+  // ==========================================================================
+  // v7.4.6-5: Universelle AP-Sortierfunktion (Versions-Sort)
+  // --------------------------------------------------------------------------
+  // Zerlegt ap_code (z.B. "3.1.1") punktweise in Zahlen und vergleicht
+  // numerisch je Ebene. Fallback auf ap_number/ap_sub_number wenn kein ap_code.
+  // Korrekt fuer beliebige Tiefe: 3 < 3.1 < 3.1.1 < 3.2 < 3.4 < 4 < 5.1
+  // ==========================================================================
+  const compareApCode = (a: WorkPackage, b: WorkPackage): number => {
+    const getCode = (wp: WorkPackage) =>
+      wp.ap_code
+        ? wp.ap_code.replace(/^AP\s*/i, '')
+        : `${wp.ap_number}${wp.ap_sub_number ? `.${wp.ap_sub_number}` : ''}`;
+    const aParts = getCode(a).split('.').map(Number);
+    const bParts = getCode(b).split('.').map(Number);
+    for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+      const diff = (aParts[i] || 0) - (bParts[i] || 0);
+      if (diff !== 0) return diff;
+    }
+    return 0;
   };
 
   // ==========================================================================
@@ -958,15 +980,13 @@ export default function TimesheetForm({
         });
         console.log('[TimesheetForm] Vorbelege APs (zugeordnet + offen + Laufzeit ok):', relevantAssigned.length);
 
-        // v7.4.6-4: Sortiere nach ap_number/ap_sub_number aufsteigend,
-        // damit die Reihenfolge in der Matrix mit dem Arbeitsplan uebereinstimmt
-        // (sonst liefert die Assignments-Query eine zufaellige Reihenfolge).
+        // v7.4.6-5: Sortiere nach ap_code (Versions-Sort) statt ap_number/ap_sub_number,
+        // damit dreistellige AP-Nummern wie 3.1.1 korrekt vor 3.4 einsortiert werden.
         const sortedAssigned = [...relevantAssigned].sort((aId, bId) => {
           const a = safeWorkPackages.find(w => w.id === aId);
           const b = safeWorkPackages.find(w => w.id === bId);
           if (!a || !b) return 0;
-          if (a.ap_number !== b.ap_number) return a.ap_number - b.ap_number;
-          return (a.ap_sub_number || 0) - (b.ap_sub_number || 0);
+          return compareApCode(a, b);
         });
 
         // Erstelle Zeilen fuer zugeordnete APs + eine leere Zeile
@@ -1991,6 +2011,7 @@ export default function TimesheetForm({
                           <optgroup label="Zugeordnete AP">
                             {availableWorkPackages
                               .filter(wp => isAPInAssignedGroup(wp))
+                              .sort(compareApCode)
                               .map(wp => {
                                 const apDisplay = wp.ap_code
                                   ? wp.ap_code.replace(/^AP/i, '')
@@ -2007,6 +2028,7 @@ export default function TimesheetForm({
                           <optgroup label="Weitere AP">
                             {availableWorkPackages
                               .filter(wp => isAPInWeitereGroup(wp))
+                              .sort(compareApCode)
                               .map(wp => {
                                 const apDisplay = wp.ap_code
                                   ? wp.ap_code.replace(/^AP/i, '')
