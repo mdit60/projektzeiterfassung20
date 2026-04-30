@@ -3,7 +3,9 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 22. April 2026
-// Version: 7.4.6-6
+// Version: 7.4.6-8
+// v7.4.6-8: FIX ArrowDown Navigation: leere AP-Zeilen werden uebersprungen, nonbillable immer erreichbar
+// v7.4.6-7: FIX getAbsencesForDay + calculateAbsenceSums: nonBillableEntries (sonstige Arbeiten) fehlte
 // v7.4.6-6: AP-Sortierfunktion compareApCode (Versions-Sort fuer dreistellige AP-Nummern)
 // v7.4.6-5: AP-Spalte 30->55px, Summe-Monat 50->25px (Druck-neutral), offen 50->25px, Summe-Header -> Sigma
 // v7.4.6-4: Vorbelegte AP-Zeilen werden nach ap_number/ap_sub_number
@@ -1118,12 +1120,20 @@ export default function TimesheetForm({
 
       case 'ArrowDown':
         e.preventDefault();
-        if (rowType === 'ap' && rowIndex < totalApRows - 1) {
-          if (canEdit(rowIndex + 1, day, 'ap')) {
-            focusCell(rowIndex + 1, day, 'ap');
+        if (rowType === 'ap') {
+          // v7.4.6-8: Naechste AP-Zeile suchen, die editierbar ist
+          let foundNext = false;
+          for (let r = rowIndex + 1; r < totalApRows; r++) {
+            if (canEdit(r, day, 'ap')) {
+              focusCell(r, day, 'ap');
+              foundNext = true;
+              break;
+            }
           }
-        } else if (rowType === 'ap') {
-          focusCell(0, day, 'nonbillable');
+          // Keine weitere AP-Zeile -> in sonstige Arbeiten springen (falls Wochentag)
+          if (!foundNext && canEdit(0, day, 'nonbillable')) {
+            focusCell(0, day, 'nonbillable');
+          }
         }
         break;
 
@@ -1295,6 +1305,7 @@ export default function TimesheetForm({
 
   const getAbsencesForDay = (day: number): { code: string; count: number }[] => {
     const absences: Record<string, number> = {};
+    // AP-Zeilen pruefen
     apRows.forEach(row => {
       const entry = row.entries[day];
       if (entry?.value && isAbsenceCode(entry.value)) {
@@ -1302,6 +1313,12 @@ export default function TimesheetForm({
         absences[code] = (absences[code] || 0) + 1;
       }
     });
+    // v7.4.6-7: Auch nonBillableEntries (sonstige Arbeiten) pruefen
+    const nbEntry = nonBillableEntries[day];
+    if (nbEntry?.value && isAbsenceCode(nbEntry.value)) {
+      const code = nbEntry.value.toUpperCase();
+      absences[code] = (absences[code] || 0) + 1;
+    }
     return Object.entries(absences).map(([code, count]) => ({ code, count }));
   };
 
@@ -1310,6 +1327,7 @@ export default function TimesheetForm({
     const daysInMonth = getDaysInMonth(selectedYear, selectedMonth);
 
     for (let day = 1; day <= daysInMonth; day++) {
+      // AP-Zeilen
       apRows.forEach(row => {
         const entry = row.entries[day];
         if (entry?.value && isAbsenceCode(entry.value)) {
@@ -1319,6 +1337,14 @@ export default function TimesheetForm({
           }
         }
       });
+      // v7.4.6-7: Auch nonBillableEntries (sonstige Arbeiten) pruefen
+      const nbEntry = nonBillableEntries[day];
+      if (nbEntry?.value && isAbsenceCode(nbEntry.value)) {
+        const code = nbEntry.value.toUpperCase();
+        if (sums[code] !== undefined) {
+          sums[code] += companyDailyHours;
+        }
+      }
     }
     return sums;
   };
