@@ -3,7 +3,8 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 22. April 2026
-// Version: 7.4.6-9
+// Version: 7.4.6-10
+// v7.4.6-10: FIX Feiertag auf Wochenende zeigt keine 8h in Fehlzeiten-Tageszelle
 // v7.4.6-9: FIX offen-Spalte zeigt negative Zahl wenn MA kein Arbeitsplan-Eintrag (Vertretungsfall)
 // v7.4.6-8: FIX ArrowDown Navigation: leere AP-Zeilen werden uebersprungen, nonbillable immer erreichbar
 // v7.4.6-7: FIX getAbsencesForDay + calculateAbsenceSums: nonBillableEntries (sonstige Arbeiten) fehlte
@@ -2313,9 +2314,11 @@ export default function TimesheetForm({
                   const absences = getAbsencesForDay(day);
                   const hasS = absences.some(a => a.code === 'S');
                   const holiday = isHoliday(selectedYear, selectedMonth, day);
+                  const weekend = isWeekend(selectedYear, selectedMonth, day);
                   return (
-                    <td key={day} className={`border p-1 text-center text-[10px] ${holiday ? 'bg-orange-100' : 'bg-purple-50'}`}>
-                      {hasS || holiday ? companyDailyHours.toFixed(1).replace('.', ',') : ''}
+                    <td key={day} className={`border p-1 text-center text-[10px] ${holiday && !weekend ? 'bg-orange-100' : 'bg-purple-50'}`}>
+                      {/* v7.4.6-10: Feiertag auf Wochenende -> keine Fehlstunden anzeigen */}
+                      {(hasS || (holiday && !weekend)) ? companyDailyHours.toFixed(1).replace('.', ',') : ''}
                     </td>
                   );
                 })}
