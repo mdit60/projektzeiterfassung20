@@ -3,7 +3,8 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 22. April 2026
-// Version: 7.4.6-4
+// Version: 7.4.6-5
+// v7.4.6-5: AP-Spalte 30->55px, Summe-Monat 50->25px (Druck-neutral), offen 50->25px, Summe-Header -> Sigma
 // v7.4.6-4: Vorbelegte AP-Zeilen werden nach ap_number/ap_sub_number
 //   aufsteigend sortiert. Bisher kamen sie in der zufaelligen Reihenfolge
 //   der DB-Query (v7_work_package_assignments) -> 5,7,3,4,6,8 statt 3,4,5,6,7,8.
@@ -1941,7 +1942,7 @@ export default function TimesheetForm({
             <thead>
               <tr style={{ backgroundColor: HEADER_ORANGE }}>
                 <th className="border p-1 text-left" style={{ width: '30px' }}>lfd. Nr.</th>
-                <th className="border p-1 text-left" style={{ width: '30px' }}>AP</th>
+                <th className="border p-1 text-left" style={{ width: '55px' }}>AP</th>
                 <th className="border p-1 text-left" style={{ width: '180px' }}>Kurzbezeichnung des Arbeitspakets</th>
                 {isDurchfuehrbarkeitsstudie && (
                   <th className="border p-1 text-center" style={{ width: '28px' }}>T/NT</th>
@@ -1960,8 +1961,8 @@ export default function TimesheetForm({
                     </th>
                   );
                 })}
-                <th className="border p-1 text-center" style={{ width: '50px' }}>Summe<br/>Monat</th>
-                <th className="border p-1 text-center print:hidden" style={{ width: '50px', backgroundColor: '#E8F5E9' }}>offen</th>
+                <th className="border p-1 text-center" style={{ width: '25px' }}>∑</th>
+                <th className="border p-1 text-center print:hidden" style={{ width: '25px', backgroundColor: '#E8F5E9' }}>±</th>
               </tr>
             </thead>
             <tbody>
