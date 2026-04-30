@@ -3,7 +3,8 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 22. April 2026
-// Version: 7.4.6-8
+// Version: 7.4.6-9
+// v7.4.6-9: FIX offen-Spalte zeigt negative Zahl wenn MA kein Arbeitsplan-Eintrag (Vertretungsfall)
 // v7.4.6-8: FIX ArrowDown Navigation: leere AP-Zeilen werden uebersprungen, nonbillable immer erreichbar
 // v7.4.6-7: FIX getAbsencesForDay + calculateAbsenceSums: nonBillableEntries (sonstige Arbeiten) fehlte
 // v7.4.6-6: AP-Sortierfunktion compareApCode (Versions-Sort fuer dreistellige AP-Nummern)
@@ -1247,11 +1248,17 @@ export default function TimesheetForm({
 
   // NEU v7.4.3: Verbleibende Stunden fuer ein AP berechnen
   // = geplante Stunden (Arbeitsplan) minus kumulierte Ist-Stunden (alle Monate)
+  // v7.4.6-9: Wenn MA nicht im Arbeitsplan (planned undefined), aber trotzdem
+  // Stunden gebucht (Vertretungsfall) -> negative Zahl anzeigen statt "-"
   const calculateRemainingHours = (wpId: string | null): number | null => {
     if (!wpId) return null;
     const planned = plannedHoursPerWP[wpId];
-    if (planned === undefined) return null; // AP nicht im Arbeitsplan zugeordnet
     const booked = totalBookedPerWP[wpId] || 0;
+    if (planned === undefined) {
+      // MA nicht im Arbeitsplan: nur anzeigen wenn tatsaechlich Stunden gebucht
+      if (booked > 0) return -Math.round(booked); // Ueberziehung als negative Zahl
+      return null; // Noch keine Stunden -> "-"
+    }
     return Math.round(planned - booked);
   };
 
