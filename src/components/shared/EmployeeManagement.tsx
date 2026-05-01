@@ -3,7 +3,8 @@
 // PZE V7 - Shared Employee Management Component
 // ============================================================================
 // Datum: 22. April 2026
-// Version: 7.3.95-13
+// Version: 7.3.95-14
+// v7.3.95-14: Verwaiste Login-User (ohne v7_employees) in Mitarbeiterliste anzeigen
 // v7.3.95-13: Tailwind-v4-Syntax-Modernisierung (2 Stellen). Keine
 //   funktionale Aenderung - nur Syntax fuer Tailwind v4 angepasst:
 //   - flex-shrink-0 -> shrink-0 (Kurzform-Utility seit Tailwind v3.3)
@@ -143,6 +144,8 @@ export interface Employee {
   user_id: string | null;
   // NEU: Aus JOIN mit v7_user_profiles
   has_login?: boolean;
+  // v7.3.95-14: User mit Login aber ohne v7_employees-Eintrag
+  is_orphan?: boolean;
 }
 
 interface EmployeeFormData {
@@ -353,9 +356,40 @@ export default function EmployeeManagement({
         const enrichedEmployees = (employeesData || []).map(emp => ({
           ...emp,
           has_login: !!(emp.user_id || (emp.email && emailMap.has(emp.email.toLowerCase()))),
+          is_orphan: false,
         }));
-        
-        setEmployees(enrichedEmployees);
+
+        // v7.3.95-14: Verwaiste User ermitteln:
+        // v7_user_profiles mit client_company_id die KEINEN v7_employees-Eintrag haben
+        const { data: orphanProfiles } = await supabase
+          .from('v7_user_profiles')
+          .select('id, email, display_name, first_name, last_name')
+          .eq('client_company_id', companyId);
+
+        const employeeEmails = new Set(
+          (employeesData || []).map(e => e.email?.toLowerCase()).filter(Boolean)
+        );
+        const orphans: Employee[] = (orphanProfiles || [])
+          .filter(p => p.email && !employeeEmails.has(p.email.toLowerCase()))
+          .map(p => ({
+            id: p.id, // user_profiles.id als temporaere ID
+            display_name: p.display_name || p.email || '–',
+            first_name: p.first_name || null,
+            last_name: p.last_name || null,
+            email: p.email,
+            position_title: null,
+            qualification: null,
+            weekly_hours: null,
+            employment_start: null,
+            employment_end: null,
+            is_active: true,
+            portal_role: null,
+            user_id: p.id,
+            has_login: true,
+            is_orphan: true,
+          }));
+
+        setEmployees([...enrichedEmployees, ...orphans]);
       } else {
         setEmployees(employeesData || []);
       }
@@ -1199,12 +1233,24 @@ export default function EmployeeManagement({
                 {filteredEmployees.map((emp) => (
                   <tr
                     key={emp.id}
-                    className={`hover:bg-gray-50 ${!isEmpActive(emp) ? 'opacity-50' : ''}`}
+                    className={`hover:bg-gray-50 ${!isEmpActive(emp) ? 'opacity-50' : ''} ${emp.is_orphan ? 'bg-amber-50' : ''}`}
                   >
                     <td className="px-6 py-4">
-                      <div className="font-medium text-gray-900">{emp.display_name}</div>
+                      <div className="font-medium text-gray-900 flex items-center gap-2">
+                        {emp.display_name}
+                        {emp.is_orphan && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-700">
+                            ⚠ Nur Login
+                          </span>
+                        )}
+                      </div>
                       {emp.email && (
                         <div className="text-sm text-gray-500">{emp.email}</div>
+                      )}
+                      {emp.is_orphan && (
+                        <div className="text-xs text-amber-600 mt-0.5">
+                          Login vorhanden, aber kein Mitarbeiter-Eintrag. Bitte Rolle und Position ergänzen.
+                        </div>
                       )}
                     </td>
                     <td className="px-6 py-4 text-gray-700">
