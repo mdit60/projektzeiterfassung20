@@ -1,6 +1,6 @@
 // src/app/v7/berater/foerderung/page.tsx
-// VERSION: v7.4.1-3
-// DATUM: 15. April 2026
+// VERSION: v7.4.1-4
+// AENDERUNG v7.4.1-4: Admin-User-Anlage verpflichtend (Checkbox entfernt, E-Mail Pflichtfeld)
 // AENDERUNG v7.4.1-3: Zurueck-Button zum Dashboard hinzugefuegt (oberhalb Seitentitel)
 // AENDERUNG v7.4.1-2: Einladungslink entfernt, Status vereinfacht (nur aktiv/inaktiv)
 // DATUM: 28. Maerz 2026
@@ -72,8 +72,7 @@ interface CompanyFormData {
   contact_email: string;
   contact_phone: string;
   internal_notes: string;
-  // Neu: GF-Daten
-  create_admin: boolean;
+  // Neu: GF-Daten (Pflichtfelder bei Neuanlage)
   admin_email: string;
   admin_first_name: string;
   admin_last_name: string;
@@ -90,7 +89,6 @@ const EMPTY_FORM: CompanyFormData = {
   contact_email: '',
   contact_phone: '',
   internal_notes: '',
-  create_admin: true,
   admin_email: '',
   admin_first_name: '',
   admin_last_name: '',
@@ -354,7 +352,7 @@ export default function FoerderungPage() {
     }
 
     // Validierung fuer Admin-Erstellung
-    if (modalMode === 'create' && formData.create_admin) {
+    if (modalMode === 'create') {
       if (!formData.admin_email.trim()) {
         setFormError('E-Mail des Administrators ist erforderlich');
         return;
@@ -408,10 +406,8 @@ export default function FoerderungPage() {
           return;
         }
 
-        // 2. Admin-User anlegen (falls gewuenscht)
-        //    v7.4.1: Server-seitige Erstellung ueber /api/v7/create-user
-        //    Verhindert Ausloggen des aktuellen Beraters
-        if (formData.create_admin && newCompany) {
+        // 2. Admin-User anlegen (immer bei Neuanlage)
+        if (newCompany) {
           const adminDisplayName = formData.admin_first_name.trim() && formData.admin_last_name.trim()
             ? `${formData.admin_first_name.trim()} ${formData.admin_last_name.trim()}`
             : formData.admin_email.split('@')[0];
@@ -1023,72 +1019,57 @@ export default function FoerderungPage() {
                 </div>
               </div>
 
-              {/* Admin-User anlegen (nur bei Neuanlage) */}
+              {/* Admin-User anlegen (Pflichtfeld bei Neuanlage) */}
               {modalMode === 'create' && (
                 <div className="bg-blue-50 border border-blue-100 rounded-lg p-4">
-                  <div className="flex items-start gap-3">
-                    <input
-                      type="checkbox"
-                      name="create_admin"
-                      id="create_admin"
-                      checked={formData.create_admin}
-                      onChange={handleInputChange}
-                      className="mt-1"
-                    />
-                    <div className="flex-1">
-                      <label htmlFor="create_admin" className="font-medium text-blue-900 cursor-pointer">
-                        Administrator-Zugang erstellen
+                  <div className="mb-3">
+                    <p className="font-medium text-blue-900">Administrator-Zugang</p>
+                    <p className="text-sm text-blue-700 mt-0.5">
+                      Erstellt einen Login für den Firmen-Admin (z.B. Geschäftsführer).
+                      Passwort: <code className="bg-blue-100 px-1 rounded">{DEV_PASSWORD}</code>
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-blue-900 mb-1">
+                        Admin E-Mail *
                       </label>
-                      <p className="text-sm text-blue-700 mt-1">
-                        Erstellt einen Login für den Firmen-Admin (z.B. Geschäftsführer).
-                        Passwort: <code className="bg-blue-100 px-1 rounded">{DEV_PASSWORD}</code>
-                      </p>
+                      <input
+                        type="email"
+                        name="admin_email"
+                        value={formData.admin_email}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                        placeholder="gf@firma.de"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-blue-900 mb-1">
+                        Vorname
+                      </label>
+                      <input
+                        type="text"
+                        name="admin_first_name"
+                        value={formData.admin_first_name}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                        placeholder="Max"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-blue-900 mb-1">
+                        Nachname
+                      </label>
+                      <input
+                        type="text"
+                        name="admin_last_name"
+                        value={formData.admin_last_name}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                        placeholder="Mustermann"
+                      />
                     </div>
                   </div>
-
-                  {formData.create_admin && (
-                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="md:col-span-2">
-                        <label className="block text-sm font-medium text-blue-900 mb-1">
-                          Admin E-Mail *
-                        </label>
-                        <input
-                          type="email"
-                          name="admin_email"
-                          value={formData.admin_email}
-                          onChange={handleInputChange}
-                          className="w-full px-3 py-2 border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-                          placeholder="gf@firma.de"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-blue-900 mb-1">
-                          Vorname
-                        </label>
-                        <input
-                          type="text"
-                          name="admin_first_name"
-                          value={formData.admin_first_name}
-                          onChange={handleInputChange}
-                          className="w-full px-3 py-2 border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-                          placeholder="Max"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-blue-900 mb-1">
-                          Nachname
-                        </label>
-                        <input
-                          type="text"
-                          name="admin_last_name"
-                          value={formData.admin_last_name}
-                          onChange={handleInputChange}
-                          className="w-full px-3 py-2 border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-                          placeholder="Mustermann"
-                        />
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
 
