@@ -1,5 +1,6 @@
 // src/app/v7/berater/foerderung/page.tsx
-// VERSION: v7.4.1-4
+// VERSION: v7.4.1-5
+// AENDERUNG v7.4.1-5: Doppel-Submit verhindert: saved-Flag, Modal schliesst sofort nach Create
 // AENDERUNG v7.4.1-4: Admin-User-Anlage verpflichtend (Checkbox entfernt, E-Mail Pflichtfeld)
 // AENDERUNG v7.4.1-3: Zurueck-Button zum Dashboard hinzugefuegt (oberhalb Seitentitel)
 // AENDERUNG v7.4.1-2: Einladungslink entfernt, Status vereinfacht (nur aktiv/inaktiv)
@@ -143,6 +144,7 @@ export default function FoerderungPage() {
   // State
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false); // v7.4.1-5: Verhindert Doppel-Submit nach erfolgreichem Speichern
   const [error, setError] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [consultantCompanyName, setConsultantCompanyName] = useState<string>('');
@@ -328,6 +330,7 @@ export default function FoerderungPage() {
     setFormData(EMPTY_FORM);
     setFormError(null);
     setSuccessMessage(null);
+    setSaved(false);
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -341,6 +344,8 @@ export default function FoerderungPage() {
   };
 
   const handleSave = async () => {
+    // v7.4.1-5: Doppel-Submit verhindern
+    if (saving || saved) return;
     if (!formData.name.trim()) {
       setFormError('Firmenname ist erforderlich');
       return;
@@ -488,6 +493,12 @@ export default function FoerderungPage() {
         } else {
           setSuccessMessage(`Firma "${formData.name}" wurde angelegt.`);
         }
+
+        // v7.4.1-5: Nach erfolgreichem Create sofort sperren und Modal schliessen
+        setSaved(true);
+        await loadCompanies(userProfile.consultant_company_id);
+        closeModal();
+        return;
 
       } else if (modalMode === 'edit' && editingCompany) {
         const { error: updateError } = await supabase
@@ -1100,7 +1111,7 @@ export default function FoerderungPage() {
               </button>
               <button
                 onClick={handleSave}
-                disabled={saving || !!successMessage}
+                disabled={saving || saved || !!successMessage}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 flex items-center gap-2"
               >
                 {saving ? (
