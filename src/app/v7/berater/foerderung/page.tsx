@@ -1,5 +1,6 @@
 // src/app/v7/berater/foerderung/page.tsx
-// VERSION: v7.4.1-5
+// VERSION: v7.4.1-6
+// AENDERUNG v7.4.1-6: Profil+Employee-Insert server-seitig (RLS-Fix, alle 3 Schritte in create-user-Route)
 // AENDERUNG v7.4.1-5: Doppel-Submit verhindert: saved-Flag, Modal schliesst sofort nach Create
 // AENDERUNG v7.4.1-4: Admin-User-Anlage verpflichtend (Checkbox entfernt, E-Mail Pflichtfeld)
 // AENDERUNG v7.4.1-3: Zurueck-Button zum Dashboard hinzugefuegt (oberhalb Seitentitel)
@@ -417,7 +418,8 @@ export default function FoerderungPage() {
             ? `${formData.admin_first_name.trim()} ${formData.admin_last_name.trim()}`
             : formData.admin_email.split('@')[0];
 
-          // Auth-User ueber Server-API erstellen (Service Role Key)
+          // v7.4.1-5: Alle 3 Schritte (Auth + Profil + Employee) server-seitig
+          // Service Role Key umgeht RLS - kein client-seitiger Insert mehr noetig
           const createRes = await fetch('/api/v7/create-user', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -425,6 +427,11 @@ export default function FoerderungPage() {
               email: formData.admin_email.trim(),
               password: DEV_PASSWORD,
               display_name: adminDisplayName,
+              first_name: formData.admin_first_name.trim() || null,
+              last_name: formData.admin_last_name.trim() || null,
+              client_company_id: newCompany.id,
+              portal_role: 'client_admin',
+              invited_by: userProfile.id,
             }),
           });
 
@@ -436,54 +443,6 @@ export default function FoerderungPage() {
             );
             await loadCompanies(userProfile.consultant_company_id);
             return;
-          }
-
-          const newUserId = createResult.user.id;
-
-          // v7_user_profiles aktualisieren (Rolle: client_user, NICHT client_admin)
-          // Die Portal-Rolle wird ueber v7_employees.portal_role gesteuert
-          // UPSERT: Trigger erstellt ggf. schon ein leeres Profil beim Auth-User-Anlegen
-          const { error: profileError } = await supabase
-            .from('v7_user_profiles')
-            .upsert({
-              id: newUserId,
-              email: formData.admin_email.trim(),
-              first_name: formData.admin_first_name.trim() || null,
-              last_name: formData.admin_last_name.trim() || null,
-              display_name: adminDisplayName,
-              role: 'client_user',
-              client_company_id: newCompany.id,
-              is_active: true,
-              invited_by: userProfile.id,
-              invited_at: new Date().toISOString(),
-            }, { onConflict: 'id' });
-
-          if (profileError) {
-            console.error('Profil-Fehler:', profileError);
-            setFormError(
-              `Firma und Auth-User erstellt, aber Profil-Erstellung fehlgeschlagen: ${profileError.message}`
-            );
-            await loadCompanies(userProfile.consultant_company_id);
-            return;
-          }
-
-          // v7_employees-Eintrag erstellen mit portal_role = client_admin
-          const { error: employeeError } = await supabase
-            .from('v7_employees')
-            .insert({
-              client_company_id: newCompany.id,
-              user_id: newUserId,
-              first_name: formData.admin_first_name.trim() || null,
-              last_name: formData.admin_last_name.trim() || null,
-              display_name: adminDisplayName,
-              email: formData.admin_email.trim(),
-              portal_role: 'client_admin',
-              is_active: true,
-            });
-
-          if (employeeError) {
-            console.error('Employee-Fehler:', employeeError);
-            // Nicht abbrechen - User und Profil sind erstellt
           }
 
           setSuccessMessage(
