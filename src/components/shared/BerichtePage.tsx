@@ -2,10 +2,10 @@
 // ============================================================================
 // PZE V7 - Shared Component: Berichte & Controlling
 // ============================================================================
-// Version: 7.4.6-8
+// Version: 7.4.6-9
 // Datum: 6. Mai 2026
-// v7.4.6-8: FIX: MA wird sofort zu /v7/firma/mein-status umgeleitet
-//   (BerichtePage/Dashboard ist nur fuer Admin und PL zugaenglich)
+// v7.4.6-9: FIX roleLoaded-Flag: MA-Redirect erst nach bestaetigter Rolle,
+//   nicht beim initialen Render mit portalRole='employee' Default-Wert
 // v7.4.6-7: "Meine Projekte" integriert in Dashboard:
 //   - "Projekt-Uebersicht"-Tabelle ersetzt durch klickbare Projektliste
 //   - Direktlink zur Projektdetailseite (/v7/firma/projekte/[id])
@@ -244,13 +244,14 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
   const [error, setError] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [portalRole, setPortalRole] = useState<string>('employee');
+  const [roleLoaded, setRoleLoaded] = useState<boolean>(false);
 
-  // v7.4.6-8: MA darf nicht auf Dashboard - sofort zu Mein Status umleiten
+  // v7.4.6-9: Redirect erst nach bestaetigter Rolle (nicht bei initialem Default 'employee')
   useEffect(() => {
-    if (portal === 'firma' && portalRole === 'employee') {
+    if (portal === 'firma' && roleLoaded && portalRole === 'employee') {
       router.replace('/v7/firma/mein-status');
     }
-  }, [portal, portalRole, router]);
+  }, [portal, portalRole, roleLoaded, router]);
   const [company, setCompany] = useState<Company | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -374,6 +375,7 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
         } else {
           setPortalRole('consultant');
         }
+        setRoleLoaded(true);
 
         // Arbeitspakete
         const projectIds = (projectsData || []).map((p: any) => p.id);
