@@ -2,9 +2,21 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 22. April 2026
-// Version: 7.4.6-10
-// v7.4.6-10: FIX Feiertag auf Wochenende zeigt keine 8h in Fehlzeiten-Tageszelle
+// Datum: 6. Mai 2026
+// Version: 7.4.6-11
+// v7.4.6-11: PHASE 3 Arbeitszeitgrenzen (KONZEPT-ARBEITSZEITGRENZEN-v1_3.md):
+//   - Ampel-Trio: Monat / GF-Anteil (nur GF) / Heute - immer sichtbar
+//   - Harte Tagesgrenze 9h: Speichern gesperrt wenn Projektstunden +
+//     Sonstige an einem Tag > 9h (Fehlzeiten U/K/S zaehlen nicht)
+//   - Weiche Monatsgrenze 173,33h x Teilzeitfaktor: Bestaetigungs-
+//     modal mit Foerderhinweis, Speichern trotzdem moeglich
+//   - Weiche GF-50%-Regel: Projektstunden > 50% Monatsgrenze ->
+//     Bestaetigung erforderlich (nur bei GF/GGF-Position)
+//   - weekly_hours wird aus v7_employee_hours_history geladen (Teilzeit-
+//     Historie, Phase 1+2 bereits umgesetzt). Fallback: weekly_hours-
+//     Feld aus Employees-Prop.
+//   - position_title wird per DB-Abfrage geladen wenn MA wechselt.
+//   - GF_POSITIONS inline definiert (konsistent mit v7-types.ts).
 // v7.4.6-9: FIX offen-Spalte zeigt negative Zahl wenn MA kein Arbeitsplan-Eintrag (Vertretungsfall)
 // v7.4.6-8: FIX ArrowDown Navigation: leere AP-Zeilen werden uebersprungen, nonbillable immer erreichbar
 // v7.4.6-7: FIX getAbsencesForDay + calculateAbsenceSums: nonBillableEntries (sonstige Arbeiten) fehlte
@@ -158,6 +170,18 @@ const PORTAL_COLORS = {
 };
 
 const HEADER_ORANGE = '#F5D9C0';
+
+// ============================================================================
+// ARBEITSZEITGRENZEN (Phase 3, v7.4.6-11)
+// Konsistent mit v7-types.ts und KONZEPT-ARBEITSZEITGRENZEN-v1_3.md
+// ============================================================================
+const MONATSGRENZE_VOLLZEIT = 173.33;  // 2080h / 12 Monate
+const TAGESGRENZE_HART = 9;            // PT-Richtlinie, absolut
+// GF-Positionen: exakter String-Match (wie in v7-types.ts)
+const GF_POSITIONS_LOCAL: readonly string[] = [
+  'Geschaeftsfuehrer',
+  'Gesellschafter-Geschaeftsfuehrer',
+];
 
 const MONTH_NAMES = [
   'Januar', 'Februar', 'Maerz', 'April', 'Mai', 'Juni',
@@ -344,6 +368,18 @@ export default function TimesheetForm({
 
   // Feiertage
   const [holidays, setHolidays] = useState<Map<string, string>>(new Map());
+
+  // ============================================================================
+  // ARBEITSZEITGRENZEN STATE (v7.4.6-11)
+  // ============================================================================
+  // Wochenstunden aus Teilzeit-Historie fuer aktuellen MA/Monat
+  const [weeklyHoursAtMonth, setWeeklyHoursAtMonth] = useState<number>(40);
+  // Unternehmensposition des MA (fuer GF-Regel)
+  const [positionTitle, setPositionTitle] = useState<string | null>(null);
+  // Ampel-Detail-Popup: welche Ampel gerade aufgeklappt ist
+  const [showAmpelDetail, setShowAmpelDetail] = useState<'monat' | 'gf' | 'tag' | null>(null);
+  // Weiche Warnung beim Speichern: welche Grenze ausgeloest hat
+  const [pendingSaveWarning, setPendingSaveWarning] = useState<'monat' | 'gf' | null>(null);
 
   // Abgeleitete Werte
   const selectedProject = safeProjects.find(p => p.id === selectedProjectId);
@@ -586,6 +622,48 @@ export default function TimesheetForm({
   useEffect(() => {
     setSignatureDate(getLastWorkdayOfMonth(selectedYear, selectedMonth));
   }, [selectedYear, selectedMonth, holidays]);
+
+  // ============================================================================
+  // ARBEITSZEITGRENZEN: MA-Daten laden (v7.4.6-11)
+  // Laedt position_title + weekly_hours aus Historie fuer aktuellen MA/Monat
+  // ============================================================================
+  useEffect(() => {
+    const loadMaData = async () => {
+      if (!selectedEmployeeId) return;
+      try {
+        const supabaseClient = createClient();
+        // position_title laden
+        const { data: empData } = await supabaseClient
+          .from('v7_employees')
+          .select('position_title, weekly_hours')
+          .eq('id', selectedEmployeeId)
+          .maybeSingle();
+        setPositionTitle(empData?.position_title ?? null);
+
+        // weekly_hours aus Teilzeit-Historie fuer den ersten Tag des Monats
+        const monatErster = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
+        const { data: histEntry } = await supabaseClient
+          .from('v7_employee_hours_history')
+          .select('weekly_hours')
+          .eq('employee_id', selectedEmployeeId)
+          .lte('gueltig_ab', monatErster)
+          .order('gueltig_ab', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (histEntry?.weekly_hours) {
+          setWeeklyHoursAtMonth(Number(histEntry.weekly_hours));
+        } else {
+          // Fallback: static weekly_hours aus v7_employees
+          setWeeklyHoursAtMonth(Number(empData?.weekly_hours ?? 40));
+        }
+      } catch (err) {
+        console.error('[TimesheetForm] Fehler beim Laden MA-Arbeitszeitdaten:', err);
+        setWeeklyHoursAtMonth(40);
+      }
+    };
+    loadMaData();
+  }, [selectedEmployeeId, selectedYear, selectedMonth]);
 
   // NEU v7.4.3-9: Completion-Status laden
   const loadCompletionStatus = async (empId: string, projId: string, year: number, month: number) => {
@@ -1358,8 +1436,56 @@ export default function TimesheetForm({
   };
 
   // ============================================================================
-  // SPEICHERN
+  // ARBEITSZEITGRENZEN: BERECHNUNGEN (v7.4.6-11)
   // ============================================================================
+
+  // Abgeleitete Grenzen fuer den aktuellen MA/Monat
+  const monatsgrenze = MONATSGRENZE_VOLLZEIT * (weeklyHoursAtMonth / 40);
+  const gfGrenze     = monatsgrenze * 0.5;
+  const istGF        = positionTitle !== null && GF_POSITIONS_LOCAL.includes(positionTitle);
+
+  // Monats-Projektstunden aus aktuellem Form-State (billable, keine Fehlzeiten)
+  const calcFormProjektStunden = (): number => {
+    return apRows.reduce((sum, row) => {
+      if (!row.workPackageId) return sum;
+      return sum + Object.values(row.entries).reduce((s, e) => {
+        if (!e.value || isAbsenceCode(e.value)) return s;
+        return s + parseHours(e.value);
+      }, 0);
+    }, 0);
+  };
+
+  // Tagessumme: Projektstunden + Sonstige (keine Fehlzeiten - zaehlen nicht)
+  const calcTagSumme = (day: number): number => {
+    let sum = 0;
+    apRows.forEach(row => {
+      const e = row.entries[day];
+      if (e?.value && !isAbsenceCode(e.value)) sum += parseHours(e.value);
+    });
+    const nb = nonBillableEntries[day];
+    if (nb?.value && !isAbsenceCode(nb.value)) sum += parseHours(nb.value);
+    return sum;
+  };
+
+  // Ampel-Status berechnen (gruen = innerhalb, rot = ueberschritten)
+  const projektStundenMonat = calcFormProjektStunden();
+  const today = new Date();
+  const todayDay = (today.getFullYear() === selectedYear && today.getMonth() + 1 === selectedMonth)
+    ? today.getDate() : null;
+  const tagSummeHeute = todayDay ? calcTagSumme(todayDay) : 0;
+
+  const ampelMonat = projektStundenMonat <= monatsgrenze ? 'gruen' : 'rot';
+  const ampelGF    = istGF ? (projektStundenMonat <= gfGrenze ? 'gruen' : 'rot') : null;
+  const ampelTag   = tagSummeHeute <= TAGESGRENZE_HART ? 'gruen' : 'rot';
+
+  // Tages-Verletzung beim Speichern pruefen (hart - alle Tage im Monat)
+  const findTagVerletzung = (): number | null => {
+    const daysInMon = getDaysInMonth(selectedYear, selectedMonth);
+    for (let d = 1; d <= daysInMon; d++) {
+      if (calcTagSumme(d) > TAGESGRENZE_HART) return d;
+    }
+    return null;
+  };
 
   // NEU v7.4.3-9: Monat abschliessen / Completion toggeln
   const handleToggleComplete = async () => {
@@ -1411,7 +1537,37 @@ export default function TimesheetForm({
   const handleSave = async () => {
     if (!selectedEmployeeId) return;
 
-    setSaving(true);
+    // ============================================================================
+    // ARBEITSZEITGRENZEN-VALIDIERUNG (v7.4.6-11)
+    // ============================================================================
+
+    // 1. HARTE Tagesgrenze 9h (PT-Richtlinie): Speichern sperren
+    const verletzterTag = findTagVerletzung();
+    if (verletzterTag !== null) {
+      const tagSumme = calcTagSumme(verletzterTag);
+      setError(
+        `Tag ${verletzterTag}: ${tagSumme.toFixed(2).replace('.', ',')} h erfasst -- ` +
+        `Limit ist ${TAGESGRENZE_HART} h/Tag (Projektstunden + Sonstige). ` +
+        `Stunden ueber ${TAGESGRENZE_HART} h werden vom Projekttraeger gekappt und sind nicht foerderfahig. ` +
+        `Bitte korrigieren.`
+      );
+      return;
+    }
+
+    // 2. WEICHE Monatsgrenze (nur pruefen wenn keine Warnung bereits bestaetigt)
+    if (pendingSaveWarning === null) {
+      if (projektStundenMonat > monatsgrenze) {
+        setPendingSaveWarning('monat');
+        return;
+      }
+      // 3. WEICHE GF-50%-Regel
+      if (istGF && projektStundenMonat > gfGrenze) {
+        setPendingSaveWarning('gf');
+        return;
+      }
+    }
+    // Warnung bestaetigt oder keine Verletzung -> pendingSaveWarning zuruecksetzen und weiter
+    setPendingSaveWarning(null);
     setError(null);
     setSuccessMessage(null);
 
@@ -1833,6 +1989,108 @@ export default function TimesheetForm({
         </div>
       </header>
 
+      {/* ================================================================
+          ARBEITSZEITGRENZEN AMPEL-TRIO (v7.4.6-11) - print:hidden
+          ================================================================ */}
+      <div className="bg-gray-50 border-b print:hidden">
+        <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8 py-2">
+          <div className="flex items-center gap-6 flex-wrap">
+            {/* Ampel: Monat */}
+            <button
+              onClick={() => setShowAmpelDetail(showAmpelDetail === 'monat' ? null : 'monat')}
+              className="flex items-center gap-2 text-sm hover:bg-gray-100 rounded px-2 py-1 transition-colors"
+            >
+              <span className={`w-3 h-3 rounded-full ${ampelMonat === 'gruen' ? 'bg-green-500' : 'bg-red-500'}`} />
+              <span className="text-gray-600">Monat:</span>
+              <span className={`font-medium ${ampelMonat === 'rot' ? 'text-red-600' : 'text-gray-800'}`}>
+                {projektStundenMonat.toFixed(2).replace('.', ',')} / {monatsgrenze.toFixed(2).replace('.', ',')} h
+              </span>
+            </button>
+
+            {/* Ampel: GF-Anteil (nur bei GF) */}
+            {istGF && (
+              <button
+                onClick={() => setShowAmpelDetail(showAmpelDetail === 'gf' ? null : 'gf')}
+                className="flex items-center gap-2 text-sm hover:bg-gray-100 rounded px-2 py-1 transition-colors"
+              >
+                <span className={`w-3 h-3 rounded-full ${ampelGF === 'gruen' ? 'bg-green-500' : 'bg-red-500'}`} />
+                <span className="text-gray-600">GF-Anteil:</span>
+                <span className={`font-medium ${ampelGF === 'rot' ? 'text-red-600' : 'text-gray-800'}`}>
+                  {projektStundenMonat.toFixed(2).replace('.', ',')} / {gfGrenze.toFixed(2).replace('.', ',')} h
+                </span>
+              </button>
+            )}
+
+            {/* Ampel: Heute */}
+            <button
+              onClick={() => setShowAmpelDetail(showAmpelDetail === 'tag' ? null : 'tag')}
+              className="flex items-center gap-2 text-sm hover:bg-gray-100 rounded px-2 py-1 transition-colors"
+            >
+              <span className={`w-3 h-3 rounded-full ${ampelTag === 'gruen' ? 'bg-green-500' : 'bg-red-500'}`} />
+              <span className="text-gray-600">Heute ({todayDay ? `${todayDay}.` : '-'}):</span>
+              <span className={`font-medium ${ampelTag === 'rot' ? 'text-red-600' : 'text-gray-800'}`}>
+                {tagSummeHeute.toFixed(2).replace('.', ',')} / {TAGESGRENZE_HART},00 h
+              </span>
+            </button>
+
+            {/* Wochenstunden-Info (kompakt) */}
+            <span className="text-xs text-gray-400 ml-auto">
+              {weeklyHoursAtMonth} h/Woche
+              {istGF ? ' -- GF (50%-Regel aktiv)' : ''}
+            </span>
+          </div>
+
+          {/* Detail-Popup */}
+          {showAmpelDetail === 'monat' && (
+            <div className="mt-2 bg-white border rounded-lg p-3 text-sm max-w-sm shadow-sm">
+              <div className="font-medium text-gray-800 mb-1">
+                Monat {['Januar','Februar','Maerz','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'][selectedMonth-1]} {selectedYear}
+              </div>
+              <div className="text-gray-600 space-y-0.5">
+                <div>Erfasst: <span className="font-medium">{projektStundenMonat.toFixed(2).replace('.', ',')} h</span></div>
+                <div>Grenze:  <span className="font-medium">{monatsgrenze.toFixed(2).replace('.', ',')} h</span></div>
+                <div>Stand:   <span className={`font-medium ${ampelMonat === 'rot' ? 'text-red-600' : 'text-green-600'}`}>
+                  {monatsgrenze > 0 ? Math.round((projektStundenMonat / monatsgrenze) * 100) : 0}% der Grenze
+                </span></div>
+              </div>
+              <div className="text-xs text-gray-400 mt-2">
+                Monatsgrenze = 173,33 h x ({weeklyHoursAtMonth} h / 40 h). Gilt jeden Monat identisch.
+              </div>
+            </div>
+          )}
+          {showAmpelDetail === 'gf' && istGF && (
+            <div className="mt-2 bg-white border rounded-lg p-3 text-sm max-w-sm shadow-sm">
+              <div className="font-medium text-gray-800 mb-1">GF-Anteil Projektzeit</div>
+              <div className="text-gray-600 space-y-0.5">
+                <div>Projektstunden: <span className="font-medium">{projektStundenMonat.toFixed(2).replace('.', ',')} h</span></div>
+                <div>GF-Grenze (50%): <span className="font-medium">{gfGrenze.toFixed(2).replace('.', ',')} h</span></div>
+                <div>Stand: <span className={`font-medium ${ampelGF === 'rot' ? 'text-red-600' : 'text-green-600'}`}>
+                  {gfGrenze > 0 ? Math.round((projektStundenMonat / gfGrenze) * 100) : 0}% der GF-Grenze
+                </span></div>
+              </div>
+              <div className="text-xs text-gray-400 mt-2">
+                ZIM-Richtlinie: GF darf max. 50% der Monatsarbeitszeit als Projektzeit abrechnen.
+              </div>
+            </div>
+          )}
+          {showAmpelDetail === 'tag' && (
+            <div className="mt-2 bg-white border rounded-lg p-3 text-sm max-w-sm shadow-sm">
+              <div className="font-medium text-gray-800 mb-1">
+                Tagesgrenze {todayDay ? `(heute, ${todayDay}.)` : ''}
+              </div>
+              <div className="text-gray-600 space-y-0.5">
+                <div>Heute erfasst: <span className="font-medium">{tagSummeHeute.toFixed(2).replace('.', ',')} h</span></div>
+                <div>Grenze: <span className="font-medium">{TAGESGRENZE_HART},00 h</span></div>
+              </div>
+              <div className="text-xs text-gray-400 mt-2">
+                Projektstunden + Sonstige Arbeiten max. {TAGESGRENZE_HART} h/Tag (PT-Richtlinie, hart).
+                Fehlzeiten (U/K/S) zaehlen nicht.
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Steuerung */}
       <div className="bg-white border-b shadow-sm print:hidden">
         <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8 py-3">
@@ -2015,8 +2273,8 @@ export default function TimesheetForm({
                     </th>
                   );
                 })}
-                <th className="border p-1 text-center" style={{ width: '25px' }}>∑</th>
-                <th className="border p-1 text-center print:hidden" style={{ width: '25px', backgroundColor: '#E8F5E9' }}>±</th>
+                <th className="border p-1 text-center" style={{ width: '25px' }}>S</th>
+                <th className="border p-1 text-center print:hidden" style={{ width: '25px', backgroundColor: '#E8F5E9' }}>+/-</th>
               </tr>
             </thead>
             <tbody>
@@ -2505,6 +2763,81 @@ export default function TimesheetForm({
                 className="px-4 py-2 text-white rounded-lg hover:opacity-90"
               >
                 Speichern
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================================================================
+          ARBEITSZEITGRENZEN: WEICHE WARN-MODALS (v7.4.6-11)
+          ================================================================ */}
+      {pendingSaveWarning === 'monat' && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
+            <div className="flex items-start gap-3 mb-4">
+              <span className="text-2xl">(!)</span>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-1">Monatsgrenze ueberschritten</h3>
+                <p className="text-gray-600 text-sm">
+                  Die erfassten Projektstunden ({projektStundenMonat.toFixed(2).replace('.', ',')} h)
+                  ueberschreiten die monatliche Hoechstgrenze von {monatsgrenze.toFixed(2).replace('.', ',')} h
+                  ({weeklyHoursAtMonth} h/Woche).
+                </p>
+                <p className="text-amber-700 text-sm mt-2 font-medium">
+                  Stunden ueber der Grenze werden beim Projekttraeger moeglicherweise als nicht foerderfahig eingestuft.
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setPendingSaveWarning(null)}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={() => { setPendingSaveWarning('monat-bestaetigt' as any); handleSave(); }}
+                className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700"
+              >
+                Trotzdem speichern
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingSaveWarning === 'gf' && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
+            <div className="flex items-start gap-3 mb-4">
+              <span className="text-2xl">(!)</span>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-1">GF-Anteil ueberschritten (50%-Regel)</h3>
+                <p className="text-gray-600 text-sm">
+                  Die Projektstunden ({projektStundenMonat.toFixed(2).replace('.', ',')} h)
+                  ueberschreiten die GF-Grenze von {gfGrenze.toFixed(2).replace('.', ',')} h
+                  (50% der Monatsarbeitszeit).
+                </p>
+                <p className="text-amber-700 text-sm mt-2 font-medium">
+                  Gemaess ZIM-Richtlinie soll die Projektzeit eines Geschaeftsfuehrers
+                  50% seiner Monatsarbeitszeit nicht ueberschreiten. Eine hoehere Quote
+                  kann die Foerderfahigkeit gefaehrden.
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setPendingSaveWarning(null)}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={() => { setPendingSaveWarning('gf-bestaetigt' as any); handleSave(); }}
+                className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700"
+              >
+                Trotzdem speichern
               </button>
             </div>
           </div>
