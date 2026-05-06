@@ -3,7 +3,8 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 6. Mai 2026
-// Version: 7.4.6-13
+// Version: 7.4.6-14
+// // v7.4.6-14: FIX: findTagVerletzung vor Aufruf definiert (Temporal Dead Zone)
 // v7.4.6-13: Harte Verletzung sperrt auch Drucken, PDF Export und
 //   Monat-abschliessen. GF-Zelle im Druck neutral (print:bg-green).
 //   Floating-Point-Fix: alle Grenzenvergleiche auf 2 Dez. gerundet.
@@ -1458,6 +1459,15 @@ export default function TimesheetForm({
   };
 
   // Abgeleitete Warnzustaende (live, kein State noetig)
+  // Tages-Verletzung pruefen (alle Tage im Monat) - muss VOR tagUeberschritten definiert sein
+  const findTagVerletzung = (): number | null => {
+    const daysInMon = getDaysInMonth(selectedYear, selectedMonth);
+    for (let d = 1; d <= daysInMon; d++) {
+      if (Math.round(calcTagSumme(d) * 100) > Math.round(TAGESGRENZE_HART * 100)) return d;
+    }
+    return null;
+  };
+
   const projektStundenMonat  = calcFormProjektStunden();
   // Rundung auf 2 Dezimalstellen verhindert Floating-Point-Fehler
   // (z.B. 173.33 x 0.3 = 51.999... statt exakt 52.00)
@@ -1466,15 +1476,6 @@ export default function TimesheetForm({
   // Harte Verletzung: Speichern UND Drucken gesperrt
   const tagUeberschritten    = findTagVerletzung() !== null;
   const hartVerletzung       = monatUeberschritten || tagUeberschritten;
-
-  // Tages-Verletzung beim Speichern pruefen (alle Tage im Monat)
-  const findTagVerletzung = (): number | null => {
-    const daysInMon = getDaysInMonth(selectedYear, selectedMonth);
-    for (let d = 1; d <= daysInMon; d++) {
-      if (Math.round(calcTagSumme(d) * 100) > Math.round(TAGESGRENZE_HART * 100)) return d;
-    }
-    return null;
-  };
 
   // NEU v7.4.3-9: Monat abschliessen / Completion toggeln
   const handleToggleComplete = async () => {
