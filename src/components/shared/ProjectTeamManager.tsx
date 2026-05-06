@@ -2,8 +2,16 @@
 // ============================================================================
 // PZE V7 - Projekt-Team Management
 // ============================================================================
-// Datum: 17. April 2026
-// Version: 7.4.4-16
+// Datum: 6. Mai 2026
+// Version: 7.4.4-17
+// AENDERUNGEN v7.4.4-17:
+// - ROLE_OPTIONS reduziert auf 3 Werte: Projektleiter, Projektmitarbeiter,
+//   Wissenschaftlicher Mitarbeiter.
+// - Begruendung: Feinere Differenzierung der Taetigkeit ist fuer die ZIM-
+//   Zahlungsanforderung (ZA) nicht relevant (Rueckmeldung Beraterin, Session 36).
+// - Bestandsdaten: Alle bisherigen Werte wurden per SQL-Migration auf die
+//   3 neuen Werte gemappt (siehe SQL-MIGRATION-role_in_project-v1.sql).
+//
 // AENDERUNGEN v7.4.4-13:
 // - employment_end ins Employee-Interface aufgenommen
 // - AddMemberDialog: wenn ausgewaehlter MA employment_end hat ->
@@ -115,18 +123,12 @@ interface ProjectTeamManagerProps {
   onTeamChange?: () => void;
 }
 
-// Rollen-Optionen fuer Dropdown
+// Rollen-Optionen fuer Dropdown (reduziert auf 3 ZA-relevante Werte, Session 36)
+// Begruendung: Feinere Differenzierung fuer ZA irrelevant (Rueckmeldung Beraterin).
 const ROLE_OPTIONS = [
   'Projektleiter',
-  'HW-Entwickler',
-  'SW-Entwickler',
-  'Systemarchitekt',
-  'Systemtester',
-  'Konstrukteur',
-  'Versuchsingenieur',
+  'Projektmitarbeiter',
   'Wissenschaftlicher Mitarbeiter',
-  'Techniker',
-  'Sonstige',
 ];
 
 // ============================================================================
@@ -618,7 +620,7 @@ function AddMemberDialog({
                   />
                   {maxAssignmentEnd ? (
                     <p className="text-xs text-amber-600 mt-1">
-                      Vertrag endet am {formatDate(maxAssignmentEnd)} — spaeteres Datum nicht moeglich
+                      Vertrag endet am {formatDate(maxAssignmentEnd)} -- spaeteres Datum nicht moeglich
                     </p>
                   ) : (
                     <p className="text-xs text-gray-500 mt-1">Leer = noch aktiv</p>
@@ -1047,7 +1049,7 @@ function EditMemberDialog({
               />
               {maxAssignmentEnd ? (
                 <p className="text-xs text-amber-600 mt-1">
-                  Vertrag endet am {formatDate(maxAssignmentEnd)} — spaeteres Datum nicht moeglich
+                  Vertrag endet am {formatDate(maxAssignmentEnd)} -- spaeteres Datum nicht moeglich
                 </p>
               ) : (
                 <p className="text-xs text-gray-500 mt-1">Leer = noch aktiv</p>
