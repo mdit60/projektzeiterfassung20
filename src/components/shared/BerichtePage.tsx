@@ -2,8 +2,14 @@
 // ============================================================================
 // PZE V7 - Shared Component: Berichte & Controlling
 // ============================================================================
-// Version: 7.4.6-5
-// v7.4.6-5: BerichtePage Umstrukturierung
+// Version: 7.4.6-6
+// Datum: 6. Mai 2026
+// v7.4.6-6: Zeiterfassungs-Status: employeesInProjects-Quelle geaendert von
+//   wpAssignments (Arbeitsplan) auf projectAssignments (Projektteam).
+//   Konsistent mit StundennachweisMatrix v7.4.6-2 und ZAPanel v7.4.4-32.
+//   SOLL-Stunden kommen weiterhin aus wpAssignments (korrekt: Antragswerte).
+//   Projektname-Ermittlung ebenfalls auf projectAssignments umgestellt.
+//
 //   - Projekt-Selektor-Kachel an erster Stelle (Dropdown fuer Projektauswahl)
 //   - 3 Report-Kacheln direkt daneben (Stundennachweis, Fortschritt, ZA)
 //   - 4 Kennzahl-Kacheln entfernt
@@ -474,7 +480,11 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
   }, [projects, workPackages, timesheets]);
 
   const employeeTimesheetStatus: EmployeeTimesheetStatus[] = useMemo(() => {
-    const employeesInProjects = employees.filter(emp => wpAssignments.some(a => a.employee_id === emp.id));
+    // v7.4.6-6: Quelle ist projectAssignments (Projektteam), nicht wpAssignments.
+    // SOLL-Stunden bleiben aus wpAssignments (Antragswerte, unveraenderlich).
+    const employeesInProjects = employees.filter(emp =>
+      projectAssignments.some(pa => pa.employee_id === emp.id)
+    );
     let projectStart: string | null = null;
     let projectEnd: string | null = null;
     workPackages.forEach(wp => {
@@ -493,12 +503,15 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
       }
     }
     return employeesInProjects.map(employee => {
+      // SOLL: aus Arbeitsplan (wpAssignments) - bleibt unveraendert
       const employeeAssignments = wpAssignments.filter(a => a.employee_id === employee.id);
-      const employeeWpIds = employeeAssignments.map(a => a.work_package_id);
-      const employeeProjectIds = [...new Set(workPackages.filter(wp => employeeWpIds.includes(wp.id)).map(wp => wp.project_id))];
-      const projectNames = projects.filter(p => employeeProjectIds.includes(p.id)).map(p => p.short_name || p.name);
       const sollPM = employeeAssignments.reduce((sum, a) => sum + (a.planned_person_months || 0), 0);
       const sollHours = sollPM * HOURS_PER_PM;
+      // Projektnamen: aus projectAssignments (Projektteam)
+      const employeeProjectIds = [...new Set(
+        projectAssignments.filter(pa => pa.employee_id === employee.id).map(pa => pa.project_id)
+      )];
+      const projectNames = projects.filter(p => employeeProjectIds.includes(p.id)).map(p => p.short_name || p.name);
       const erfasstHours = timesheets.filter(t => t.employee_id === employee.id && t.is_billable === true).reduce((sum, t) => sum + (t.hours || 0), 0);
       const offenHours = sollHours - erfasstHours;
       const progressPercent = sollHours > 0 ? (erfasstHours / sollHours) * 100 : 0;

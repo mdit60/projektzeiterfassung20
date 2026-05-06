@@ -4,8 +4,9 @@
 // ============================================================================
 // PZE V7 - Portal-Navigation
 // ============================================================================
-// Version: 7.4.4-11
-// v7.4.4-11: Mitarbeiter-Anleitung entfernt (nur FAQ fuer MA-Rolle)
+// Version: 7.4.4-12
+// v7.4.4-12: Berater-Nav: "Zeiterfassungen" entfernt (fuehrt zu 404, kein
+//   sinnvoller Anwendungsfall im Berater-Portal)
 // v7.4.4-10: Dateinamen ohne Versionsnummer (stabile URLs, kein Code-Deploy bei neuem PDF)
 // v7.4.4-9: Anleitungen-Download steuerbar ueber v7_system_config
 //   - manuals_enabled aus Supabase gelesen (key='manuals_enabled')
@@ -68,7 +69,6 @@ const PORTAL_COLORS = {
 
 const NAV_BERATER: NavItem[] = [
   { key: 'foerderung',    label: 'Kundenfirmen',       href: '/v7/berater/foerderung',    icon: <Building2 size={18} /> },
-  { key: 'zeiterfassung', label: 'Zeiterfassungen',    href: '/v7/berater/zeiterfassung', icon: <Clock size={18} /> },
   { key: 'netzwerk',      label: 'Netzwerk',           href: '/v7/berater/netzwerk',      icon: <Network size={18} /> },
   { key: 'multiprojekt',  label: 'Kapazitaetsplanung', href: '/v7/berater/multiprojekt',  icon: <BarChart3 size={18} /> },
   { key: 'admin',         label: 'Administration',     href: '/v7/berater/admin',         icon: <Settings size={18} />, isAdmin: true },
@@ -99,8 +99,8 @@ const NAV_FIRMA_ADMIN_EXTRAS: NavItem[] = [
 
 // Mitarbeiter (employee) hat keine eigene Anleitung - nur FAQ (immer sichtbar)
 const MANUAL_BY_ROLE: Record<string, { label: string; href: string }> = {
-  client_admin:   { label: 'Anleitung Firmen-Administrator', href: '/manuals/PZE_Anleitung_Firmen-Administrator.pdf' },
-  project_leader: { label: 'Anleitung Projektleiter',        href: '/manuals/PZE_Anleitung_Projektleiter.pdf' },
+  client_admin:   { label: 'Anleitung Firmen-Administrator', href: '/manuals/PZE-Anleitung-Firmen-Administrator.pdf' },
+  project_leader: { label: 'Anleitung Projektleiter',        href: '/manuals/PZE-Anleitung-Projektleiter.pdf' },
 };
 
 // ============================================================================
@@ -175,7 +175,7 @@ function HilfeDropdown({
       {open && (
         <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-xl z-[200] py-1">
 
-          {/* Benutzerhandbuch – nur wenn Rolle eine Anleitung hat */}
+          {/* Benutzerhandbuch -- nur wenn Rolle eine Anleitung hat */}
           {manual && (
             manualsEnabled ? (
               <a
@@ -202,14 +202,14 @@ function HilfeDropdown({
                   </span>
                   <span className="flex flex-col min-w-0">
                     <span className="text-sm font-medium text-gray-700">Benutzerhandbuch</span>
-                    <span className="text-xs text-amber-600">Wird aktualisiert – in Kürze wieder verfügbar</span>
+                    <span className="text-xs text-amber-600">Wird aktualisiert -- in Kuerze wieder verfuegbar</span>
                   </span>
                 </div>
               </div>
             )
           )}
 
-          {/* FAQ Zeiterfassung – immer verfügbar */}
+          {/* FAQ Zeiterfassung -- immer verfuegbar */}
           <a
             href="/manuals/PZE-FAQ-Zeiterfassung-v1.pdf"
             download
@@ -265,7 +265,7 @@ export default function PortalNav({
 
   const showHilfe = portal === 'firma';
 
-  // ── manuals_enabled aus v7_system_config ──────────────────────────────────
+  // -- manuals_enabled aus v7_system_config ----------------------------------
   const [manualsEnabled, setManualsEnabled] = useState(false);
 
   useEffect(() => {
