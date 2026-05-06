@@ -3,7 +3,10 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 6. Mai 2026
-// Version: 7.4.6-12
+// Version: 7.4.6-13
+// v7.4.6-13: Harte Verletzung sperrt auch Drucken, PDF Export und
+//   Monat-abschliessen. GF-Zelle im Druck neutral (print:bg-green).
+//   Floating-Point-Fix: alle Grenzenvergleiche auf 2 Dez. gerundet.
 // v7.4.6-12: Arbeitszeitgrenzen finale Haertung:
 //   - Monatsgrenze HART (wie Tagesgrenze): Speichern gesperrt + Monatssummen-
 //     Zelle rot wenn ueberschritten. Weich-Modal fuer Monat entfernt.
@@ -1456,14 +1459,19 @@ export default function TimesheetForm({
 
   // Abgeleitete Warnzustaende (live, kein State noetig)
   const projektStundenMonat  = calcFormProjektStunden();
-  const monatUeberschritten  = projektStundenMonat > monatsgrenze;
-  const gfUeberschritten     = istGF && projektStundenMonat > gfGrenze;
+  // Rundung auf 2 Dezimalstellen verhindert Floating-Point-Fehler
+  // (z.B. 173.33 x 0.3 = 51.999... statt exakt 52.00)
+  const monatUeberschritten  = Math.round(projektStundenMonat * 100) > Math.round(monatsgrenze * 100);
+  const gfUeberschritten     = istGF && Math.round(projektStundenMonat * 100) > Math.round(gfGrenze * 100);
+  // Harte Verletzung: Speichern UND Drucken gesperrt
+  const tagUeberschritten    = findTagVerletzung() !== null;
+  const hartVerletzung       = monatUeberschritten || tagUeberschritten;
 
   // Tages-Verletzung beim Speichern pruefen (alle Tage im Monat)
   const findTagVerletzung = (): number | null => {
     const daysInMon = getDaysInMonth(selectedYear, selectedMonth);
     for (let d = 1; d <= daysInMon; d++) {
-      if (calcTagSumme(d) > TAGESGRENZE_HART) return d;
+      if (Math.round(calcTagSumme(d) * 100) > Math.round(TAGESGRENZE_HART * 100)) return d;
     }
     return null;
   };
@@ -1912,12 +1920,14 @@ export default function TimesheetForm({
               {/* NEU v7.4.3-9: Monat abschliessen */}
               <button
                 onClick={handleToggleComplete}
-                disabled={loadingCompletion || !selectedEmployeeId || !selectedProjectId}
-                title={isCompleted ? 'Monat ist abgeschlossen - klicken zum Aufheben' : 'Monat als vollstaendig erfasst markieren'}
+                disabled={loadingCompletion || !selectedEmployeeId || !selectedProjectId || hartVerletzung}
+                title={hartVerletzung ? 'Nicht moeglich: Arbeitszeitgrenze ueberschritten' : isCompleted ? 'Monat ist abgeschlossen - klicken zum Aufheben' : 'Monat als vollstaendig erfasst markieren'}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-                  isCompleted
-                    ? 'bg-green-500 text-white hover:bg-green-600'
-                    : 'bg-white/20 text-white hover:bg-white/30'
+                  hartVerletzung
+                    ? 'bg-white/20 text-white/40 cursor-not-allowed'
+                    : isCompleted
+                      ? 'bg-green-500 text-white hover:bg-green-600'
+                      : 'bg-white/20 text-white hover:bg-white/30'
                 }`}
               >
                 {loadingCompletion ? (
@@ -1935,9 +1945,9 @@ export default function TimesheetForm({
               </button>
               <button
                 onClick={handleSave}
-                disabled={saving || !hasChanges}
+                disabled={saving || !hasChanges || hartVerletzung}
                 className={`px-4 py-1.5 rounded text-sm font-medium ${
-                  hasChanges
+                  hasChanges && !hartVerletzung
                     ? 'bg-white text-gray-800 hover:bg-gray-100'
                     : 'bg-white/50 text-white/70 cursor-not-allowed'
                 }`}
@@ -1946,13 +1956,17 @@ export default function TimesheetForm({
               </button>
               <button
                 onClick={handleExportPDF}
-                className="px-3 py-1.5 bg-white/20 text-white rounded hover:bg-white/30 text-sm"
+                disabled={hartVerletzung}
+                title={hartVerletzung ? 'Nicht moeglich: Arbeitszeitgrenze ueberschritten' : 'PDF exportieren'}
+                className={`px-3 py-1.5 rounded text-sm ${hartVerletzung ? 'bg-white/10 text-white/40 cursor-not-allowed' : 'bg-white/20 text-white hover:bg-white/30'}`}
               >
                 PDF Export
               </button>
               <button
                 onClick={handlePrint}
-                className="px-3 py-1.5 bg-white/20 text-white rounded hover:bg-white/30 text-sm"
+                disabled={hartVerletzung}
+                title={hartVerletzung ? 'Nicht moeglich: Arbeitszeitgrenze ueberschritten' : 'Drucken'}
+                className={`px-3 py-1.5 rounded text-sm ${hartVerletzung ? 'bg-white/10 text-white/40 cursor-not-allowed' : 'bg-white/20 text-white hover:bg-white/30'}`}
               >
                 Drucken
               </button>
@@ -1977,11 +1991,11 @@ export default function TimesheetForm({
             </div>
           )}
           {gfUeberschritten && !monatUeberschritten && (
-            <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
-              <span className="text-amber-700 text-sm font-medium">
+            <div className="bg-red-50 border-b border-red-200 px-4 py-2 flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" />
+              <span className="text-red-700 text-sm font-medium">
                 GF-Anteil {projektStundenMonat.toFixed(2).replace('.', ',')} h &gt; 50% Monatsarbeitszeit
-                ({gfGrenze.toFixed(2).replace('.', ',')} h) -- Foerderrisiko beachten
+                ({gfGrenze.toFixed(2).replace('.', ',')} h) -- Foerderrisiko, Speichern moeglich
               </span>
             </div>
           )}
@@ -2354,14 +2368,14 @@ export default function TimesheetForm({
                     <td className="border p-1" colSpan={4}>Summe foerderbare Stunden gesamt (2)</td>
                     {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
                       const daySum = calculateDaySum(day);
-                      const tagZuViel = daySum > TAGESGRENZE_HART;
+                      const tagZuViel = Math.round(daySum * 100) > Math.round(TAGESGRENZE_HART * 100);
                       return (
                         <td key={day} className={`border p-1 text-center text-[10px] ${tagZuViel ? 'bg-red-400 text-white font-bold' : ''}`}>
                           {daySum > 0 ? daySum.toFixed(2) : ''}
                         </td>
                       );
                     })}
-                    <td className={`border p-1 text-center ${monatUeberschritten ? 'bg-red-500 text-white' : 'bg-green-300'}`}>
+                    <td className={`border p-1 text-center ${monatUeberschritten ? 'bg-red-500 text-white' : gfUeberschritten ? 'bg-red-500 text-white print:bg-green-300 print:text-gray-900' : 'bg-green-300'}`}>
                       {calculateTotalBillable().toFixed(2)}
                     </td>
                     <td className="border p-1 bg-green-100 print:hidden"></td>
@@ -2372,14 +2386,14 @@ export default function TimesheetForm({
                   <td className="border p-1" colSpan={3}>Summe der foerderbaren Stunden (2)</td>
                   {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
                     const daySum = calculateDaySum(day);
-                    const tagZuViel = daySum > TAGESGRENZE_HART;
+                    const tagZuViel = Math.round(daySum * 100) > Math.round(TAGESGRENZE_HART * 100);
                     return (
                       <td key={day} className={`border p-1 text-center text-[10px] ${tagZuViel ? 'bg-red-400 text-white font-bold' : ''}`}>
                         {daySum > 0 ? daySum.toFixed(2) : '0,00'}
                       </td>
                     );
                   })}
-                  <td className={`border p-1 text-center ${monatUeberschritten ? 'bg-red-500 text-white' : 'bg-green-200'}`}>
+                  <td className={`border p-1 text-center ${monatUeberschritten ? 'bg-red-500 text-white' : gfUeberschritten ? 'bg-red-500 text-white print:bg-green-200 print:text-gray-900' : 'bg-green-200'}`}>
                     {calculateTotalBillable().toFixed(2)}
                   </td>
                   <td className="border p-1 bg-green-50 print:hidden"></td>
