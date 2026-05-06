@@ -2,9 +2,13 @@
 // ============================================================================
 // PZE V7 - Shared Component: Berichte & Controlling
 // ============================================================================
-// Version: 7.4.6-6
+// Version: 7.4.6-7
 // Datum: 6. Mai 2026
-// v7.4.6-6: Zeiterfassungs-Status: employeesInProjects-Quelle geaendert von
+// v7.4.6-7: "Meine Projekte" integriert in Dashboard:
+//   - "Projekt-Uebersicht"-Tabelle ersetzt durch klickbare Projektliste
+//   - Direktlink zur Projektdetailseite (/v7/firma/projekte/[id])
+//   - "+ Neues Projekt"-Button fuer client_admin
+//   - Nav-Punkt "Meine Projekte" entfaellt damit komplett
 //   wpAssignments (Arbeitsplan) auf projectAssignments (Projektteam).
 //   Konsistent mit StundennachweisMatrix v7.4.6-2 und ZAPanel v7.4.4-32.
 //   SOLL-Stunden kommen weiterhin aus wpAssignments (korrekt: Antragswerte).
@@ -884,11 +888,23 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
           </div>
         )}
 
-        {/* Projekt-Uebersicht (Tabelle) */}
+        {/* Meine Projekte (v7.4.6-7: integriert, ersetzt separate Nav-Seite) */}
         <div className="bg-white rounded-lg shadow mb-6">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Projekt-Uebersicht</h2>
-          </div>          <div className="overflow-x-auto">
+          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-gray-900">Meine Projekte</h2>
+            {portalRole === 'client_admin' && portal === 'firma' && (
+              <button
+                onClick={() => router.push('/v7/firma/projekte/neu')}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Neues Projekt
+              </button>
+            )}
+          </div>
+          <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
@@ -897,14 +913,16 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Plan-PM</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Ist-PM</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fortschritt</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase print:hidden"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {projectStats.length === 0 ? (
-                  <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-500">Keine Projekte vorhanden</td></tr>
+                  <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-500">Keine Projekte vorhanden</td></tr>
                 ) : (
                   projectStats.map(ps => (
-                    <tr key={ps.project.id} className="hover:bg-gray-50">
+                    <tr key={ps.project.id} className="hover:bg-gray-50 cursor-pointer"
+                        onClick={() => portal === 'firma' ? router.push(`/v7/firma/projekte/${ps.project.id}`) : undefined}>
                       <td className="px-6 py-4">
                         <div className="font-medium text-gray-900">{ps.project.name}</div>
                         <div className="text-sm text-gray-500">
@@ -951,6 +969,19 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
                           {ps.status === 'critical' && <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />}
                         </div>
                       </td>
+                      {portal === 'firma' && (
+                        <td className="px-6 py-4 text-center print:hidden">
+                          <button
+                            onClick={e => { e.stopPropagation(); router.push(`/v7/firma/projekte/${ps.project.id}`); }}
+                            className="text-green-600 hover:text-green-800 text-sm font-medium flex items-center gap-1 mx-auto"
+                          >
+                            Oeffnen
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))
                 )}
