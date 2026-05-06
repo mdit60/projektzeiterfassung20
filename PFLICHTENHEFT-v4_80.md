@@ -124,6 +124,9 @@ Nokia/Apple-Prinzip: Alle Funktionen sofort verstaendlich, keine Hover-Verstecku
 - Personenmonate: 173.33 h/PM (40h/Woche x 52/12); 1 PM = ca. 21,67 AT (bei 8h/Tag)
 - Tagesarbeitszeit: `company.standard_weekly_hours / 5` (38h -> 7,6h/Tag)
 - RLS: Alle v7-Tabellen haben Row Level Security AKTIV (Stand Session 21)
+- `role_in_project` (v7_project_assignments): ab Session 36 nur noch 3 zulaessige Werte:
+  'Projektleiter' | 'Projektmitarbeiter' | 'Wissenschaftlicher Mitarbeiter'
+  (Migration per SQL-MIGRATION-role_in_project-v1.sql erledigt)
 
 ### 2.3 Feiertagsberechnung (KRITISCH)
 
@@ -340,7 +343,7 @@ direkt bearbeitbar.
 | PortalNav.tsx | **7.4.4-12** | Navigation + Hilfe-Dropdown + manuals_enabled aus DB |
 | ProjectCreateForm.tsx | 7.3.57 | Projekt anlegen |
 | ProjectDetailPage.tsx | 7.4.4-54 | Projekt-Detail + NWM-Tab-Switch |
-| ProjectTeamManager.tsx | 7.4.4-16 | Team-Verwaltung, employment_end-Limit |
+| ProjectTeamManager.tsx | **7.4.4-17** | Team-Verwaltung, ROLE_OPTIONS auf 3 ZA-Werte reduziert |
 | SystemConfigPanel.tsx | **7.4.4-2** | Toggle Anleitungs-Downloads (manuals_enabled) |
 | TimesheetForm.tsx | **7.4.6-10** | ZE + Monatsabschluss + AP-Filter + 6 Bugfixes |
 | BerichtePage.tsx | 7.4.6-5 | Berichte & Controlling + Accordion |
@@ -659,7 +662,7 @@ git checkout main && git pull && git merge v7-dev --no-ff --no-edit && git push 
 
 | Version | Datum | Aenderungen |
 |---------|-------|-------------|
-| v4.80 | 06.05.2026 | Session 36: Login PW-Toggle (v7.3.90-2). Neu §16 Codequalitaet + Technische Schulden. Neu §17 Dokumentationsstandard externer Entwickler. §12b Regeln 9+10 ergaenzt. §4.2 Login-Seite eingetragen. |
+| v4.80 | 06.05.2026 | Session 36: Login PW-Toggle (v7.3.90-2). ProjectTeamManager v7.4.4-17: ROLE_OPTIONS auf 3 ZA-relevante Werte + SQL-Migration. Neu §16 Codequalitaet + Technische Schulden. Neu §17 Dokumentationsstandard externer Entwickler. §12b Regeln 9+10. §2 role_in_project-Werte dokumentiert. |
 | v4.79 | 01.05.2026 | Backlog bereinigt: KPT-Umbenennung (MPT->KPT), Vercel-Preview-Entscheidung, Prio-Liste praezisiert
 | v4.78 | 01.05.2026 | Session 35: TimesheetForm v7.4.6-5 bis -10 (6 Bugfixes: AP-Spalte, compareApCode, Fehlzeiten nonBillable, ArrowDown, offen negativ, Feiertag Wochenende). Firmenanlage v7.4.1-4/5/6 (Pflichtfeld, Doppel-Submit, RLS-Fix). create-user-route v7.4.1-1. EmployeeManagement v7.3.95-14 (Orphan-Badge). VETIS Arbeitsplan korrigiert. ALACsystems als 9. PROD-Firma angelegt. Session 34 (erstmals im Repo): Anleitungen v2.1/v2.2, v7_system_config, SystemConfigPanel, PortalNav v7.4.4-12, stabile Asset-URLs. |
 | v4.76 | 28.04.2026 | Session 33: Mein-Status, Hilfe-Dropdown, BerichtePage, Foerderbetrag-Fix |
