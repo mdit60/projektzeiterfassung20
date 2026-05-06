@@ -2,8 +2,13 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-31
-// v7.4.4-31: Deckblatt Kopfzeilen-Umstrukturierung (3 Zeilen)
+// Version: 7.4.4-32
+// v7.4.4-32: assignedEmployeeIds-Quelle geaendert: war wpAssignments (Arbeitsplan),
+//   jetzt projectAssignments (Projektteam). Konsistent mit StundennachweisMatrix
+//   v7.4.6-2. Nachfolge-MA erscheinen in der ZA ohne AP-Aenderung.
+//   Grundsatz: Arbeitsplan = urspruengliche Antragstellung (unveraenderlich).
+//   Tatsaechliche Arbeit dokumentiert sich ueber Zeiterfassung.
+//
 //   - Zeile 1 (gelb): FKZ | Datum Zuwendungsbescheid
 //   - Zeile 2 (gruen): Projektlaufzeit von...bis | Bewilligte Foerdersumme
 //   - Zeile 3 (blau): ZA-Nr. | Abrechnungszeitraum von...bis
@@ -68,7 +73,7 @@ import { createClient } from '@/lib/supabase/client';
 import { FileText } from 'lucide-react';
 
 
-// Förderformat-Labels (entspricht ProjectCreateForm)
+// Foerderformat-Labels (entspricht ProjectCreateForm)
 const FUNDING_FORMAT_LABELS: Record<string, string> = {
   'ZIM':           'ZIM Einzelprojekt',
   'ZIM_KOOP':      'ZIM Kooperationsprojekt',
@@ -466,11 +471,12 @@ export default function ZAPanel({
     const isDS = String(project.funding_format || '').toUpperCase().trim() === 'ZIM_DS';
 
     const projectWPs = workPackages.filter(wp => wp.project_id === pid);
-    const projectWPIds = projectWPs.map(wp => wp.id);
+    // v7.4.4-32: Quelle ist projectAssignments (Projektteam), nicht wpAssignments
+    // (Arbeitsplan). Konsistent mit StundennachweisMatrix v7.4.6-2.
     const assignedEmployeeIds = [...new Set(
-      wpAssignments
-        .filter(wpa => projectWPIds.includes(wpa.work_package_id))
-        .map(wpa => wpa.employee_id)
+      projectAssignments
+        .filter(pa => pa.project_id === pid)
+        .map(pa => pa.employee_id)
     )];
 
     const vonDate = new Date(vonStr);
