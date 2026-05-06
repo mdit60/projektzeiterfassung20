@@ -2,8 +2,10 @@
 // ============================================================================
 // PZE V7 - Shared Component: Berichte & Controlling
 // ============================================================================
-// Version: 7.4.6-7
+// Version: 7.4.6-8
 // Datum: 6. Mai 2026
+// v7.4.6-8: FIX: MA wird sofort zu /v7/firma/mein-status umgeleitet
+//   (BerichtePage/Dashboard ist nur fuer Admin und PL zugaenglich)
 // v7.4.6-7: "Meine Projekte" integriert in Dashboard:
 //   - "Projekt-Uebersicht"-Tabelle ersetzt durch klickbare Projektliste
 //   - Direktlink zur Projektdetailseite (/v7/firma/projekte/[id])
@@ -242,6 +244,13 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
   const [error, setError] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [portalRole, setPortalRole] = useState<string>('employee');
+
+  // v7.4.6-8: MA darf nicht auf Dashboard - sofort zu Mein Status umleiten
+  useEffect(() => {
+    if (portal === 'firma' && portalRole === 'employee') {
+      router.replace('/v7/firma/mein-status');
+    }
+  }, [portal, portalRole, router]);
   const [company, setCompany] = useState<Company | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
