@@ -2,9 +2,20 @@
 // ============================================================================
 // PZE V7 - Shared Component: Stundennachweis-Matrix
 // ============================================================================
-// Version: 7.4.6-1
-// Datum: 20. April 2026
-// v7.4.6-1: Feiertagsberechnung konsolidiert - nutzt zentrale Utility
+// Version: 7.4.6-2
+// Datum: 6. Mai 2026
+// v7.4.6-2: matrixEmployees-Quelle geaendert: war wpAssignments (Arbeitsplan),
+//   jetzt projectAssignments (Projektteam). Damit erscheinen ALLE MA im
+//   Projektteam in der Matrix, unabhaengig ob sie im Arbeitsplan stehen.
+//   BEGRUENDUNG: Nachfolge-MA uebernehmen offene AP ohne eigenen AP-Eintrag.
+//   WICHTIGER GRUNDSATZ: Der Arbeitsplan spiegelt die urspruengliche
+//   Antragstellung wider (Zuwendungsbescheid) und darf nachtraeglich nicht
+//   veraendert werden. Die tatsaechliche Arbeit dokumentiert sich ueber die
+//   Zeiterfassung -- beide Ebenen bleiben damit sauber getrennt.
+//   Konsequenz: Nachtraeglich falsch zugeordnete AP-Eintraege koennen
+//   rueckgaengig gemacht werden; neue MA erscheinen allein durch den
+//   Projektteam-Eintrag korrekt in der Matrix.
+//
 //   src/lib/holidays/germanHolidays.ts. Lokale getGermanHolidays/
 //   normalizeStateCode entfernt. Company-Interface um holiday_region erweitert.
 //   Hinweis: Die lokale Version normalisierte auf Kurzcode ("BY" statt "DE-BY")
@@ -228,9 +239,10 @@ export default function StundennachweisMatrix({
 
     const years = [...new Set(months.map(m => m.year))];
     const projectWPs = workPackages.filter(wp => wp.project_id === activeProjectId);
-    const projectWPIds = projectWPs.map(wp => wp.id);
+    // v7.4.6-2: Quelle ist projectAssignments (Projektteam), nicht wpAssignments
+    // (Arbeitsplan). Alle MA im Team erscheinen in der Matrix.
     const assignedEmployeeIds = [...new Set(
-      wpAssignments.filter(a => projectWPIds.includes(a.work_package_id)).map(a => a.employee_id)
+      projectAssignments.map(pa => pa.employee_id)
     )];
     const matrixEmployees = employees
       .filter(e => assignedEmployeeIds.includes(e.id))
