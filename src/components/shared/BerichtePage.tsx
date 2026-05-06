@@ -2,9 +2,9 @@
 // ============================================================================
 // PZE V7 - Shared Component: Berichte & Controlling
 // ============================================================================
-// Version: 7.4.6-9
+// Version: 7.4.6-10
 // Datum: 6. Mai 2026
-// v7.4.6-9: FIX roleLoaded-Flag: MA-Redirect erst nach bestaetigter Rolle,
+// v7.4.6-10: Seiten-Titel geaendert: "Berichte & Controlling" -> "Dashboard"
 //   nicht beim initialen Render mit portalRole='employee' Default-Wert
 // v7.4.6-7: "Meine Projekte" integriert in Dashboard:
 //   - "Projekt-Uebersicht"-Tabelle ersetzt durch klickbare Projektliste
@@ -766,7 +766,7 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
 
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-2xl font-bold text-gray-900">Berichte &amp; Controlling</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
           <p className="text-gray-600 mt-1">
             {company?.name && portal === 'berater' ? `${company.name} \u00b7 ` : ''}
             Uebersicht Projekte, Kosten und Zeiterfassung
