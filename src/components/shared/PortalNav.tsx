@@ -4,9 +4,13 @@
 // ============================================================================
 // PZE V7 - Portal-Navigation
 // ============================================================================
-// Version: 7.4.4-12
-// v7.4.4-12: Berater-Nav: "Zeiterfassungen" entfernt (fuehrt zu 404, kein
-//   sinnvoller Anwendungsfall im Berater-Portal)
+// Version: 7.4.4-13
+// v7.4.4-13: Firma-Nav umgebaut:
+//   - "Berichte" umbenannt zu "Dashboard" (neuer Startpunkt fuer Admin/PL)
+//   - "Meine Zeiterfassung" entfernt (Zugang ueber Mein Status ausreichend)
+//   - "Meine Projekte" entfernt (integriert in Dashboard-Seite)
+//   - Neue Reihenfolge Admin/PL: Dashboard | Mein Status | Mitarbeiter | Firmendaten
+//   - MA: nur Mein Status (kein Projektzugang noetig)
 // v7.4.4-10: Dateinamen ohne Versionsnummer (stabile URLs, kein Code-Deploy bei neuem PDF)
 // v7.4.4-9: Anleitungen-Download steuerbar ueber v7_system_config
 //   - manuals_enabled aus Supabase gelesen (key='manuals_enabled')
@@ -27,8 +31,7 @@ import { createClient } from '@/lib/supabase/client';
 import {
   BarChart3,
   Building2,
-  Clock,
-  FolderKanban,
+  LayoutDashboard,
   Settings,
   Users,
   Network,
@@ -75,20 +78,23 @@ const NAV_BERATER: NavItem[] = [
 ];
 
 // ============================================================================
-// FIRMEN-PORTAL NAVIGATION - KUMULATIV
+// FIRMEN-PORTAL NAVIGATION (v7.4.4-13)
+// Admin/PL: Dashboard | Mein Status | Mitarbeiter* | Firmendaten*  (*=Admin only)
+// MA:       Mein Status
 // ============================================================================
 
-const NAV_FIRMA_PL_BASE: NavItem[] = [
-  { key: 'mein-status',         label: 'Mein Status',         href: '/v7/firma/mein-status',   icon: <BarChart3 size={18} /> },
-  { key: 'meine-zeiterfassung', label: 'Meine Zeiterfassung', href: '/v7/firma/zeiterfassung', icon: <Clock size={18} /> },
+const NAV_FIRMA_MA: NavItem[] = [
+  { key: 'mein-status', label: 'Mein Status', href: '/v7/firma/mein-status', icon: <BarChart3 size={18} /> },
 ];
 
-const NAV_FIRMA_PL_EXTRAS: NavItem[] = [
-  { key: 'meine-projekte', label: 'Meine Projekte', href: '/v7/firma/projekte',  icon: <FolderKanban size={18} /> },
-  { key: 'berichte',       label: 'Berichte',       href: '/v7/firma/berichte',  icon: <BarChart3 size={18} /> },
+const NAV_FIRMA_PL: NavItem[] = [
+  { key: 'berichte',    label: 'Dashboard',   href: '/v7/firma/berichte',    icon: <LayoutDashboard size={18} /> },
+  { key: 'mein-status', label: 'Mein Status', href: '/v7/firma/mein-status', icon: <BarChart3 size={18} /> },
 ];
 
-const NAV_FIRMA_ADMIN_EXTRAS: NavItem[] = [
+const NAV_FIRMA_ADMIN: NavItem[] = [
+  { key: 'berichte',    label: 'Dashboard',   href: '/v7/firma/berichte',    icon: <LayoutDashboard size={18} /> },
+  { key: 'mein-status', label: 'Mein Status', href: '/v7/firma/mein-status', icon: <BarChart3 size={18} /> },
   { key: 'mitarbeiter', label: 'Mitarbeiter', href: '/v7/firma/mitarbeiter', icon: <Users size={18} /> },
   { key: 'firmendaten', label: 'Firmendaten', href: '/v7/firma/firmendaten', icon: <Building2 size={18} /> },
 ];
@@ -119,21 +125,14 @@ function getNavItems(
     });
   }
 
-  // Firmen-Portal: Kumulative Navigation
+  // Firmen-Portal: rollenbasierte Navigation
   const effectiveRole = (userRole === 'client_admin' || portalRole === 'client_admin')
     ? 'client_admin'
     : (portalRole || 'employee');
 
-  if (effectiveRole === 'employee') return [];
-
-  const items = [...NAV_FIRMA_PL_BASE];
-  if (effectiveRole === 'project_leader' || effectiveRole === 'client_admin') {
-    items.push(...NAV_FIRMA_PL_EXTRAS);
-  }
-  if (effectiveRole === 'client_admin') {
-    items.push(...NAV_FIRMA_ADMIN_EXTRAS);
-  }
-  return items;
+  if (effectiveRole === 'employee') return NAV_FIRMA_MA;
+  if (effectiveRole === 'project_leader') return NAV_FIRMA_PL;
+  return NAV_FIRMA_ADMIN;
 }
 
 // ============================================================================
