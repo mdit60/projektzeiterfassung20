@@ -3,8 +3,9 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 18. April 2026
-// Version: 7.4.4-54
-// v7.4.4-50: NWM Arbeitsplan: Jahres-Navigation + Daten aus v7_nwm_ap_planung
+// Version: 7.4.4-55
+// v7.4.4-55: Firmen-Portal: Zurueck-Button zeigt "Dashboard" statt "Projekte"
+//   und navigiert zu /v7/firma/berichte (Dashboard mit integrierter Projektliste)
 //
 // v7.4.4-49: FIX: Zurueck-Button NWM navigiert zur NWM-Uebersicht statt Firma
 //   - fromNWMList als useState (stabil bei Re-Render)
@@ -777,13 +778,13 @@ export default function ProjectDetailPage({
     if (portal === 'berater' && companyId) {
       return `/v7/berater/foerderung/firma/${companyId}?tab=projekte`;
     }
-    return '/v7/firma/projekte';
+    return '/v7/firma/berichte';
   };
 
   const getBackLabel = (): string => {
     if (fromNWMList && portal === 'berater') return 'Netzwerke';
     if (portal === 'berater') return 'Firma';
-    return 'Projekte';
+    return 'Dashboard';
   };
 
   const isZimProject = (): boolean => {
