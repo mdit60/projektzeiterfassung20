@@ -2,7 +2,9 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-34
+// Version: 7.4.4-35
+// v7.4.4-35: foerderbetrag_gesamt wird beim Speichern der ZA fest in DB geschrieben.
+//   Archiv-Tab zeigt gespeicherten Wert (historisch korrekt, keine Neuberechnung).
 // v7.4.4-34: Archiv-Tab neu: Zahlungseingang-Felder (Datum, Betrag, Anmerkung)
 //   inline editierbar und speicherbar. Neue Spalten: Datum | Betrag | Zahlungseingang
 //   | Betrag | Anmerkung | Status | Oeffnen. Spalten Bewilligt + Foerderbetrag entfernt.
@@ -174,6 +176,7 @@ interface ZahlungsanforderungDB {
   zahlungseingang_datum: string | null;
   zahlungseingang_betrag: number | null;
   zahlungseingang_kommentar: string | null;
+  foerderbetrag_gesamt: number | null;
 }
 
 // Status-Hilfsfunktionen
@@ -351,7 +354,7 @@ export default function ZAPanel({
 
     const { data: existingZAs } = await supabase
       .from('v7_zahlungsanforderungen')
-      .select('id, project_id, za_nummer, zeitraum_von, zeitraum_bis, auftraege_dritte_t, auftraege_dritte_nt, fue_unterauftrag, zeitw_personalaufnahme, status, notizen, eingereicht_am, bewilligt_am, nwm_personalkosten, nwm_kosten_dritte, nwm_kosten_uebrige, nwm_kosten_gesamt, laufzeitjahr, foerdersatz_percent, zahlungseingang_datum, zahlungseingang_betrag, zahlungseingang_kommentar')
+      .select('id, project_id, za_nummer, zeitraum_von, zeitraum_bis, auftraege_dritte_t, auftraege_dritte_nt, fue_unterauftrag, zeitw_personalaufnahme, status, notizen, eingereicht_am, bewilligt_am, nwm_personalkosten, nwm_kosten_dritte, nwm_kosten_uebrige, nwm_kosten_gesamt, laufzeitjahr, foerdersatz_percent, zahlungseingang_datum, zahlungseingang_betrag, zahlungseingang_kommentar, foerderbetrag_gesamt')
       .eq('project_id', pid)
       .order('za_nummer', { ascending: true });
 
@@ -468,6 +471,8 @@ export default function ZAPanel({
         payload.laufzeitjahr = nwmLaufzeitjahr;
         payload.foerdersatz_percent = nwmFoerdersatz;
       }
+      // Foerderbetrag fest speichern (historisch korrekt)
+      payload.foerderbetrag_gesamt = isNetzwerk ? nwmFoerderbetrag : antZuwendung;
       if (zaSelectedId) {
         await supabase.from('v7_zahlungsanforderungen').update(payload).eq('id', zaSelectedId);
       } else {
@@ -1503,8 +1508,8 @@ export default function ZAPanel({
                         const vonDate = za.zeitraum_von ? new Date(za.zeitraum_von).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '--';
                         const bisDate = za.zeitraum_bis ? new Date(za.zeitraum_bis).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '--';
                         const einDate = za.eingereicht_am ? new Date(za.eingereicht_am).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '--';
-                        const foerderbetrag = isNetzwerk && za.nwm_kosten_gesamt != null
-                          ? (za.nwm_kosten_gesamt * (za.foerdersatz_percent || 0) / 100).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' EUR'
+                        const foerderbetrag = za.foerderbetrag_gesamt != null
+                          ? za.foerderbetrag_gesamt.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' EUR'
                           : null;
                         const edit = archivEdits[za.id] || { datum: '', betrag: '', kommentar: '', saving: false, saved: false };
                         const isSelected = zaSelectedId === za.id;
@@ -1518,7 +1523,7 @@ export default function ZAPanel({
                             <td className="px-3 py-2 text-right font-mono text-gray-700 text-xs whitespace-nowrap">
                               {foerderbetrag
                                 ? foerderbetrag
-                                : <span className="text-gray-400">s. Deckblatt</span>}
+                                : <span className="text-gray-400">noch nicht gespeichert</span>}
                             </td>
                             <td className="px-3 py-2">
                               <input
