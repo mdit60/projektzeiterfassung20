@@ -2,10 +2,10 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-36
+// Version: 7.4.4-37
+// v7.4.4-37: Archiv-Tab berechnet Foerderbetrag immer live aus Timesheet-Props.
+//   foerderbetrag_gesamt aus DB als Fallback (historisch). Entwurf zeigt Betrag sofort.
 // v7.4.4-36: foerderbetrag_gesamt auch bei Statuswechsel gespeichert.
-//   Archiv zeigt Betrag ab erster Speicherung, unabhaengig vom Status.
-// v7.4.4-35: foerderbetrag_gesamt wird beim Speichern der ZA fest in DB geschrieben.
 //   Archiv-Tab zeigt gespeicherten Wert (historisch korrekt, keine Neuberechnung).
 // v7.4.4-34: Archiv-Tab neu: Zahlungseingang-Felder (Datum, Betrag, Anmerkung)
 //   inline editierbar und speicherbar. Neue Spalten: Datum | Betrag | Zahlungseingang
@@ -627,6 +627,34 @@ export default function ZAPanel({
       alert('Fehler beim Speichern: ' + err.message);
       setArchivEdits(prev => ({ ...prev, [zaId]: { ...prev[zaId], saving: false } }));
     }
+  };
+
+  const computeArchivFoerderbetrag = (za: ZahlungsanforderungDB): number => {
+    if (za.foerderbetrag_gesamt != null) return za.foerderbetrag_gesamt;
+    const zaProj = projects.find(p => p.id === za.project_id);
+    const zaIsDS = String(zaProj?.funding_format || '').toUpperCase().trim() === 'ZIM_DS';
+    const zaIsNWM = String(zaProj?.funding_format || '').toUpperCase().trim() === 'ZIM_NETZWERK';
+    const psRows = getZAPersonenstunden(za.project_id, za.zeitraum_von, za.zeitraum_bis);
+    if (zaIsNWM) {
+      const pk = psRows.reduce((s, r) => s + r.totalAll * (getHourlyRate(r.empId, za.project_id) || 0), 0);
+      return Math.round(pk * (za.foerdersatz_percent || 0) / 100);
+    }
+    const pkT = psRows.reduce((s, r) => s + r.totalT * (getHourlyRate(r.empId, za.project_id) || 0), 0);
+    const pkNT = psRows.reduce((s, r) => s + r.totalNT * (getHourlyRate(r.empId, za.project_id) || 0), 0);
+    const pkG = zaIsDS ? pkT + pkNT : psRows.reduce((s, r) => s + r.totalAll * (getHourlyRate(r.empId, za.project_id) || 0), 0);
+    const fs = zaProj?.foerdersatz || 0;
+    const ohT = zaProj?.overhead_t || 0;
+    const ohNT = zaIsDS ? (zaProj?.overhead_nt || zaProj?.overhead_t || 0) : (zaProj?.overhead_t || 0);
+    const gkT = zaIsDS ? pkT * ohT / 100 : pkG * ohT / 100;
+    const gkNT = zaIsDS ? pkNT * ohNT / 100 : 0;
+    const aufT = za.auftraege_dritte_t || 0;
+    const aufNT = za.auftraege_dritte_nt || 0;
+    const fueUA = za.fue_unterauftrag || 0;
+    const zeitwPA = za.zeitw_personalaufnahme || 0;
+    const summe = zaIsDS
+      ? pkT + gkT + aufT + pkNT + gkNT + aufNT + fueUA + zeitwPA
+      : pkG + gkT + aufT + fueUA + zeitwPA;
+    return Math.round(summe * fs / 100);
   };
 
   const handlePrint = () => {
@@ -1511,8 +1539,9 @@ export default function ZAPanel({
                         const vonDate = za.zeitraum_von ? new Date(za.zeitraum_von).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '--';
                         const bisDate = za.zeitraum_bis ? new Date(za.zeitraum_bis).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '--';
                         const einDate = za.eingereicht_am ? new Date(za.eingereicht_am).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '--';
-                        const foerderbetrag = za.foerderbetrag_gesamt != null
-                          ? za.foerderbetrag_gesamt.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' EUR'
+                        const computedBetrag = computeArchivFoerderbetrag(za);
+                        const foerderbetrag = computedBetrag > 0
+                          ? computedBetrag.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' EUR'
                           : null;
                         const edit = archivEdits[za.id] || { datum: '', betrag: '', kommentar: '', saving: false, saved: false };
                         const isSelected = zaSelectedId === za.id;
