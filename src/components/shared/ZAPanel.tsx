@@ -2,7 +2,8 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-32
+// Version: 7.4.4-33
+// v7.4.4-33: Anlage 1a: MA sortiert nach employee_number (lfd. Nr. gemaess Antrag)
 // v7.4.4-32: assignedEmployeeIds-Quelle geaendert: war wpAssignments (Arbeitsplan),
 //   jetzt projectAssignments (Projektteam). Konsistent mit StundennachweisMatrix
 //   v7.4.6-2. Nachfolge-MA erscheinen in der ZA ohne AP-Aenderung.
@@ -472,12 +473,15 @@ export default function ZAPanel({
 
     const projectWPs = workPackages.filter(wp => wp.project_id === pid);
     // v7.4.4-32: Quelle ist projectAssignments (Projektteam), nicht wpAssignments
-    // (Arbeitsplan). Konsistent mit StundennachweisMatrix v7.4.6-2.
-    const assignedEmployeeIds = [...new Set(
-      projectAssignments
-        .filter(pa => pa.project_id === pid)
-        .map(pa => pa.employee_id)
-    )];
+    // Sortierung nach employee_number (lfd. Nr. gemaess Antrag)
+    const assignedEmployeeIds = [
+      ...new Set(
+        projectAssignments
+          .filter(pa => pa.project_id === pid)
+          .sort((a, b) => (a.employee_number ?? 999) - (b.employee_number ?? 999))
+          .map(pa => pa.employee_id)
+      )
+    ];
 
     const vonDate = new Date(vonStr);
     const bisDate = new Date(bisStr);
