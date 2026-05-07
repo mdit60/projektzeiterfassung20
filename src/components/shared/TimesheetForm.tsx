@@ -3,7 +3,11 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 7. Mai 2026
-// Version: 7.4.6-15
+// Version: 7.4.6-16
+// Datum: 7. Mai 2026
+// v7.4.6-16: Fehlzeiten (U/K/S) direkt editierbar - keine Automatik mehr.
+//   Tageszellen in U/K/S-Zeilen sind frei editierbar (wie Excel).
+//   absenceHoursInput State, Laden aus DB, Speichern ohne employeeDailyHours.
 // v7.4.6-15: Abwesenheitsstunden (U/K/S/F) basieren auf MA-Tagesstunden
 //   (weeklyHoursAtMonth / 5) statt Firmen-Standard (companyDailyHours).
 //   Teilzeit 30h/Woche -> 6h/Tag bei U/K/S statt 8h.
@@ -358,6 +362,12 @@ export default function TimesheetForm({
     { workPackageId: null, entries: {} },
   ]);
   const [nonBillableEntries, setNonBillableEntries] = useState<Record<number, CalendarEntry>>({});
+  // v7.4.6-16: Fehlzeiten-Stunden direkt editierbar (keine Automatik mehr)
+  const [absenceHoursInput, setAbsenceHoursInput] = useState<{
+    U: Record<number, CalendarEntry>;
+    K: Record<number, CalendarEntry>;
+    S: Record<number, CalendarEntry>;
+  }>({ U: {}, K: {}, S: {} });
 
   // NEU v7.4.3: Arbeitsplan-Daten fuer "offen"-Spalte und AP-Vorbelegung
   // Geplante Stunden pro WP fuer den aktuellen MA (aus v7_work_package_assignments)
@@ -974,6 +984,8 @@ export default function TimesheetForm({
 
       // Map fuer Fehlzeiten (ohne work_package_id, aber mit absence_code)
       const absenceEntries = new Map<number, { id: string; value: string }>();
+      // v7.4.6-16: Fehlzeiten-Stunden direkt editierbar
+      const newAbsenceHours: { U: Record<number, CalendarEntry>; K: Record<number, CalendarEntry>; S: Record<number, CalendarEntry> } = { U: {}, K: {}, S: {} };
 
       entries?.forEach(entry => {
         const day = parseInt(entry.work_date.split('-')[2]);
@@ -987,8 +999,16 @@ export default function TimesheetForm({
           wpEntryMap.get(entry.work_package_id)!.set(day, { id: entry.id, value });
           console.log('[TimesheetForm] AP-Eintrag gefunden:', { wp_id: entry.work_package_id, day, value });
         } else if (entry.absence_code && !entry.work_package_id) {
-          // Fehlzeiten (U/K/S) - werden ohne work_package_id gespeichert
-          absenceEntries.set(day, { id: entry.id, value: entry.absence_code });
+          // v7.4.6-16: Fehlzeiten (U/K/S) direkt in absenceHoursInput laden
+          // NICHT mehr in absenceEntries (wuerde sonst doppelt in AP-Zeilen erscheinen)
+          const code = entry.absence_code as 'U' | 'K' | 'S';
+          if (['U', 'K', 'S'].includes(code)) {
+            if (!newAbsenceHours[code]) newAbsenceHours[code] = {};
+            newAbsenceHours[code][day] = {
+              id: entry.id,
+              value: entry.hours > 0 ? entry.hours.toString() : ''
+            };
+          }
           console.log('[TimesheetForm] Fehlzeit-Eintrag gefunden:', { day, absence_code: entry.absence_code });
         } else if (!entry.is_billable && !entry.work_package_id && !entry.absence_code) {
           // Sonstige nicht zuschussfaehige Arbeiten (ohne absence_code)
@@ -1007,6 +1027,8 @@ export default function TimesheetForm({
       console.log('[TimesheetForm] Verarbeitete WP-Eintraege:', wpEntryMap.size);
       console.log('[TimesheetForm] Fehlzeit-Eintraege:', absenceEntries.size);
       console.log('[TimesheetForm] Sonstige Eintraege:', Object.keys(newNonBillable).length);
+      // v7.4.6-16: Fehlzeiten-Stunden in State laden
+      setAbsenceHoursInput(newAbsenceHours);
 
       let rowIndex = 0;
       wpEntryMap.forEach((dayMap, wpId) => {
@@ -1409,28 +1431,14 @@ export default function TimesheetForm({
   };
 
   const calculateAbsenceSums = (): Record<string, number> => {
+    // v7.4.6-16: Summen aus absenceHoursInput (direkt editierbar)
     const sums: Record<string, number> = { U: 0, K: 0, S: 0 };
     const daysInMonth = getDaysInMonth(selectedYear, selectedMonth);
-
     for (let day = 1; day <= daysInMonth; day++) {
-      // AP-Zeilen
-      apRows.forEach(row => {
-        const entry = row.entries[day];
-        if (entry?.value && isAbsenceCode(entry.value)) {
-          const code = entry.value.toUpperCase();
-          if (sums[code] !== undefined) {
-            sums[code] += employeeDailyHours;
-          }
-        }
+      (['U', 'K', 'S'] as const).forEach(code => {
+        const entry = absenceHoursInput[code][day];
+        if (entry?.value) sums[code] += parseHours(entry.value);
       });
-      // v7.4.6-7: Auch nonBillableEntries (sonstige Arbeiten) pruefen
-      const nbEntry = nonBillableEntries[day];
-      if (nbEntry?.value && isAbsenceCode(nbEntry.value)) {
-        const code = nbEntry.value.toUpperCase();
-        if (sums[code] !== undefined) {
-          sums[code] += employeeDailyHours;
-        }
-      }
     }
     return sums;
   };
@@ -1567,7 +1575,7 @@ export default function TimesheetForm({
       const entriesToSave: any[] = [];
       const idsToKeep: string[] = [];
 
-      // AP-Zeilen
+      // AP-Zeilen (nur Projektstunden, keine Abwesenheits-Codes mehr)
       apRows.forEach(row => {
         if (!row.workPackageId) return;
 
@@ -1575,20 +1583,18 @@ export default function TimesheetForm({
           const day = parseInt(dayStr);
           if (!entry.value) return;
 
-          const isAbsence = isAbsenceCode(entry.value);
-          const hours = isAbsence ? employeeDailyHours : parseHours(entry.value);
+          // v7.4.6-16: Abwesenheits-Codes in AP-Zeilen werden nicht mehr gespeichert
+          // (Fehlzeiten werden direkt aus absenceHoursInput gespeichert)
+          if (isAbsenceCode(entry.value)) return;
 
-          // DB-Constraint: work_package_id und absence_code schliessen sich gegenseitig aus!
-          // Bei Fehlzeiten: work_package_id = null, absence_code gesetzt
-          // Bei Arbeit: work_package_id gesetzt, absence_code = null
           const record = {
             employee_id: selectedEmployeeId,
-            work_package_id: isAbsence ? null : row.workPackageId,
+            work_package_id: row.workPackageId,
             project_id: selectedProjectId,
             work_date: formatWorkDate(day),
-            hours: hours,
-            is_billable: !isAbsence,
-            absence_code: isAbsence ? entry.value.toUpperCase() : null,
+            hours: parseHours(entry.value),
+            is_billable: true,
+            absence_code: null,
             data_source: 'manual',
             entered_by: currentUserId,
             entered_at: now,
@@ -1631,6 +1637,34 @@ export default function TimesheetForm({
         } else {
           entriesToSave.push(record);
         }
+      });
+
+      // v7.4.6-16: Fehlzeiten aus absenceHoursInput (direkt editierbar, keine Automatik)
+      (['U', 'K', 'S'] as const).forEach(code => {
+        Object.entries(absenceHoursInput[code]).forEach(([dayStr, entry]) => {
+          const day = parseInt(dayStr);
+          if (!entry.value || parseHours(entry.value) === 0) return;
+          const record = {
+            employee_id: selectedEmployeeId,
+            work_package_id: null,
+            project_id: selectedProjectId,
+            work_date: formatWorkDate(day),
+            hours: parseHours(entry.value),
+            is_billable: false,
+            absence_code: code,
+            data_source: 'manual',
+            entered_by: currentUserId,
+            entered_at: now,
+            is_active: true,
+            updated_at: now,
+          };
+          if (entry.id) {
+            entriesToSave.push({ id: entry.id, ...record });
+            idsToKeep.push(entry.id);
+          } else {
+            entriesToSave.push(record);
+          }
+        });
       });
 
       // Alte Eintraege deaktivieren
@@ -2453,15 +2487,31 @@ export default function TimesheetForm({
                   3. Fehlzeiten
                 </td>
               </tr>
-              {/* Urlaub */}
+              {/* Urlaub - editierbar */}
               <tr>
                 <td className="border p-1 text-[10px]" colSpan={isDurchfuehrbarkeitsstudie ? 4 : 3}>Urlaub (nur bezahlten Urlaub auffuehren)</td>
                 {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
-                  const absences = getAbsencesForDay(day);
-                  const hasU = absences.some(a => a.code === 'U');
+                  const weekend = isWeekend(selectedYear, selectedMonth, day);
+                  const holiday = isHoliday(selectedYear, selectedMonth, day);
+                  const entry = absenceHoursInput.U[day];
                   return (
-                    <td key={day} className="border p-1 text-center text-[10px] bg-blue-50">
-                      {hasU ? employeeDailyHours.toFixed(1).replace('.', ',') : ''}
+                    <td key={day} className={`border p-0 text-center text-[10px] ${weekend ? 'bg-gray-100' : 'bg-blue-50'}`}>
+                      {!weekend && (
+                        <input
+                          type="text" inputMode="decimal"
+                          value={entry?.value || ''}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setAbsenceHoursInput(prev => ({
+                              ...prev,
+                              U: { ...prev.U, [day]: { id: prev.U[day]?.id || '', value: val } }
+                            }));
+                          }}
+                          className="w-full h-6 text-center text-xs border-0 bg-transparent focus:ring-1 focus:ring-blue-400 print:bg-transparent"
+                          maxLength={4}
+                          placeholder=""
+                        />
+                      )}
                     </td>
                   );
                 })}
@@ -2470,15 +2520,30 @@ export default function TimesheetForm({
                 </td>
                 <td className="border p-1 bg-blue-50 print:hidden"></td>
               </tr>
-              {/* Krankheit */}
+              {/* Krankheit - editierbar */}
               <tr>
                 <td className="border p-1 text-[10px]" colSpan={isDurchfuehrbarkeitsstudie ? 4 : 3}>Krankheit (nur bei Lohn- und Gehaltsfortzahlung)</td>
                 {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
-                  const absences = getAbsencesForDay(day);
-                  const hasK = absences.some(a => a.code === 'K');
+                  const weekend = isWeekend(selectedYear, selectedMonth, day);
+                  const entry = absenceHoursInput.K[day];
                   return (
-                    <td key={day} className="border p-1 text-center text-[10px] bg-red-50">
-                      {hasK ? employeeDailyHours.toFixed(1).replace('.', ',') : ''}
+                    <td key={day} className={`border p-0 text-center text-[10px] ${weekend ? 'bg-gray-100' : 'bg-red-50'}`}>
+                      {!weekend && (
+                        <input
+                          type="text" inputMode="decimal"
+                          value={entry?.value || ''}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setAbsenceHoursInput(prev => ({
+                              ...prev,
+                              K: { ...prev.K, [day]: { id: prev.K[day]?.id || '', value: val } }
+                            }));
+                          }}
+                          className="w-full h-6 text-center text-xs border-0 bg-transparent focus:ring-1 focus:ring-red-400 print:bg-transparent"
+                          maxLength={4}
+                          placeholder=""
+                        />
+                      )}
                     </td>
                   );
                 })}
@@ -2487,36 +2552,36 @@ export default function TimesheetForm({
                 </td>
                 <td className="border p-1 bg-red-50 print:hidden"></td>
               </tr>
-              {/* Sonstige */}
+              {/* Sonstige bezahlte Ausfallzeiten - editierbar */}
               <tr>
                 <td className="border p-1 text-[10px]" colSpan={isDurchfuehrbarkeitsstudie ? 4 : 3}>Sonstige bezahlte Ausfallzeiten (z. B. Feiertage)</td>
                 {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
-                  const absences = getAbsencesForDay(day);
-                  const hasS = absences.some(a => a.code === 'S');
-                  const holiday = isHoliday(selectedYear, selectedMonth, day);
                   const weekend = isWeekend(selectedYear, selectedMonth, day);
+                  const holiday = isHoliday(selectedYear, selectedMonth, day);
+                  const entry = absenceHoursInput.S[day];
                   return (
-                    <td key={day} className={`border p-1 text-center text-[10px] ${holiday && !weekend ? 'bg-orange-100' : 'bg-purple-50'}`}>
-                      {/* v7.4.6-10: Feiertag auf Wochenende -> keine Fehlstunden anzeigen */}
-                      {(hasS || (holiday && !weekend)) ? employeeDailyHours.toFixed(1).replace('.', ',') : ''}
+                    <td key={day} className={`border p-0 text-center text-[10px] ${weekend ? 'bg-gray-100' : holiday ? 'bg-orange-100' : 'bg-purple-50'}`}>
+                      {!weekend && (
+                        <input
+                          type="text" inputMode="decimal"
+                          value={entry?.value || ''}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setAbsenceHoursInput(prev => ({
+                              ...prev,
+                              S: { ...prev.S, [day]: { id: prev.S[day]?.id || '', value: val } }
+                            }));
+                          }}
+                          className="w-full h-6 text-center text-xs border-0 bg-transparent focus:ring-1 focus:ring-purple-400 print:bg-transparent"
+                          maxLength={4}
+                          placeholder=""
+                        />
+                      )}
                     </td>
                   );
                 })}
                 <td className="border p-1 text-center font-semibold bg-purple-100">
-                  {(() => {
-                    // S-Codes aus apRows + automatische Feiertage summieren
-                    let holidaySum = 0;
-                    for (let d = 1; d <= daysInMonth; d++) {
-                      const isWeekendDay = isWeekend(selectedYear, selectedMonth, d);
-                      const holidayName = isHoliday(selectedYear, selectedMonth, d);
-                      const absences = getAbsencesForDay(d);
-                      const hasS = absences.some(a => a.code === 'S');
-                      if ((hasS || holidayName) && !isWeekendDay) {
-                        holidaySum += employeeDailyHours;
-                      }
-                    }
-                    return holidaySum > 0 ? holidaySum.toFixed(2) : '0,00';
-                  })()}
+                  {absenceSums.S > 0 ? absenceSums.S.toFixed(2) : '0,00'}
                 </td>
                 <td className="border p-1 bg-purple-50 print:hidden"></td>
               </tr>

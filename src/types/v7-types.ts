@@ -2,13 +2,14 @@
 // ============================================================================
 // PZE V7 - TypeScript Interfaces
 // ============================================================================
-// Datum: 23. April 2026
-// Version: 7.4.8-1
+// Datum: 7. Mai 2026
+// Version: 7.4.9-1
 //
-// Diese Datei enthaelt alle TypeScript-Typen fuer die V7-Datenbankstruktur.
-// Erweitert um Portal-Rollen und Kapazitaetsmanagement.
+// v7.4.9-1: Teilzeit-Erfassung erweitert:
+//           - V7EmployeeHoursHistory: days_per_week + hours_per_day
+//           - Insert/Update entsprechend erweitert
+//           - weekly_hours = days_per_week * hours_per_day (berechnet)
 //
-// v7.4.8-1: FZul-Modul / Multiprojekt-Tool:
 //           - V7FzulVorhaben Interface + Insert/Update
 //           - V7FzulTimesheet Interface + Insert/Update
 //           - V7FzulDayType, V7FzulStatus Typen
@@ -1110,7 +1111,9 @@ export function berechneGfProjektgrenze(weeklyHours: number): number {
 export interface V7EmployeeHoursHistory {
   id: string;
   employee_id: string;
-  weekly_hours: number;
+  weekly_hours: number;           // Berechnet: days_per_week * hours_per_day
+  days_per_week: number | null;   // Arbeitstage pro Woche (z.B. 3)
+  hours_per_day: number | null;   // Arbeitsstunden pro Tag (z.B. 8.0)
   gueltig_ab: string;        // ISO-Date, YYYY-MM-DD
   created_at: string;
   created_by: string | null;
@@ -1119,13 +1122,17 @@ export interface V7EmployeeHoursHistory {
 
 export interface V7EmployeeHoursHistoryInsert {
   employee_id: string;
-  weekly_hours: number;
+  weekly_hours: number;           // = days_per_week * hours_per_day
+  days_per_week?: number | null;
+  hours_per_day?: number | null;
   gueltig_ab: string;
   notiz?: string | null;
 }
 
 export interface V7EmployeeHoursHistoryUpdate {
   weekly_hours?: number;
+  days_per_week?: number | null;
+  hours_per_day?: number | null;
   gueltig_ab?: string;
   notiz?: string | null;
 }

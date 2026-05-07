@@ -3,7 +3,9 @@
 // PZE V7 - Shared Employee Management Component
 // ============================================================================
 // Datum: 22. April 2026
-// Version: 7.3.95-14
+// Version: 7.3.95-15
+// Datum: 7. Mai 2026
+// v7.3.95-15: Teilzeit-Erfassung: days_per_week + hours_per_day. weekly_hours berechnet.
 // v7.3.95-14: Verwaiste Login-User (ohne v7_employees) in Mitarbeiterliste anzeigen
 // v7.3.95-13: Tailwind-v4-Syntax-Modernisierung (2 Stellen). Keine
 //   funktionale Aenderung - nur Syntax fuer Tailwind v4 angepasst:
@@ -276,7 +278,8 @@ export default function EmployeeManagement({
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [historyForm, setHistoryForm] = useState({
     gueltig_ab: '',
-    weekly_hours: '40',
+    days_per_week: '5',
+    hours_per_day: '8',
     notiz: '',
   });
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -373,7 +376,7 @@ export default function EmployeeManagement({
           .filter(p => p.email && !employeeEmails.has(p.email.toLowerCase()))
           .map(p => ({
             id: p.id, // user_profiles.id als temporaere ID
-            display_name: p.display_name || p.email || '–',
+            display_name: p.display_name || p.email || '--',
             first_name: p.first_name || null,
             last_name: p.last_name || null,
             email: p.email,
@@ -514,12 +517,14 @@ export default function EmployeeManagement({
     const now = new Date();
     const naechsterMonat = new Date(now.getFullYear(), now.getMonth() + 1, 1);
     const vorschlagDatum = naechsterMonat.toISOString().split('T')[0];
-    // Stunden-Vorschlag: aktueller Wert
+    // Vorschlag: aktueller Historieeintrag oder Defaults
     const current = getCurrentHistoryEntry();
-    const vorschlagStunden = current ? current.weekly_hours.toString() : '40';
+    const vorschlagTage = current?.days_per_week != null ? current.days_per_week.toString() : '5';
+    const vorschlagStdTag = current?.hours_per_day != null ? current.hours_per_day.toString() : '8';
     setHistoryForm({
       gueltig_ab: vorschlagDatum,
-      weekly_hours: vorschlagStunden,
+      days_per_week: vorschlagTage,
+      hours_per_day: vorschlagStdTag,
       notiz: '',
     });
     setHistoryError(null);
@@ -547,12 +552,17 @@ export default function EmployeeManagement({
       setHistoryError('Bitte ein Gueltig-ab-Datum angeben.');
       return 'hard';
     }
-    const stunden = parseFloat(historyForm.weekly_hours.replace(',', '.'));
-    if (isNaN(stunden) || stunden <= 0 || stunden > 60) {
-      setHistoryError('Wochenstunden muessen zwischen 0 und 60 liegen.');
+    const tage = parseInt(historyForm.days_per_week);
+    const stdTag = parseFloat(historyForm.hours_per_day.replace(',', '.'));
+    if (isNaN(tage) || tage < 1 || tage > 7) {
+      setHistoryError('Arbeitstage muessen zwischen 1 und 7 liegen.');
       return 'hard';
     }
-    // Duplikatspruefung (gleicher Tag schon vorhanden)
+    if (isNaN(stdTag) || stdTag <= 0 || stdTag > 24) {
+      setHistoryError('Stunden pro Tag muessen zwischen 0 und 24 liegen.');
+      return 'hard';
+    }
+    // Duplikatspruefung
     if (hoursHistory.some(h => h.gueltig_ab === datum)) {
       setHistoryError('Fuer dieses Datum gibt es bereits einen Eintrag.');
       return 'hard';
@@ -573,14 +583,18 @@ export default function EmployeeManagement({
     if (!editingEmployee) return;
     const status = validateHistoryForm();
     if (status === 'hard') return;
-    if (status === 'soft' && !force) return;  // Zweiten Klick abwarten
+    if (status === 'soft' && !force) return;
 
     setHistorySaving(true);
     try {
-      const stunden = parseFloat(historyForm.weekly_hours.replace(',', '.'));
+      const tage = parseInt(historyForm.days_per_week);
+      const stdTag = parseFloat(historyForm.hours_per_day.replace(',', '.'));
+      const wochenstunden = Math.round(tage * stdTag * 100) / 100;
       const insertData = {
         employee_id: editingEmployee.id,
-        weekly_hours: stunden,
+        weekly_hours: wochenstunden,
+        days_per_week: tage,
+        hours_per_day: stdTag,
         gueltig_ab: historyForm.gueltig_ab,
         notiz: historyForm.notiz.trim() || null,
       };
@@ -589,13 +603,9 @@ export default function EmployeeManagement({
         .insert(insertData);
       if (error) throw error;
 
-      // Alt-Feld v7_employees.weekly_hours synchronisieren,
-      // wenn neuer Eintrag "aktuell wirksam" ist (gueltig_ab <= heute UND
-      // neuester wirksamer Eintrag).
+      // v7_employees.weekly_hours + days_per_week + hours_per_day synchronisieren
       const today = new Date().toISOString().split('T')[0];
       if (historyForm.gueltig_ab <= today) {
-        // Neuer Eintrag wirkt ab heute oder war schon in der Vergangenheit.
-        // Pruefen, ob er der aktuell wirksame ist (neuester gueltig_ab <= heute).
         const neuerEintragIstAktuell = !hoursHistory.some(
           h => h.gueltig_ab > historyForm.gueltig_ab && h.gueltig_ab <= today
         );
@@ -603,12 +613,13 @@ export default function EmployeeManagement({
           await supabase
             .from('v7_employees')
             .update({
-              weekly_hours: stunden,
+              weekly_hours: wochenstunden,
+              days_per_week: tage,
+              hours_per_day: stdTag,
               updated_at: new Date().toISOString(),
             })
             .eq('id', editingEmployee.id);
-          // Lokales formData-Feld nachziehen, damit die Anzeige stimmt
-          setFormData(prev => ({ ...prev, weekly_hours: stunden.toString() }));
+          setFormData(prev => ({ ...prev, weekly_hours: wochenstunden.toString() }));
         }
       }
 
@@ -1240,7 +1251,7 @@ export default function EmployeeManagement({
                         {emp.display_name}
                         {emp.is_orphan && (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-700">
-                            ⚠ Nur Login
+                            (!) Nur Login
                           </span>
                         )}
                       </div>
@@ -1249,7 +1260,7 @@ export default function EmployeeManagement({
                       )}
                       {emp.is_orphan && (
                         <div className="text-xs text-amber-600 mt-0.5">
-                          Login vorhanden, aber kein Mitarbeiter-Eintrag. Bitte Rolle und Position ergänzen.
+                          Login vorhanden, aber kein Mitarbeiter-Eintrag. Bitte Rolle und Position ergaenzen.
                         </div>
                       )}
                     </td>
@@ -1609,7 +1620,11 @@ export default function EmployeeManagement({
                                 <span className="text-gray-500">Laden...</span>
                               ) : current ? (
                                 <>
-                                  <strong>Aktuell: {current.weekly_hours} h/Woche</strong>
+                                  <strong>
+                                    {current.days_per_week != null && current.hours_per_day != null
+                                      ? `${current.days_per_week}T x ${String(current.hours_per_day).replace('.', ',')}h = ${current.weekly_hours} h/Woche`
+                                      : `${current.weekly_hours} h/Woche`}
+                                  </strong>
                                   <span className="text-gray-500 ml-2">
                                     (seit {formatDateDE(current.gueltig_ab)})
                                   </span>
@@ -1654,7 +1669,9 @@ export default function EmployeeManagement({
                                   <thead>
                                     <tr className="text-gray-600 border-b">
                                       <th className="text-left py-1 pr-2 font-semibold w-24">Gueltig ab</th>
-                                      <th className="text-right py-1 pr-4 font-semibold w-16">Std./Wo.</th>
+                                      <th className="text-right py-1 pr-2 font-semibold w-12">T/Wo.</th>
+                                      <th className="text-right py-1 pr-2 font-semibold w-12">h/Tag</th>
+                                      <th className="text-right py-1 pr-4 font-semibold w-16">h/Wo.</th>
                                       <th className="text-left py-1 font-semibold">Notiz</th>
                                       <th className="w-8"></th>
                                     </tr>
@@ -1663,7 +1680,13 @@ export default function EmployeeManagement({
                                     {hoursHistory.map(h => (
                                       <tr key={h.id} className="border-b last:border-b-0">
                                         <td className="py-1 pr-2">{formatDateDE(h.gueltig_ab)}</td>
-                                        <td className="py-1 pr-4 text-right tabular-nums">{h.weekly_hours}</td>
+                                        <td className="py-1 pr-2 text-right tabular-nums">
+                                          {h.days_per_week ?? '-'}
+                                        </td>
+                                        <td className="py-1 pr-2 text-right tabular-nums">
+                                          {h.hours_per_day != null ? h.hours_per_day.toString().replace('.', ',') : '-'}
+                                        </td>
+                                        <td className="py-1 pr-4 text-right tabular-nums font-medium">{h.weekly_hours}</td>
                                         <td className="py-1 text-gray-600">
                                           {isAutoNotiz(h.notiz) ? '-' : (h.notiz || '-')}
                                         </td>
@@ -2072,23 +2095,52 @@ export default function EmployeeManagement({
                 </p>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Wochenstunden <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="number"
-                  value={historyForm.weekly_hours}
-                  onChange={e => {
-                    setHistoryForm(p => ({ ...p, weekly_hours: e.target.value }));
-                    setHistoryError(null);
-                  }}
-                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
-                  min="0"
-                  max="60"
-                  step="0.5"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Tage/Woche <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={historyForm.days_per_week}
+                    onChange={e => {
+                      setHistoryForm(p => ({ ...p, days_per_week: e.target.value }));
+                      setHistoryError(null);
+                    }}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
+                    min="1" max="7" step="1"
+                    placeholder="5"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Stunden/Tag <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={historyForm.hours_per_day}
+                    onChange={e => {
+                      setHistoryForm(p => ({ ...p, hours_per_day: e.target.value }));
+                      setHistoryError(null);
+                    }}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
+                    min="0.5" max="24" step="0.5"
+                    placeholder="8"
+                  />
+                </div>
               </div>
+              {/* Berechnete Wochenstunden als Info */}
+              {(() => {
+                const t = parseInt(historyForm.days_per_week);
+                const h = parseFloat(historyForm.hours_per_day.replace(',', '.'));
+                const w = !isNaN(t) && !isNaN(h) ? t * h : null;
+                return w !== null ? (
+                  <div className="text-sm text-gray-600 bg-gray-50 rounded px-3 py-2">
+                    = <strong>{w.toFixed(2).replace('.', ',')} h/Woche</strong>
+                    {' '}(Teilzeitfaktor: {(w / 40 * 100).toFixed(0)}%)
+                  </div>
+                ) : null;
+              })()}
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
