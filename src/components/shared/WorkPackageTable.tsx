@@ -3,7 +3,9 @@
 // PZE V7 - Arbeitsplan-Tabelle (Excel-Style mit Inline-Edit)
 // ============================================================================
 // Datum: 02. Maerz 2026
-// Version: 7.4.3-8
+// Version: 7.4.3-12
+// v7.4.3-12: sums nutzt assignmentMap (dedupliziert) statt rohe assignments
+//   verhindert Doppelzaehlung bei mehrfachen DB-Eintraegen fuer gleiche wp+emp Kombination
 // v7.4.3-8: PM-Anzeige auf 3 Dezimalstellen (toFixed(3)) fuer alle PM-Werte
 //   Begruendung: importierte PM-Werte koennen 3-stellig sein (z.B. 0,344)
 //   Berechnung war immer korrekt, Anzeige zeigte nur 2 Stellen
@@ -474,14 +476,16 @@ export default function WorkPackageTable({
     const perWP = new Map<string, number>();
     sortedWPs.forEach(wp => perWP.set(wp.id, 0));
     let total = 0;
-    assignments.forEach(a => {
+    // v7.4.3-12: assignmentMap nutzen (dedupliziert nach wpId-empId)
+    // verhindert Doppelzaehlung bei mehrfachen DB-Eintraegen fuer gleiche Kombination
+    assignmentMap.forEach(a => {
       const pm = a.planned_pm || 0;
       perEmployee.set(a.employee_id, (perEmployee.get(a.employee_id) || 0) + pm);
       perWP.set(a.work_package_id, (perWP.get(a.work_package_id) || 0) + pm);
       total += pm;
     });
     return { perEmployee, perWP, total };
-  }, [assignments, sortedEmployees, sortedWPs]);
+  }, [assignmentMap, sortedEmployees, sortedWPs]);
 
   const totalTimesheetHours = useMemo(() => {
     let total = 0;
