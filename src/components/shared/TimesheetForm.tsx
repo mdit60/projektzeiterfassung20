@@ -3,7 +3,9 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 7. Mai 2026
-// Version: 7.4.6-16
+// Version: 7.4.6-17
+// v7.4.6-17: Fehlzeiten-Zellen weiss (statt farbig), Tastaturnavigation
+//   (Pfeiltasten/Tab/Enter), setHasChanges bei Abwesenheitseingabe.
 // Datum: 7. Mai 2026
 // v7.4.6-16: Fehlzeiten (U/K/S) direkt editierbar - keine Automatik mehr.
 //   Tageszellen in U/K/S-Zeilen sind frei editierbar (wie Excel).
@@ -1179,19 +1181,19 @@ export default function TimesheetForm({
     e: React.KeyboardEvent<HTMLInputElement>,
     rowIndex: number,
     day: number,
-    rowType: 'ap' | 'nonbillable'
+    rowType: 'ap' | 'nonbillable' | 'absence-U' | 'absence-K' | 'absence-S'
   ) => {
     const days = getDaysInMonth(selectedYear, selectedMonth);
     const totalApRows = apRows.length;
+    const absenceOrder: Array<'absence-U' | 'absence-K' | 'absence-S'> = ['absence-U', 'absence-K', 'absence-S'];
 
-    const canEdit = (r: number, d: number, type: 'ap' | 'nonbillable'): boolean => {
+    const canEdit = (r: number, d: number, type: 'ap' | 'nonbillable' | 'absence-U' | 'absence-K' | 'absence-S'): boolean => {
       if (isWeekend(selectedYear, selectedMonth, d)) return false;
-      if (isHoliday(selectedYear, selectedMonth, d)) return false;
       if (type === 'ap' && !apRows[r]?.workPackageId) return false;
       return true;
     };
 
-    const focusCell = (r: number, d: number, type: 'ap' | 'nonbillable') => {
+    const focusCell = (r: number, d: number, type: 'ap' | 'nonbillable' | 'absence-U' | 'absence-K' | 'absence-S') => {
       const input = document.querySelector(
         `input[data-row="${r}"][data-day="${d}"][data-type="${type}"]`
       ) as HTMLInputElement;
@@ -1199,43 +1201,37 @@ export default function TimesheetForm({
       input?.select();
     };
 
+    const isAbsenceType = rowType.startsWith('absence-');
+    const absenceIdx = absenceOrder.indexOf(rowType as any);
+
     switch (e.key) {
       case 'ArrowRight':
         e.preventDefault();
         for (let d = day + 1; d <= days; d++) {
-          if (canEdit(rowIndex, d, rowType)) {
-            focusCell(rowIndex, d, rowType);
-            break;
-          }
+          if (canEdit(rowIndex, d, rowType)) { focusCell(rowIndex, d, rowType); break; }
         }
         break;
 
       case 'ArrowLeft':
         e.preventDefault();
         for (let d = day - 1; d >= 1; d--) {
-          if (canEdit(rowIndex, d, rowType)) {
-            focusCell(rowIndex, d, rowType);
-            break;
-          }
+          if (canEdit(rowIndex, d, rowType)) { focusCell(rowIndex, d, rowType); break; }
         }
         break;
 
       case 'ArrowDown':
         e.preventDefault();
         if (rowType === 'ap') {
-          // v7.4.6-8: Naechste AP-Zeile suchen, die editierbar ist
           let foundNext = false;
           for (let r = rowIndex + 1; r < totalApRows; r++) {
-            if (canEdit(r, day, 'ap')) {
-              focusCell(r, day, 'ap');
-              foundNext = true;
-              break;
-            }
+            if (canEdit(r, day, 'ap')) { focusCell(r, day, 'ap'); foundNext = true; break; }
           }
-          // Keine weitere AP-Zeile -> in sonstige Arbeiten springen (falls Wochentag)
-          if (!foundNext && canEdit(0, day, 'nonbillable')) {
-            focusCell(0, day, 'nonbillable');
-          }
+          if (!foundNext && canEdit(0, day, 'nonbillable')) focusCell(0, day, 'nonbillable');
+          else if (!foundNext) focusCell(0, day, 'absence-U');
+        } else if (rowType === 'nonbillable') {
+          if (canEdit(0, day, 'absence-U')) focusCell(0, day, 'absence-U');
+        } else if (isAbsenceType && absenceIdx < absenceOrder.length - 1) {
+          focusCell(0, day, absenceOrder[absenceIdx + 1]);
         }
         break;
 
@@ -1243,15 +1239,16 @@ export default function TimesheetForm({
         e.preventDefault();
         if (rowType === 'nonbillable') {
           for (let r = totalApRows - 1; r >= 0; r--) {
-            if (canEdit(r, day, 'ap')) {
-              focusCell(r, day, 'ap');
-              break;
-            }
+            if (canEdit(r, day, 'ap')) { focusCell(r, day, 'ap'); break; }
+          }
+        } else if (isAbsenceType) {
+          if (absenceIdx === 0) {
+            if (canEdit(0, day, 'nonbillable')) focusCell(0, day, 'nonbillable');
+          } else {
+            focusCell(0, day, absenceOrder[absenceIdx - 1]);
           }
         } else if (rowIndex > 0) {
-          if (canEdit(rowIndex - 1, day, 'ap')) {
-            focusCell(rowIndex - 1, day, 'ap');
-          }
+          if (canEdit(rowIndex - 1, day, 'ap')) focusCell(rowIndex - 1, day, 'ap');
         }
         break;
 
@@ -2495,18 +2492,21 @@ export default function TimesheetForm({
                   const holiday = isHoliday(selectedYear, selectedMonth, day);
                   const entry = absenceHoursInput.U[day];
                   return (
-                    <td key={day} className={`border p-0 text-center text-[10px] ${weekend ? 'bg-gray-100' : 'bg-blue-50'}`}>
+                    <td key={day} className={`border p-0 text-center text-[10px] ${weekend ? 'bg-gray-100' : 'bg-white'}`}>
                       {!weekend && (
                         <input
                           type="text" inputMode="decimal"
                           value={entry?.value || ''}
+                          data-row="0" data-day={day} data-type="absence-U"
                           onChange={e => {
                             const val = e.target.value;
                             setAbsenceHoursInput(prev => ({
                               ...prev,
                               U: { ...prev.U, [day]: { id: prev.U[day]?.id || '', value: val } }
                             }));
+                            setHasChanges(true);
                           }}
+                          onKeyDown={e => handleKeyDown(e, 0, day, 'absence-U')}
                           className="w-full h-6 text-center text-xs border-0 bg-transparent focus:ring-1 focus:ring-blue-400 print:bg-transparent"
                           maxLength={4}
                           placeholder=""
@@ -2527,18 +2527,21 @@ export default function TimesheetForm({
                   const weekend = isWeekend(selectedYear, selectedMonth, day);
                   const entry = absenceHoursInput.K[day];
                   return (
-                    <td key={day} className={`border p-0 text-center text-[10px] ${weekend ? 'bg-gray-100' : 'bg-red-50'}`}>
+                    <td key={day} className={`border p-0 text-center text-[10px] ${weekend ? 'bg-gray-100' : 'bg-white'}`}>
                       {!weekend && (
                         <input
                           type="text" inputMode="decimal"
                           value={entry?.value || ''}
+                          data-row="0" data-day={day} data-type="absence-K"
                           onChange={e => {
                             const val = e.target.value;
                             setAbsenceHoursInput(prev => ({
                               ...prev,
                               K: { ...prev.K, [day]: { id: prev.K[day]?.id || '', value: val } }
                             }));
+                            setHasChanges(true);
                           }}
+                          onKeyDown={e => handleKeyDown(e, 0, day, 'absence-K')}
                           className="w-full h-6 text-center text-xs border-0 bg-transparent focus:ring-1 focus:ring-red-400 print:bg-transparent"
                           maxLength={4}
                           placeholder=""
@@ -2560,18 +2563,21 @@ export default function TimesheetForm({
                   const holiday = isHoliday(selectedYear, selectedMonth, day);
                   const entry = absenceHoursInput.S[day];
                   return (
-                    <td key={day} className={`border p-0 text-center text-[10px] ${weekend ? 'bg-gray-100' : holiday ? 'bg-orange-100' : 'bg-purple-50'}`}>
+                    <td key={day} className={`border p-0 text-center text-[10px] ${weekend ? 'bg-gray-100' : holiday ? 'bg-orange-100' : 'bg-white'}`}>
                       {!weekend && (
                         <input
                           type="text" inputMode="decimal"
                           value={entry?.value || ''}
+                          data-row="0" data-day={day} data-type="absence-S"
                           onChange={e => {
                             const val = e.target.value;
                             setAbsenceHoursInput(prev => ({
                               ...prev,
                               S: { ...prev.S, [day]: { id: prev.S[day]?.id || '', value: val } }
                             }));
+                            setHasChanges(true);
                           }}
+                          onKeyDown={e => handleKeyDown(e, 0, day, 'absence-S')}
                           className="w-full h-6 text-center text-xs border-0 bg-transparent focus:ring-1 focus:ring-purple-400 print:bg-transparent"
                           maxLength={4}
                           placeholder=""
