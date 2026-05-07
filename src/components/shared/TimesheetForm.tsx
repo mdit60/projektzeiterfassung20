@@ -2,8 +2,11 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 6. Mai 2026
-// Version: 7.4.6-14
+// Datum: 7. Mai 2026
+// Version: 7.4.6-15
+// v7.4.6-15: Abwesenheitsstunden (U/K/S/F) basieren auf MA-Tagesstunden
+//   (weeklyHoursAtMonth / 5) statt Firmen-Standard (companyDailyHours).
+//   Teilzeit 30h/Woche -> 6h/Tag bei U/K/S statt 8h.
 // // v7.4.6-14: FIX: findTagVerletzung vor Aufruf definiert (Temporal Dead Zone)
 // v7.4.6-13: Harte Verletzung sperrt auch Drucken, PDF Export und
 //   Monat-abschliessen. GF-Zelle im Druck neutral (print:bg-green).
@@ -574,6 +577,11 @@ export default function TimesheetForm({
   // FIX v7.4.3-7: Feiertagsstunden aus Unternehmens-Wochenstunden
   // 38h/Woche -> 7,6h/Tag | 40h/Woche -> 8h/Tag
   const companyDailyHours = Math.round(((company?.standard_weekly_hours || 40) / 5) * 100) / 100;
+
+  // v7.4.6-15: MA-Tagesstunden fuer Abwesenheiten (U/K/S/F)
+  // Basiert auf weeklyHoursAtMonth (aus Teilzeit-Historie), nicht Firmen-Standard.
+  // Teilzeit 30h/Woche -> 6h/Tag | Vollzeit 40h/Woche -> 8h/Tag
+  const employeeDailyHours = Math.round((weeklyHoursAtMonth / 5) * 100) / 100;
 
   const formatWorkDate = (day: number): string => {
     return `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -1411,7 +1419,7 @@ export default function TimesheetForm({
         if (entry?.value && isAbsenceCode(entry.value)) {
           const code = entry.value.toUpperCase();
           if (sums[code] !== undefined) {
-            sums[code] += companyDailyHours;
+            sums[code] += employeeDailyHours;
           }
         }
       });
@@ -1420,7 +1428,7 @@ export default function TimesheetForm({
       if (nbEntry?.value && isAbsenceCode(nbEntry.value)) {
         const code = nbEntry.value.toUpperCase();
         if (sums[code] !== undefined) {
-          sums[code] += companyDailyHours;
+          sums[code] += employeeDailyHours;
         }
       }
     }
@@ -1568,7 +1576,7 @@ export default function TimesheetForm({
           if (!entry.value) return;
 
           const isAbsence = isAbsenceCode(entry.value);
-          const hours = isAbsence ? companyDailyHours : parseHours(entry.value);
+          const hours = isAbsence ? employeeDailyHours : parseHours(entry.value);
 
           // DB-Constraint: work_package_id und absence_code schliessen sich gegenseitig aus!
           // Bei Fehlzeiten: work_package_id = null, absence_code gesetzt
@@ -2453,7 +2461,7 @@ export default function TimesheetForm({
                   const hasU = absences.some(a => a.code === 'U');
                   return (
                     <td key={day} className="border p-1 text-center text-[10px] bg-blue-50">
-                      {hasU ? companyDailyHours.toFixed(1).replace('.', ',') : ''}
+                      {hasU ? employeeDailyHours.toFixed(1).replace('.', ',') : ''}
                     </td>
                   );
                 })}
@@ -2470,7 +2478,7 @@ export default function TimesheetForm({
                   const hasK = absences.some(a => a.code === 'K');
                   return (
                     <td key={day} className="border p-1 text-center text-[10px] bg-red-50">
-                      {hasK ? companyDailyHours.toFixed(1).replace('.', ',') : ''}
+                      {hasK ? employeeDailyHours.toFixed(1).replace('.', ',') : ''}
                     </td>
                   );
                 })}
@@ -2490,7 +2498,7 @@ export default function TimesheetForm({
                   return (
                     <td key={day} className={`border p-1 text-center text-[10px] ${holiday && !weekend ? 'bg-orange-100' : 'bg-purple-50'}`}>
                       {/* v7.4.6-10: Feiertag auf Wochenende -> keine Fehlstunden anzeigen */}
-                      {(hasS || (holiday && !weekend)) ? companyDailyHours.toFixed(1).replace('.', ',') : ''}
+                      {(hasS || (holiday && !weekend)) ? employeeDailyHours.toFixed(1).replace('.', ',') : ''}
                     </td>
                   );
                 })}
@@ -2504,7 +2512,7 @@ export default function TimesheetForm({
                       const absences = getAbsencesForDay(d);
                       const hasS = absences.some(a => a.code === 'S');
                       if ((hasS || holidayName) && !isWeekendDay) {
-                        holidaySum += companyDailyHours;
+                        holidaySum += employeeDailyHours;
                       }
                     }
                     return holidaySum > 0 ? holidaySum.toFixed(2) : '0,00';
