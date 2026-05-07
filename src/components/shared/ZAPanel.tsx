@@ -2,10 +2,12 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-37
-// v7.4.4-37: Archiv-Tab berechnet Foerderbetrag immer live aus Timesheet-Props.
-//   foerderbetrag_gesamt aus DB als Fallback (historisch). Entwurf zeigt Betrag sofort.
-// v7.4.4-36: foerderbetrag_gesamt auch bei Statuswechsel gespeichert.
+// Version: 7.4.4-39
+// v7.4.4-39: Einreichdatum direkt im Deckblatt-Formular (Zeile 3, Col 2).
+//   Statusblock vereinfacht (kein Datumsfeld dort mehr).
+//   handleSave speichert eingereicht_am mit wenn Status eingereicht/bewilligt.
+//   Programm ueberschreibt gesetztes Datum nicht automatisch.
+// v7.4.4-38: Einreichdatum manuell editierbar, Aktualisieren-Button.
 //   Archiv-Tab zeigt gespeicherten Wert (historisch korrekt, keine Neuberechnung).
 // v7.4.4-34: Archiv-Tab neu: Zahlungseingang-Felder (Datum, Betrag, Anmerkung)
 //   inline editierbar und speicherbar. Neue Spalten: Datum | Betrag | Zahlungseingang
@@ -320,6 +322,9 @@ export default function ZAPanel({
   const [archivEdits, setArchivEdits] = useState<Record<string, {
     datum: string; betrag: string; kommentar: string; saving: boolean; saved: boolean;
   }>>({});
+  const [eingereichtAmEdit, setEingereichtAmEdit] = useState<string>(
+    new Date().toISOString().slice(0, 10)
+  );
   // v7.4.4-28: Direkt aus DB geladene Projektfelder (bewilligung_datum, bewilligte_summe)
   const [zaProjectExtra, setZAProjectExtra] = useState<{
     bewilligung_datum: string | null;
@@ -404,6 +409,9 @@ export default function ZAPanel({
 
   const loadZAIntoForm = (za: ZahlungsanforderungDB) => {
     setZASelectedId(za.id);
+    setEingereichtAmEdit(
+      za.eingereicht_am ? za.eingereicht_am.slice(0, 10) : new Date().toISOString().slice(0, 10)
+    );
     setZAFormData({
       za_nummer: String(za.za_nummer),
       zeitraum_von: za.zeitraum_von,
@@ -427,7 +435,7 @@ export default function ZAPanel({
         updated_at: now,
         foerderbetrag_gesamt: isNetzwerk ? nwmFoerderbetrag : antZuwendung,
       };
-      if (newStatus === 'eingereicht') patch.eingereicht_am = now;
+      if (newStatus === 'eingereicht') patch.eingereicht_am = eingereichtAmEdit ? new Date(eingereichtAmEdit).toISOString() : now;
       if (newStatus === 'bewilligt')   patch.bewilligt_am = now;
       if (newStatus === 'entwurf') {
         patch.eingereicht_am = null;
@@ -476,6 +484,11 @@ export default function ZAPanel({
       }
       // Foerderbetrag fest speichern (historisch korrekt)
       payload.foerderbetrag_gesamt = isNetzwerk ? nwmFoerderbetrag : antZuwendung;
+      // Einreichdatum mitspeichern wenn Status eingereicht/bewilligt und Datum gesetzt
+      const currentStatus = zaSelectedId ? (zaList.find(z => z.id === zaSelectedId)?.status || 'entwurf') : 'entwurf';
+      if ((currentStatus === 'eingereicht' || currentStatus === 'bewilligt') && eingereichtAmEdit) {
+        payload.eingereicht_am = new Date(eingereichtAmEdit).toISOString();
+      }
       if (zaSelectedId) {
         await supabase.from('v7_zahlungsanforderungen').update(payload).eq('id', zaSelectedId);
       } else {
@@ -607,6 +620,23 @@ export default function ZAPanel({
       const rate = getHourlyRate(row.empId, pid) || 0;
       return sum + row.totalAll * rate;
     }, 0);
+  };
+
+  const handleUpdateEingereichtAm = async () => {
+    if (!zaSelectedId || !eingereichtAmEdit) return;
+    setZASaving(true);
+    try {
+      await supabase.from('v7_zahlungsanforderungen')
+        .update({ eingereicht_am: new Date(eingereichtAmEdit).toISOString(), updated_at: new Date().toISOString() })
+        .eq('id', zaSelectedId);
+      setZAList(prev => prev.map(z =>
+        z.id === zaSelectedId ? { ...z, eingereicht_am: new Date(eingereichtAmEdit).toISOString() } : z
+      ));
+    } catch (err: any) {
+      alert('Fehler: ' + err.message);
+    } finally {
+      setZASaving(false);
+    }
   };
 
   const handleSaveZahlungseingang = async (zaId: string) => {
@@ -872,7 +902,7 @@ export default function ZAPanel({
                   </div>
                 </div>
 
-                {/* Kopfdaten - Zeile 3 (blau): ZA-Nr. | Abrechnungszeitraum von...bis */}
+                {/* Kopfdaten - Zeile 3 (blau): ZA-Nr. | Einreichdatum | Abrechnungszeitraum von...bis */}
                 <div className="grid grid-cols-4 gap-3 mb-4 pb-3 border-b border-gray-300">
                   <div>
                     <div className="text-xs text-gray-500 mb-1">Zahlungsanforderung Nr.</div>
@@ -881,7 +911,10 @@ export default function ZAPanel({
                       className={`w-full px-2 py-1 text-sm font-medium border border-gray-300 rounded bg-blue-50 ${colors.inputFocus}`} />
                   </div>
                   <div>
-                    {/* Platzhalter fuer optischen Ausgleich */}
+                    <div className="text-xs text-gray-500 mb-1">Datum Einreichung</div>
+                    <input type="date" value={eingereichtAmEdit}
+                      onChange={e => setEingereichtAmEdit(e.target.value)}
+                      className={`w-full px-2 py-1 text-sm border border-gray-300 rounded bg-blue-50 ${colors.inputFocus}`} />
                   </div>
                   <div>
                     <div className="text-xs text-gray-500 mb-1">Abrechnungszeitraum von</div>
@@ -1215,18 +1248,13 @@ export default function ZAPanel({
                         <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border ${sc.bg} ${sc.text} ${sc.border}`}>
                           {sc.label}
                         </span>
-                        {currentZA?.eingereicht_am && (
-                          <span className="text-xs text-gray-400">
-                            Eingereicht: {new Date(currentZA.eingereicht_am).toLocaleDateString('de-DE')}
-                          </span>
-                        )}
                         {currentZA?.bewilligt_am && (
                           <span className="text-xs text-gray-400">
                             Bewilligt: {new Date(currentZA.bewilligt_am).toLocaleDateString('de-DE')}
                           </span>
                         )}
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         {currentStatus === 'entwurf' && (
                           <button
                             onClick={() => handleStatusChange('eingereicht')}
