@@ -2,7 +2,14 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-33
+// Version: 7.4.4-40
+// v7.4.4-40: ZA loeschbar im Archiv-Tab. Bestaetigung erforderlich,
+//   bei Status Eingereicht/Bewilligt staerkere Warnung.
+// v7.4.4-39: Einreichdatum direkt im Deckblatt-Formular neben ZA-Nr.
+//   Archiv-Tab zeigt gespeicherten Wert (historisch korrekt, keine Neuberechnung).
+// v7.4.4-34: Archiv-Tab neu: Zahlungseingang-Felder (Datum, Betrag, Anmerkung)
+//   inline editierbar und speicherbar. Neue Spalten: Datum | Betrag | Zahlungseingang
+//   | Betrag | Anmerkung | Status | Oeffnen. Spalten Bewilligt + Foerderbetrag entfernt.
 // v7.4.4-33: Anlage 1a: MA sortiert nach employee_number (lfd. Nr. gemaess Antrag)
 // v7.4.4-32: assignedEmployeeIds-Quelle geaendert: war wpAssignments (Arbeitsplan),
 //   jetzt projectAssignments (Projektteam). Konsistent mit StundennachweisMatrix
@@ -168,6 +175,10 @@ interface ZahlungsanforderungDB {
   nwm_kosten_gesamt: number | null;
   laufzeitjahr: number | null;
   foerdersatz_percent: number | null;
+  zahlungseingang_datum: string | null;
+  zahlungseingang_betrag: number | null;
+  zahlungseingang_kommentar: string | null;
+  foerderbetrag_gesamt: number | null;
 }
 
 // Status-Hilfsfunktionen
@@ -306,6 +317,12 @@ export default function ZAPanel({
   const [zaSelectedId, setZASelectedId] = useState<string | null>(null);
   const [zaLoading, setZALoading] = useState(false);
   const [zaSaving, setZASaving] = useState(false);
+  const [archivEdits, setArchivEdits] = useState<Record<string, {
+    datum: string; betrag: string; kommentar: string; saving: boolean; saved: boolean;
+  }>>({});
+  const [eingereichtAmEdit, setEingereichtAmEdit] = useState<string>(
+    new Date().toISOString().slice(0, 10)
+  );
   // v7.4.4-28: Direkt aus DB geladene Projektfelder (bewilligung_datum, bewilligte_summe)
   const [zaProjectExtra, setZAProjectExtra] = useState<{
     bewilligung_datum: string | null;
@@ -342,12 +359,23 @@ export default function ZAPanel({
 
     const { data: existingZAs } = await supabase
       .from('v7_zahlungsanforderungen')
-      .select('id, project_id, za_nummer, zeitraum_von, zeitraum_bis, auftraege_dritte_t, auftraege_dritte_nt, fue_unterauftrag, zeitw_personalaufnahme, status, notizen, eingereicht_am, bewilligt_am, nwm_personalkosten, nwm_kosten_dritte, nwm_kosten_uebrige, nwm_kosten_gesamt, laufzeitjahr, foerdersatz_percent')
+      .select('id, project_id, za_nummer, zeitraum_von, zeitraum_bis, auftraege_dritte_t, auftraege_dritte_nt, fue_unterauftrag, zeitw_personalaufnahme, status, notizen, eingereicht_am, bewilligt_am, nwm_personalkosten, nwm_kosten_dritte, nwm_kosten_uebrige, nwm_kosten_gesamt, laufzeitjahr, foerdersatz_percent, zahlungseingang_datum, zahlungseingang_betrag, zahlungseingang_kommentar, foerderbetrag_gesamt')
       .eq('project_id', pid)
       .order('za_nummer', { ascending: true });
 
     const zaListLoaded: ZahlungsanforderungDB[] = existingZAs || [];
     setZAList(zaListLoaded);
+    const initEdits: Record<string, { datum: string; betrag: string; kommentar: string; saving: boolean; saved: boolean }> = {};
+    zaListLoaded.forEach(za => {
+      initEdits[za.id] = {
+        datum: za.zahlungseingang_datum || '',
+        betrag: za.zahlungseingang_betrag != null ? String(za.zahlungseingang_betrag) : '',
+        kommentar: za.zahlungseingang_kommentar || '',
+        saving: false,
+        saved: false,
+      };
+    });
+    setArchivEdits(initEdits);
 
     const nextNummer = zaListLoaded.length > 0
       ? Math.max(...zaListLoaded.map(z => z.za_nummer)) + 1
@@ -379,6 +407,9 @@ export default function ZAPanel({
 
   const loadZAIntoForm = (za: ZahlungsanforderungDB) => {
     setZASelectedId(za.id);
+    setEingereichtAmEdit(
+      za.eingereicht_am ? za.eingereicht_am.slice(0, 10) : new Date().toISOString().slice(0, 10)
+    );
     setZAFormData({
       za_nummer: String(za.za_nummer),
       zeitraum_von: za.zeitraum_von,
@@ -397,11 +428,12 @@ export default function ZAPanel({
     setZASaving(true);
     try {
       const now = new Date().toISOString();
-      const patch: Record<string, string | null> = {
+      const patch: Record<string, string | null | number> = {
         status: newStatus,
         updated_at: now,
+        foerderbetrag_gesamt: isNetzwerk ? nwmFoerderbetrag : antZuwendung,
       };
-      if (newStatus === 'eingereicht') patch.eingereicht_am = now;
+      if (newStatus === 'eingereicht') patch.eingereicht_am = eingereichtAmEdit ? new Date(eingereichtAmEdit).toISOString() : now;
       if (newStatus === 'bewilligt')   patch.bewilligt_am = now;
       if (newStatus === 'entwurf') {
         patch.eingereicht_am = null;
@@ -447,6 +479,13 @@ export default function ZAPanel({
         payload.nwm_kosten_gesamt = nwmKostenGesamt;
         payload.laufzeitjahr = nwmLaufzeitjahr;
         payload.foerdersatz_percent = nwmFoerdersatz;
+      }
+      // Foerderbetrag fest speichern (historisch korrekt)
+      payload.foerderbetrag_gesamt = isNetzwerk ? nwmFoerderbetrag : antZuwendung;
+      // Einreichdatum mitspeichern wenn Status eingereicht/bewilligt und Datum gesetzt
+      const currentStatus = zaSelectedId ? (zaList.find(z => z.id === zaSelectedId)?.status || 'entwurf') : 'entwurf';
+      if ((currentStatus === 'eingereicht' || currentStatus === 'bewilligt') && eingereichtAmEdit) {
+        payload.eingereicht_am = new Date(eingereichtAmEdit).toISOString();
       }
       if (zaSelectedId) {
         await supabase.from('v7_zahlungsanforderungen').update(payload).eq('id', zaSelectedId);
@@ -579,6 +618,90 @@ export default function ZAPanel({
       const rate = getHourlyRate(row.empId, pid) || 0;
       return sum + row.totalAll * rate;
     }, 0);
+  };
+
+  const handleUpdateEingereichtAm = async () => {
+    if (!zaSelectedId || !eingereichtAmEdit) return;
+    setZASaving(true);
+    try {
+      await supabase.from('v7_zahlungsanforderungen')
+        .update({ eingereicht_am: new Date(eingereichtAmEdit).toISOString(), updated_at: new Date().toISOString() })
+        .eq('id', zaSelectedId);
+      setZAList(prev => prev.map(z =>
+        z.id === zaSelectedId ? { ...z, eingereicht_am: new Date(eingereichtAmEdit).toISOString() } : z
+      ));
+    } catch (err: any) {
+      alert('Fehler: ' + err.message);
+    } finally {
+      setZASaving(false);
+    }
+  };
+
+  const handleDeleteZA = async (za: ZahlungsanforderungDB) => {
+    const isOfficial = za.status === 'eingereicht' || za.status === 'bewilligt';
+    const msg = isOfficial
+      ? 'ACHTUNG: Diese ZA hat Status "' + (za.status === 'eingereicht' ? 'Eingereicht' : 'Bewilligt') + '".\nWirklich unwiderruflich loeschen?'
+      : 'ZA ' + za.za_nummer + ' wirklich loeschen?\nDieser Vorgang kann nicht rueckgaengig gemacht werden.';
+    if (!window.confirm(msg)) return;
+    try {
+      await supabase.from('v7_zahlungsanforderungen').delete().eq('id', za.id);
+      setZAList(prev => prev.filter(z => z.id !== za.id));
+      setArchivEdits(prev => { const n = { ...prev }; delete n[za.id]; return n; });
+      if (zaSelectedId === za.id) {
+        setZASelectedId(null);
+        setZAFormData({ za_nummer: '1', zeitraum_von: '', zeitraum_bis: '', auftraege_dritte_t: '', auftraege_dritte_nt: '', fue_unterauftrag: '', zeitw_personalaufnahme: '', notizen: '', nwm_kosten_dritte: '' });
+      }
+    } catch (err: any) {
+      alert('Fehler beim Loeschen: ' + err.message);
+    }
+  };
+
+  const handleSaveZahlungseingang = async (zaId: string) => {
+    const edit = archivEdits[zaId];
+    if (!edit) return;
+    setArchivEdits(prev => ({ ...prev, [zaId]: { ...prev[zaId], saving: true, saved: false } }));
+    try {
+      const patch: Record<string, any> = {
+        zahlungseingang_datum: edit.datum || null,
+        zahlungseingang_betrag: edit.betrag !== '' ? parseFloat(edit.betrag.replace(',', '.')) : null,
+        zahlungseingang_kommentar: edit.kommentar.trim() || null,
+        updated_at: new Date().toISOString(),
+      };
+      await supabase.from('v7_zahlungsanforderungen').update(patch).eq('id', zaId);
+      setArchivEdits(prev => ({ ...prev, [zaId]: { ...prev[zaId], saving: false, saved: true } }));
+      setTimeout(() => setArchivEdits(prev => ({ ...prev, [zaId]: { ...prev[zaId], saved: false } })), 2500);
+    } catch (err: any) {
+      alert('Fehler beim Speichern: ' + err.message);
+      setArchivEdits(prev => ({ ...prev, [zaId]: { ...prev[zaId], saving: false } }));
+    }
+  };
+
+  const computeArchivFoerderbetrag = (za: ZahlungsanforderungDB): number => {
+    if (za.foerderbetrag_gesamt != null) return za.foerderbetrag_gesamt;
+    const zaProj = projects.find(p => p.id === za.project_id);
+    const zaIsDS = String(zaProj?.funding_format || '').toUpperCase().trim() === 'ZIM_DS';
+    const zaIsNWM = String(zaProj?.funding_format || '').toUpperCase().trim() === 'ZIM_NETZWERK';
+    const psRows = getZAPersonenstunden(za.project_id, za.zeitraum_von, za.zeitraum_bis);
+    if (zaIsNWM) {
+      const pk = psRows.reduce((s, r) => s + r.totalAll * (getHourlyRate(r.empId, za.project_id) || 0), 0);
+      return Math.round(pk * (za.foerdersatz_percent || 0) / 100);
+    }
+    const pkT = psRows.reduce((s, r) => s + r.totalT * (getHourlyRate(r.empId, za.project_id) || 0), 0);
+    const pkNT = psRows.reduce((s, r) => s + r.totalNT * (getHourlyRate(r.empId, za.project_id) || 0), 0);
+    const pkG = zaIsDS ? pkT + pkNT : psRows.reduce((s, r) => s + r.totalAll * (getHourlyRate(r.empId, za.project_id) || 0), 0);
+    const fs = zaProj?.foerdersatz || 0;
+    const ohT = zaProj?.overhead_t || 0;
+    const ohNT = zaIsDS ? (zaProj?.overhead_nt || zaProj?.overhead_t || 0) : (zaProj?.overhead_t || 0);
+    const gkT = zaIsDS ? pkT * ohT / 100 : pkG * ohT / 100;
+    const gkNT = zaIsDS ? pkNT * ohNT / 100 : 0;
+    const aufT = za.auftraege_dritte_t || 0;
+    const aufNT = za.auftraege_dritte_nt || 0;
+    const fueUA = za.fue_unterauftrag || 0;
+    const zeitwPA = za.zeitw_personalaufnahme || 0;
+    const summe = zaIsDS
+      ? pkT + gkT + aufT + pkNT + gkNT + aufNT + fueUA + zeitwPA
+      : pkG + gkT + aufT + fueUA + zeitwPA;
+    return Math.round(summe * fs / 100);
   };
 
   const handlePrint = () => {
@@ -796,7 +919,7 @@ export default function ZAPanel({
                   </div>
                 </div>
 
-                {/* Kopfdaten - Zeile 3 (blau): ZA-Nr. | Abrechnungszeitraum von...bis */}
+                {/* Kopfdaten - Zeile 3 (blau): ZA-Nr. | Einreichdatum | Abrechnungszeitraum von...bis */}
                 <div className="grid grid-cols-4 gap-3 mb-4 pb-3 border-b border-gray-300">
                   <div>
                     <div className="text-xs text-gray-500 mb-1">Zahlungsanforderung Nr.</div>
@@ -805,7 +928,10 @@ export default function ZAPanel({
                       className={`w-full px-2 py-1 text-sm font-medium border border-gray-300 rounded bg-blue-50 ${colors.inputFocus}`} />
                   </div>
                   <div>
-                    {/* Platzhalter fuer optischen Ausgleich */}
+                    <div className="text-xs text-gray-500 mb-1">Datum Einreichung</div>
+                    <input type="date" value={eingereichtAmEdit}
+                      onChange={e => setEingereichtAmEdit(e.target.value)}
+                      className={`w-full px-2 py-1 text-sm border border-gray-300 rounded bg-blue-50 ${colors.inputFocus}`} />
                   </div>
                   <div>
                     <div className="text-xs text-gray-500 mb-1">Abrechnungszeitraum von</div>
@@ -1139,18 +1265,13 @@ export default function ZAPanel({
                         <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border ${sc.bg} ${sc.text} ${sc.border}`}>
                           {sc.label}
                         </span>
-                        {currentZA?.eingereicht_am && (
-                          <span className="text-xs text-gray-400">
-                            Eingereicht: {new Date(currentZA.eingereicht_am).toLocaleDateString('de-DE')}
-                          </span>
-                        )}
                         {currentZA?.bewilligt_am && (
                           <span className="text-xs text-gray-400">
                             Bewilligt: {new Date(currentZA.bewilligt_am).toLocaleDateString('de-DE')}
                           </span>
                         )}
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         {currentStatus === 'entwurf' && (
                           <button
                             onClick={() => handleStatusChange('eingereicht')}
@@ -1446,48 +1567,92 @@ export default function ZAPanel({
                   <table className="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
                     <thead>
                       <tr className="bg-gray-50 border-b border-gray-200">
-                        <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">ZA Nr.</th>
-                        <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Zeitraum</th>
-                        <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Eingereicht</th>
-                        <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Bewilligt</th>
-                        <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Status</th>
-                        <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-600 uppercase tracking-wide">Foerderbetrag</th>
-                        <th className="px-4 py-2.5 text-center text-xs font-semibold text-gray-600 uppercase tracking-wide">Aktion</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap">ZA Nr.</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap">Zeitraum</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap">Datum</th>
+                        <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap">Betrag</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap">Zahlungseingang</th>
+                        <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap">Betrag</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap">Anmerkung</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap">Status</th>
+                        <th className="px-3 py-2.5"></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {zaList.map((za) => {
                         const statusCfg = getStatusConfig(za.status);
-                        const vonDate = za.zeitraum_von ? new Date(za.zeitraum_von).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '--';
-                        const bisDate = za.zeitraum_bis ? new Date(za.zeitraum_bis).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '--';
+                        const vonDate = za.zeitraum_von ? new Date(za.zeitraum_von).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '--';
+                        const bisDate = za.zeitraum_bis ? new Date(za.zeitraum_bis).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '--';
                         const einDate = za.eingereicht_am ? new Date(za.eingereicht_am).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '--';
-                        const bewDate = za.bewilligt_am ? new Date(za.bewilligt_am).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '--';
+                        const computedBetrag = computeArchivFoerderbetrag(za);
+                        const foerderbetrag = computedBetrag > 0
+                          ? computedBetrag.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' EUR'
+                          : null;
+                        const edit = archivEdits[za.id] || { datum: '', betrag: '', kommentar: '', saving: false, saved: false };
                         const isSelected = zaSelectedId === za.id;
                         return (
-                          <tr key={za.id}
-                            className={`transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
-                            <td className="px-4 py-3 font-semibold text-gray-900">ZA {za.za_nummer}</td>
-                            <td className="px-4 py-3 text-gray-700 text-xs">
+                          <tr key={za.id} className={`transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
+                            <td className="px-3 py-2 font-semibold text-gray-900 whitespace-nowrap">ZA {za.za_nummer}</td>
+                            <td className="px-3 py-2 text-gray-700 text-xs whitespace-nowrap">
                               {vonDate}<br/><span className="text-gray-400">bis</span> {bisDate}
                             </td>
-                            <td className="px-4 py-3 text-gray-700 text-xs">{einDate}</td>
-                            <td className="px-4 py-3 text-gray-700 text-xs">{bewDate}</td>
-                            <td className="px-4 py-3">
+                            <td className="px-3 py-2 text-gray-700 text-xs whitespace-nowrap">{einDate}</td>
+                            <td className="px-3 py-2 text-right font-mono text-gray-700 text-xs whitespace-nowrap">
+                              {foerderbetrag
+                                ? foerderbetrag
+                                : <span className="text-gray-400">noch nicht gespeichert</span>}
+                            </td>
+                            <td className="px-3 py-2">
+                              <input
+                                type="date"
+                                value={edit.datum}
+                                onChange={e => setArchivEdits(prev => ({ ...prev, [za.id]: { ...prev[za.id], datum: e.target.value } }))}
+                                className="text-xs border border-gray-300 rounded px-2 py-1 w-36 focus:outline-none focus:border-blue-400"
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="0,00"
+                                value={edit.betrag}
+                                onChange={e => setArchivEdits(prev => ({ ...prev, [za.id]: { ...prev[za.id], betrag: e.target.value } }))}
+                                className="text-xs border border-gray-300 rounded px-2 py-1 w-28 text-right font-mono focus:outline-none focus:border-blue-400"
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <input
+                                type="text"
+                                placeholder="Anmerkung..."
+                                value={edit.kommentar}
+                                onChange={e => setArchivEdits(prev => ({ ...prev, [za.id]: { ...prev[za.id], kommentar: e.target.value } }))}
+                                className="text-xs border border-gray-300 rounded px-2 py-1 w-40 focus:outline-none focus:border-blue-400"
+                              />
+                            </td>
+                            <td className="px-3 py-2 whitespace-nowrap">
                               <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${statusCfg.bg} ${statusCfg.text} ${statusCfg.border}`}>
                                 {statusCfg.label}
                               </span>
                             </td>
-                            <td className="px-4 py-3 text-right font-mono text-gray-700 text-xs">
-                              {za.status === 'bewilligt' || za.status === 'eingereicht'
-                                ? <span className="text-gray-400">s. Deckblatt</span>
-                                : <span className="text-gray-300">--</span>}
-                            </td>
-                            <td className="px-4 py-3 text-center">
-                              <button
-                                onClick={() => { loadZAIntoForm(za); setZATab('deckblatt'); }}
-                                className={`text-xs px-3 py-1 rounded border transition-colors ${colors.btnZaHover} bg-white text-gray-600 border-gray-300`}>
-                                Oeffnen
-                              </button>
+                            <td className="px-3 py-2 whitespace-nowrap">
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  onClick={() => handleSaveZahlungseingang(za.id)}
+                                  disabled={edit.saving}
+                                  className={`text-xs px-2.5 py-1 rounded border transition-colors ${edit.saved ? 'bg-green-50 text-green-700 border-green-300' : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'}`}>
+                                  {edit.saving ? '...' : edit.saved ? 'OK' : 'Sichern'}
+                                </button>
+                                <button
+                                  onClick={() => { loadZAIntoForm(za); setZATab('deckblatt'); }}
+                                  className={`text-xs px-2.5 py-1 rounded border transition-colors ${colors.btnZaHover} bg-white text-gray-600 border-gray-300`}>
+                                  Oeffnen
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteZA(za)}
+                                  className="text-xs px-2.5 py-1 rounded border border-red-200 bg-white text-red-500 hover:bg-red-50 hover:border-red-400 transition-colors">
+                                  Loeschen
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
