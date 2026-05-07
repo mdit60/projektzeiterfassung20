@@ -2,7 +2,9 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-35
+// Version: 7.4.4-36
+// v7.4.4-36: foerderbetrag_gesamt auch bei Statuswechsel gespeichert.
+//   Archiv zeigt Betrag ab erster Speicherung, unabhaengig vom Status.
 // v7.4.4-35: foerderbetrag_gesamt wird beim Speichern der ZA fest in DB geschrieben.
 //   Archiv-Tab zeigt gespeicherten Wert (historisch korrekt, keine Neuberechnung).
 // v7.4.4-34: Archiv-Tab neu: Zahlungseingang-Felder (Datum, Betrag, Anmerkung)
@@ -420,9 +422,10 @@ export default function ZAPanel({
     setZASaving(true);
     try {
       const now = new Date().toISOString();
-      const patch: Record<string, string | null> = {
+      const patch: Record<string, string | null | number> = {
         status: newStatus,
         updated_at: now,
+        foerderbetrag_gesamt: isNetzwerk ? nwmFoerderbetrag : antZuwendung,
       };
       if (newStatus === 'eingereicht') patch.eingereicht_am = now;
       if (newStatus === 'bewilligt')   patch.bewilligt_am = now;
