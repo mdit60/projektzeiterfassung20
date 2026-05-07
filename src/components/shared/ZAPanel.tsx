@@ -2,12 +2,10 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-39
-// v7.4.4-39: Einreichdatum direkt im Deckblatt-Formular (Zeile 3, Col 2).
-//   Statusblock vereinfacht (kein Datumsfeld dort mehr).
-//   handleSave speichert eingereicht_am mit wenn Status eingereicht/bewilligt.
-//   Programm ueberschreibt gesetztes Datum nicht automatisch.
-// v7.4.4-38: Einreichdatum manuell editierbar, Aktualisieren-Button.
+// Version: 7.4.4-40
+// v7.4.4-40: ZA loeschbar im Archiv-Tab. Bestaetigung erforderlich,
+//   bei Status Eingereicht/Bewilligt staerkere Warnung.
+// v7.4.4-39: Einreichdatum direkt im Deckblatt-Formular neben ZA-Nr.
 //   Archiv-Tab zeigt gespeicherten Wert (historisch korrekt, keine Neuberechnung).
 // v7.4.4-34: Archiv-Tab neu: Zahlungseingang-Felder (Datum, Betrag, Anmerkung)
 //   inline editierbar und speicherbar. Neue Spalten: Datum | Betrag | Zahlungseingang
@@ -636,6 +634,25 @@ export default function ZAPanel({
       alert('Fehler: ' + err.message);
     } finally {
       setZASaving(false);
+    }
+  };
+
+  const handleDeleteZA = async (za: ZahlungsanforderungDB) => {
+    const isOfficial = za.status === 'eingereicht' || za.status === 'bewilligt';
+    const msg = isOfficial
+      ? 'ACHTUNG: Diese ZA hat Status "' + (za.status === 'eingereicht' ? 'Eingereicht' : 'Bewilligt') + '".\nWirklich unwiderruflich loeschen?'
+      : 'ZA ' + za.za_nummer + ' wirklich loeschen?\nDieser Vorgang kann nicht rueckgaengig gemacht werden.';
+    if (!window.confirm(msg)) return;
+    try {
+      await supabase.from('v7_zahlungsanforderungen').delete().eq('id', za.id);
+      setZAList(prev => prev.filter(z => z.id !== za.id));
+      setArchivEdits(prev => { const n = { ...prev }; delete n[za.id]; return n; });
+      if (zaSelectedId === za.id) {
+        setZASelectedId(null);
+        setZAFormData({ za_nummer: '1', zeitraum_von: '', zeitraum_bis: '', auftraege_dritte_t: '', auftraege_dritte_nt: '', fue_unterauftrag: '', zeitw_personalaufnahme: '', notizen: '', nwm_kosten_dritte: '' });
+      }
+    } catch (err: any) {
+      alert('Fehler beim Loeschen: ' + err.message);
     }
   };
 
@@ -1629,6 +1646,11 @@ export default function ZAPanel({
                                   onClick={() => { loadZAIntoForm(za); setZATab('deckblatt'); }}
                                   className={`text-xs px-2.5 py-1 rounded border transition-colors ${colors.btnZaHover} bg-white text-gray-600 border-gray-300`}>
                                   Oeffnen
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteZA(za)}
+                                  className="text-xs px-2.5 py-1 rounded border border-red-200 bg-white text-red-500 hover:bg-red-50 hover:border-red-400 transition-colors">
+                                  Loeschen
                                 </button>
                               </div>
                             </td>
