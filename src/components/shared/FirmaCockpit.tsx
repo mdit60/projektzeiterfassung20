@@ -3,7 +3,7 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-4
+// Version: 7.4.9-5
 // Datum: 8. Mai 2026
 //
 // Firma-Cockpit als MIS (Management Information System)
@@ -13,6 +13,7 @@
 //   - Berater-Portal: /v7/berater/foerderung/firma/[id]/cockpit
 //   - Firmen-Portal:  /v7/firma/cockpit (Landing Page fuer Firmen-Admin)
 //
+// v7.4.9-5: Spalten 2|6|4, ZA-Tabelle zentriert formatiert
 // v7.4.9-4: ZA als Tabelle mit 7 Spalten, gruppiert nach Projekt (Kuerzel + FKZ)
 //           Sortierung nach ZA-Nummer aufsteigend
 //           Cockpit auf volle Seitenbreite
@@ -536,9 +537,9 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
         {/* ================================================================ */}
-        {/* LINKE SPALTE: Firmenkopf + Mitarbeiter (3 von 12 Spalten)        */}
+        {/* LINKE SPALTE: Firmenkopf + Mitarbeiter (2 von 12 Spalten)        */}
         {/* ================================================================ */}
-        <div className="lg:col-span-3 space-y-6">
+        <div className="lg:col-span-2 space-y-6">
 
           {/* --- Firmenkopf --- */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
@@ -647,9 +648,9 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
         </div>
 
         {/* ================================================================ */}
-        {/* MITTLERE SPALTE: Projekte mit KPIs (4 von 12 Spalten)           */}
+        {/* MITTLERE SPALTE: Projekte mit KPIs (6 von 12 Spalten)           */}
         {/* ================================================================ */}
-        <div className="lg:col-span-4 space-y-6">
+        <div className="lg:col-span-6 space-y-6">
 
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h2
@@ -794,9 +795,9 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
         </div>
 
         {/* ================================================================ */}
-        {/* RECHTE SPALTE: ZA-Tabelle (5 von 12 Spalten)                    */}
+        {/* RECHTE SPALTE: ZA-Tabelle (4 von 12 Spalten)                    */}
         {/* ================================================================ */}
-        <div className="lg:col-span-5 space-y-6">
+        <div className="lg:col-span-4 space-y-6">
 
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h2
@@ -861,13 +862,13 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                           <table className="w-full text-xs">
                             <thead>
                               <tr className="bg-gray-50 text-gray-500">
-                                <th className="text-left py-1.5 px-2 font-medium">ZA</th>
-                                <th className="text-left py-1.5 px-2 font-medium">Eingereicht</th>
-                                <th className="text-right py-1.5 px-2 font-medium">Anforderung</th>
-                                <th className="text-left py-1.5 px-2 font-medium">Zahlung</th>
-                                <th className="text-right py-1.5 px-2 font-medium">Betrag</th>
-                                <th className="text-right py-1.5 px-2 font-medium">Differenz</th>
-                                <th className="text-left py-1.5 px-2 font-medium">Kommentar</th>
+                                <th className="text-center py-1.5 px-2 font-medium">ZA</th>
+                                <th className="text-center py-1.5 px-2 font-medium">Eingereicht</th>
+                                <th className="text-center py-1.5 px-2 font-medium">Anforderung</th>
+                                <th className="text-center py-1.5 px-2 font-medium">Zahlung</th>
+                                <th className="text-center py-1.5 px-2 font-medium">Betrag</th>
+                                <th className="text-center py-1.5 px-2 font-medium">Differenz</th>
+                                <th className="text-center py-1.5 px-2 font-medium">Kommentar</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -878,22 +879,22 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
 
                                 return (
                                   <tr key={za.id} className="border-t border-gray-100 hover:bg-gray-50">
-                                    <td className="py-1.5 px-2 font-medium text-gray-900">
+                                    <td className="py-1.5 px-2 text-center font-medium text-gray-900">
                                       {za.za_nummer}
                                     </td>
-                                    <td className="py-1.5 px-2 text-gray-600">
+                                    <td className="py-1.5 px-2 text-center text-gray-600">
                                       {za.eingereicht_am ? formatDate(za.eingereicht_am) : '-'}
                                     </td>
-                                    <td className="py-1.5 px-2 text-right text-gray-700 font-medium">
+                                    <td className="py-1.5 px-2 text-center text-gray-700 font-medium">
                                       {hatAnforderung ? formatEuro(za.foerderbetrag_gesamt) : '-'}
                                     </td>
-                                    <td className="py-1.5 px-2 text-gray-600">
+                                    <td className="py-1.5 px-2 text-center text-gray-600">
                                       {za.zahlungseingang_datum ? formatDate(za.zahlungseingang_datum) : '-'}
                                     </td>
-                                    <td className="py-1.5 px-2 text-right text-green-700 font-medium">
+                                    <td className="py-1.5 px-2 text-center text-green-700 font-medium">
                                       {hatAuszahlung ? formatEuro(za.zahlungseingang_betrag) : '-'}
                                     </td>
-                                    <td className={`py-1.5 px-2 text-right font-medium ${
+                                    <td className={`py-1.5 px-2 text-center font-medium ${
                                       !hatAuszahlung ? 'text-gray-400' :
                                       differenz > 0 ? 'text-amber-600' : 'text-gray-400'
                                     }`}>
@@ -901,7 +902,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                                         ? (differenz !== 0 ? formatEuro(differenz) : '0,00 EUR')
                                         : '-'}
                                     </td>
-                                    <td className="py-1.5 px-2 text-gray-500 italic max-w-[120px] truncate">
+                                    <td className="py-1.5 px-2 text-center text-gray-500 italic max-w-[120px] truncate">
                                       {za.zahlungseingang_kommentar || '-'}
                                     </td>
                                   </tr>
