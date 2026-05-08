@@ -3,26 +3,19 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-1
+// Version: 7.4.9-2
 // Datum: 8. Mai 2026
 //
 // Firma-Cockpit als MIS (Management Information System)
 // Zeigt alle relevanten Informationen einer Firma auf einen Blick.
 //
 // Verwendung:
-//   - Berater-Portal: /v7/berater/foerderung/firma/[id]
-//     (ersetzt die bisherige Tab-basierte Berater-Firma-Detailseite)
+//   - Berater-Portal: /v7/berater/foerderung/firma/[id]/cockpit
 //   - Firmen-Portal:  /v7/firma/cockpit (Landing Page fuer Firmen-Admin)
 //
-// Props:
-//   firmaId  : string              - ID der Kundenfirma
-//   portal   : 'berater' | 'firma' - steuert Farbe (blau/gruen)
-//
-// Layout: 3 Spalten (responsive: stacked auf Mobile)
-//   Links:  Firmenkopf + Mitarbeiter-Uebersicht
-//   Mitte:  Projekt-Karten
-//   Rechts: Finanzen (ZA-Uebersicht + Summen)
-//
+// v7.4.9-2: KPI-Fortschrittsbalken in Projektkarten (Laufzeit, PM, Kosten)
+//           ZA: Status aus Daten abgeleitet (kein Dropdown)
+//           ZA: Spalten Eingereicht/Anforderung/Auszahlung/Differenz/Kommentar
 // v7.4.9-1: Erstversion - Grundgeruest mit Live-Daten
 // ============================================================================
 
@@ -38,7 +31,6 @@ import {
   Mail,
   MapPin,
   Calendar,
-  ChevronRight,
   ChevronDown,
   ChevronUp,
   Loader2,
@@ -48,6 +40,7 @@ import {
   CheckCircle,
   FileText,
   BarChart3,
+  TrendingUp,
 } from 'lucide-react';
 
 // ============================================================================
@@ -59,16 +52,13 @@ const PORTAL_PRIMARY: Record<string, string> = {
   firma: '#65A655',
 };
 
-const ZA_STATUS_COLORS: Record<string, { bg: string; text: string; border: string }> = {
-  'Entwurf': { bg: 'bg-gray-50', text: 'text-gray-600', border: 'border-gray-200' },
-  'Eingereicht': { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
-  'Bewilligt': { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200' },
-};
+const HOURS_PER_PM = 173.33;
 
 const FUNDING_FORMAT_LABELS: Record<string, string> = {
   'ZIM_EINZEL': 'ZIM Einzel',
   'ZIM_KOOPERATION': 'ZIM Koop.',
   'ZIM_NETZWERK': 'ZIM NWM',
+  'ZIM_DS': 'ZIM DS',
   'BMBF_KMU': 'BMBF/KMU-innov.',
   'FORSCHUNGSZULAGE': 'FZul',
 };
@@ -102,6 +92,9 @@ interface ProjektData {
   start_date: string | null;
   end_date: string | null;
   is_active: boolean;
+  foerdersatz: number | null;
+  overhead_t: number | null;
+  bewilligte_summe: number | null;
 }
 
 interface MitarbeiterData {
@@ -111,7 +104,7 @@ interface MitarbeiterData {
   portal_role: string | null;
   weekly_hours: number | null;
   is_active: boolean;
-  projekte: string[]; // Projektnamen
+  projekte: string[];
 }
 
 interface ZAData {
@@ -128,6 +121,15 @@ interface ZAData {
   eingereicht_am: string | null;
   projekt_name?: string;
   projekt_fkz?: string;
+}
+
+interface ProjektKPI {
+  laufzeitPct: number;
+  laufzeitLabel: string;
+  pmPct: number;
+  pmLabel: string;
+  kostenPct: number;
+  kostenLabel: string;
 }
 
 // ============================================================================
@@ -151,9 +153,56 @@ function formatEuro(betrag: number | null): string {
   return betrag.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' EUR';
 }
 
+function formatEuroShort(betrag: number | null): string {
+  if (betrag == null) return '-';
+  if (Math.abs(betrag) >= 1000) {
+    return Math.round(betrag / 1000).toLocaleString('de-DE') + 'k EUR';
+  }
+  return Math.round(betrag).toLocaleString('de-DE') + ' EUR';
+}
+
 function formatLaufzeit(start: string | null, end: string | null): string {
   if (!start || !end) return '-';
   return formatDateShort(start) + ' - ' + formatDateShort(end);
+}
+
+// ZA-Status aus Daten ableiten
+function deriveZAStatus(za: ZAData): { label: string; color: string; bg: string } {
+  if (za.zahlungseingang_datum && za.zahlungseingang_betrag != null && za.zahlungseingang_betrag > 0) {
+    return { label: 'Ausgezahlt', color: 'text-green-700', bg: 'bg-green-50' };
+  }
+  if (za.eingereicht_am) {
+    return { label: 'Eingereicht', color: 'text-blue-700', bg: 'bg-blue-50' };
+  }
+  return { label: 'Entwurf', color: 'text-gray-500', bg: 'bg-gray-50' };
+}
+
+// ============================================================================
+// FORTSCHRITTSBALKEN
+// ============================================================================
+
+function ProgressBar({ pct, label, sublabel, color }: {
+  pct: number;
+  label: string;
+  sublabel: string;
+  color: string;
+}) {
+  const clampedPct = Math.min(100, Math.max(0, pct));
+  return (
+    <div className="flex-1 min-w-0">
+      <div className="flex items-baseline justify-between mb-1">
+        <span className="text-xs font-medium text-gray-600">{label}</span>
+        <span className="text-xs font-bold" style={{ color }}>{pct}%</span>
+      </div>
+      <div className="w-full bg-gray-100 rounded-full h-2">
+        <div
+          className="h-2 rounded-full transition-all duration-500"
+          style={{ width: `${clampedPct}%`, backgroundColor: color }}
+        />
+      </div>
+      <span className="text-[10px] text-gray-400 mt-0.5 block">{sublabel}</span>
+    </div>
+  );
 }
 
 // ============================================================================
@@ -173,6 +222,9 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
   const [mitarbeiter, setMitarbeiter] = useState<MitarbeiterData[]>([]);
   const [zaList, setZaList] = useState<ZAData[]>([]);
   const [showInactiveProjekte, setShowInactiveProjekte] = useState(false);
+
+  // KPI-Daten pro Projekt
+  const [projektKPIs, setProjektKPIs] = useState<Record<string, ProjektKPI>>({});
 
   // ==========================================================================
   // DATEN LADEN
@@ -200,15 +252,18 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
       }
       setFirma(firmaDB);
 
-      // 2. Projekte
+      // 2. Projekte (inkl. KPI-relevante Felder)
       const { data: projektDB } = await supabase
         .from('v7_projects')
-        .select('id, name, short_name, funding_reference, funding_format, start_date, end_date, is_active')
+        .select('id, name, short_name, funding_reference, funding_format, start_date, end_date, is_active, foerdersatz, overhead_t, bewilligte_summe')
         .eq('client_company_id', firmaId)
         .order('is_active', { ascending: false })
         .order('start_date', { ascending: false });
 
-      setProjekte(projektDB || []);
+      const alleProjekte: ProjektData[] = projektDB || [];
+      setProjekte(alleProjekte);
+
+      const aktiveProjektIds = alleProjekte.filter(p => p.is_active).map(p => p.id);
 
       // 3. Mitarbeiter mit Projekt-Zuordnungen
       const { data: maDB } = await supabase
@@ -218,11 +273,9 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
         .eq('is_active', true)
         .order('display_name');
 
-      // Projekt-Zuordnungen fuer jeden MA laden
       const maList: MitarbeiterData[] = [];
-      if (maDB && projektDB) {
+      if (maDB && alleProjekte.length > 0) {
         for (const ma of maDB) {
-          // Aktive AP-Zuordnungen finden
           const { data: wpaDB } = await supabase
             .from('v7_work_package_assignments')
             .select('work_package_id, is_active, v7_work_packages!inner(project_id)')
@@ -233,35 +286,119 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
           if (wpaDB) {
             for (const wpa of wpaDB) {
               const wp = wpa.v7_work_packages as any;
-              if (wp?.project_id) {
-                projektIds.add(wp.project_id);
-              }
+              if (wp?.project_id) projektIds.add(wp.project_id);
             }
           }
 
-          const projektNamen = (projektDB || [])
+          const projektNamen = alleProjekte
             .filter(p => projektIds.has(p.id) && p.is_active)
             .map(p => p.short_name || p.name);
 
-          maList.push({
-            ...ma,
-            projekte: projektNamen,
-          });
+          maList.push({ ...ma, projekte: projektNamen });
         }
       }
       setMitarbeiter(maList);
 
-      // 4. ZA-Uebersicht (alle Projekte dieser Firma)
-      if (projektDB && projektDB.length > 0) {
-        const projektIds = projektDB.map(p => p.id);
+      // 4. KPI-Daten fuer aktive Projekte
+      if (aktiveProjektIds.length > 0) {
+        // Arbeitspakete
+        const { data: wpDB } = await supabase
+          .from('v7_work_packages')
+          .select('id, project_id, total_person_months, start_date, end_date')
+          .in('project_id', aktiveProjektIds)
+          .eq('is_active', true);
+
+        const wpIds = (wpDB || []).map(wp => wp.id);
+
+        // AP-Zuordnungen
+        let wpaDB: any[] = [];
+        if (wpIds.length > 0) {
+          const { data } = await supabase
+            .from('v7_work_package_assignments')
+            .select('work_package_id, employee_id, planned_person_months')
+            .in('work_package_id', wpIds)
+            .eq('is_active', true);
+          wpaDB = data || [];
+        }
+
+        // Projekt-Zuordnungen (Stundensaetze)
+        const { data: paDB } = await supabase
+          .from('v7_project_assignments')
+          .select('project_id, employee_id, hourly_rate')
+          .in('project_id', aktiveProjektIds)
+          .eq('is_active', true);
+
+        // Timesheets
+        const { data: tsDB } = await supabase
+          .from('v7_timesheets')
+          .select('project_id, employee_id, hours, is_billable')
+          .in('project_id', aktiveProjektIds)
+          .eq('is_active', true);
+
+        // KPIs berechnen
+        const kpis: Record<string, ProjektKPI> = {};
+        const now = new Date();
+
+        for (const projekt of alleProjekte.filter(p => p.is_active)) {
+          const projWPs = (wpDB || []).filter(wp => wp.project_id === projekt.id);
+          const projTS = (tsDB || []).filter(t => t.project_id === projekt.id && t.is_billable !== false);
+          const projPA = (paDB || []).filter(pa => pa.project_id === projekt.id);
+
+          // Laufzeit
+          let laufzeitPct = 0;
+          let laufzeitLabel = '-';
+          if (projekt.start_date && projekt.end_date) {
+            const start = new Date(projekt.start_date);
+            const end = new Date(projekt.end_date);
+            const total = end.getTime() - start.getTime();
+            const elapsed = Math.max(0, Math.min(total, now.getTime() - start.getTime()));
+            laufzeitPct = total > 0 ? Math.round((elapsed / total) * 100) : 0;
+            const gesamtMonate = Math.round(total / (30.44 * 24 * 60 * 60 * 1000));
+            const vergangeMonate = Math.round(elapsed / (30.44 * 24 * 60 * 60 * 1000));
+            laufzeitLabel = vergangeMonate + '/' + gesamtMonate + ' Mon.';
+          }
+
+          // PM
+          const gesamtPlanPM = projWPs.reduce((s, wp) => s + (wp.total_person_months || 0), 0);
+          const gesamtIstStunden = projTS.reduce((s, t) => s + (t.hours || 0), 0);
+          const gesamtIstPM = gesamtIstStunden / HOURS_PER_PM;
+          const pmPct = gesamtPlanPM > 0 ? Math.round((gesamtIstPM / gesamtPlanPM) * 100) : 0;
+          const pmLabel = (Math.round(gesamtIstPM * 10) / 10) + '/' + (Math.round(gesamtPlanPM * 10) / 10) + ' PM';
+
+          // Kosten
+          const overhead = (projekt.overhead_t || 0) / 100;
+          let gesamtPlanKosten = 0;
+          let gesamtIstKosten = 0;
+          projPA.forEach(pa => {
+            const rate = pa.hourly_rate || 0;
+            if (rate === 0) return;
+            const maWPAs = wpaDB.filter((wpa: any) => {
+              const wp = projWPs.find(w => w.id === wpa.work_package_id);
+              return wp && wpa.employee_id === pa.employee_id;
+            });
+            const planPM = maWPAs.reduce((s: number, wpa: any) => s + (wpa.planned_person_months || 0), 0);
+            gesamtPlanKosten += planPM * HOURS_PER_PM * rate * (1 + overhead);
+            const istH = projTS
+              .filter(t => t.employee_id === pa.employee_id)
+              .reduce((s, t) => s + (t.hours || 0), 0);
+            gesamtIstKosten += istH * rate * (1 + overhead);
+          });
+          const kostenPct = gesamtPlanKosten > 0 ? Math.round((gesamtIstKosten / gesamtPlanKosten) * 100) : 0;
+          const kostenLabel = formatEuroShort(gesamtIstKosten) + '/' + formatEuroShort(gesamtPlanKosten);
+
+          kpis[projekt.id] = { laufzeitPct, laufzeitLabel, pmPct, pmLabel, kostenPct, kostenLabel };
+        }
+        setProjektKPIs(kpis);
+
+        // 5. ZA-Uebersicht
         const { data: zaDB } = await supabase
           .from('v7_zahlungsanforderungen')
           .select('id, project_id, za_nummer, zeitraum_von, zeitraum_bis, status, foerderbetrag_gesamt, zahlungseingang_datum, zahlungseingang_betrag, zahlungseingang_kommentar, eingereicht_am')
-          .in('project_id', projektIds)
+          .in('project_id', alleProjekte.map(p => p.id))
           .order('eingereicht_am', { ascending: false });
 
         const zaWithProjekt = (zaDB || []).map(za => {
-          const proj = projektDB.find(p => p.id === za.project_id);
+          const proj = alleProjekte.find(p => p.id === za.project_id);
           return {
             ...za,
             projekt_name: proj?.short_name || proj?.name || '-',
@@ -322,14 +459,11 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
   const aktiveProjekte = projekte.filter(p => p.is_active);
   const inaktiveProjekte = projekte.filter(p => !p.is_active);
 
-  const zaAngefordert = zaList
-    .filter(z => z.status !== 'Entwurf')
-    .reduce((sum, z) => sum + (z.foerderbetrag_gesamt || 0), 0);
-
-  const zaEingegangen = zaList
-    .reduce((sum, z) => sum + (z.zahlungseingang_betrag || 0), 0);
-
-  const zaOffen = zaAngefordert - zaEingegangen;
+  // ZA-Summen: nur eingereichte/ausgezahlte ZAs (nicht Entwuerfe)
+  const zaEingereicht = zaList.filter(z => z.eingereicht_am);
+  const zaAngefordert = zaEingereicht.reduce((sum, z) => sum + (z.foerderbetrag_gesamt || 0), 0);
+  const zaAusgezahlt = zaEingereicht.reduce((sum, z) => sum + (z.zahlungseingang_betrag || 0), 0);
+  const zaDifferenzGesamt = zaAngefordert - zaAusgezahlt;
 
   // ==========================================================================
   // RENDER: LOADING / ERROR
@@ -391,9 +525,9 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
         {/* ================================================================ */}
-        {/* LINKE SPALTE: Firmenkopf + Mitarbeiter (4 von 12 Spalten)        */}
+        {/* LINKE SPALTE: Firmenkopf + Mitarbeiter (3 von 12 Spalten)        */}
         {/* ================================================================ */}
-        <div className="lg:col-span-4 space-y-6">
+        <div className="lg:col-span-3 space-y-6">
 
           {/* --- Firmenkopf --- */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
@@ -442,7 +576,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                 <div className="flex items-start gap-3">
                   <Clock className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
                   <span className="text-gray-700">
-                    {String(firma.standard_weekly_hours).replace('.', ',')} h/Woche Regelarbeitszeit
+                    {String(firma.standard_weekly_hours).replace('.', ',')} h/Woche
                   </span>
                 </div>
               )}
@@ -502,9 +636,9 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
         </div>
 
         {/* ================================================================ */}
-        {/* MITTLERE SPALTE: Projekte (4 von 12 Spalten)                    */}
+        {/* MITTLERE SPALTE: Projekte mit KPIs (5 von 12 Spalten)           */}
         {/* ================================================================ */}
-        <div className="lg:col-span-4 space-y-6">
+        <div className="lg:col-span-5 space-y-6">
 
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h2
@@ -519,68 +653,95 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
               <p className="text-sm text-gray-400">Keine aktiven Projekte.</p>
             ) : (
               <div className="space-y-4">
-                {aktiveProjekte.map(projekt => (
-                  <div
-                    key={projekt.id}
-                    className="border border-gray-200 rounded-lg p-4 hover:border-gray-300 hover:shadow-sm transition-all"
-                  >
-                    {/* FKZ + Format */}
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-mono text-gray-500">
-                        {projekt.funding_reference || 'Kein FKZ'}
-                      </span>
-                      <span
-                        className="text-xs font-medium px-2 py-0.5 rounded-full"
-                        style={{
-                          color: primaryColor,
-                          backgroundColor: primaryColor + '15',
-                        }}
-                      >
-                        {FUNDING_FORMAT_LABELS[projekt.funding_format] || projekt.funding_format}
-                      </span>
-                    </div>
+                {aktiveProjekte.map(projekt => {
+                  const kpi = projektKPIs[projekt.id];
+                  return (
+                    <div
+                      key={projekt.id}
+                      className="border border-gray-200 rounded-lg p-4 hover:border-gray-300 hover:shadow-sm transition-all"
+                    >
+                      {/* FKZ + Format */}
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-mono text-gray-500">
+                          {projekt.funding_reference || 'Kein FKZ'}
+                        </span>
+                        <span
+                          className="text-xs font-medium px-2 py-0.5 rounded-full"
+                          style={{
+                            color: primaryColor,
+                            backgroundColor: primaryColor + '15',
+                          }}
+                        >
+                          {FUNDING_FORMAT_LABELS[projekt.funding_format] || projekt.funding_format}
+                        </span>
+                      </div>
 
-                    {/* Projektname */}
-                    <h3 className="text-sm font-semibold text-gray-900 mb-2 leading-snug">
-                      {projekt.short_name || projekt.name}
-                    </h3>
+                      {/* Projektname */}
+                      <h3 className="text-sm font-semibold text-gray-900 mb-1 leading-snug">
+                        {projekt.short_name || projekt.name}
+                      </h3>
 
-                    {/* Laufzeit */}
-                    <div className="flex items-center gap-2 text-xs text-gray-500 mb-3">
-                      <Calendar className="w-3.5 h-3.5" />
-                      {formatLaufzeit(projekt.start_date, projekt.end_date)}
-                    </div>
+                      {/* Laufzeit */}
+                      <div className="flex items-center gap-2 text-xs text-gray-500 mb-3">
+                        <Calendar className="w-3.5 h-3.5" />
+                        {formatLaufzeit(projekt.start_date, projekt.end_date)}
+                      </div>
 
-                    {/* Direktlinks */}
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        onClick={() => handleProjektClick(projekt.id)}
-                        className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-md bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors"
-                      >
-                        <FileText className="w-3 h-3" />
-                        Arbeitsplan
-                      </button>
-                      <button
-                        onClick={() => handleZEClick(projekt.id)}
-                        className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-md bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors"
-                      >
-                        <Clock className="w-3 h-3" />
-                        Zeiterfassung
-                      </button>
-                      <button
-                        onClick={() => handleBerichteClick(projekt.id)}
-                        className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-md bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors"
-                      >
-                        <BarChart3 className="w-3 h-3" />
-                        Berichte
-                      </button>
+                      {/* KPI-Fortschrittsbalken */}
+                      {kpi && (
+                        <div className="flex gap-3 mb-3 pt-2 border-t border-gray-100">
+                          <ProgressBar
+                            pct={kpi.laufzeitPct}
+                            label="Laufzeit"
+                            sublabel={kpi.laufzeitLabel}
+                            color="#6366f1"
+                          />
+                          <ProgressBar
+                            pct={kpi.pmPct}
+                            label="PM"
+                            sublabel={kpi.pmLabel}
+                            color="#0ea5e9"
+                          />
+                          <ProgressBar
+                            pct={kpi.kostenPct}
+                            label="Kosten"
+                            sublabel={kpi.kostenLabel}
+                            color="#10b981"
+                          />
+                        </div>
+                      )}
+
+                      {/* Direktlinks */}
+                      <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
+                        <button
+                          onClick={() => handleProjektClick(projekt.id)}
+                          className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-md bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors"
+                        >
+                          <FileText className="w-3 h-3" />
+                          Arbeitsplan
+                        </button>
+                        <button
+                          onClick={() => handleZEClick(projekt.id)}
+                          className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-md bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors"
+                        >
+                          <Clock className="w-3 h-3" />
+                          Zeiterfassung
+                        </button>
+                        <button
+                          onClick={() => handleBerichteClick(projekt.id)}
+                          className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-md bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors"
+                        >
+                          <BarChart3 className="w-3 h-3" />
+                          Berichte
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
-            {/* Inaktive Projekte ausklappbar */}
+            {/* Inaktive Projekte */}
             {inaktiveProjekte.length > 0 && (
               <div className="mt-4 pt-4 border-t border-gray-100">
                 <button
@@ -622,92 +783,128 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
         </div>
 
         {/* ================================================================ */}
-        {/* RECHTE SPALTE: Finanzen (4 von 12 Spalten)                      */}
+        {/* RECHTE SPALTE: Finanzen / ZA (4 von 12 Spalten)                 */}
         {/* ================================================================ */}
         <div className="lg:col-span-4 space-y-6">
 
-          {/* Summen-Karten */}
-          <div className="grid grid-cols-1 gap-3">
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <h2
-                className="text-sm font-semibold uppercase tracking-wider mb-4 flex items-center gap-2"
-                style={{ color: primaryColor }}
-              >
-                <Banknote className="w-4 h-4" />
-                Finanzen
-              </h2>
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <h2
+              className="text-sm font-semibold uppercase tracking-wider mb-4 flex items-center gap-2"
+              style={{ color: primaryColor }}
+            >
+              <Banknote className="w-4 h-4" />
+              Zahlungsanforderungen
+            </h2>
 
-              <div className="grid grid-cols-3 gap-3 mb-4">
-                <div className="text-center p-3 bg-blue-50 rounded-lg">
-                  <div className="text-xs text-blue-600 font-medium mb-1">Angefordert</div>
-                  <div className="text-sm font-bold text-blue-800">
-                    {formatEuro(zaAngefordert)}
-                  </div>
-                </div>
-                <div className="text-center p-3 bg-green-50 rounded-lg">
-                  <div className="text-xs text-green-600 font-medium mb-1">Eingegangen</div>
-                  <div className="text-sm font-bold text-green-800">
-                    {formatEuro(zaEingegangen)}
-                  </div>
-                </div>
-                <div className="text-center p-3 bg-amber-50 rounded-lg">
-                  <div className="text-xs text-amber-600 font-medium mb-1">Offen</div>
-                  <div className="text-sm font-bold text-amber-800">
-                    {formatEuro(zaOffen > 0 ? zaOffen : 0)}
-                  </div>
+            {/* Summen-Karten */}
+            <div className="grid grid-cols-3 gap-2 mb-4">
+              <div className="text-center p-3 bg-blue-50 rounded-lg">
+                <div className="text-[10px] text-blue-600 font-medium mb-1">Angefordert</div>
+                <div className="text-xs font-bold text-blue-800">
+                  {formatEuro(zaAngefordert)}
                 </div>
               </div>
-
-              {/* ZA-Liste */}
-              {zaList.length === 0 ? (
-                <p className="text-sm text-gray-400">Keine Zahlungsanforderungen vorhanden.</p>
-              ) : (
-                <div className="space-y-2">
-                  {zaList.map(za => {
-                    const statusStyle = ZA_STATUS_COLORS[za.status] || ZA_STATUS_COLORS['Entwurf'];
-                    return (
-                      <div
-                        key={za.id}
-                        className={`border rounded-lg p-3 ${statusStyle.border}`}
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs font-medium text-gray-900">
-                            {za.projekt_fkz} / ZA {za.za_nummer}
-                          </span>
-                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${statusStyle.bg} ${statusStyle.text}`}>
-                            {za.status}
-                          </span>
-                        </div>
-
-                        <div className="text-xs text-gray-500 mb-1">
-                          {za.zeitraum_von && za.zeitraum_bis
-                            ? formatDateShort(za.zeitraum_von) + ' - ' + formatDateShort(za.zeitraum_bis)
-                            : '-'}
-                        </div>
-
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-gray-600">
-                            Betrag: <span className="font-medium">{formatEuro(za.foerderbetrag_gesamt)}</span>
-                          </span>
-                          {za.zahlungseingang_betrag != null && za.zahlungseingang_betrag > 0 && (
-                            <span className="text-green-600 flex items-center gap-1">
-                              <CheckCircle className="w-3 h-3" />
-                              {formatEuro(za.zahlungseingang_betrag)}
-                            </span>
-                          )}
-                        </div>
-
-                        {za.zahlungseingang_kommentar && (
-                          <div className="text-xs text-gray-400 mt-1 italic">
-                            {za.zahlungseingang_kommentar}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+              <div className="text-center p-3 bg-green-50 rounded-lg">
+                <div className="text-[10px] text-green-600 font-medium mb-1">Ausgezahlt</div>
+                <div className="text-xs font-bold text-green-800">
+                  {formatEuro(zaAusgezahlt)}
                 </div>
-              )}
+              </div>
+              <div className={`text-center p-3 rounded-lg ${zaDifferenzGesamt > 0 ? 'bg-amber-50' : 'bg-gray-50'}`}>
+                <div className={`text-[10px] font-medium mb-1 ${zaDifferenzGesamt > 0 ? 'text-amber-600' : 'text-gray-500'}`}>
+                  Differenz
+                </div>
+                <div className={`text-xs font-bold ${zaDifferenzGesamt > 0 ? 'text-amber-800' : 'text-gray-600'}`}>
+                  {formatEuro(zaDifferenzGesamt)}
+                </div>
+              </div>
             </div>
+
+            {/* ZA-Liste */}
+            {zaList.length === 0 ? (
+              <p className="text-sm text-gray-400">Keine Zahlungsanforderungen vorhanden.</p>
+            ) : (
+              <div className="space-y-2">
+                {zaList.map(za => {
+                  const zaStatus = deriveZAStatus(za);
+                  const differenz = (za.foerderbetrag_gesamt || 0) - (za.zahlungseingang_betrag || 0);
+                  const hatAuszahlung = za.zahlungseingang_betrag != null && za.zahlungseingang_betrag > 0;
+
+                  return (
+                    <div
+                      key={za.id}
+                      className="border border-gray-200 rounded-lg p-3"
+                    >
+                      {/* Kopfzeile: FKZ / ZA Nr */}
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-medium text-gray-900">
+                          {za.projekt_fkz} / ZA {za.za_nummer}
+                        </span>
+                        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${zaStatus.bg} ${zaStatus.color}`}>
+                          {zaStatus.label}
+                        </span>
+                      </div>
+
+                      {/* Zeitraum */}
+                      <div className="text-xs text-gray-500 mb-2">
+                        {za.zeitraum_von && za.zeitraum_bis
+                          ? formatDateShort(za.zeitraum_von) + ' - ' + formatDateShort(za.zeitraum_bis)
+                          : '-'}
+                      </div>
+
+                      {/* Datentabelle */}
+                      <table className="w-full text-xs">
+                        <tbody>
+                          {/* Eingereicht */}
+                          {za.eingereicht_am && (
+                            <tr className="border-t border-gray-100">
+                              <td className="py-1 text-gray-500 w-24">Eingereicht</td>
+                              <td className="py-1 text-gray-700">{formatDate(za.eingereicht_am)}</td>
+                            </tr>
+                          )}
+
+                          {/* Anforderung */}
+                          <tr className="border-t border-gray-100">
+                            <td className="py-1 text-gray-500">Anforderung</td>
+                            <td className="py-1 text-gray-700 font-medium">{formatEuro(za.foerderbetrag_gesamt)}</td>
+                          </tr>
+
+                          {/* Auszahlung */}
+                          {hatAuszahlung && (
+                            <>
+                              <tr className="border-t border-gray-100">
+                                <td className="py-1 text-gray-500">Auszahlung</td>
+                                <td className="py-1 text-green-700 font-medium">
+                                  {formatDate(za.zahlungseingang_datum)} / {formatEuro(za.zahlungseingang_betrag)}
+                                </td>
+                              </tr>
+
+                              {/* Differenz */}
+                              {differenz !== 0 && (
+                                <tr className="border-t border-gray-100">
+                                  <td className="py-1 text-gray-500">Differenz</td>
+                                  <td className={`py-1 font-medium ${differenz > 0 ? 'text-amber-600' : 'text-green-600'}`}>
+                                    {differenz > 0 ? '-' : '+'}{formatEuro(Math.abs(differenz))}
+                                  </td>
+                                </tr>
+                              )}
+
+                              {/* Kommentar */}
+                              {za.zahlungseingang_kommentar && (
+                                <tr className="border-t border-gray-100">
+                                  <td className="py-1 text-gray-500">Kommentar</td>
+                                  <td className="py-1 text-gray-600 italic">{za.zahlungseingang_kommentar}</td>
+                                </tr>
+                              )}
+                            </>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
         </div>
