@@ -4,25 +4,80 @@
 // ============================================================================
 // PZE V7 - System-Konfiguration (nur system_admin)
 // ============================================================================
-// Version: 7.4.4-1
-// Neu: Toggle fuer manuals_enabled in v7_system_config
-//   - Schaltet Anleitungs-Downloads im Hilfe-Dropdown ein/aus
-//   - Nur sichtbar fuer system_admin (Berater-Admin-Seite)
+// Version: 7.4.4-2
+// Datum: 8. Mai 2026
+//
+// v7.4.4-2: Cockpit-Freischaltung
+//   - cockpit_berater_enabled: Cockpit fuer Berater-Rolle sichtbar
+//   - cockpit_firma_enabled: Cockpit fuer Firmen-Portal sichtbar
+//   - system_admin sieht Cockpit IMMER (unabhaengig von Config)
+//   - Toggles im gleichen Pattern wie manuals_enabled
+//
+// v7.4.4-1: Toggle fuer manuals_enabled
 // ============================================================================
 
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { BookOpen, CheckCircle, AlertCircle, Loader2, Save } from 'lucide-react';
+import { BookOpen, LayoutDashboard, CheckCircle, AlertCircle, Loader2, Save } from 'lucide-react';
 
 // ============================================================================
-// TYPEN
+// TOGGLE-KOMPONENTE (wiederverwendbar)
 // ============================================================================
 
-interface ConfigRow {
-  key: string;
-  value: string;
-  updated_at: string;
-  updated_by: string | null;
+function ConfigToggle({
+  enabled,
+  onToggle,
+  label,
+  labelAktiv,
+  labelInaktiv,
+  beschreibungAktiv,
+  beschreibungInaktiv,
+}: {
+  enabled: boolean;
+  onToggle: () => void;
+  label: string;
+  labelAktiv: string;
+  labelInaktiv: string;
+  beschreibungAktiv: string;
+  beschreibungInaktiv: string;
+}) {
+  return (
+    <div className="flex items-center gap-4">
+      <button
+        onClick={onToggle}
+        className={[
+          'relative inline-flex h-7 w-14 items-center rounded-full transition-colors duration-200 focus:outline-none flex-shrink-0',
+          enabled ? 'bg-green-500' : 'bg-gray-300',
+        ].join(' ')}
+        aria-label={label}
+      >
+        <span
+          className={[
+            'inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-200',
+            enabled ? 'translate-x-8' : 'translate-x-1',
+          ].join(' ')}
+        />
+      </button>
+      <div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-gray-900">{label}</span>
+          <span className={[
+            'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
+            enabled ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700',
+          ].join(' ')}>
+            {enabled ? (
+              <><CheckCircle size={11} /> {labelAktiv}</>
+            ) : (
+              <><AlertCircle size={11} /> {labelInaktiv}</>
+            )}
+          </span>
+        </div>
+        <p className="text-xs text-gray-500 mt-0.5">
+          {enabled ? beschreibungAktiv : beschreibungInaktiv}
+        </p>
+      </div>
+    </div>
+  );
 }
 
 // ============================================================================
@@ -32,214 +87,250 @@ interface ConfigRow {
 export default function SystemConfigPanel() {
   const [loading, setLoading]           = useState(true);
   const [saving, setSaving]             = useState(false);
-  const [manualsEnabled, setManualsEnabled] = useState(false);
-  const [lastUpdated, setLastUpdated]   = useState<string | null>(null);
-  const [lastUpdatedBy, setLastUpdatedBy] = useState<string | null>(null);
   const [saveStatus, setSaveStatus]     = useState<'idle' | 'ok' | 'err'>('idle');
   const [userEmail, setUserEmail]       = useState<string>('');
+  const [lastUpdated, setLastUpdated]   = useState<string | null>(null);
+  const [lastUpdatedBy, setLastUpdatedBy] = useState<string | null>(null);
 
-  // ── Daten laden ────────────────────────────────────────────────────────────
+  // Config-Werte
+  const [manualsEnabled, setManualsEnabled] = useState(false);
+  const [cockpitBeraterEnabled, setCockpitBeraterEnabled] = useState(false);
+  const [cockpitFirmaEnabled, setCockpitFirmaEnabled] = useState(false);
+
+  // -- Daten laden --
   useEffect(() => {
     const supabase = createClient();
 
     async function load() {
       setLoading(true);
 
-      // Eingeloggter User
       const { data: { user } } = await supabase.auth.getUser();
       if (user?.email) setUserEmail(user.email);
 
-      // Config lesen
-      const { data, error } = await supabase
+      // Alle Config-Keys auf einmal laden
+      const { data } = await supabase
         .from('v7_system_config')
         .select('key, value, updated_at, updated_by')
-        .eq('key', 'manuals_enabled')
-        .single();
+        .in('key', ['manuals_enabled', 'cockpit_berater_enabled', 'cockpit_firma_enabled']);
 
-      if (!error && data) {
-        setManualsEnabled(data.value === 'true');
-        setLastUpdated(data.updated_at);
-        setLastUpdatedBy(data.updated_by);
+      let newestUpdate: string | null = null;
+      let newestUpdatedBy: string | null = null;
+
+      if (data) {
+        for (const row of data) {
+          if (row.key === 'manuals_enabled') {
+            setManualsEnabled(row.value === 'true');
+          }
+          if (row.key === 'cockpit_berater_enabled') {
+            setCockpitBeraterEnabled(row.value === 'true');
+          }
+          if (row.key === 'cockpit_firma_enabled') {
+            setCockpitFirmaEnabled(row.value === 'true');
+          }
+          if (row.updated_at && (!newestUpdate || row.updated_at > newestUpdate)) {
+            newestUpdate = row.updated_at;
+            newestUpdatedBy = row.updated_by;
+          }
+        }
       }
-
+      setLastUpdated(newestUpdate);
+      setLastUpdatedBy(newestUpdatedBy);
       setLoading(false);
     }
 
     load();
   }, []);
 
-  // ── Speichern ──────────────────────────────────────────────────────────────
+  // -- Speichern (alle Werte auf einmal) --
   async function handleSave() {
     setSaving(true);
     setSaveStatus('idle');
     const supabase = createClient();
+    const now = new Date().toISOString();
 
-    const { error } = await supabase
-      .from('v7_system_config')
-      .upsert({
-        key:        'manuals_enabled',
-        value:      manualsEnabled ? 'true' : 'false',
-        updated_at: new Date().toISOString(),
-        updated_by: userEmail || null,
-      }, { onConflict: 'key' });
+    const configs = [
+      { key: 'manuals_enabled', value: manualsEnabled ? 'true' : 'false' },
+      { key: 'cockpit_berater_enabled', value: cockpitBeraterEnabled ? 'true' : 'false' },
+      { key: 'cockpit_firma_enabled', value: cockpitFirmaEnabled ? 'true' : 'false' },
+    ];
+
+    let hasError = false;
+    for (const cfg of configs) {
+      const { error } = await supabase
+        .from('v7_system_config')
+        .upsert({
+          key: cfg.key,
+          value: cfg.value,
+          updated_at: now,
+          updated_by: userEmail || null,
+        }, { onConflict: 'key' });
+      if (error) {
+        console.error('SystemConfig save error for ' + cfg.key + ':', error);
+        hasError = true;
+      }
+    }
 
     setSaving(false);
-    if (error) {
-      console.error('SystemConfigPanel save error:', error);
+    if (hasError) {
       setSaveStatus('err');
     } else {
       setSaveStatus('ok');
-      setLastUpdated(new Date().toISOString());
+      setLastUpdated(now);
       setLastUpdatedBy(userEmail || null);
       setTimeout(() => setSaveStatus('idle'), 3000);
     }
   }
 
-  // ── Formatierung ───────────────────────────────────────────────────────────
+  function resetSaveStatus() { setSaveStatus('idle'); }
+
   function formatDate(iso: string | null) {
-    if (!iso) return '–';
+    if (!iso) return '--';
     return new Date(iso).toLocaleString('de-DE', {
       day: '2-digit', month: '2-digit', year: 'numeric',
       hour: '2-digit', minute: '2-digit',
     });
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // -- Render --
   if (loading) {
     return (
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 flex items-center gap-3 text-gray-500">
         <Loader2 size={18} className="animate-spin" />
-        <span className="text-sm">Konfiguration wird geladen …</span>
+        <span className="text-sm">Konfiguration wird geladen ...</span>
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-      {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
-        <BookOpen size={20} className="text-gray-500" />
-        <div>
-          <h3 className="text-base font-semibold text-gray-900">Anleitungen & Downloads</h3>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Steuert, ob Benutzerhandbücher im Hilfe-Dropdown des Firmen-Portals heruntergeladen werden können.
-          </p>
+    <div className="space-y-6">
+
+      {/* ================================================================ */}
+      {/* COCKPIT-FREISCHALTUNG                                           */}
+      {/* ================================================================ */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+          <LayoutDashboard size={20} className="text-gray-500" />
+          <div>
+            <h3 className="text-base font-semibold text-gray-900">Cockpit-Freischaltung</h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Steuert, wer das Firma-Cockpit in der Navigation sieht. system_admin sieht es immer.
+            </p>
+          </div>
+        </div>
+
+        <div className="px-6 py-5 space-y-5">
+          <ConfigToggle
+            enabled={cockpitBeraterEnabled}
+            onToggle={() => { setCockpitBeraterEnabled(v => !v); resetSaveStatus(); }}
+            label="Cockpit fuer Berater"
+            labelAktiv="Aktiv"
+            labelInaktiv="Nur system_admin"
+            beschreibungAktiv="Alle Berater sehen den Cockpit-Tab in der Navigation."
+            beschreibungInaktiv="Nur system_admin sieht den Cockpit-Tab. Andere Berater sehen keine Aenderung."
+          />
+
+          <ConfigToggle
+            enabled={cockpitFirmaEnabled}
+            onToggle={() => { setCockpitFirmaEnabled(v => !v); resetSaveStatus(); }}
+            label="Cockpit fuer Firmen-Portal"
+            labelAktiv="Aktiv"
+            labelInaktiv="Ausgeblendet"
+            beschreibungAktiv="Firmen-Admins und Projektleiter sehen das Cockpit als Startseite."
+            beschreibungInaktiv="Firmen-Nutzer sehen das bisherige Dashboard. Keine sichtbare Aenderung."
+          />
         </div>
       </div>
 
-      {/* Toggle-Zeile */}
-      <div className="px-6 py-5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            {/* Toggle */}
-            <button
-              onClick={() => { setManualsEnabled(v => !v); setSaveStatus('idle'); }}
-              className={[
-                'relative inline-flex h-7 w-14 items-center rounded-full transition-colors duration-200 focus:outline-none',
-                manualsEnabled ? 'bg-green-500' : 'bg-gray-300',
-              ].join(' ')}
-              aria-label="Anleitungen freischalten"
-            >
-              <span
-                className={[
-                  'inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-200',
-                  manualsEnabled ? 'translate-x-8' : 'translate-x-1',
-                ].join(' ')}
-              />
-            </button>
+      {/* ================================================================ */}
+      {/* ANLEITUNGEN & DOWNLOADS                                         */}
+      {/* ================================================================ */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+          <BookOpen size={20} className="text-gray-500" />
+          <div>
+            <h3 className="text-base font-semibold text-gray-900">Anleitungen & Downloads</h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Steuert, ob Benutzerhandbucher im Hilfe-Dropdown des Firmen-Portals heruntergeladen werden koennen.
+            </p>
+          </div>
+        </div>
 
-            {/* Label + Status */}
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-gray-900">
-                  Anleitungs-Downloads
-                </span>
-                <span className={[
-                  'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
-                  manualsEnabled
-                    ? 'bg-green-100 text-green-700'
-                    : 'bg-amber-100 text-amber-700',
-                ].join(' ')}>
-                  {manualsEnabled ? (
-                    <><CheckCircle size={11} /> Aktiv</>
-                  ) : (
-                    <><AlertCircle size={11} /> Gesperrt (»Wird aktualisiert«)</>
-                  )}
-                </span>
-              </div>
-              <p className="text-xs text-gray-500 mt-0.5">
-                {manualsEnabled
-                  ? 'Nutzer können die Anleitungen als PDF herunterladen.'
-                  : 'Im Hilfe-Dropdown erscheint der Hinweis „Wird aktualisiert".'}
-              </p>
+        <div className="px-6 py-5">
+          <ConfigToggle
+            enabled={manualsEnabled}
+            onToggle={() => { setManualsEnabled(v => !v); resetSaveStatus(); }}
+            label="Anleitungs-Downloads"
+            labelAktiv="Aktiv"
+            labelInaktiv="Gesperrt"
+            beschreibungAktiv="Nutzer koennen die Anleitungen als PDF herunterladen."
+            beschreibungInaktiv="Im Hilfe-Dropdown erscheint der Hinweis 'Wird aktualisiert'."
+          />
+        </div>
+
+        <div className="px-6 pb-5">
+          <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
+            <p className="text-xs font-medium text-gray-600 mb-2">Verknuepfte Dateien in /public/manuals/</p>
+            <div className="space-y-1">
+              {[
+                { rolle: 'Firmen-Administrator', datei: 'PZE-Anleitung-Firmen-Administrator.pdf' },
+                { rolle: 'Projektleiter',        datei: 'PZE-Anleitung-Projektleiter.pdf' },
+                { rolle: 'Alle Rollen (immer)',  datei: 'PZE-FAQ-Zeiterfassung-v1.pdf' },
+              ].map(row => (
+                <div key={row.datei} className="flex items-baseline gap-2 text-xs text-gray-500">
+                  <span className="text-gray-400 shrink-0">-</span>
+                  <span className="font-medium text-gray-700 shrink-0">{row.rolle}:</span>
+                  <span className="font-mono truncate">{row.datei}</span>
+                </div>
+              ))}
             </div>
           </div>
-
-          {/* Speichern-Button */}
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
-          >
-            {saving ? (
-              <Loader2 size={15} className="animate-spin" />
-            ) : (
-              <Save size={15} />
-            )}
-            Speichern
-          </button>
         </div>
-
-        {/* Feedback-Zeile */}
-        {saveStatus === 'ok' && (
-          <div className="mt-3 flex items-center gap-2 text-green-700 text-xs">
-            <CheckCircle size={14} />
-            Gespeichert. Änderung ist sofort aktiv – kein Neustart nötig.
-          </div>
-        )}
-        {saveStatus === 'err' && (
-          <div className="mt-3 flex items-center gap-2 text-red-700 text-xs">
-            <AlertCircle size={14} />
-            Fehler beim Speichern. Bitte erneut versuchen oder Konsole prüfen.
-          </div>
-        )}
-
-        {/* Zuletzt geändert */}
-        {lastUpdated && (
-          <div className="mt-4 pt-4 border-t border-gray-100 text-xs text-gray-400">
-            Zuletzt geändert: {formatDate(lastUpdated)}
-            {lastUpdatedBy && <> · {lastUpdatedBy}</>}
-          </div>
-        )}
       </div>
 
-      {/* Info-Box: Welche Dateien */}
-      <div className="px-6 pb-5">
-        <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
-          <p className="text-xs font-medium text-gray-600 mb-2">Verknüpfte Dateien in /public/manuals/</p>
-          <div className="space-y-1">
-            {[
-              { rolle: 'Firmen-Administrator', datei: 'PZE_Anleitung_Firmen-Administrator.pdf' },
-              { rolle: 'Projektleiter',        datei: 'PZE_Anleitung_Projektleiter.pdf' },
-              { rolle: 'Alle Rollen (immer)',  datei: 'PZE-FAQ-Zeiterfassung-v1.pdf' },
-            ].map(row => (
-              <div key={row.datei} className="flex items-baseline gap-2 text-xs text-gray-500">
-                <span className="text-gray-400 shrink-0">→</span>
-                <span className="font-medium text-gray-700 shrink-0">{row.rolle}:</span>
-                <span className="font-mono truncate">{row.datei}</span>
+      {/* ================================================================ */}
+      {/* SPEICHERN + STATUS                                               */}
+      {/* ================================================================ */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div>
+            {lastUpdated && (
+              <div className="text-xs text-gray-400">
+                Zuletzt gespeichert: {formatDate(lastUpdated)}
+                {lastUpdatedBy && <> - {lastUpdatedBy}</>}
               </div>
-            ))}
+            )}
           </div>
-          <p className="text-xs text-gray-400 mt-3">
-            Der FAQ-Download ist immer verfügbar, unabhängig von diesem Schalter.
-            Um einen Dateinamen zu ändern, muss PortalNav.tsx angepasst werden.
-          </p>
+
+          <div className="flex items-center gap-3">
+            {saveStatus === 'ok' && (
+              <span className="flex items-center gap-1 text-green-700 text-xs">
+                <CheckCircle size={14} />
+                Gespeichert - sofort aktiv
+              </span>
+            )}
+            {saveStatus === 'err' && (
+              <span className="flex items-center gap-1 text-red-700 text-xs">
+                <AlertCircle size={14} />
+                Fehler beim Speichern
+              </span>
+            )}
+
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              {saving ? (
+                <Loader2 size={15} className="animate-spin" />
+              ) : (
+                <Save size={15} />
+              )}
+              Alle Einstellungen speichern
+            </button>
+          </div>
         </div>
       </div>
+
     </div>
   );
 }
-
-// ============================================================================
-// ENDE
-// ============================================================================

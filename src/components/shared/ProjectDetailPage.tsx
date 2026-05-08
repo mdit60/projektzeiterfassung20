@@ -2,8 +2,10 @@
 // ============================================================================
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
-// Datum: 18. April 2026
-// Version: 7.4.4-55
+// Datum: 8. Mai 2026
+// Version: 7.4.4-57
+// v7.4.4-57: Zurueck-Button immer "Zurueck" (einheitlich, Haeuschen = Cockpit)
+// v7.4.4-56: returnTo-Parameter: Zurueck-Button fuehrt zum Cockpit wenn von dort gesprungen
 // v7.4.4-55: Firmen-Portal: Zurueck-Button zeigt "Dashboard" statt "Projekte"
 //   und navigiert zu /v7/firma/berichte (Dashboard mit integrierter Projektliste)
 //
@@ -344,6 +346,7 @@ export default function ProjectDetailPage({
     return 'einstellungen';
   });
   const [fromNWMList] = useState<boolean>(() => !!searchParams?.get('nwmTab'));
+  const [returnTo] = useState<string | null>(() => searchParams?.get('returnTo') || null);
 
   // State Arbeitspakete
   const [workPackages, setWorkPackages] = useState<WorkPackage[]>([]);
@@ -771,6 +774,7 @@ export default function ProjectDetailPage({
   };
 
   const getBackUrl = (): string => {
+    if (returnTo) return decodeURIComponent(returnTo);
     if (backUrl) return backUrl;
     if (fromNWMList && portal === 'berater') {
       return '/v7/berater/netzwerk';
@@ -782,9 +786,7 @@ export default function ProjectDetailPage({
   };
 
   const getBackLabel = (): string => {
-    if (fromNWMList && portal === 'berater') return 'Netzwerke';
-    if (portal === 'berater') return 'Firma';
-    return 'Dashboard';
+    return 'Zurueck';
   };
 
   const isZimProject = (): boolean => {
