@@ -5,7 +5,11 @@
 // PZE V7 - Gemeinsamer Portal-Header
 // ============================================================================
 // Datum: 8. Mai 2026
-// Version: 7.3.95-4
+// Version: 7.3.95-5
+//
+// v7.3.95-5: Home-Button (Haeuschen) entfernt
+//   - Redundant seit PortalNav den "Cockpit"-Tab hat
+//   - PortalNav ist jetzt auf allen Seiten konsistent sichtbar
 //
 // v7.3.95-4: Home-Button (Haeuschen) ganz links im Header
 //   - Immer sichtbar, auf allen Seiten
@@ -28,10 +32,9 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter, usePathname } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import {
-  Home,
   LogOut,
   ChevronDown,
   User,
@@ -89,21 +92,6 @@ export default function PortalHeader({
   const [changingPassword, setChangingPassword] = useState(false);
 
   const colors = PORTAL_COLORS[portal];
-  const pathname = usePathname();
-
-  // -- Cockpit Home-Link (v7.3.95-4) -----------------------------------------
-  const getCockpitHref = (): string => {
-    if (portal === 'berater' && pathname) {
-      const firmaMatch = pathname.match(/\/firma\/([0-9a-f-]+)/);
-      if (firmaMatch) {
-        return `/v7/berater/foerderung/firma/${firmaMatch[1]}/cockpit`;
-      }
-      return '/v7/berater/dashboard';
-    }
-    // Firma-Portal: spaeter /v7/firma/cockpit
-    return '/v7/firma/berichte';
-  };
-  const cockpitHref = getCockpitHref();
 
   // Logout-Handler
   const handleLogout = async () => {
@@ -173,14 +161,6 @@ export default function PortalHeader({
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
-            {/* Home / Cockpit Button - immer ganz links */}
-            <Link
-              href={cockpitHref}
-              className="flex items-center justify-center h-10 w-10 rounded hover:bg-white/20 transition-colors mr-3"
-              title="Cockpit"
-            >
-              <Home size={20} />
-            </Link>
 
             {/* Logo / Firmenname - KLICKBAR zum Dashboard */}
             <Link href={dashboardHref} className="flex items-center space-x-4 hover:opacity-90 transition-opacity cursor-pointer">

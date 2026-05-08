@@ -3,7 +3,7 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-5
+// Version: 7.4.9-10
 // Datum: 8. Mai 2026
 //
 // Firma-Cockpit als MIS (Management Information System)
@@ -13,22 +13,54 @@
 //   - Berater-Portal: /v7/berater/foerderung/firma/[id]/cockpit
 //   - Firmen-Portal:  /v7/firma/cockpit (Landing Page fuer Firmen-Admin)
 //
+// v7.4.9-10: Action-Buttons in allen Bereichen
+//           - Firmendaten: "Bearbeiten" (Stift-Icon)
+//           - Mitarbeiter: "+ Neuer MA"
+//           - Projekte: "+ Neues Projekt"
+//           - ZA: "+ Neue ZA"
+//           - Alle navigieren zu den jeweiligen Verwaltungsseiten
+// v7.4.9-9: PortalNav statt Inline-Nav
+//           - PortalNav (Shared Component) am Cockpit-Kopf gerendert
+//           - Konsistente Navigation wie auf allen anderen Seiten
+//           - Inline-Nav-Leiste entfernt
+// v7.4.9-8: Berater-Navigationsleiste im Cockpit
+//           - Reiter: Cockpit | Netzwerk | Kapazitaetsplanung | Administration
+//           - Administration nur fuer system_admin sichtbar
+//           - Cockpit-Reiter aktiv (hervorgehoben)
+//           - Nur im Berater-Portal sichtbar
+// v7.4.9-7: Firma-Dropdown fuer Berater-Portal
+//           - Berater kann Kundenfirma direkt im Cockpit wechseln
+//           - "Neue Firma"-Button navigiert zur Foerderung-Seite
+//           - Firmen-Portal: Header bleibt unveraendert (nur eigene Firma)
+//           - Firmenliste via consultant_company_id geladen
+// v7.4.9-6: Dropdown-Projektauswahl statt Kartenliste
+//           - Alle 3 Spalten reagieren auf Projektauswahl
+//           - Monatsverlauf-Chart (recharts ComposedChart) unter Projektkarte
+//           - Prognose-Box mit Ampel unter Chart
+//           - MA links: gefiltert nach ausgewaehltem Projekt
+//           - ZA rechts: gefiltert nach ausgewaehltem Projekt
+//           - Berechnungen via lib/projektfortschritt-utils.ts
 // v7.4.9-5: Spalten 2|6|4, ZA-Tabelle zentriert formatiert
-// v7.4.9-4: ZA als Tabelle mit 7 Spalten, gruppiert nach Projekt (Kuerzel + FKZ)
-//           Sortierung nach ZA-Nummer aufsteigend
-//           Cockpit auf volle Seitenbreite
-// v7.4.9-3: Buttons umbenannt: Projektdaten / Projektfortschritt / Stundennachweis
-//           Eigene Routen fuer Fortschritt + Matrix (ohne BerichtePage-Huelle)
-//           returnTo=cockpit fuer zuverlaessige Zurueck-Navigation
-// v7.4.9-2: KPI-Fortschrittsbalken in Projektkarten (Laufzeit, PM, Kosten)
-//           ZA: Status aus Daten abgeleitet (kein Dropdown)
-//           ZA: Spalten Eingereicht/Anforderung/Auszahlung/Differenz/Kommentar
+// v7.4.9-4: ZA als Tabelle mit 7 Spalten, gruppiert nach Projekt
+// v7.4.9-3: Buttons umbenannt, eigene Routen fuer Fortschritt + Matrix
+// v7.4.9-2: KPI-Fortschrittsbalken, ZA-Status abgeleitet
 // v7.4.9-1: Erstversion - Grundgeruest mit Live-Daten
 // ============================================================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import {
+  ComposedChart,
+  Bar,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts';
 import {
   ArrowLeft,
   Building2,
@@ -44,11 +76,33 @@ import {
   AlertCircle,
   Banknote,
   Clock,
-  CheckCircle,
   FileText,
   BarChart3,
   TrendingUp,
+  Target,
+  Plus,
+  Pencil,
 } from 'lucide-react';
+import PortalNav from '@/components/shared/PortalNav';
+import {
+  calculateProjectAnalysis,
+  FUNDING_FORMAT_SHORT,
+  fmtEuroShort,
+  fmtEuroFull,
+  fmtDateShortDE,
+  fmt1,
+  fmtH,
+  HOURS_PER_PM,
+} from '@/lib/projektfortschritt-utils';
+import type {
+  PFProject,
+  PFWorkPackage,
+  PFWorkPackageAssignment,
+  PFProjectAssignment,
+  PFEmployee,
+  PFTimesheetEntry,
+  ProjectAnalysis,
+} from '@/lib/projektfortschritt-utils';
 
 // ============================================================================
 // KONSTANTEN
@@ -59,17 +113,6 @@ const PORTAL_PRIMARY: Record<string, string> = {
   firma: '#65A655',
 };
 
-const HOURS_PER_PM = 173.33;
-
-const FUNDING_FORMAT_LABELS: Record<string, string> = {
-  'ZIM_EINZEL': 'ZIM Einzel',
-  'ZIM_KOOPERATION': 'ZIM Koop.',
-  'ZIM_NETZWERK': 'ZIM NWM',
-  'ZIM_DS': 'ZIM DS',
-  'BMBF_KMU': 'BMBF/KMU-innov.',
-  'FORSCHUNGSZULAGE': 'FZul',
-};
-
 // ============================================================================
 // TYPEN
 // ============================================================================
@@ -77,6 +120,11 @@ const FUNDING_FORMAT_LABELS: Record<string, string> = {
 interface FirmaCockpitProps {
   firmaId: string;
   portal: 'berater' | 'firma';
+}
+
+interface FirmaListItem {
+  id: string;
+  name: string;
 }
 
 interface FirmaData {
@@ -111,7 +159,8 @@ interface MitarbeiterData {
   portal_role: string | null;
   weekly_hours: number | null;
   is_active: boolean;
-  projekte: string[];
+  projektIds: string[];
+  projektNamen: string[];
 }
 
 interface ZAData {
@@ -128,15 +177,6 @@ interface ZAData {
   eingereicht_am: string | null;
   projekt_name?: string;
   projekt_fkz?: string;
-}
-
-interface ProjektKPI {
-  laufzeitPct: number;
-  laufzeitLabel: string;
-  pmPct: number;
-  pmLabel: string;
-  kostenPct: number;
-  kostenLabel: string;
 }
 
 // ============================================================================
@@ -160,28 +200,9 @@ function formatEuro(betrag: number | null): string {
   return betrag.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' EUR';
 }
 
-function formatEuroShort(betrag: number | null): string {
-  if (betrag == null) return '-';
-  if (Math.abs(betrag) >= 1000) {
-    return Math.round(betrag / 1000).toLocaleString('de-DE') + 'k EUR';
-  }
-  return Math.round(betrag).toLocaleString('de-DE') + ' EUR';
-}
-
 function formatLaufzeit(start: string | null, end: string | null): string {
   if (!start || !end) return '-';
   return formatDateShort(start) + ' - ' + formatDateShort(end);
-}
-
-// ZA-Status aus Daten ableiten
-function deriveZAStatus(za: ZAData): { label: string; color: string; bg: string } {
-  if (za.zahlungseingang_datum && za.zahlungseingang_betrag != null && za.zahlungseingang_betrag > 0) {
-    return { label: 'Ausgezahlt', color: 'text-green-700', bg: 'bg-green-50' };
-  }
-  if (za.eingereicht_am) {
-    return { label: 'Eingereicht', color: 'text-blue-700', bg: 'bg-blue-50' };
-  }
-  return { label: 'Entwurf', color: 'text-gray-500', bg: 'bg-gray-50' };
 }
 
 // ============================================================================
@@ -204,13 +225,71 @@ function ProgressBar({ pct, label, sublabel, color }: {
       <div className="w-full bg-gray-100 rounded-full h-2">
         <div
           className="h-2 rounded-full transition-all duration-500"
-          style={{ width: `${clampedPct}%`, backgroundColor: color }}
+          style={{ width: clampedPct + '%', backgroundColor: color }}
         />
       </div>
       <span className="text-[10px] text-gray-400 mt-0.5 block">{sublabel}</span>
     </div>
   );
 }
+
+// ============================================================================
+// CHART TOOLTIP (kompakt)
+// ============================================================================
+
+const CockpitTooltip = ({ active, payload, label }: any) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-2 text-[11px]">
+      <p className="font-semibold text-gray-900 mb-1">{label}</p>
+      {payload.map((p: any, i: number) => {
+        if (p.value == null) return null;
+        return (
+          <p key={i} style={{ color: p.fill || p.stroke }} className="mb-0.5">
+            {p.name}: {Math.round(p.value)} h
+          </p>
+        );
+      })}
+    </div>
+  );
+};
+
+// ============================================================================
+// CHART LEGENDE (kompakt)
+// ============================================================================
+
+const LEGENDE_LABEL_OVERRIDE: Record<string, string> = {
+  'Soll (Monat)':   '#475569',
+  'Soll kumuliert': '#475569',
+};
+
+const CockpitLegend = ({ payload }: any) => {
+  if (!payload?.length) return null;
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '3px 12px', marginTop: 2 }}>
+      {payload.map((entry: any, i: number) => {
+        const labelColor = LEGENDE_LABEL_OVERRIDE[entry.value] || '#374151';
+        const iconColor = entry.color || '#374151';
+        const dashes = entry.payload?.strokeDasharray;
+        const isLine = entry.type === 'line' || !!dashes;
+        return (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            {isLine ? (
+              <svg width="16" height="8" style={{ flexShrink: 0 }}>
+                <line x1="0" y1="4" x2="16" y2="4"
+                  stroke={iconColor} strokeWidth="2"
+                  strokeDasharray={dashes || '0'} />
+              </svg>
+            ) : (
+              <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, backgroundColor: iconColor, flexShrink: 0 }} />
+            )}
+            <span style={{ fontSize: 10, color: labelColor }}>{entry.value}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 // ============================================================================
 // KOMPONENTE
@@ -230,8 +309,21 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
   const [zaList, setZaList] = useState<ZAData[]>([]);
   const [showInactiveProjekte, setShowInactiveProjekte] = useState(false);
 
-  // KPI-Daten pro Projekt
-  const [projektKPIs, setProjektKPIs] = useState<Record<string, ProjektKPI>>({});
+  // Berater: Alle Kundenfirmen fuer Dropdown
+  const [alleFirmen, setAlleFirmen] = useState<FirmaListItem[]>([]);
+
+  // Berater: User-Rolle (fuer Admin-Nav-Tab)
+  const [userRole, setUserRole] = useState<string>('consultant');
+
+  // Projektauswahl
+  const [selectedProjektId, setSelectedProjektId] = useState<string>('');
+
+  // Rohdaten fuer Analyse-Berechnung
+  const [rawTimesheets, setRawTimesheets] = useState<PFTimesheetEntry[]>([]);
+  const [rawWorkPackages, setRawWorkPackages] = useState<PFWorkPackage[]>([]);
+  const [rawWPAssignments, setRawWPAssignments] = useState<PFWorkPackageAssignment[]>([]);
+  const [rawProjAssignments, setRawProjAssignments] = useState<PFProjectAssignment[]>([]);
+  const [rawEmployees, setRawEmployees] = useState<PFEmployee[]>([]);
 
   // ==========================================================================
   // DATEN LADEN
@@ -246,6 +338,32 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
       setLoading(true);
       setError(null);
 
+      // Berater-Portal: Alle Kundenfirmen fuer Dropdown laden
+      if (portal === 'berater') {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: profile } = await supabase
+            .from('v7_user_profiles')
+            .select('consultant_company_id, role')
+            .eq('id', user.id)
+            .single();
+
+          if (profile?.role) {
+            setUserRole(profile.role);
+          }
+
+          if (profile?.consultant_company_id) {
+            const { data: firmenDB } = await supabase
+              .from('v7_client_companies')
+              .select('id, name')
+              .eq('consultant_company_id', profile.consultant_company_id)
+              .eq('is_active', true)
+              .order('name');
+            setAlleFirmen(firmenDB || []);
+          }
+        }
+      }
+
       // 1. Firmendaten
       const { data: firmaDB, error: firmaErr } = await supabase
         .from('v7_client_companies')
@@ -259,7 +377,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
       }
       setFirma(firmaDB);
 
-      // 2. Projekte (inkl. KPI-relevante Felder)
+      // 2. Projekte
       const { data: projektDB } = await supabase
         .from('v7_projects')
         .select('id, name, short_name, funding_reference, funding_format, start_date, end_date, is_active, foerdersatz, overhead_t, bewilligte_summe')
@@ -271,6 +389,12 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
       setProjekte(alleProjekte);
 
       const aktiveProjektIds = alleProjekte.filter(p => p.is_active).map(p => p.id);
+      const alleProjektIds = alleProjekte.map(p => p.id);
+
+      // Default-Auswahl: erstes aktives Projekt
+      if (aktiveProjektIds.length > 0) {
+        setSelectedProjektId(aktiveProjektIds[0]);
+      }
 
       // 3. Mitarbeiter mit Projekt-Zuordnungen
       const { data: maDB } = await supabase
@@ -289,119 +413,105 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
             .eq('employee_id', ma.id)
             .eq('is_active', true);
 
-          const projektIds = new Set<string>();
+          const projektIdSet = new Set<string>();
           if (wpaDB) {
             for (const wpa of wpaDB) {
               const wp = wpa.v7_work_packages as any;
-              if (wp?.project_id) projektIds.add(wp.project_id);
+              if (wp?.project_id) projektIdSet.add(wp.project_id);
             }
           }
 
           const projektNamen = alleProjekte
-            .filter(p => projektIds.has(p.id) && p.is_active)
+            .filter(p => projektIdSet.has(p.id) && p.is_active)
             .map(p => p.short_name || p.name);
 
-          maList.push({ ...ma, projekte: projektNamen });
+          maList.push({
+            ...ma,
+            projektIds: Array.from(projektIdSet),
+            projektNamen,
+          });
         }
       }
       setMitarbeiter(maList);
 
-      // 4. KPI-Daten fuer aktive Projekte
-      if (aktiveProjektIds.length > 0) {
+      // Employees fuer Analyse (PFEmployee-Format)
+      const pfEmployees: PFEmployee[] = (maDB || []).map(ma => ({
+        id: ma.id,
+        display_name: ma.display_name,
+        weekly_hours: ma.weekly_hours,
+        position_title: ma.position_title,
+      }));
+      setRawEmployees(pfEmployees);
+
+      // 4. Arbeitspakete + Zuordnungen + Timesheets (ALLE Projekte)
+      if (alleProjektIds.length > 0) {
         // Arbeitspakete
         const { data: wpDB } = await supabase
           .from('v7_work_packages')
           .select('id, project_id, total_person_months, start_date, end_date')
-          .in('project_id', aktiveProjektIds)
+          .in('project_id', alleProjektIds)
           .eq('is_active', true);
 
-        const wpIds = (wpDB || []).map(wp => wp.id);
+        const wpList: PFWorkPackage[] = (wpDB || []).map(wp => ({
+          id: wp.id,
+          project_id: wp.project_id,
+          total_person_months: wp.total_person_months,
+          start_date: wp.start_date,
+          end_date: wp.end_date,
+        }));
+        setRawWorkPackages(wpList);
+
+        const wpIds = wpList.map(wp => wp.id);
 
         // AP-Zuordnungen
-        let wpaDB: any[] = [];
+        let wpaList: PFWorkPackageAssignment[] = [];
         if (wpIds.length > 0) {
           const { data } = await supabase
             .from('v7_work_package_assignments')
             .select('work_package_id, employee_id, planned_person_months')
             .in('work_package_id', wpIds)
             .eq('is_active', true);
-          wpaDB = data || [];
+          wpaList = (data || []).map(wpa => ({
+            work_package_id: wpa.work_package_id,
+            employee_id: wpa.employee_id,
+            planned_person_months: wpa.planned_person_months || 0,
+          }));
         }
+        setRawWPAssignments(wpaList);
 
         // Projekt-Zuordnungen (Stundensaetze)
         const { data: paDB } = await supabase
           .from('v7_project_assignments')
           .select('project_id, employee_id, hourly_rate')
-          .in('project_id', aktiveProjektIds)
+          .in('project_id', alleProjektIds)
           .eq('is_active', true);
+        const paList: PFProjectAssignment[] = (paDB || []).map(pa => ({
+          project_id: pa.project_id,
+          employee_id: pa.employee_id,
+          hourly_rate: pa.hourly_rate,
+        }));
+        setRawProjAssignments(paList);
 
-        // Timesheets
+        // Timesheets MIT work_date (fuer Monatsverlauf)
         const { data: tsDB } = await supabase
           .from('v7_timesheets')
-          .select('project_id, employee_id, hours, is_billable')
-          .in('project_id', aktiveProjektIds)
+          .select('project_id, employee_id, work_date, hours, is_billable')
+          .in('project_id', alleProjektIds)
           .eq('is_active', true);
-
-        // KPIs berechnen
-        const kpis: Record<string, ProjektKPI> = {};
-        const now = new Date();
-
-        for (const projekt of alleProjekte.filter(p => p.is_active)) {
-          const projWPs = (wpDB || []).filter(wp => wp.project_id === projekt.id);
-          const projTS = (tsDB || []).filter(t => t.project_id === projekt.id && t.is_billable !== false);
-          const projPA = (paDB || []).filter(pa => pa.project_id === projekt.id);
-
-          // Laufzeit
-          let laufzeitPct = 0;
-          let laufzeitLabel = '-';
-          if (projekt.start_date && projekt.end_date) {
-            const start = new Date(projekt.start_date);
-            const end = new Date(projekt.end_date);
-            const total = end.getTime() - start.getTime();
-            const elapsed = Math.max(0, Math.min(total, now.getTime() - start.getTime()));
-            laufzeitPct = total > 0 ? Math.round((elapsed / total) * 100) : 0;
-            const gesamtMonate = Math.round(total / (30.44 * 24 * 60 * 60 * 1000));
-            const vergangeMonate = Math.round(elapsed / (30.44 * 24 * 60 * 60 * 1000));
-            laufzeitLabel = vergangeMonate + '/' + gesamtMonate + ' Mon.';
-          }
-
-          // PM
-          const gesamtPlanPM = projWPs.reduce((s, wp) => s + (wp.total_person_months || 0), 0);
-          const gesamtIstStunden = projTS.reduce((s, t) => s + (t.hours || 0), 0);
-          const gesamtIstPM = gesamtIstStunden / HOURS_PER_PM;
-          const pmPct = gesamtPlanPM > 0 ? Math.round((gesamtIstPM / gesamtPlanPM) * 100) : 0;
-          const pmLabel = (Math.round(gesamtIstPM * 10) / 10) + '/' + (Math.round(gesamtPlanPM * 10) / 10) + ' PM';
-
-          // Kosten
-          const overhead = (projekt.overhead_t || 0) / 100;
-          let gesamtPlanKosten = 0;
-          let gesamtIstKosten = 0;
-          projPA.forEach(pa => {
-            const rate = pa.hourly_rate || 0;
-            if (rate === 0) return;
-            const maWPAs = wpaDB.filter((wpa: any) => {
-              const wp = projWPs.find(w => w.id === wpa.work_package_id);
-              return wp && wpa.employee_id === pa.employee_id;
-            });
-            const planPM = maWPAs.reduce((s: number, wpa: any) => s + (wpa.planned_person_months || 0), 0);
-            gesamtPlanKosten += planPM * HOURS_PER_PM * rate * (1 + overhead);
-            const istH = projTS
-              .filter(t => t.employee_id === pa.employee_id)
-              .reduce((s, t) => s + (t.hours || 0), 0);
-            gesamtIstKosten += istH * rate * (1 + overhead);
-          });
-          const kostenPct = gesamtPlanKosten > 0 ? Math.round((gesamtIstKosten / gesamtPlanKosten) * 100) : 0;
-          const kostenLabel = formatEuroShort(gesamtIstKosten) + '/' + formatEuroShort(gesamtPlanKosten);
-
-          kpis[projekt.id] = { laufzeitPct, laufzeitLabel, pmPct, pmLabel, kostenPct, kostenLabel };
-        }
-        setProjektKPIs(kpis);
+        const tsList: PFTimesheetEntry[] = (tsDB || []).map(t => ({
+          project_id: t.project_id,
+          employee_id: t.employee_id,
+          work_date: t.work_date,
+          hours: t.hours || 0,
+          is_billable: t.is_billable !== false,
+        }));
+        setRawTimesheets(tsList);
 
         // 5. ZA-Uebersicht
         const { data: zaDB } = await supabase
           .from('v7_zahlungsanforderungen')
           .select('id, project_id, za_nummer, zeitraum_von, zeitraum_bis, status, foerderbetrag_gesamt, zahlungseingang_datum, zahlungseingang_betrag, zahlungseingang_kommentar, eingereicht_am')
-          .in('project_id', alleProjekte.map(p => p.id))
+          .in('project_id', alleProjektIds)
           .order('za_nummer', { ascending: true });
 
         const zaWithProjekt = (zaDB || []).map(za => {
@@ -424,6 +534,25 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
   }
 
   // ==========================================================================
+  // ANALYSE-BERECHNUNG (useMemo - reagiert auf Projektauswahl)
+  // ==========================================================================
+
+  const analysis: ProjectAnalysis | null = useMemo(() => {
+    if (!selectedProjektId) return null;
+    const projekt = projekte.find(p => p.id === selectedProjektId);
+    if (!projekt) return null;
+
+    return calculateProjectAnalysis(
+      projekt as PFProject,
+      rawWorkPackages,
+      rawWPAssignments,
+      rawProjAssignments,
+      rawEmployees,
+      rawTimesheets,
+    );
+  }, [selectedProjektId, projekte, rawTimesheets, rawWorkPackages, rawWPAssignments, rawProjAssignments, rawEmployees]);
+
+  // ==========================================================================
   // NAVIGATION
   // ==========================================================================
 
@@ -435,47 +564,113 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
     }
   }
 
+  function handleFirmaChange(newFirmaId: string) {
+    if (newFirmaId === firmaId) return;
+    router.push('/v7/berater/foerderung/firma/' + newFirmaId + '/cockpit');
+  }
+
+  function handleNeueFirma() {
+    router.push('/v7/berater/foerderung');
+  }
+
   function handleProjektdatenClick(projektId: string) {
     const returnTo = encodeURIComponent(
       portal === 'berater'
-        ? `/v7/berater/foerderung/firma/${firmaId}/cockpit`
-        : `/v7/firma/cockpit`
+        ? '/v7/berater/foerderung/firma/' + firmaId + '/cockpit'
+        : '/v7/firma/cockpit'
     );
     if (portal === 'berater') {
-      router.push(`/v7/berater/foerderung/firma/${firmaId}/projekt/${projektId}?returnTo=${returnTo}`);
+      router.push('/v7/berater/foerderung/firma/' + firmaId + '/projekt/' + projektId + '?returnTo=' + returnTo);
     } else {
-      router.push(`/v7/firma/projekte/${projektId}?returnTo=${returnTo}`);
+      router.push('/v7/firma/projekte/' + projektId + '?returnTo=' + returnTo);
     }
   }
 
   function handleFortschrittClick(projektId: string) {
     if (portal === 'berater') {
-      router.push(`/v7/berater/foerderung/firma/${firmaId}/cockpit/fortschritt?projekt=${projektId}`);
+      router.push('/v7/berater/foerderung/firma/' + firmaId + '/cockpit/fortschritt?projekt=' + projektId);
     } else {
-      router.push(`/v7/firma/cockpit/fortschritt?projekt=${projektId}`);
+      router.push('/v7/firma/cockpit/fortschritt?projekt=' + projektId);
     }
   }
 
   function handleStundennachweisClick(projektId: string) {
     if (portal === 'berater') {
-      router.push(`/v7/berater/foerderung/firma/${firmaId}/cockpit/stundennachweis?projekt=${projektId}`);
+      router.push('/v7/berater/foerderung/firma/' + firmaId + '/cockpit/stundennachweis?projekt=' + projektId);
     } else {
-      router.push(`/v7/firma/cockpit/stundennachweis?projekt=${projektId}`);
+      router.push('/v7/firma/cockpit/stundennachweis?projekt=' + projektId);
+    }
+  }
+
+  // --- Action-Buttons ---
+
+  const cockpitReturnTo = encodeURIComponent(
+    portal === 'berater'
+      ? '/v7/berater/foerderung/firma/' + firmaId + '/cockpit'
+      : '/v7/firma/cockpit'
+  );
+
+  function handleFirmendatenBearbeiten() {
+    if (portal === 'berater') {
+      router.push('/v7/berater/foerderung/firma/' + firmaId + '?tab=firmendaten&returnTo=' + cockpitReturnTo);
+    } else {
+      router.push('/v7/firma/firmendaten');
+    }
+  }
+
+  function handleNeuerMitarbeiter() {
+    if (portal === 'berater') {
+      router.push('/v7/berater/foerderung/firma/' + firmaId + '?tab=mitarbeiter&returnTo=' + cockpitReturnTo);
+    } else {
+      router.push('/v7/firma/mitarbeiter');
+    }
+  }
+
+  function handleNeuesProjekt() {
+    if (portal === 'berater') {
+      router.push('/v7/berater/foerderung/firma/' + firmaId + '?tab=projekte&returnTo=' + cockpitReturnTo);
+    } else {
+      router.push('/v7/firma/projekte');
+    }
+  }
+
+  function handleNeueZA() {
+    if (!selectedProjektId) return;
+    if (portal === 'berater') {
+      router.push('/v7/berater/foerderung/firma/' + firmaId + '/projekt/' + selectedProjektId + '?tab=za&returnTo=' + cockpitReturnTo);
+    } else {
+      router.push('/v7/firma/projekte/' + selectedProjektId + '?tab=za&returnTo=' + cockpitReturnTo);
     }
   }
 
   // ==========================================================================
-  // BERECHNUNGEN
+  // ABGELEITETE DATEN
   // ==========================================================================
 
   const aktiveProjekte = projekte.filter(p => p.is_active);
   const inaktiveProjekte = projekte.filter(p => !p.is_active);
+  const selectedProjekt = projekte.find(p => p.id === selectedProjektId);
 
-  // ZA-Summen: nur eingereichte/ausgezahlte ZAs (nicht Entwuerfe)
-  const zaEingereicht = zaList.filter(z => z.eingereicht_am);
+  // MA gefiltert nach ausgewaehltem Projekt
+  const filteredMA = selectedProjektId
+    ? mitarbeiter.filter(ma => ma.projektIds.includes(selectedProjektId))
+    : mitarbeiter;
+
+  // ZA gefiltert nach ausgewaehltem Projekt
+  const filteredZA = selectedProjektId
+    ? zaList.filter(z => z.project_id === selectedProjektId)
+    : zaList;
+
+  // ZA-Summen (nur eingereichte/ausgezahlte, gefiltert)
+  const zaEingereicht = filteredZA.filter(z => z.eingereicht_am);
   const zaAngefordert = zaEingereicht.reduce((sum, z) => sum + (z.foerderbetrag_gesamt || 0), 0);
   const zaAusgezahlt = zaEingereicht.reduce((sum, z) => sum + (z.zahlungseingang_betrag || 0), 0);
   const zaDifferenzGesamt = zaAngefordert - zaAusgezahlt;
+
+  // Chart X-Achsen-Intervall
+  const xAxisInterval = analysis
+    ? Math.max(0, Math.floor(analysis.monatData.length / 12) - 1)
+    : 0;
 
   // ==========================================================================
   // RENDER: LOADING / ERROR
@@ -513,24 +708,66 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
   // ==========================================================================
 
   return (
-    <div className="w-full px-4 sm:px-6 lg:px-8 py-6">
+    <>
+      {/* PortalNav: Konsistente Navigation direkt unter dem Header */}
+      <PortalNav portal={portal} userRole={userRole} />
 
-      {/* Kopfzeile: Zurueck + Firmenname */}
+      <div className="w-full px-4 sm:px-6 lg:px-8 py-6">
+
+      {/* Kopfzeile */}
       <div className="flex items-center gap-4 mb-6">
-        <button
-          onClick={handleBack}
-          className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span className="text-sm">
-            {portal === 'berater' ? 'Kundenfirmen' : 'Dashboard'}
-          </span>
-        </button>
-        <div className="h-5 w-px bg-gray-300" />
-        <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-          <Building2 className="w-5 h-5" style={{ color: primaryColor }} />
-          {firma.name}
-        </h1>
+        {portal === 'berater' ? (
+          <>
+            {/* Berater: Firma-Dropdown */}
+            <Building2 className="w-5 h-5 flex-shrink-0" style={{ color: primaryColor }} />
+            {alleFirmen.length > 1 ? (
+              <select
+                value={firmaId}
+                onChange={(e) => handleFirmaChange(e.target.value)}
+                className="text-xl font-bold text-gray-900 bg-transparent border-none focus:outline-none focus:ring-0 cursor-pointer pr-8 appearance-none"
+                style={{
+                  backgroundImage: 'url("data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>') + '")',
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 0px center',
+                  backgroundSize: '18px',
+                }}
+              >
+                {alleFirmen.map(f => (
+                  <option key={f.id} value={f.id}>{f.name}</option>
+                ))}
+              </select>
+            ) : (
+              <h1 className="text-xl font-bold text-gray-900">
+                {firma.name}
+              </h1>
+            )}
+            {/* Neue Firma Button */}
+            <button
+              onClick={handleNeueFirma}
+              className="ml-auto flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-600 font-medium transition-colors"
+              title="Neue Kundenfirma anlegen"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Neue Firma
+            </button>
+          </>
+        ) : (
+          <>
+            {/* Firmen-Portal: Zurueck + Firmenname */}
+            <button
+              onClick={handleBack}
+              className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span className="text-sm">Dashboard</span>
+            </button>
+            <div className="h-5 w-px bg-gray-300" />
+            <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+              <Building2 className="w-5 h-5" style={{ color: primaryColor }} />
+              {firma.name}
+            </h1>
+          </>
+        )}
       </div>
 
       {/* 3-Spalten Grid */}
@@ -543,12 +780,21 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
 
           {/* --- Firmenkopf --- */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <h2
-              className="text-sm font-semibold uppercase tracking-wider mb-4"
-              style={{ color: primaryColor }}
-            >
-              Firmendaten
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2
+                className="text-sm font-semibold uppercase tracking-wider"
+                style={{ color: primaryColor }}
+              >
+                Firmendaten
+              </h2>
+              <button
+                onClick={handleFirmendatenBearbeiten}
+                className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 transition-colors"
+                title="Firmendaten bearbeiten"
+              >
+                <Pencil className="w-3 h-3" />
+              </button>
+            </div>
 
             <div className="space-y-3 text-sm">
               {firma.contact_person && (
@@ -560,7 +806,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
               {firma.contact_phone && (
                 <div className="flex items-start gap-3">
                   <Phone className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
-                  <a href={`tel:${firma.contact_phone}`} className="text-gray-700 hover:underline">
+                  <a href={'tel:' + firma.contact_phone} className="text-gray-700 hover:underline">
                     {firma.contact_phone}
                   </a>
                 </div>
@@ -568,7 +814,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
               {firma.contact_email && (
                 <div className="flex items-start gap-3">
                   <Mail className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
-                  <a href={`mailto:${firma.contact_email}`} className="text-gray-700 hover:underline break-all">
+                  <a href={'mailto:' + firma.contact_email} className="text-gray-700 hover:underline break-all">
                     {firma.contact_email}
                   </a>
                 </div>
@@ -595,36 +841,45 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
             </div>
           </div>
 
-          {/* --- Mitarbeiter --- */}
+          {/* --- Mitarbeiter (gefiltert nach Projekt) --- */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <h2
-              className="text-sm font-semibold uppercase tracking-wider mb-4 flex items-center gap-2"
-              style={{ color: primaryColor }}
-            >
-              <Users className="w-4 h-4" />
-              Mitarbeiter ({mitarbeiter.length})
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2
+                className="text-sm font-semibold uppercase tracking-wider flex items-center gap-2"
+                style={{ color: primaryColor }}
+              >
+                <Users className="w-4 h-4" />
+                Mitarbeiter ({filteredMA.length})
+              </h2>
+              <button
+                onClick={handleNeuerMitarbeiter}
+                className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 transition-colors"
+                title="Neuen Mitarbeiter anlegen"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </div>
 
-            {mitarbeiter.length === 0 ? (
-              <p className="text-sm text-gray-400">Keine aktiven Mitarbeiter.</p>
+            {filteredMA.length === 0 ? (
+              <p className="text-sm text-gray-400">Keine Mitarbeiter in diesem Projekt.</p>
             ) : (
               <div className="space-y-3">
-                {mitarbeiter.map(ma => (
+                {filteredMA.map(ma => (
                   <div key={ma.id} className="border-b border-gray-100 pb-3 last:border-0 last:pb-0">
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium text-gray-900">
                         {ma.display_name}
                       </span>
                       <span className="text-xs text-gray-400">
-                        {ma.weekly_hours != null ? `${String(ma.weekly_hours).replace('.', ',')}h` : '-'}
+                        {ma.weekly_hours != null ? String(ma.weekly_hours).replace('.', ',') + 'h' : '-'}
                       </span>
                     </div>
                     {ma.position_title && (
                       <span className="text-xs text-gray-500">{ma.position_title}</span>
                     )}
-                    {ma.projekte.length > 0 && (
+                    {ma.projektNamen.length > 0 && (
                       <div className="mt-1 flex flex-wrap gap-1">
-                        {ma.projekte.map((pName, idx) => (
+                        {ma.projektNamen.map((pName, idx) => (
                           <span
                             key={idx}
                             className="inline-block text-xs px-2 py-0.5 rounded-full border"
@@ -648,109 +903,140 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
         </div>
 
         {/* ================================================================ */}
-        {/* MITTLERE SPALTE: Projekte mit KPIs (6 von 12 Spalten)           */}
+        {/* MITTLERE SPALTE: Projekte mit Monatsverlauf (6 von 12 Spalten)  */}
         {/* ================================================================ */}
         <div className="lg:col-span-6 space-y-6">
 
+          {/* --- Projekt-Karte mit Dropdown --- */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <h2
-              className="text-sm font-semibold uppercase tracking-wider mb-4 flex items-center gap-2"
-              style={{ color: primaryColor }}
-            >
-              <FolderKanban className="w-4 h-4" />
-              Aktive Projekte ({aktiveProjekte.length})
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2
+                className="text-sm font-semibold uppercase tracking-wider flex items-center gap-2"
+                style={{ color: primaryColor }}
+              >
+                <FolderKanban className="w-4 h-4" />
+                Aktive Projekte ({aktiveProjekte.length})
+              </h2>
+              <button
+                onClick={handleNeuesProjekt}
+                className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 transition-colors"
+                title="Neues Projekt anlegen"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </div>
 
             {aktiveProjekte.length === 0 ? (
               <p className="text-sm text-gray-400">Keine aktiven Projekte.</p>
             ) : (
-              <div className="space-y-4">
-                {aktiveProjekte.map(projekt => {
-                  const kpi = projektKPIs[projekt.id];
-                  return (
-                    <div
-                      key={projekt.id}
-                      className="border border-gray-200 rounded-lg p-4 hover:border-gray-300 hover:shadow-sm transition-all"
-                    >
-                      {/* FKZ + Format */}
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-mono text-gray-500">
-                          {projekt.funding_reference || 'Kein FKZ'}
-                        </span>
-                        <span
-                          className="text-xs font-medium px-2 py-0.5 rounded-full"
-                          style={{
-                            color: primaryColor,
-                            backgroundColor: primaryColor + '15',
-                          }}
-                        >
-                          {FUNDING_FORMAT_LABELS[projekt.funding_format] || projekt.funding_format}
-                        </span>
-                      </div>
+              <>
+                {/* Dropdown Projektauswahl */}
+                <div className="mb-4">
+                  <select
+                    value={selectedProjektId}
+                    onChange={(e) => setSelectedProjektId(e.target.value)}
+                    className="w-full px-3 py-2.5 text-sm font-medium text-gray-900 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:border-transparent cursor-pointer appearance-none"
+                    style={{
+                      backgroundImage: 'url("data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>') + '")',
+                      backgroundRepeat: 'no-repeat',
+                      backgroundPosition: 'right 12px center',
+                      backgroundSize: '16px',
+                      paddingRight: '36px',
+                      // @ts-ignore
+                      focusRingColor: primaryColor,
+                    }}
+                  >
+                    {aktiveProjekte.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.short_name || p.name}
+                        {p.funding_reference ? ' (' + p.funding_reference + ')' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-                      {/* Projektname */}
-                      <h3 className="text-sm font-semibold text-gray-900 mb-1 leading-snug">
-                        {projekt.short_name || projekt.name}
-                      </h3>
+                {/* Ausgewaehltes Projekt: Details + KPIs + Buttons */}
+                {selectedProjekt && selectedProjekt.is_active && (
+                  <div className="border border-gray-200 rounded-lg p-4">
 
-                      {/* Laufzeit */}
-                      <div className="flex items-center gap-2 text-xs text-gray-500 mb-3">
-                        <Calendar className="w-3.5 h-3.5" />
-                        {formatLaufzeit(projekt.start_date, projekt.end_date)}
-                      </div>
-
-                      {/* KPI-Fortschrittsbalken */}
-                      {kpi && (
-                        <div className="flex gap-3 mb-3 pt-2 border-t border-gray-100">
-                          <ProgressBar
-                            pct={kpi.laufzeitPct}
-                            label="Laufzeit"
-                            sublabel={kpi.laufzeitLabel}
-                            color="#6366f1"
-                          />
-                          <ProgressBar
-                            pct={kpi.pmPct}
-                            label="PM"
-                            sublabel={kpi.pmLabel}
-                            color="#0ea5e9"
-                          />
-                          <ProgressBar
-                            pct={kpi.kostenPct}
-                            label="Kosten"
-                            sublabel={kpi.kostenLabel}
-                            color="#10b981"
-                          />
-                        </div>
-                      )}
-
-                      {/* Direktlinks */}
-                      <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
-                        <button
-                          onClick={() => handleProjektdatenClick(projekt.id)}
-                          className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-md bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors"
-                        >
-                          <FileText className="w-3 h-3" />
-                          Projektdaten
-                        </button>
-                        <button
-                          onClick={() => handleFortschrittClick(projekt.id)}
-                          className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-md bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors"
-                        >
-                          <TrendingUp className="w-3 h-3" />
-                          Projektfortschritt
-                        </button>
-                        <button
-                          onClick={() => handleStundennachweisClick(projekt.id)}
-                          className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-md bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors"
-                        >
-                          <BarChart3 className="w-3 h-3" />
-                          Stundennachweis
-                        </button>
-                      </div>
+                    {/* FKZ + Format */}
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-mono text-gray-500">
+                        {selectedProjekt.funding_reference || 'Kein FKZ'}
+                      </span>
+                      <span
+                        className="text-xs font-medium px-2 py-0.5 rounded-full"
+                        style={{
+                          color: primaryColor,
+                          backgroundColor: primaryColor + '15',
+                        }}
+                      >
+                        {FUNDING_FORMAT_SHORT[selectedProjekt.funding_format] || selectedProjekt.funding_format}
+                      </span>
                     </div>
-                  );
-                })}
-              </div>
+
+                    {/* Projektname */}
+                    <h3 className="text-sm font-semibold text-gray-900 mb-1 leading-snug">
+                      {selectedProjekt.short_name || selectedProjekt.name}
+                    </h3>
+
+                    {/* Laufzeit */}
+                    <div className="flex items-center gap-2 text-xs text-gray-500 mb-3">
+                      <Calendar className="w-3.5 h-3.5" />
+                      {formatLaufzeit(selectedProjekt.start_date, selectedProjekt.end_date)}
+                    </div>
+
+                    {/* KPI-Fortschrittsbalken aus Analyse */}
+                    {analysis && (
+                      <div className="flex gap-3 mb-3 pt-2 border-t border-gray-100">
+                        <ProgressBar
+                          pct={analysis.laufzeitPct}
+                          label="Laufzeit"
+                          sublabel={analysis.vergangeMonate + '/' + analysis.gesamtMonate + ' Mon.'}
+                          color="#6366f1"
+                        />
+                        <ProgressBar
+                          pct={analysis.pmPct}
+                          label="PM"
+                          sublabel={fmt1(analysis.gesamtIstPM) + '/' + fmt1(analysis.gesamtPlanPM) + ' PM'}
+                          color="#0ea5e9"
+                        />
+                        <ProgressBar
+                          pct={analysis.kostenPct}
+                          label="Kosten"
+                          sublabel={fmtEuroShort(analysis.gesamtIstKosten) + '/' + fmtEuroShort(analysis.gesamtPlanKosten)}
+                          color="#10b981"
+                        />
+                      </div>
+                    )}
+
+                    {/* Direktlinks */}
+                    <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
+                      <button
+                        onClick={() => handleProjektdatenClick(selectedProjektId)}
+                        className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-md bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors"
+                      >
+                        <FileText className="w-3 h-3" />
+                        Projektdaten
+                      </button>
+                      <button
+                        onClick={() => handleFortschrittClick(selectedProjektId)}
+                        className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-md bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors"
+                      >
+                        <TrendingUp className="w-3 h-3" />
+                        Projektfortschritt
+                      </button>
+                      <button
+                        onClick={() => handleStundennachweisClick(selectedProjektId)}
+                        className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-md bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors"
+                      >
+                        <BarChart3 className="w-3 h-3" />
+                        Stundennachweis
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
             {/* Inaktive Projekte */}
@@ -776,7 +1062,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                             {projekt.funding_reference || '-'}
                           </span>
                           <span className="text-xs text-gray-400">
-                            {FUNDING_FORMAT_LABELS[projekt.funding_format] || projekt.funding_format}
+                            {FUNDING_FORMAT_SHORT[projekt.funding_format] || projekt.funding_format}
                           </span>
                         </div>
                         <h3 className="text-sm text-gray-600">
@@ -792,6 +1078,187 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
               </div>
             )}
           </div>
+
+          {/* --- Monatsverlauf Chart --- */}
+          {analysis && analysis.monatData.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <h3 className="text-sm font-semibold text-gray-700 mb-1">
+                Monatsverlauf Projektstunden
+              </h3>
+              <p className="text-[10px] text-gray-500 mb-3">
+                Saeulen: Soll vs. Ist je Monat &middot; Linien: kumulierter Verlauf
+                {analysis.prognoseAktiv && (
+                  <>
+                    {' '}&middot;{' '}
+                    <span style={{ color: analysis.pFarbe.stroke }}>
+                      Gestrichelt: Prognose
+                    </span>
+                  </>
+                )}
+              </p>
+              <ResponsiveContainer width="100%" height={220}>
+                <ComposedChart
+                  data={analysis.monatData}
+                  margin={{ top: 5, right: 50, left: 0, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis
+                    dataKey="monat"
+                    tick={{ fontSize: 9, fill: '#374151' }}
+                    interval={xAxisInterval}
+                  />
+                  <YAxis
+                    yAxisId="monat"
+                    orientation="left"
+                    tick={{ fontSize: 9, fill: '#374151' }}
+                    unit=" h"
+                    width={45}
+                  />
+                  <YAxis
+                    yAxisId="kumuliert"
+                    orientation="right"
+                    tick={{ fontSize: 9, fill: '#374151' }}
+                    unit=" h"
+                    width={50}
+                  />
+                  <Tooltip content={<CockpitTooltip />} />
+                  <Legend content={<CockpitLegend />} />
+
+                  <Bar
+                    yAxisId="monat"
+                    dataKey="Soll"
+                    fill="#cbd5e1"
+                    radius={[2, 2, 0, 0]}
+                    name="Soll (Monat)"
+                    maxBarSize={14}
+                  />
+                  <Bar
+                    yAxisId="monat"
+                    dataKey="Ist"
+                    fill={primaryColor}
+                    fillOpacity={0.8}
+                    radius={[2, 2, 0, 0]}
+                    name="Ist (Monat)"
+                    maxBarSize={14}
+                  />
+
+                  <Line
+                    yAxisId="kumuliert"
+                    type="monotone"
+                    dataKey="SollKumuliert"
+                    stroke="#94a3b8"
+                    strokeWidth={2}
+                    strokeDasharray="6 3"
+                    dot={false}
+                    name="Soll kumuliert"
+                  />
+                  <Line
+                    yAxisId="kumuliert"
+                    type="monotone"
+                    dataKey="IstKumuliert"
+                    stroke={primaryColor}
+                    strokeWidth={2.5}
+                    dot={false}
+                    name="Ist kumuliert"
+                    connectNulls={false}
+                  />
+
+                  {analysis.prognoseAktiv && (
+                    <Line
+                      yAxisId="kumuliert"
+                      type="monotone"
+                      dataKey="IstProjektion"
+                      stroke={analysis.pFarbe.stroke}
+                      strokeWidth={2}
+                      strokeDasharray="4 4"
+                      dot={false}
+                      name="Prognose"
+                      connectNulls={true}
+                    />
+                  )}
+
+                  {analysis.prognoseAktiv && analysis.zielErreichbar && (
+                    <Line
+                      yAxisId="kumuliert"
+                      type="monotone"
+                      dataKey="ZielProjektion"
+                      stroke="#16a34a"
+                      strokeWidth={2}
+                      strokeDasharray="4 4"
+                      dot={false}
+                      name="Zieltempo"
+                      connectNulls={true}
+                    />
+                  )}
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* --- Prognose-Box (kompakt) --- */}
+          {analysis && analysis.prognoseAktiv && (
+            <div className={'rounded-xl border p-4 ' + analysis.pFarbe.bg + ' ' + (
+              analysis.pFarbe.icon === 'rot' ? 'border-red-200' :
+              analysis.pFarbe.icon === 'gelb' ? 'border-amber-200' : 'border-green-200'
+            )}>
+
+              {/* Header */}
+              <div className="flex items-center gap-2 mb-3">
+                <Target size={16} className={analysis.pFarbe.text} />
+                <h4 className={'text-sm font-semibold ' + analysis.pFarbe.text}>
+                  Zielerreichungs-Prognose
+                </h4>
+                <span className={'ml-auto text-xs font-bold px-2 py-0.5 rounded-full ' + (
+                  analysis.pFarbe.icon === 'rot' ? 'bg-red-100 text-red-700' :
+                  analysis.pFarbe.icon === 'gelb' ? 'bg-amber-100 text-amber-700' :
+                  'bg-green-100 text-green-700'
+                )}>
+                  {analysis.pFarbe.icon === 'rot' ? 'Kritisch' :
+                   analysis.pFarbe.icon === 'gelb' ? 'Gefaehrdet' : 'Erreichbar'}
+                </span>
+              </div>
+
+              {/* Kompakte Hochrechnung */}
+              <div className="bg-white bg-opacity-70 rounded-lg p-3">
+                <div className="grid grid-cols-3 gap-3 mb-2">
+                  <div>
+                    <div className="text-[10px] text-gray-500 mb-0.5">Ziel (Plan)</div>
+                    <div className="text-xs font-semibold text-gray-900">{fmtH(analysis.gesamtPlanStunden)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-gray-500 mb-0.5">Bisher verbucht</div>
+                    <div className="text-xs font-semibold text-gray-900">{fmtH(analysis.gesamtIstStunden)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-gray-500 mb-0.5">Prognose gesamt</div>
+                    <div className={'text-xs font-bold ' + analysis.pFarbe.text}>
+                      {fmtH(Math.round(analysis.prognostizierteGesamtStunden))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Fortschrittsbalken */}
+                <div className="w-full bg-gray-200 rounded-full h-1.5 mb-1">
+                  <div
+                    className="h-1.5 rounded-full transition-all"
+                    style={{
+                      width: Math.min(100, analysis.erreichungsgrad) + '%',
+                      backgroundColor: analysis.pFarbe.stroke,
+                    }}
+                  />
+                </div>
+                <div className="flex justify-between text-[10px]">
+                  <span className="text-gray-500">
+                    Basis: {Math.round(analysis.basisStunden)} h/Monat (letzte {analysis.letzten3Count} Mon.)
+                  </span>
+                  <span className={'font-bold ' + analysis.pFarbe.text}>
+                    {Math.min(analysis.erreichungsgrad, 100)}% des Foerderziels
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
         </div>
 
         {/* ================================================================ */}
@@ -800,13 +1267,22 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
         <div className="lg:col-span-4 space-y-6">
 
           <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <h2
-              className="text-sm font-semibold uppercase tracking-wider mb-4 flex items-center gap-2"
-              style={{ color: primaryColor }}
-            >
-              <Banknote className="w-4 h-4" />
-              Zahlungsanforderungen
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2
+                className="text-sm font-semibold uppercase tracking-wider flex items-center gap-2"
+                style={{ color: primaryColor }}
+              >
+                <Banknote className="w-4 h-4" />
+                Zahlungsanforderungen
+              </h2>
+              <button
+                onClick={handleNeueZA}
+                className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 transition-colors"
+                title="Neue Zahlungsanforderung erstellen"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </div>
 
             {/* Summen-Karten */}
             <div className="grid grid-cols-3 gap-2 mb-4">
@@ -822,98 +1298,86 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                   {formatEuro(zaAusgezahlt)}
                 </div>
               </div>
-              <div className={`text-center p-3 rounded-lg ${zaDifferenzGesamt > 0 ? 'bg-amber-50' : 'bg-gray-50'}`}>
-                <div className={`text-[10px] font-medium mb-1 ${zaDifferenzGesamt > 0 ? 'text-amber-600' : 'text-gray-500'}`}>
+              <div className={'text-center p-3 rounded-lg ' + (zaDifferenzGesamt > 0 ? 'bg-amber-50' : 'bg-gray-50')}>
+                <div className={'text-[10px] font-medium mb-1 ' + (zaDifferenzGesamt > 0 ? 'text-amber-600' : 'text-gray-500')}>
                   Differenz
                 </div>
-                <div className={`text-xs font-bold ${zaDifferenzGesamt > 0 ? 'text-amber-800' : 'text-gray-600'}`}>
+                <div className={'text-xs font-bold ' + (zaDifferenzGesamt > 0 ? 'text-amber-800' : 'text-gray-600')}>
                   {formatEuro(zaDifferenzGesamt)}
                 </div>
               </div>
             </div>
 
-            {/* ZA-Tabelle gruppiert nach Projekt */}
-            {zaList.length === 0 ? (
+            {/* Projekt-Label */}
+            {selectedProjekt && (
+              <div className="flex items-center gap-2 mb-3 pb-1 border-b border-gray-200">
+                <span className="text-xs font-semibold text-gray-900">
+                  {selectedProjekt.short_name || selectedProjekt.name}
+                </span>
+                <span className="text-xs font-mono text-gray-400">
+                  {selectedProjekt.funding_reference || ''}
+                </span>
+              </div>
+            )}
+
+            {/* ZA-Tabelle */}
+            {filteredZA.length === 0 ? (
               <p className="text-sm text-gray-400">Keine Zahlungsanforderungen vorhanden.</p>
             ) : (
-              <div className="space-y-4">
-                {/* Projekte mit ZAs gruppieren */}
-                {projekte
-                  .filter(p => zaList.some(z => z.project_id === p.id))
-                  .map(projekt => {
-                    const projektZAs = zaList
-                      .filter(z => z.project_id === projekt.id)
-                      .sort((a, b) => a.za_nummer - b.za_nummer);
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-gray-50 text-gray-500">
+                      <th className="text-center py-1.5 px-2 font-medium">ZA</th>
+                      <th className="text-center py-1.5 px-2 font-medium">Eingereicht</th>
+                      <th className="text-center py-1.5 px-2 font-medium">Anforderung</th>
+                      <th className="text-center py-1.5 px-2 font-medium">Zahlung</th>
+                      <th className="text-center py-1.5 px-2 font-medium">Betrag</th>
+                      <th className="text-center py-1.5 px-2 font-medium">Differenz</th>
+                      <th className="text-center py-1.5 px-2 font-medium">Kommentar</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredZA
+                      .sort((a, b) => a.za_nummer - b.za_nummer)
+                      .map(za => {
+                      const differenz = (za.foerderbetrag_gesamt || 0) - (za.zahlungseingang_betrag || 0);
+                      const hatAuszahlung = za.zahlungseingang_betrag != null && za.zahlungseingang_betrag > 0;
+                      const hatAnforderung = za.foerderbetrag_gesamt != null && za.foerderbetrag_gesamt > 0;
 
-                    return (
-                      <div key={projekt.id}>
-                        {/* Projekt-Ueberschrift */}
-                        <div className="flex items-center gap-2 mb-2 pb-1 border-b border-gray-200">
-                          <span className="text-xs font-semibold text-gray-900">
-                            {projekt.short_name || projekt.name}
-                          </span>
-                          <span className="text-xs font-mono text-gray-400">
-                            {projekt.funding_reference || ''}
-                          </span>
-                        </div>
-
-                        {/* Tabelle */}
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-xs">
-                            <thead>
-                              <tr className="bg-gray-50 text-gray-500">
-                                <th className="text-center py-1.5 px-2 font-medium">ZA</th>
-                                <th className="text-center py-1.5 px-2 font-medium">Eingereicht</th>
-                                <th className="text-center py-1.5 px-2 font-medium">Anforderung</th>
-                                <th className="text-center py-1.5 px-2 font-medium">Zahlung</th>
-                                <th className="text-center py-1.5 px-2 font-medium">Betrag</th>
-                                <th className="text-center py-1.5 px-2 font-medium">Differenz</th>
-                                <th className="text-center py-1.5 px-2 font-medium">Kommentar</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {projektZAs.map(za => {
-                                const differenz = (za.foerderbetrag_gesamt || 0) - (za.zahlungseingang_betrag || 0);
-                                const hatAuszahlung = za.zahlungseingang_betrag != null && za.zahlungseingang_betrag > 0;
-                                const hatAnforderung = za.foerderbetrag_gesamt != null && za.foerderbetrag_gesamt > 0;
-
-                                return (
-                                  <tr key={za.id} className="border-t border-gray-100 hover:bg-gray-50">
-                                    <td className="py-1.5 px-2 text-center font-medium text-gray-900">
-                                      {za.za_nummer}
-                                    </td>
-                                    <td className="py-1.5 px-2 text-center text-gray-600">
-                                      {za.eingereicht_am ? formatDate(za.eingereicht_am) : '-'}
-                                    </td>
-                                    <td className="py-1.5 px-2 text-center text-gray-700 font-medium">
-                                      {hatAnforderung ? formatEuro(za.foerderbetrag_gesamt) : '-'}
-                                    </td>
-                                    <td className="py-1.5 px-2 text-center text-gray-600">
-                                      {za.zahlungseingang_datum ? formatDate(za.zahlungseingang_datum) : '-'}
-                                    </td>
-                                    <td className="py-1.5 px-2 text-center text-green-700 font-medium">
-                                      {hatAuszahlung ? formatEuro(za.zahlungseingang_betrag) : '-'}
-                                    </td>
-                                    <td className={`py-1.5 px-2 text-center font-medium ${
-                                      !hatAuszahlung ? 'text-gray-400' :
-                                      differenz > 0 ? 'text-amber-600' : 'text-gray-400'
-                                    }`}>
-                                      {hatAuszahlung
-                                        ? (differenz !== 0 ? formatEuro(differenz) : '0,00 EUR')
-                                        : '-'}
-                                    </td>
-                                    <td className="py-1.5 px-2 text-center text-gray-500 italic max-w-[120px] truncate">
-                                      {za.zahlungseingang_kommentar || '-'}
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    );
-                  })}
+                      return (
+                        <tr key={za.id} className="border-t border-gray-100 hover:bg-gray-50">
+                          <td className="py-1.5 px-2 text-center font-medium text-gray-900">
+                            {za.za_nummer}
+                          </td>
+                          <td className="py-1.5 px-2 text-center text-gray-600">
+                            {za.eingereicht_am ? formatDate(za.eingereicht_am) : '-'}
+                          </td>
+                          <td className="py-1.5 px-2 text-center text-gray-700 font-medium">
+                            {hatAnforderung ? formatEuro(za.foerderbetrag_gesamt) : '-'}
+                          </td>
+                          <td className="py-1.5 px-2 text-center text-gray-600">
+                            {za.zahlungseingang_datum ? formatDate(za.zahlungseingang_datum) : '-'}
+                          </td>
+                          <td className="py-1.5 px-2 text-center text-green-700 font-medium">
+                            {hatAuszahlung ? formatEuro(za.zahlungseingang_betrag) : '-'}
+                          </td>
+                          <td className={'py-1.5 px-2 text-center font-medium ' + (
+                            !hatAuszahlung ? 'text-gray-400' :
+                            differenz > 0 ? 'text-amber-600' : 'text-gray-400'
+                          )}>
+                            {hatAuszahlung
+                              ? (differenz !== 0 ? formatEuro(differenz) : '0,00 EUR')
+                              : '-'}
+                          </td>
+                          <td className="py-1.5 px-2 text-center text-gray-500 italic max-w-[120px] truncate">
+                            {za.zahlungseingang_kommentar || '-'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
@@ -922,5 +1386,6 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
 
       </div>
     </div>
+    </>
   );
 }
