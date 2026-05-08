@@ -4,14 +4,20 @@
 // ============================================================================
 // PZE V7 - Gemeinsamer Portal-Header
 // ============================================================================
-// Datum: 20. Februar 2026
+// Datum: 8. Mai 2026
 // Version: 7.3.95-4
+//
+// v7.3.95-4: Home-Button (Haeuschen) ganz links im Header
+//   - Immer sichtbar, auf allen Seiten
+//   - Berater in Firma-Kontext -> Cockpit der Firma
+//   - Berater ohne Firma -> Berater-Dashboard
+//   - Firma-Portal -> Dashboard (spaeter Cockpit)
+//   - Weisses Home-Icon, klickbar, vor dem Firmennamen
 //
 // Wird von beiden Portalen genutzt:
 // - Berater-Portal: Blauer Header (#002451)
 // - Firmen-Portal: Gruener Header (#65A655)
 //
-// v7.3.95-4: Rolle des Users wieder als Untertitel im Header anzeigen
 // v7.3.95-2: Passwort-aendern Funktion wiederhergestellt (war in v7.3.91-1,
 //            ging bei v7.3.95 Print-Fix verloren)
 // v7.3.95: print:hidden hinzugefuegt - Header beim Drucken ausblenden
@@ -22,9 +28,10 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import {
+  Home,
   LogOut,
   ChevronDown,
   User,
@@ -73,21 +80,6 @@ export default function PortalHeader({
   const supabase = createClient();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
-  // Rollen-Anzeige: technische Rolle -> lesbarer Text
-  const getRoleLabel = (): string => {
-    // Berater-Portal: system_admin ist Zusatzfunktion zu Berater
-    if (userRole === 'system_admin') return 'Berater (Systemadmin)';
-    if (userRole === 'consultant') return 'Berater';
-    // Firmen-Portal: portalRole hat Vorrang
-    const effectiveRole = portalRole || userRole;
-    if (effectiveRole === 'client_admin') return 'Administrator';
-    if (effectiveRole === 'project_leader') return 'Projektleiter';
-    if (effectiveRole === 'employee') return 'Mitarbeiter';
-    return '';
-  };
-
-  const roleLabel = getRoleLabel();
-
   // Passwort-aendern State
   const [showPasswordChange, setShowPasswordChange] = useState(false);
   const [newPassword, setNewPassword] = useState('');
@@ -97,6 +89,21 @@ export default function PortalHeader({
   const [changingPassword, setChangingPassword] = useState(false);
 
   const colors = PORTAL_COLORS[portal];
+  const pathname = usePathname();
+
+  // -- Cockpit Home-Link (v7.3.95-4) -----------------------------------------
+  const getCockpitHref = (): string => {
+    if (portal === 'berater' && pathname) {
+      const firmaMatch = pathname.match(/\/firma\/([0-9a-f-]+)/);
+      if (firmaMatch) {
+        return `/v7/berater/foerderung/firma/${firmaMatch[1]}/cockpit`;
+      }
+      return '/v7/berater/dashboard';
+    }
+    // Firma-Portal: spaeter /v7/firma/cockpit
+    return '/v7/firma/berichte';
+  };
+  const cockpitHref = getCockpitHref();
 
   // Logout-Handler
   const handleLogout = async () => {
@@ -166,6 +173,15 @@ export default function PortalHeader({
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
+            {/* Home / Cockpit Button - immer ganz links */}
+            <Link
+              href={cockpitHref}
+              className="flex items-center justify-center h-10 w-10 rounded hover:bg-white/20 transition-colors mr-3"
+              title="Cockpit"
+            >
+              <Home size={20} />
+            </Link>
+
             {/* Logo / Firmenname - KLICKBAR zum Dashboard */}
             <Link href={dashboardHref} className="flex items-center space-x-4 hover:opacity-90 transition-opacity cursor-pointer">
               {/* Firmenlogo oder Initialen */}
@@ -202,12 +218,7 @@ export default function PortalHeader({
                              hover:bg-white/10 transition-colors duration-150"
                 >
                   <User size={18} />
-                  <div className="hidden sm:block text-left">
-                    <span className="block leading-tight">{userName}</span>
-                    {roleLabel && (
-                      <span className="block text-xs opacity-70 leading-tight">{roleLabel}</span>
-                    )}
-                  </div>
+                  <span className="hidden sm:inline">{userName}</span>
                   <ChevronDown size={16} className={`transition-transform ${userMenuOpen ? 'rotate-180' : ''}`} />
                 </button>
 
@@ -225,9 +236,6 @@ export default function PortalHeader({
                       {/* User Info */}
                       <div className="px-4 py-3 border-b border-gray-100">
                         <p className="text-sm font-medium text-gray-900">{userName}</p>
-                        {roleLabel && (
-                          <p className="text-xs text-blue-600 font-medium">{roleLabel}</p>
-                        )}
                         {userEmail && (
                           <p className="text-xs text-gray-500 truncate">{userEmail}</p>
                         )}
