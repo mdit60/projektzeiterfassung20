@@ -2,7 +2,11 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-40
+// Version: 7.4.4-41
+// v7.4.4-41: FIX: handleSaveZahlungseingang speichert foerderbetrag_gesamt mit
+//   - Behebt: Cockpit zeigt 0 EUR weil foerderbetrag_gesamt NULL war
+//   - Beim Sichern im Archiv-Tab wird Foerderbetrag immer neu berechnet + gespeichert
+//   - Lokaler State wird ebenfalls aktualisiert
 // v7.4.4-40: ZA loeschbar im Archiv-Tab. Bestaetigung erforderlich,
 //   bei Status Eingereicht/Bewilligt staerkere Warnung.
 // v7.4.4-39: Einreichdatum direkt im Deckblatt-Formular neben ZA-Nr.
@@ -667,7 +671,24 @@ export default function ZAPanel({
         zahlungseingang_kommentar: edit.kommentar.trim() || null,
         updated_at: new Date().toISOString(),
       };
+
+      // v7.4.4-41: Foerderbetrag immer mitberechnen und speichern
+      const za = zaList.find(z => z.id === zaId);
+      if (za) {
+        const zaForCompute = { ...za, foerderbetrag_gesamt: null as number | null };
+        patch.foerderbetrag_gesamt = computeArchivFoerderbetrag(zaForCompute);
+      }
+
       await supabase.from('v7_zahlungsanforderungen').update(patch).eq('id', zaId);
+
+      // Lokalen State aktualisieren damit Archiv-Tab sofort korrekt anzeigt
+      if (za && patch.foerderbetrag_gesamt != null) {
+        setZAList(prev => prev.map(z => z.id === zaId
+          ? { ...z, foerderbetrag_gesamt: patch.foerderbetrag_gesamt }
+          : z
+        ));
+      }
+
       setArchivEdits(prev => ({ ...prev, [zaId]: { ...prev[zaId], saving: false, saved: true } }));
       setTimeout(() => setArchivEdits(prev => ({ ...prev, [zaId]: { ...prev[zaId], saved: false } })), 2500);
     } catch (err: any) {
