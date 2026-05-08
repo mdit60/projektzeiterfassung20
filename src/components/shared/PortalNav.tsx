@@ -4,8 +4,12 @@
 // ============================================================================
 // PZE V7 - Portal-Navigation
 // ============================================================================
-// Version: 7.4.4-15
-// v7.4.4-15: Cockpit-Sichtbarkeit via v7_system_config
+// Version: 7.4.4-17
+// v7.4.4-17: Cockpit-Button: Firma-Abfrage beim Klick (nicht beim Laden)
+//   - Behebt: Klick auf Cockpit im Dashboard wirkungslos
+//   - Async onClick laedt erste Kundenfirma zum Klick-Zeitpunkt
+//   - User ist beim Klick garantiert authentifiziert
+// v7.4.4-16: Cockpit-Button als onClick mit Default-Firma-Fallback
 //   - cockpit_berater_enabled: Cockpit fuer Berater sichtbar (Toggle in Admin)
 //   - cockpit_firma_enabled: Cockpit fuer Firmen-Portal sichtbar (Toggle in Admin)
 //   - system_admin sieht Cockpit IMMER (unabhaengig von Config)
@@ -36,7 +40,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import {
   BarChart3,
@@ -267,6 +271,7 @@ export default function PortalNav({
 }) {
   const colors = PORTAL_COLORS[portal];
   const pathname = usePathname();
+  const router = useRouter();
   const navItems = getNavItems(portal, userRole, portalRole);
 
   const effectiveRole = (userRole === 'client_admin' || portalRole === 'client_admin')
@@ -275,22 +280,57 @@ export default function PortalNav({
 
   const showHilfe = portal === 'firma';
 
-  // -- Cockpit Home-Link (v7.4.4-14) -----------------------------------------
-  const getCockpitHref = (): string => {
+  // -- Cockpit-Link -----------------------------------------
+  const cockpitHrefFromUrl = (() => {
     if (portal === 'berater' && pathname) {
       const firmaMatch = pathname.match(/\/firma\/([0-9a-f-]+)/);
       if (firmaMatch) {
-        return `/v7/berater/foerderung/firma/${firmaMatch[1]}/cockpit`;
+        return '/v7/berater/foerderung/firma/' + firmaMatch[1] + '/cockpit';
       }
-      return '/v7/berater/dashboard';
     }
-    // Firma-Portal: spaeter /v7/firma/cockpit
-    return '/v7/firma/berichte';
-  };
-  const cockpitHref = getCockpitHref();
+    return null; // Keine Firma im URL-Kontext
+  })();
   const isCockpitActive = pathname ? pathname.endsWith('/cockpit') : false;
 
-  // -- manuals_enabled + cockpit_*_enabled aus v7_system_config ----------------
+  // Cockpit-Klick: Firma aus URL oder erste Kundenfirma laden
+  async function handleCockpitClick() {
+    // 1. Firma aus URL?
+    if (cockpitHrefFromUrl) {
+      router.push(cockpitHrefFromUrl);
+      return;
+    }
+    // 2. Erste Kundenfirma aus DB laden (User ist jetzt sicher eingeloggt)
+    try {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase
+          .from('v7_user_profiles')
+          .select('consultant_company_id')
+          .eq('id', user.id)
+          .single();
+        if (profile?.consultant_company_id) {
+          const { data: firmen } = await supabase
+            .from('v7_client_companies')
+            .select('id')
+            .eq('consultant_company_id', profile.consultant_company_id)
+            .eq('is_active', true)
+            .order('name')
+            .limit(1);
+          if (firmen && firmen.length > 0) {
+            router.push('/v7/berater/foerderung/firma/' + firmen[0].id + '/cockpit');
+            return;
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Cockpit navigation error:', err);
+    }
+    // 3. Fallback: Kundenfirmen-Liste
+    router.push('/v7/berater/foerderung');
+  }
+
+  // -- Config laden ----------------
   const [manualsEnabled, setManualsEnabled] = useState(false);
   const [cockpitBeraterEnabled, setCockpitBeraterEnabled] = useState(false);
   const [cockpitFirmaEnabled, setCockpitFirmaEnabled] = useState(false);
@@ -320,8 +360,8 @@ export default function PortalNav({
           {((portal === 'berater' && (userRole === 'system_admin' || cockpitBeraterEnabled)) ||
             (portal === 'firma' && cockpitFirmaEnabled)) && (
             <>
-              <Link
-                href={cockpitHref}
+              <button
+                onClick={handleCockpitClick}
                 className={[
                   'flex items-center space-x-1.5 px-4 py-3 text-sm font-medium',
                   'border-b-2 transition-colors duration-150 whitespace-nowrap mr-2',
@@ -333,7 +373,7 @@ export default function PortalNav({
               >
                 <Home size={18} />
                 <span>Cockpit</span>
-              </Link>
+              </button>
               <div className="h-5 w-px bg-gray-200 mr-2" />
             </>
           )}
