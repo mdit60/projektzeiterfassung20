@@ -3,7 +3,8 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 8. Mai 2026
-// Version: 7.4.4-56
+// Version: 7.4.4-57
+// v7.4.4-57: Zurueck-Button immer "Zurueck" (einheitlich, Haeuschen = Cockpit)
 // v7.4.4-56: returnTo-Parameter: Zurueck-Button fuehrt zum Cockpit wenn von dort gesprungen
 // v7.4.4-55: Firmen-Portal: Zurueck-Button zeigt "Dashboard" statt "Projekte"
 //   und navigiert zu /v7/firma/berichte (Dashboard mit integrierter Projektliste)
@@ -785,10 +786,7 @@ export default function ProjectDetailPage({
   };
 
   const getBackLabel = (): string => {
-    if (returnTo && returnTo.includes('/cockpit')) return 'Cockpit';
-    if (fromNWMList && portal === 'berater') return 'Netzwerke';
-    if (portal === 'berater') return 'Firma';
-    return 'Dashboard';
+    return 'Zurueck';
   };
 
   const isZimProject = (): boolean => {

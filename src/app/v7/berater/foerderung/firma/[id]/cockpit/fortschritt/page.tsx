@@ -2,7 +2,7 @@
 
 // Route: /v7/berater/foerderung/firma/[id]/cockpit/fortschritt
 // Eigenstaendige Seite fuer ProjektFortschrittPanel (ohne BerichtePage)
-// Version: 7.4.9-3
+// Version: 7.4.9-4
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
@@ -23,7 +23,6 @@ export default function CockpitFortschrittPage() {
   const [userName, setUserName] = useState('');
   const [firmaName, setFirmaName] = useState('');
 
-  // Data for ProjektFortschrittPanel
   const [projects, setProjects] = useState<any[]>([]);
   const [workPackages, setWorkPackages] = useState<any[]>([]);
   const [wpAssignments, setWpAssignments] = useState<any[]>([]);
@@ -48,7 +47,6 @@ export default function CockpitFortschrittPage() {
       }
       setUserName(profile.display_name || profile.email || '');
 
-      // Firma
       const { data: firma } = await supabase
         .from('v7_client_companies')
         .select('name')
@@ -56,7 +54,6 @@ export default function CockpitFortschrittPage() {
         .single();
       setFirmaName(firma?.name || '');
 
-      // Projekte
       const { data: projectsData } = await supabase
         .from('v7_projects')
         .select('id, name, short_name, funding_format, funding_reference, start_date, end_date, is_active, foerdersatz, overhead_t, bewilligte_summe')
@@ -66,7 +63,6 @@ export default function CockpitFortschrittPage() {
 
       const projectIds = (projectsData || []).map((p: any) => p.id);
       if (projectIds.length > 0) {
-        // Arbeitspakete
         const { data: wpData } = await supabase
           .from('v7_work_packages')
           .select('id, project_id, total_person_months, start_date, end_date')
@@ -74,7 +70,6 @@ export default function CockpitFortschrittPage() {
           .eq('is_active', true);
         setWorkPackages(wpData || []);
 
-        // WP-Assignments
         const wpIds = (wpData || []).map((wp: any) => wp.id);
         if (wpIds.length > 0) {
           const { data: wpaData } = await supabase
@@ -85,11 +80,9 @@ export default function CockpitFortschrittPage() {
           setWpAssignments(wpaData || []);
         }
 
-        // Project Assignments (Stundensaetze)
         const paFlat = await loadProjectAssignments(projectIds);
         setProjectAssignments(paFlat);
 
-        // Mitarbeiter
         const { data: empData } = await supabase
           .from('v7_employees')
           .select('id, display_name, weekly_hours, position_title')
@@ -97,7 +90,6 @@ export default function CockpitFortschrittPage() {
           .eq('is_active', true);
         setEmployees(empData || []);
 
-        // Timesheets
         const { data: tsData } = await supabase
           .from('v7_timesheets')
           .select('id, project_id, employee_id, work_date, hours, is_billable')
@@ -110,10 +102,6 @@ export default function CockpitFortschrittPage() {
     }
     loadData();
   }, [firmaId, router]);
-
-  function handleBackToCockpit() {
-    router.push(`/v7/berater/foerderung/firma/${firmaId}/cockpit`);
-  }
 
   if (loading) {
     return (
@@ -136,11 +124,11 @@ export default function CockpitFortschrittPage() {
       />
       <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-4">
         <button
-          onClick={handleBackToCockpit}
+          onClick={() => router.back()}
           className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors mb-4"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span className="text-sm">Zurueck zum Cockpit</span>
+          <span className="text-sm">Zurueck</span>
         </button>
 
         <ProjektFortschrittPanel

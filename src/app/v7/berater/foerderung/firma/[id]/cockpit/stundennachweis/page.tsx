@@ -2,7 +2,7 @@
 
 // Route: /v7/berater/foerderung/firma/[id]/cockpit/stundennachweis
 // Eigenstaendige Seite fuer StundennachweisMatrix (ohne BerichtePage)
-// Version: 7.4.9-3
+// Version: 7.4.9-4
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
@@ -23,7 +23,6 @@ export default function CockpitStundennachweisPage() {
   const [userName, setUserName] = useState('');
   const [firmaName, setFirmaName] = useState('');
 
-  // Data for StundennachweisMatrix
   const [company, setCompany] = useState<any>(null);
   const [projects, setProjects] = useState<any[]>([]);
   const [workPackages, setWorkPackages] = useState<any[]>([]);
@@ -52,7 +51,6 @@ export default function CockpitStundennachweisPage() {
       }
       setUserName(profile.display_name || profile.email || '');
 
-      // Firma
       const { data: companyData } = await supabase
         .from('v7_client_companies')
         .select('id, name, federal_state, holiday_region')
@@ -61,7 +59,6 @@ export default function CockpitStundennachweisPage() {
       setCompany(companyData);
       setFirmaName(companyData?.name || '');
 
-      // Projekte
       const { data: projectsData } = await supabase
         .from('v7_projects')
         .select('id, name, short_name, funding_format, funding_reference, start_date, end_date, is_active')
@@ -69,7 +66,6 @@ export default function CockpitStundennachweisPage() {
         .eq('is_active', true);
       setProjects(projectsData || []);
 
-      // Initialen Projekt setzen
       if (projektId) {
         setMatrixProjectId(projektId);
       } else if (projectsData && projectsData.length > 0) {
@@ -78,7 +74,6 @@ export default function CockpitStundennachweisPage() {
 
       const projectIds = (projectsData || []).map((p: any) => p.id);
       if (projectIds.length > 0) {
-        // Arbeitspakete
         const { data: wpData } = await supabase
           .from('v7_work_packages')
           .select('id, project_id, ap_number, ap_code, name, total_person_months, start_date, end_date')
@@ -86,7 +81,6 @@ export default function CockpitStundennachweisPage() {
           .eq('is_active', true);
         setWorkPackages(wpData || []);
 
-        // WP-Assignments
         const wpIds = (wpData || []).map((wp: any) => wp.id);
         if (wpIds.length > 0) {
           const { data: wpaData } = await supabase
@@ -97,7 +91,6 @@ export default function CockpitStundennachweisPage() {
           setWpAssignments(wpaData || []);
         }
 
-        // Project Assignments (mit assignment_start/end)
         const paFlat = await loadProjectAssignments(projectIds);
         const { data: assignDates } = await supabase
           .from('v7_project_assignments')
@@ -114,7 +107,6 @@ export default function CockpitStundennachweisPage() {
         });
         setProjectAssignments(paWithDates);
 
-        // Mitarbeiter (mit employment_start/end)
         const { data: empData } = await supabase
           .from('v7_employees')
           .select('id, display_name, first_name, last_name, user_id, portal_role, employment_start, employment_end')
@@ -122,7 +114,6 @@ export default function CockpitStundennachweisPage() {
           .eq('is_active', true);
         setEmployees(empData || []);
 
-        // Timesheets
         const { data: tsData } = await supabase
           .from('v7_timesheets')
           .select('id, project_id, employee_id, work_package_id, work_date, hours, day_type, is_active, is_billable')
@@ -130,14 +121,12 @@ export default function CockpitStundennachweisPage() {
           .eq('is_active', true);
         setTimesheets(tsData || []);
 
-        // Completions
         const { data: compData } = await supabase
           .from('v7_timesheet_completions')
           .select('employee_id, project_id, year, month')
           .in('project_id', projectIds);
         setCompletions(compData || []);
 
-        // Timesheet-Notizen (offene)
         const { data: notesData } = await supabase
           .from('v7_timesheet_notes')
           .select('employee_id, project_id, year, month, status')
@@ -151,10 +140,6 @@ export default function CockpitStundennachweisPage() {
     loadData();
   }, [firmaId, router]);
 
-  function handleBackToCockpit() {
-    router.push(`/v7/berater/foerderung/firma/${firmaId}/cockpit`);
-  }
-
   function handleProjectChange(id: string) {
     setMatrixProjectId(id);
   }
@@ -162,8 +147,7 @@ export default function CockpitStundennachweisPage() {
   function handleNavigateToZE(employeeId: string, year: number, month: number) {
     const monthStr = String(month).padStart(2, '0');
     router.push(
-      `/v7/berater/foerderung/firma/${firmaId}/zeiterfassung?projekt=${matrixProjectId}&ma=${employeeId}&monat=${year}-${monthStr}&returnTo=` +
-      encodeURIComponent(`/v7/berater/foerderung/firma/${firmaId}/cockpit/stundennachweis?projekt=${matrixProjectId}`)
+      `/v7/berater/foerderung/firma/${firmaId}/zeiterfassung?projekt=${matrixProjectId}&ma=${employeeId}&monat=${year}-${monthStr}`
     );
   }
 
@@ -188,11 +172,11 @@ export default function CockpitStundennachweisPage() {
       />
       <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-4">
         <button
-          onClick={handleBackToCockpit}
+          onClick={() => router.back()}
           className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors mb-4"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span className="text-sm">Zurueck zum Cockpit</span>
+          <span className="text-sm">Zurueck</span>
         </button>
 
         <StundennachweisMatrix
