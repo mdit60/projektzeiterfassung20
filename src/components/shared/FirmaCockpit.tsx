@@ -3,7 +3,7 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-3
+// Version: 7.4.9-4
 // Datum: 8. Mai 2026
 //
 // Firma-Cockpit als MIS (Management Information System)
@@ -13,6 +13,9 @@
 //   - Berater-Portal: /v7/berater/foerderung/firma/[id]/cockpit
 //   - Firmen-Portal:  /v7/firma/cockpit (Landing Page fuer Firmen-Admin)
 //
+// v7.4.9-4: ZA als Tabelle mit 7 Spalten, gruppiert nach Projekt (Kuerzel + FKZ)
+//           Sortierung nach ZA-Nummer aufsteigend
+//           Cockpit auf volle Seitenbreite
 // v7.4.9-3: Buttons umbenannt: Projektdaten / Projektfortschritt / Stundennachweis
 //           Eigene Routen fuer Fortschritt + Matrix (ohne BerichtePage-Huelle)
 //           returnTo=cockpit fuer zuverlaessige Zurueck-Navigation
@@ -398,7 +401,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
           .from('v7_zahlungsanforderungen')
           .select('id, project_id, za_nummer, zeitraum_von, zeitraum_bis, status, foerderbetrag_gesamt, zahlungseingang_datum, zahlungseingang_betrag, zahlungseingang_kommentar, eingereicht_am')
           .in('project_id', alleProjekte.map(p => p.id))
-          .order('eingereicht_am', { ascending: false });
+          .order('za_nummer', { ascending: true });
 
         const zaWithProjekt = (zaDB || []).map(za => {
           const proj = alleProjekte.find(p => p.id === za.project_id);
@@ -509,7 +512,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
   // ==========================================================================
 
   return (
-    <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <div className="w-full px-4 sm:px-6 lg:px-8 py-6">
 
       {/* Kopfzeile: Zurueck + Firmenname */}
       <div className="flex items-center gap-4 mb-6">
@@ -644,9 +647,9 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
         </div>
 
         {/* ================================================================ */}
-        {/* MITTLERE SPALTE: Projekte mit KPIs (5 von 12 Spalten)           */}
+        {/* MITTLERE SPALTE: Projekte mit KPIs (4 von 12 Spalten)           */}
         {/* ================================================================ */}
-        <div className="lg:col-span-5 space-y-6">
+        <div className="lg:col-span-4 space-y-6">
 
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h2
@@ -791,9 +794,9 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
         </div>
 
         {/* ================================================================ */}
-        {/* RECHTE SPALTE: Finanzen / ZA (4 von 12 Spalten)                 */}
+        {/* RECHTE SPALTE: ZA-Tabelle (5 von 12 Spalten)                    */}
         {/* ================================================================ */}
-        <div className="lg:col-span-4 space-y-6">
+        <div className="lg:col-span-5 space-y-6">
 
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h2
@@ -828,89 +831,88 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
               </div>
             </div>
 
-            {/* ZA-Liste */}
+            {/* ZA-Tabelle gruppiert nach Projekt */}
             {zaList.length === 0 ? (
               <p className="text-sm text-gray-400">Keine Zahlungsanforderungen vorhanden.</p>
             ) : (
-              <div className="space-y-2">
-                {zaList.map(za => {
-                  const zaStatus = deriveZAStatus(za);
-                  const differenz = (za.foerderbetrag_gesamt || 0) - (za.zahlungseingang_betrag || 0);
-                  const hatAuszahlung = za.zahlungseingang_betrag != null && za.zahlungseingang_betrag > 0;
+              <div className="space-y-4">
+                {/* Projekte mit ZAs gruppieren */}
+                {projekte
+                  .filter(p => zaList.some(z => z.project_id === p.id))
+                  .map(projekt => {
+                    const projektZAs = zaList
+                      .filter(z => z.project_id === projekt.id)
+                      .sort((a, b) => a.za_nummer - b.za_nummer);
 
-                  return (
-                    <div
-                      key={za.id}
-                      className="border border-gray-200 rounded-lg p-3"
-                    >
-                      {/* Kopfzeile: FKZ / ZA Nr */}
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-medium text-gray-900">
-                          {za.projekt_fkz} / ZA {za.za_nummer}
-                        </span>
-                        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${zaStatus.bg} ${zaStatus.color}`}>
-                          {zaStatus.label}
-                        </span>
-                      </div>
+                    return (
+                      <div key={projekt.id}>
+                        {/* Projekt-Ueberschrift */}
+                        <div className="flex items-center gap-2 mb-2 pb-1 border-b border-gray-200">
+                          <span className="text-xs font-semibold text-gray-900">
+                            {projekt.short_name || projekt.name}
+                          </span>
+                          <span className="text-xs font-mono text-gray-400">
+                            {projekt.funding_reference || ''}
+                          </span>
+                        </div>
 
-                      {/* Zeitraum */}
-                      <div className="text-xs text-gray-500 mb-2">
-                        {za.zeitraum_von && za.zeitraum_bis
-                          ? formatDateShort(za.zeitraum_von) + ' - ' + formatDateShort(za.zeitraum_bis)
-                          : '-'}
-                      </div>
-
-                      {/* Datentabelle */}
-                      <table className="w-full text-xs">
-                        <tbody>
-                          {/* Eingereicht */}
-                          {za.eingereicht_am && (
-                            <tr className="border-t border-gray-100">
-                              <td className="py-1 text-gray-500 w-24">Eingereicht</td>
-                              <td className="py-1 text-gray-700">{formatDate(za.eingereicht_am)}</td>
-                            </tr>
-                          )}
-
-                          {/* Anforderung */}
-                          <tr className="border-t border-gray-100">
-                            <td className="py-1 text-gray-500">Anforderung</td>
-                            <td className="py-1 text-gray-700 font-medium">{formatEuro(za.foerderbetrag_gesamt)}</td>
-                          </tr>
-
-                          {/* Auszahlung */}
-                          {hatAuszahlung && (
-                            <>
-                              <tr className="border-t border-gray-100">
-                                <td className="py-1 text-gray-500">Auszahlung</td>
-                                <td className="py-1 text-green-700 font-medium">
-                                  {formatDate(za.zahlungseingang_datum)} / {formatEuro(za.zahlungseingang_betrag)}
-                                </td>
+                        {/* Tabelle */}
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="bg-gray-50 text-gray-500">
+                                <th className="text-left py-1.5 px-2 font-medium">ZA</th>
+                                <th className="text-left py-1.5 px-2 font-medium">Eingereicht</th>
+                                <th className="text-right py-1.5 px-2 font-medium">Anforderung</th>
+                                <th className="text-left py-1.5 px-2 font-medium">Zahlung</th>
+                                <th className="text-right py-1.5 px-2 font-medium">Betrag</th>
+                                <th className="text-right py-1.5 px-2 font-medium">Differenz</th>
+                                <th className="text-left py-1.5 px-2 font-medium">Kommentar</th>
                               </tr>
+                            </thead>
+                            <tbody>
+                              {projektZAs.map(za => {
+                                const differenz = (za.foerderbetrag_gesamt || 0) - (za.zahlungseingang_betrag || 0);
+                                const hatAuszahlung = za.zahlungseingang_betrag != null && za.zahlungseingang_betrag > 0;
+                                const hatAnforderung = za.foerderbetrag_gesamt != null && za.foerderbetrag_gesamt > 0;
 
-                              {/* Differenz */}
-                              {differenz !== 0 && (
-                                <tr className="border-t border-gray-100">
-                                  <td className="py-1 text-gray-500">Differenz</td>
-                                  <td className={`py-1 font-medium ${differenz > 0 ? 'text-amber-600' : 'text-green-600'}`}>
-                                    {differenz > 0 ? '-' : '+'}{formatEuro(Math.abs(differenz))}
-                                  </td>
-                                </tr>
-                              )}
-
-                              {/* Kommentar */}
-                              {za.zahlungseingang_kommentar && (
-                                <tr className="border-t border-gray-100">
-                                  <td className="py-1 text-gray-500">Kommentar</td>
-                                  <td className="py-1 text-gray-600 italic">{za.zahlungseingang_kommentar}</td>
-                                </tr>
-                              )}
-                            </>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  );
-                })}
+                                return (
+                                  <tr key={za.id} className="border-t border-gray-100 hover:bg-gray-50">
+                                    <td className="py-1.5 px-2 font-medium text-gray-900">
+                                      {za.za_nummer}
+                                    </td>
+                                    <td className="py-1.5 px-2 text-gray-600">
+                                      {za.eingereicht_am ? formatDate(za.eingereicht_am) : '-'}
+                                    </td>
+                                    <td className="py-1.5 px-2 text-right text-gray-700 font-medium">
+                                      {hatAnforderung ? formatEuro(za.foerderbetrag_gesamt) : '-'}
+                                    </td>
+                                    <td className="py-1.5 px-2 text-gray-600">
+                                      {za.zahlungseingang_datum ? formatDate(za.zahlungseingang_datum) : '-'}
+                                    </td>
+                                    <td className="py-1.5 px-2 text-right text-green-700 font-medium">
+                                      {hatAuszahlung ? formatEuro(za.zahlungseingang_betrag) : '-'}
+                                    </td>
+                                    <td className={`py-1.5 px-2 text-right font-medium ${
+                                      !hatAuszahlung ? 'text-gray-400' :
+                                      differenz > 0 ? 'text-amber-600' : 'text-gray-400'
+                                    }`}>
+                                      {hatAuszahlung
+                                        ? (differenz !== 0 ? formatEuro(differenz) : '0,00 EUR')
+                                        : '-'}
+                                    </td>
+                                    <td className="py-1.5 px-2 text-gray-500 italic max-w-[120px] truncate">
+                                      {za.zahlungseingang_kommentar || '-'}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  })}
               </div>
             )}
           </div>
