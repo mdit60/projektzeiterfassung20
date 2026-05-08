@@ -4,7 +4,12 @@
 // ============================================================================
 // PZE V7 - Portal-Navigation
 // ============================================================================
-// Version: 7.4.4-14
+// Version: 7.4.4-15
+// v7.4.4-15: Cockpit-Sichtbarkeit via v7_system_config
+//   - cockpit_berater_enabled: Cockpit fuer Berater sichtbar (Toggle in Admin)
+//   - cockpit_firma_enabled: Cockpit fuer Firmen-Portal sichtbar (Toggle in Admin)
+//   - system_admin sieht Cockpit IMMER (unabhaengig von Config)
+//   - Spaeter fuer alle Berater freischaltbar (Toggle in Administration)
 // v7.4.4-14: Home-Button (Haeuschen + "Cockpit") ganz links in der Nav-Zeile
 //   - Berater in Firma-Kontext -> /v7/berater/foerderung/firma/[id]/cockpit
 //   - Berater ohne Firma -> /v7/berater/dashboard
@@ -285,18 +290,25 @@ export default function PortalNav({
   const cockpitHref = getCockpitHref();
   const isCockpitActive = pathname ? pathname.endsWith('/cockpit') : false;
 
-  // -- manuals_enabled aus v7_system_config ----------------------------------
+  // -- manuals_enabled + cockpit_*_enabled aus v7_system_config ----------------
   const [manualsEnabled, setManualsEnabled] = useState(false);
+  const [cockpitBeraterEnabled, setCockpitBeraterEnabled] = useState(false);
+  const [cockpitFirmaEnabled, setCockpitFirmaEnabled] = useState(false);
 
   useEffect(() => {
     const supabase = createClient();
     supabase
       .from('v7_system_config')
-      .select('value')
-      .eq('key', 'manuals_enabled')
-      .single()
+      .select('key, value')
+      .in('key', ['manuals_enabled', 'cockpit_berater_enabled', 'cockpit_firma_enabled'])
       .then(({ data }) => {
-        if (data?.value === 'true') setManualsEnabled(true);
+        if (data) {
+          for (const row of data) {
+            if (row.key === 'manuals_enabled' && row.value === 'true') setManualsEnabled(true);
+            if (row.key === 'cockpit_berater_enabled' && row.value === 'true') setCockpitBeraterEnabled(true);
+            if (row.key === 'cockpit_firma_enabled' && row.value === 'true') setCockpitFirmaEnabled(true);
+          }
+        }
       });
   }, []);
 
@@ -304,22 +316,27 @@ export default function PortalNav({
     <nav className="bg-white border-b border-gray-200 shadow-sm print:hidden">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center py-1 -mb-px overflow-visible">
-          {/* Home / Cockpit Button - immer ganz links */}
-          <Link
-            href={cockpitHref}
-            className={[
-              'flex items-center space-x-1.5 px-4 py-3 text-sm font-medium',
-              'border-b-2 transition-colors duration-150 whitespace-nowrap mr-2',
-              isCockpitActive
-                ? 'border-current'
-                : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300',
-            ].join(' ')}
-            style={isCockpitActive ? { color: colors.primary, borderColor: colors.primary } : undefined}
-          >
-            <Home size={18} />
-            <span>Cockpit</span>
-          </Link>
-          <div className="h-5 w-px bg-gray-200 mr-2" />
+          {/* Cockpit Button - gesteuert ueber v7_system_config */}
+          {((portal === 'berater' && (userRole === 'system_admin' || cockpitBeraterEnabled)) ||
+            (portal === 'firma' && cockpitFirmaEnabled)) && (
+            <>
+              <Link
+                href={cockpitHref}
+                className={[
+                  'flex items-center space-x-1.5 px-4 py-3 text-sm font-medium',
+                  'border-b-2 transition-colors duration-150 whitespace-nowrap mr-2',
+                  isCockpitActive
+                    ? 'border-current'
+                    : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300',
+                ].join(' ')}
+                style={isCockpitActive ? { color: colors.primary, borderColor: colors.primary } : undefined}
+              >
+                <Home size={18} />
+                <span>Cockpit</span>
+              </Link>
+              <div className="h-5 w-px bg-gray-200 mr-2" />
+            </>
+          )}
           {navItems.map((item) => {
             if (portal === 'berater' && pathname) {
               if (item.key === 'foerderung') {
