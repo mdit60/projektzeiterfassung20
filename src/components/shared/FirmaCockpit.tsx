@@ -3,7 +3,7 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-2
+// Version: 7.4.9-3
 // Datum: 8. Mai 2026
 //
 // Firma-Cockpit als MIS (Management Information System)
@@ -13,6 +13,9 @@
 //   - Berater-Portal: /v7/berater/foerderung/firma/[id]/cockpit
 //   - Firmen-Portal:  /v7/firma/cockpit (Landing Page fuer Firmen-Admin)
 //
+// v7.4.9-3: Buttons umbenannt: Projektdaten / Projektfortschritt / Stundennachweis
+//           Eigene Routen fuer Fortschritt + Matrix (ohne BerichtePage-Huelle)
+//           returnTo=cockpit fuer zuverlaessige Zurueck-Navigation
 // v7.4.9-2: KPI-Fortschrittsbalken in Projektkarten (Laufzeit, PM, Kosten)
 //           ZA: Status aus Daten abgeleitet (kein Dropdown)
 //           ZA: Spalten Eingereicht/Anforderung/Auszahlung/Differenz/Kommentar
@@ -428,27 +431,32 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
     }
   }
 
-  function handleProjektClick(projektId: string) {
+  function handleProjektdatenClick(projektId: string) {
+    const returnTo = encodeURIComponent(
+      portal === 'berater'
+        ? `/v7/berater/foerderung/firma/${firmaId}/cockpit`
+        : `/v7/firma/cockpit`
+    );
     if (portal === 'berater') {
-      router.push(`/v7/berater/foerderung/firma/${firmaId}/projekt/${projektId}`);
+      router.push(`/v7/berater/foerderung/firma/${firmaId}/projekt/${projektId}?returnTo=${returnTo}`);
     } else {
-      router.push(`/v7/firma/projekte/${projektId}`);
+      router.push(`/v7/firma/projekte/${projektId}?returnTo=${returnTo}`);
     }
   }
 
-  function handleZEClick(projektId: string) {
+  function handleFortschrittClick(projektId: string) {
     if (portal === 'berater') {
-      router.push(`/v7/berater/foerderung/firma/${firmaId}/zeiterfassung?projekt=${projektId}`);
+      router.push(`/v7/berater/foerderung/firma/${firmaId}/cockpit/fortschritt?projekt=${projektId}`);
     } else {
-      router.push(`/v7/firma/zeiterfassung?projekt=${projektId}`);
+      router.push(`/v7/firma/cockpit/fortschritt?projekt=${projektId}`);
     }
   }
 
-  function handleBerichteClick(projektId: string) {
+  function handleStundennachweisClick(projektId: string) {
     if (portal === 'berater') {
-      router.push(`/v7/berater/foerderung/firma/${firmaId}/berichte?projekt=${projektId}`);
+      router.push(`/v7/berater/foerderung/firma/${firmaId}/cockpit/stundennachweis?projekt=${projektId}`);
     } else {
-      router.push(`/v7/firma/berichte?projekt=${projektId}`);
+      router.push(`/v7/firma/cockpit/stundennachweis?projekt=${projektId}`);
     }
   }
 
@@ -714,25 +722,25 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                       {/* Direktlinks */}
                       <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
                         <button
-                          onClick={() => handleProjektClick(projekt.id)}
+                          onClick={() => handleProjektdatenClick(projekt.id)}
                           className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-md bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors"
                         >
                           <FileText className="w-3 h-3" />
-                          Arbeitsplan
+                          Projektdaten
                         </button>
                         <button
-                          onClick={() => handleZEClick(projekt.id)}
+                          onClick={() => handleFortschrittClick(projekt.id)}
                           className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-md bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors"
                         >
-                          <Clock className="w-3 h-3" />
-                          Zeiterfassung
+                          <TrendingUp className="w-3 h-3" />
+                          Projektfortschritt
                         </button>
                         <button
-                          onClick={() => handleBerichteClick(projekt.id)}
+                          onClick={() => handleStundennachweisClick(projekt.id)}
                           className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-md bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors"
                         >
                           <BarChart3 className="w-3 h-3" />
-                          Berichte
+                          Stundennachweis
                         </button>
                       </div>
                     </div>
