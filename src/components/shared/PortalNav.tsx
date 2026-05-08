@@ -4,7 +4,12 @@
 // ============================================================================
 // PZE V7 - Portal-Navigation
 // ============================================================================
-// Version: 7.4.4-13
+// Version: 7.4.4-14
+// v7.4.4-14: Home-Button (Haeuschen + "Cockpit") ganz links in der Nav-Zeile
+//   - Berater in Firma-Kontext -> /v7/berater/foerderung/firma/[id]/cockpit
+//   - Berater ohne Firma -> /v7/berater/dashboard
+//   - Firma-Portal -> /v7/firma/berichte (spaeter /v7/firma/cockpit)
+//   - Immer sichtbar, immer gleich, auf allen Seiten
 // v7.4.4-13: Firma-Nav umgebaut:
 //   - "Berichte" umbenannt zu "Dashboard" (neuer Startpunkt fuer Admin/PL)
 //   - "Meine Zeiterfassung" entfernt (Zugang ueber Mein Status ausreichend)
@@ -31,6 +36,7 @@ import { createClient } from '@/lib/supabase/client';
 import {
   BarChart3,
   Building2,
+  Home,
   LayoutDashboard,
   Settings,
   Users,
@@ -264,6 +270,21 @@ export default function PortalNav({
 
   const showHilfe = portal === 'firma';
 
+  // -- Cockpit Home-Link (v7.4.4-14) -----------------------------------------
+  const getCockpitHref = (): string => {
+    if (portal === 'berater' && pathname) {
+      const firmaMatch = pathname.match(/\/firma\/([0-9a-f-]+)/);
+      if (firmaMatch) {
+        return `/v7/berater/foerderung/firma/${firmaMatch[1]}/cockpit`;
+      }
+      return '/v7/berater/dashboard';
+    }
+    // Firma-Portal: spaeter /v7/firma/cockpit
+    return '/v7/firma/berichte';
+  };
+  const cockpitHref = getCockpitHref();
+  const isCockpitActive = pathname ? pathname.endsWith('/cockpit') : false;
+
   // -- manuals_enabled aus v7_system_config ----------------------------------
   const [manualsEnabled, setManualsEnabled] = useState(false);
 
@@ -283,6 +304,22 @@ export default function PortalNav({
     <nav className="bg-white border-b border-gray-200 shadow-sm print:hidden">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center py-1 -mb-px overflow-visible">
+          {/* Home / Cockpit Button - immer ganz links */}
+          <Link
+            href={cockpitHref}
+            className={[
+              'flex items-center space-x-1.5 px-4 py-3 text-sm font-medium',
+              'border-b-2 transition-colors duration-150 whitespace-nowrap mr-2',
+              isCockpitActive
+                ? 'border-current'
+                : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300',
+            ].join(' ')}
+            style={isCockpitActive ? { color: colors.primary, borderColor: colors.primary } : undefined}
+          >
+            <Home size={18} />
+            <span>Cockpit</span>
+          </Link>
+          <div className="h-5 w-px bg-gray-200 mr-2" />
           {navItems.map((item) => {
             if (portal === 'berater' && pathname) {
               if (item.key === 'foerderung') {
