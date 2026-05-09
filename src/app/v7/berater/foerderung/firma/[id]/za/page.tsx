@@ -1,17 +1,10 @@
 'use client';
 
 // src/app/v7/berater/foerderung/firma/[id]/za/page.tsx
-// ============================================================================
-// PZE V8-C - Berater ZA-Seite (Page-Wrapper)
-// ============================================================================
-// Datum: 9. Mai 2026
-// Version: 1.0.0
-//
-// Duenner Page-Wrapper fuer ZASeite im Berater-Portal.
-// Liest Route-Parameter und URL-Params, reicht sie an ZASeite weiter.
-// ============================================================================
+// Version: 1.0.1
+// v1.0.1: Suspense-Wrapper fuer useSearchParams (Next.js App Router Pflicht)
 
-import { use } from 'react';
+import { use, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import ZASeite from '@/components/shared/ZASeite';
 
@@ -19,13 +12,11 @@ interface PageProps {
   params: Promise<{ id: string }>;
 }
 
-export default function BeraterZAPage({ params }: PageProps) {
-  const { id } = use(params);
+function ZAContent({ id }: { id: string }) {
   const searchParams = useSearchParams();
-
-  const projektId  = searchParams.get('projektId') || undefined;
-  const zaId       = searchParams.get('zaId') || undefined;
-  const returnTo   = searchParams.get('returnTo') || undefined;
+  const projektId = searchParams.get('projektId') || undefined;
+  const zaId      = searchParams.get('zaId') || undefined;
+  const returnTo  = searchParams.get('returnTo') || undefined;
 
   return (
     <ZASeite
@@ -35,5 +26,14 @@ export default function BeraterZAPage({ params }: PageProps) {
       initialZaId={zaId}
       returnTo={returnTo}
     />
+  );
+}
+
+export default function BeraterZAPage({ params }: PageProps) {
+  const { id } = use(params);
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-gray-500">Laden...</div>}>
+      <ZAContent id={id} />
+    </Suspense>
   );
 }

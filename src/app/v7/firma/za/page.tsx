@@ -1,24 +1,15 @@
 'use client';
 
 // src/app/v7/firma/za/page.tsx
-// ============================================================================
-// PZE V8-C - Firma ZA-Seite (Page-Wrapper)
-// ============================================================================
-// Datum: 9. Mai 2026
-// Version: 1.0.0
-//
-// Duenner Page-Wrapper fuer ZASeite im Firmen-Portal.
-// CompanyId wird von ZASeite selbst aus dem UserProfil geladen (clientCompanyId=null).
-// ============================================================================
+// Version: 1.0.1
+// v1.0.1: Suspense-Wrapper fuer useSearchParams (Next.js App Router Pflicht)
 
-'use client';
-
+import { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import ZASeite from '@/components/shared/ZASeite';
 
-export default function FirmaZAPage() {
+function ZAContent() {
   const searchParams = useSearchParams();
-
   const projektId = searchParams.get('projektId') || undefined;
   const zaId      = searchParams.get('zaId') || undefined;
   const returnTo  = searchParams.get('returnTo') || undefined;
@@ -31,5 +22,13 @@ export default function FirmaZAPage() {
       initialZaId={zaId}
       returnTo={returnTo}
     />
+  );
+}
+
+export default function FirmaZAPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-gray-500">Laden...</div>}>
+      <ZAContent />
+    </Suspense>
   );
 }
