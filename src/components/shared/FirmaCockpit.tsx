@@ -3,7 +3,10 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-10
+// Version: 7.4.9-15
+// v7.4.9-15: Schrift nochmals groesser (text-xs->1rem, text-sm->1.125rem)
+//            via CSS style-tag + Panel-IDs. Monatsverlauf-Chart bleibt unveraendert.
+// v7.4.9-13: handleNeueZA navigiert zu ZASeite
 // Datum: 8. Mai 2026
 //
 // Firma-Cockpit als MIS (Management Information System)
@@ -638,9 +641,36 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
   function handleNeueZA() {
     if (!selectedProjektId) return;
     if (portal === 'berater') {
-      router.push('/v7/berater/foerderung/firma/' + firmaId + '/projekt/' + selectedProjektId + '?tab=za&returnTo=' + cockpitReturnTo);
+      const params = new URLSearchParams({
+        projektId: selectedProjektId,
+        returnTo: 'cockpit',
+      });
+      router.push('/v7/berater/foerderung/firma/' + firmaId + '/za?' + params.toString());
     } else {
-      router.push('/v7/firma/projekte/' + selectedProjektId + '?tab=za&returnTo=' + cockpitReturnTo);
+      const params = new URLSearchParams({
+        projektId: selectedProjektId,
+        returnTo: 'cockpit',
+      });
+      router.push('/v7/firma/za?' + params.toString());
+    }
+  }
+
+  // Klick auf ZA-Nummer -> direkt zur ZASeite (V8-C, kein Dashboard-Overhead)
+  function handleZAClick(za: ZAData) {
+    if (portal === 'berater') {
+      const params = new URLSearchParams({
+        projektId: za.project_id,
+        zaId: za.id,
+        returnTo: 'cockpit',
+      });
+      router.push('/v7/berater/foerderung/firma/' + firmaId + '/za?' + params.toString());
+    } else {
+      const params = new URLSearchParams({
+        projektId: za.project_id,
+        zaId: za.id,
+        returnTo: 'cockpit',
+      });
+      router.push('/v7/firma/za?' + params.toString());
     }
   }
 
@@ -710,6 +740,17 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
 
   return (
     <>
+      {/* Groessere Schrift in den 4 Panels - Monatsverlauf ausgenommen */}
+      <style>{`
+        #cockpit-left .text-xs,
+        #cockpit-right .text-xs,
+        #cockpit-projekte .text-xs,
+        #cockpit-prognose .text-xs { font-size: 1rem !important; line-height: 1.5rem !important; }
+        #cockpit-left .text-sm,
+        #cockpit-right .text-sm,
+        #cockpit-projekte .text-sm,
+        #cockpit-prognose .text-sm { font-size: 1.125rem !important; line-height: 1.75rem !important; }
+      `}</style>
       {/* PortalNav: Konsistente Navigation direkt unter dem Header */}
       <PortalNav portal={portal} userRole={userRole} />
 
@@ -777,7 +818,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
         {/* ================================================================ */}
         {/* LINKE SPALTE: Firmenkopf + Mitarbeiter (2 von 12 Spalten)        */}
         {/* ================================================================ */}
-        <div className="lg:col-span-2 space-y-6">
+        <div id="cockpit-left" className="lg:col-span-2 space-y-6">
 
           {/* --- Firmenkopf --- */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
@@ -909,7 +950,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
         <div className="lg:col-span-6 space-y-6">
 
           {/* --- Projekt-Karte mit Dropdown --- */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <div id="cockpit-projekte" className="bg-white rounded-xl border border-gray-200 p-5">
             <div className="flex items-center justify-between mb-4">
               <h2
                 className="text-sm font-semibold uppercase tracking-wider flex items-center gap-2"
@@ -1198,7 +1239,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
 
           {/* --- Prognose-Box (kompakt) --- */}
           {analysis && analysis.prognoseAktiv && (
-            <div className={'rounded-xl border p-4 ' + analysis.pFarbe.bg + ' ' + (
+            <div id="cockpit-prognose" className={'rounded-xl border p-4 ' + analysis.pFarbe.bg + ' ' + (
               analysis.pFarbe.icon === 'rot' ? 'border-red-200' :
               analysis.pFarbe.icon === 'gelb' ? 'border-amber-200' : 'border-green-200'
             )}>
@@ -1265,7 +1306,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
         {/* ================================================================ */}
         {/* RECHTE SPALTE: ZA-Tabelle (4 von 12 Spalten)                    */}
         {/* ================================================================ */}
-        <div className="lg:col-span-4 space-y-6">
+        <div id="cockpit-right" className="lg:col-span-4 space-y-6">
 
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <div className="flex items-center justify-between mb-4">
@@ -1348,7 +1389,11 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
 
                       return (
                         <tr key={za.id} className="border-t border-gray-100 hover:bg-gray-50">
-                          <td className="py-1.5 px-2 text-center font-medium text-gray-900">
+                          <td
+                            className="py-1.5 px-2 text-center font-medium text-blue-600 hover:text-blue-800 cursor-pointer underline"
+                            onClick={() => handleZAClick(za)}
+                            title="ZA bearbeiten"
+                          >
                             {za.za_nummer}
                           </td>
                           <td className="py-1.5 px-2 text-center text-gray-600">

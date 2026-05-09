@@ -2,8 +2,12 @@
 // ============================================================================
 // PZE V7 - Shared Component: Berichte & Controlling
 // ============================================================================
-// Version: 7.4.6-12
-// v7.4.6-12: Footer ersetzt durch PortalFooter (fixed, Portalfarbe, print:hidden)
+// Version: 7.4.6-13
+// v7.4.6-13: URL-Params fuer direkte ZA-Navigation vom Cockpit
+//   - projektId param -> auto-selektiert Projekt
+//   - panel=za -> oeffnet ZA-Panel automatisch
+//   - zaId param -> wird an ZAPanel als initialZaId weitergegeben
+//   - returnTo=cockpit -> Zurueck-Button geht zum Cockpit
 // Datum: 6. Mai 2026
 // v7.4.6-10: Seiten-Titel geaendert: "Berichte & Controlling" -> "Dashboard"
 //   nicht beim initialen Render mit portalRole='employee' Default-Wert
@@ -46,7 +50,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import * as XLSX from 'xlsx';
 import PortalHeader from '@/components/shared/PortalHeader';
@@ -272,6 +276,11 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
   const togglePanel = (panel: ActivePanel) =>
     setActivePanel(prev => prev === panel ? null : panel);
 
+  // URL-Parameter fuer direkte ZA-Navigation vom Cockpit
+  const searchParams = useSearchParams();
+  const [initialZaId, setInitialZaId] = useState<string | null>(null);
+  const paramsApplied = React.useRef(false);
+
   // Projekt-Selektor fuer Reports (null = erstes Projekt / alle)
   const [selectedReportProjectId, setSelectedReportProjectId] = useState<string | null>(null);
 
@@ -299,6 +308,20 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
   const colors = portal === 'berater'
     ? { primary: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-400', btn: 'text-blue-700 bg-blue-50 hover:bg-blue-100', btnActive: 'border-blue-600 text-blue-800 bg-blue-100', btnBadge: 'bg-blue-200 text-blue-800' }
     : { primary: 'text-green-600', bg: 'bg-green-50', border: 'border-green-400', btn: 'text-green-700 bg-green-50 hover:bg-green-100', btnActive: 'border-green-600 text-green-800 bg-green-100', btnBadge: 'bg-green-200 text-green-800' };
+
+  // ============================================================================
+  // URL-Params anwenden sobald Projekte geladen sind (Cockpit-Navigation)
+  // projektId -> Projekt vorselektieren, panel=za -> ZA-Panel oeffnen, zaId -> ZA vorselektieren
+  useEffect(() => {
+    if (paramsApplied.current || projects.length === 0) return;
+    const projektId = searchParams.get('projektId');
+    const panel = searchParams.get('panel');
+    const zaId = searchParams.get('zaId');
+    if (projektId) setSelectedReportProjectId(projektId);
+    if (panel === 'za') setActivePanel('za');
+    if (zaId) setInitialZaId(zaId);
+    if (projektId || panel) paramsApplied.current = true;
+  }, [projects, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ============================================================================
   // DATEN LADEN
@@ -690,9 +713,14 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
       ? `/v7/berater/foerderung/firma/${clientCompanyId}/zeiterfassung?employee=${empId}`
       : `/v7/firma/zeiterfassung?employee=${empId}`;
 
+  // Zurueck-URL: returnTo=cockpit -> Cockpit, sonst Firma-Detailseite
+  const returnTo = searchParams.get('returnTo');
   const zurueckUrl = portal === 'berater'
-    ? `/v7/berater/foerderung/firma/${clientCompanyId}`
+    ? returnTo === 'cockpit'
+      ? `/v7/berater/foerderung/firma/${clientCompanyId}/cockpit`
+      : `/v7/berater/foerderung/firma/${clientCompanyId}`
     : undefined;
+  const zurueckLabel = returnTo === 'cockpit' ? '\u2190 Zurueck zum Cockpit' : '\u2190 Zurueck zur Firma';
 
   const matrixReturnUrl = portal === 'berater'
     ? `/v7/berater/foerderung/firma/${clientCompanyId}/berichte`
@@ -756,7 +784,7 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
           <div className="flex items-center gap-4 mb-4">
             {zurueckUrl && (
               <a href={zurueckUrl} className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm">
-                &larr; Zurueck zur Firma
+                {zurueckLabel}
               </a>
             )}
             <span className="text-gray-300">|</span>
@@ -873,6 +901,7 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
               employees={employees}
               timesheets={timesheets}
               projectAssignments={projectAssignments}
+              initialZaId={initialZaId || undefined}
             />
           </div>
         )}

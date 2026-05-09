@@ -2,7 +2,13 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-41
+// Version: 7.4.4-50
+// v7.4.4-47: "Aktualisieren" -> "ZA speichern" + hasChanges-Dialog (wie TimesheetForm)
+//   - Neue Status: entwurf / eingereicht / volle_zahlung / gekuerzte_zahlung
+//   - Status-Workflow-Buttons entfernt (manuell setzen nicht mehr noetig)
+//   - "Als eingereicht markieren" Button neben eingereicht_am Datumsfeld
+//   - Validierung: zahlungseingang_datum erfordert zahlungseingang_betrag > 0
+//   - calcStatus() leitet Status automatisch ab, wird beim Speichern gesetzt
 // v7.4.4-41: FIX: handleSaveZahlungseingang speichert foerderbetrag_gesamt mit
 //   - Behebt: Cockpit zeigt 0 EUR weil foerderbetrag_gesamt NULL war
 //   - Beim Sichern im Archiv-Tab wird Foerderbetrag immer neu berechnet + gespeichert
@@ -187,13 +193,28 @@ interface ZahlungsanforderungDB {
 
 // Status-Hilfsfunktionen
 const ZA_STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; border: string }> = {
-  entwurf:     { label: 'Entwurf',     bg: 'bg-gray-100',  text: 'text-gray-600',  border: 'border-gray-300' },
-  eingereicht: { label: 'Eingereicht', bg: 'bg-blue-100',  text: 'text-blue-700',  border: 'border-blue-300' },
-  bewilligt:   { label: 'Bewilligt',   bg: 'bg-green-100', text: 'text-green-700', border: 'border-green-300' },
+  entwurf:          { label: 'Entwurf',          bg: 'bg-gray-100',   text: 'text-gray-600',   border: 'border-gray-300'  },
+  eingereicht:      { label: 'Eingereicht',      bg: 'bg-blue-100',   text: 'text-blue-700',   border: 'border-blue-300'  },
+  volle_zahlung:    { label: 'Volle Zahlung',    bg: 'bg-green-100',  text: 'text-green-700',  border: 'border-green-300' },
+  gekuerzte_zahlung:{ label: 'Gek. Zahlung',     bg: 'bg-orange-100', text: 'text-orange-700', border: 'border-orange-300'},
 };
 
 const getStatusConfig = (status: string | null) =>
   ZA_STATUS_CONFIG[status || 'entwurf'] || ZA_STATUS_CONFIG.entwurf;
+
+// Auto-Ableitung Status aus Datumsfeldern + Betraegen
+function calcStatus(
+  eingereichtAm: string | null,
+  zahlungsDatum: string | null,
+  zahlungsBetrag: number | null,
+  foerderbetragGesamt: number | null
+): string {
+  if (!eingereichtAm) return 'entwurf';
+  if (!zahlungsDatum) return 'eingereicht';
+  const betrag = zahlungsBetrag || 0;
+  const erwartet = foerderbetragGesamt || 0;
+  return betrag >= erwartet ? 'volle_zahlung' : 'gekuerzte_zahlung';
+}
 
 interface ZAFormData {
   za_nummer: string;
@@ -287,6 +308,7 @@ interface ZAPanelProps {
   timesheets: ZATimesheetEntry[];
   projectAssignments: ZAProjectAssignment[];
   initialProjectId?: string;
+  initialZaId?: string;      // Auto-selektiert diese ZA nach Laden (von Cockpit-Navigation)
 }
 
 // ============================================================================
@@ -302,6 +324,7 @@ export default function ZAPanel({
   timesheets,
   projectAssignments,
   initialProjectId,
+  initialZaId,
 }: ZAPanelProps) {
   const supabase = createClient();
   const colors = PORTAL_COLORS[portal];
@@ -319,6 +342,17 @@ export default function ZAPanel({
   const [zaTab, setZATab] = useState<'deckblatt' | 'anlage1a' | 'anlage1b' | 'archiv'>('deckblatt');
   const [zaList, setZAList] = useState<ZahlungsanforderungDB[]>([]);
   const [zaSelectedId, setZASelectedId] = useState<string | null>(null);
+
+  // Ungespeicherte Aenderungen - wie TimesheetForm
+  const [hasChanges, setHasChanges] = useState(false);
+  const [showUnsavedDialog, setShowUnsavedDialog] = useState<(() => void) | null>(null);
+
+  // Auto-Selektion wenn initialZaId gesetzt und zaList geladen (Cockpit-Navigation)
+  useEffect(() => {
+    if (!initialZaId || zaList.length === 0 || zaSelectedId) return;
+    const found = zaList.find(z => z.id === initialZaId);
+    if (found) setZASelectedId(found.id);
+  }, [zaList, initialZaId, zaSelectedId]);
   const [zaLoading, setZALoading] = useState(false);
   const [zaSaving, setZASaving] = useState(false);
   const [archivEdits, setArchivEdits] = useState<Record<string, {
@@ -404,6 +438,15 @@ export default function ZAPanel({
     setZALoading(false);
   }, [projects, supabase]);
 
+  // Prüft auf ungespeicherte Änderungen - identisches Muster wie TimesheetForm
+  const checkUnsavedChanges = (callback: () => void) => {
+    if (hasChanges) {
+      setShowUnsavedDialog(() => callback);
+    } else {
+      callback();
+    }
+  };
+
   // Automatisch laden wenn Panel sichtbar wird
   useEffect(() => {
     if (projectId) openPanel(projectId);
@@ -411,6 +454,7 @@ export default function ZAPanel({
 
   const loadZAIntoForm = (za: ZahlungsanforderungDB) => {
     setZASelectedId(za.id);
+    setHasChanges(false);
     setEingereichtAmEdit(
       za.eingereicht_am ? za.eingereicht_am.slice(0, 10) : new Date().toISOString().slice(0, 10)
     );
@@ -425,38 +469,6 @@ export default function ZAPanel({
       notizen: za.notizen || '',
       nwm_kosten_dritte: za.nwm_kosten_dritte != null ? String(za.nwm_kosten_dritte) : '',
     });
-  };
-
-  const handleStatusChange = async (newStatus: 'entwurf' | 'eingereicht' | 'bewilligt') => {
-    if (!zaSelectedId) return;
-    setZASaving(true);
-    try {
-      const now = new Date().toISOString();
-      const patch: Record<string, string | null | number> = {
-        status: newStatus,
-        updated_at: now,
-        foerderbetrag_gesamt: isNetzwerk ? nwmFoerderbetrag : antZuwendung,
-      };
-      if (newStatus === 'eingereicht') patch.eingereicht_am = eingereichtAmEdit ? new Date(eingereichtAmEdit).toISOString() : now;
-      if (newStatus === 'bewilligt')   patch.bewilligt_am = now;
-      if (newStatus === 'entwurf') {
-        patch.eingereicht_am = null;
-        patch.bewilligt_am = null;
-      }
-      await supabase.from('v7_zahlungsanforderungen').update(patch).eq('id', zaSelectedId);
-      // Lokale ZA-Liste sofort aktualisieren ohne vollstaendigen Reload
-      setZAList(prev => prev.map(z =>
-        z.id === zaSelectedId
-          ? { ...z, status: newStatus,
-              eingereicht_am: newStatus === 'eingereicht' ? now : (newStatus === 'entwurf' ? null : z.eingereicht_am),
-              bewilligt_am:   newStatus === 'bewilligt'   ? now : (newStatus === 'entwurf' ? null : z.bewilligt_am) }
-          : z
-      ));
-    } catch (err: any) {
-      alert('Fehler beim Statuswechsel: ' + err.message);
-    } finally {
-      setZASaving(false);
-    }
   };
 
   const handleSave = async () => {
@@ -486,11 +498,18 @@ export default function ZAPanel({
       }
       // Foerderbetrag fest speichern (historisch korrekt)
       payload.foerderbetrag_gesamt = isNetzwerk ? nwmFoerderbetrag : antZuwendung;
-      // Einreichdatum mitspeichern wenn Status eingereicht/bewilligt und Datum gesetzt
-      const currentStatus = zaSelectedId ? (zaList.find(z => z.id === zaSelectedId)?.status || 'entwurf') : 'entwurf';
-      if ((currentStatus === 'eingereicht' || currentStatus === 'bewilligt') && eingereichtAmEdit) {
-        payload.eingereicht_am = new Date(eingereichtAmEdit).toISOString();
-      }
+
+      // Einreichdatum immer speichern (leer = null = Entwurf)
+      payload.eingereicht_am = eingereichtAmEdit ? new Date(eingereichtAmEdit).toISOString() : null;
+
+      // Status auto-ableiten aus Datumsfeldern + Betraegen
+      const existingZA = zaSelectedId ? zaList.find(z => z.id === zaSelectedId) : null;
+      payload.status = calcStatus(
+        eingereichtAmEdit || null,
+        existingZA?.zahlungseingang_datum || null,
+        existingZA?.zahlungseingang_betrag || null,
+        payload.foerderbetrag_gesamt
+      );
       if (zaSelectedId) {
         await supabase.from('v7_zahlungsanforderungen').update(payload).eq('id', zaSelectedId);
       } else {
@@ -498,7 +517,7 @@ export default function ZAPanel({
         if (newZA) setZASelectedId((newZA as any).id);
       }
       await openPanel(projectId);
-      alert('ZA gespeichert.');
+      setHasChanges(false);
     } catch (err: any) {
       alert('Fehler beim Speichern: ' + err.message);
     } finally {
@@ -642,9 +661,10 @@ export default function ZAPanel({
   };
 
   const handleDeleteZA = async (za: ZahlungsanforderungDB) => {
-    const isOfficial = za.status === 'eingereicht' || za.status === 'bewilligt';
+    const isOfficial = za.status === 'eingereicht' || za.status === 'volle_zahlung' || za.status === 'gekuerzte_zahlung';
+    const sc = getStatusConfig(za.status);
     const msg = isOfficial
-      ? 'ACHTUNG: Diese ZA hat Status "' + (za.status === 'eingereicht' ? 'Eingereicht' : 'Bewilligt') + '".\nWirklich unwiderruflich loeschen?'
+      ? 'ACHTUNG: Diese ZA hat Status "' + sc.label + '".\nWirklich unwiderruflich loeschen?'
       : 'ZA ' + za.za_nummer + ' wirklich loeschen?\nDieser Vorgang kann nicht rueckgaengig gemacht werden.';
     if (!window.confirm(msg)) return;
     try {
@@ -663,11 +683,19 @@ export default function ZAPanel({
   const handleSaveZahlungseingang = async (zaId: string) => {
     const edit = archivEdits[zaId];
     if (!edit) return;
+
+    // Validierung: Zahlungsdatum erfordert Betrag > 0
+    if (edit.datum && (!edit.betrag || parseFloat(edit.betrag.replace(',', '.')) <= 0)) {
+      alert('Bitte den Zahlungsbetrag eingeben wenn ein Zahlungsdatum gesetzt wird.');
+      return;
+    }
+
     setArchivEdits(prev => ({ ...prev, [zaId]: { ...prev[zaId], saving: true, saved: false } }));
     try {
+      const zahlungsBetrag = edit.betrag !== '' ? parseFloat(edit.betrag.replace(',', '.')) : null;
       const patch: Record<string, any> = {
         zahlungseingang_datum: edit.datum || null,
-        zahlungseingang_betrag: edit.betrag !== '' ? parseFloat(edit.betrag.replace(',', '.')) : null,
+        zahlungseingang_betrag: zahlungsBetrag,
         zahlungseingang_kommentar: edit.kommentar.trim() || null,
         updated_at: new Date().toISOString(),
       };
@@ -677,6 +705,14 @@ export default function ZAPanel({
       if (za) {
         const zaForCompute = { ...za, foerderbetrag_gesamt: null as number | null };
         patch.foerderbetrag_gesamt = computeArchivFoerderbetrag(zaForCompute);
+
+        // Status auto-ableiten
+        patch.status = calcStatus(
+          za.eingereicht_am || null,
+          edit.datum || null,
+          zahlungsBetrag,
+          patch.foerderbetrag_gesamt
+        );
       }
 
       await supabase.from('v7_zahlungsanforderungen').update(patch).eq('id', zaId);
@@ -800,6 +836,7 @@ export default function ZAPanel({
   // ============================================================================
 
   return (
+    <>
     <div className={`mt-4 border ${colors.border} rounded-lg overflow-hidden`}>
 
       {/* Panel-Header */}
@@ -841,7 +878,7 @@ export default function ZAPanel({
             {zaList.map(za => {
               const sc = getStatusConfig(za.status);
               return (
-                <button key={za.id} onClick={() => loadZAIntoForm(za)}
+                <button key={za.id} onClick={() => checkUnsavedChanges(() => loadZAIntoForm(za))}
                   className={`text-xs px-2 py-1 rounded border transition-colors flex items-center gap-1.5
                     ${zaSelectedId === za.id
                       ? colors.btnZaSelected
@@ -854,7 +891,7 @@ export default function ZAPanel({
               );
             })}
             <button
-              onClick={() => { setZASelectedId(null); openPanel(projectId); }}
+              onClick={() => checkUnsavedChanges(() => { setZASelectedId(null); openPanel(projectId); })}
               className={`text-xs px-2 py-1 rounded border ${colors.btnNeueZA}`}>
               + Neue ZA
             </button>
@@ -891,7 +928,7 @@ export default function ZAPanel({
       {zaLoading ? (
         <div className="p-8 text-center text-gray-500">Lade...</div>
       ) : (
-        <div className="p-4 bg-white">
+        <div className={zaTab === 'archiv' ? 'p-0 bg-white' : 'p-4 bg-white'}>
 
           {/* ====== TAB: DECKBLATT ====== */}
           {zaTab === 'deckblatt' && (
@@ -940,31 +977,40 @@ export default function ZAPanel({
                   </div>
                 </div>
 
-                {/* Kopfdaten - Zeile 3 (blau): ZA-Nr. | Einreichdatum | Abrechnungszeitraum von...bis */}
-                <div className="grid grid-cols-4 gap-3 mb-4 pb-3 border-b border-gray-300">
+                {/* Kopfdaten - Zeile 3: ZA Nr. | Abrechnungszeitraum von | bis | Einreichdatum + Button */}
+                <div className="grid gap-3 mb-4 pb-3 border-b border-gray-300" style={{ gridTemplateColumns: '5rem 1fr 1fr 2fr' }}>
                   <div>
-                    <div className="text-xs text-gray-500 mb-1">Zahlungsanforderung Nr.</div>
+                    <div className="text-xs text-gray-500 mb-1">ZA Nr.</div>
                     <input type="number" min="1" value={zaFormData.za_nummer}
-                      onChange={e => setZAFormData(prev => ({ ...prev, za_nummer: e.target.value }))}
+                      onChange={e => { setZAFormData(prev => ({ ...prev, za_nummer: e.target.value })); setHasChanges(true); }}
                       className={`w-full px-2 py-1 text-sm font-medium border border-gray-300 rounded bg-blue-50 ${colors.inputFocus}`} />
-                  </div>
-                  <div>
-                    <div className="text-xs text-gray-500 mb-1">Datum Einreichung</div>
-                    <input type="date" value={eingereichtAmEdit}
-                      onChange={e => setEingereichtAmEdit(e.target.value)}
-                      className={`w-full px-2 py-1 text-sm border border-gray-300 rounded bg-blue-50 ${colors.inputFocus}`} />
                   </div>
                   <div>
                     <div className="text-xs text-gray-500 mb-1">Abrechnungszeitraum von</div>
                     <input type="date" value={zaFormData.zeitraum_von}
-                      onChange={e => setZAFormData(prev => ({ ...prev, zeitraum_von: e.target.value }))}
+                      onChange={e => { setZAFormData(prev => ({ ...prev, zeitraum_von: e.target.value })); setHasChanges(true); }}
                       className={`w-full px-2 py-1 text-sm border border-gray-300 rounded bg-blue-50 ${colors.inputFocus}`} />
                   </div>
                   <div>
                     <div className="text-xs text-gray-500 mb-1">bis</div>
                     <input type="date" value={zaFormData.zeitraum_bis}
-                      onChange={e => setZAFormData(prev => ({ ...prev, zeitraum_bis: e.target.value }))}
+                      onChange={e => { setZAFormData(prev => ({ ...prev, zeitraum_bis: e.target.value })); setHasChanges(true); }}
                       className={`w-full px-2 py-1 text-sm border border-gray-300 rounded bg-blue-50 ${colors.inputFocus}`} />
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-500 mb-1">Datum Einreichung</div>
+                    <div className="flex gap-1">
+                      <input type="date" value={eingereichtAmEdit}
+                        onChange={e => { setEingereichtAmEdit(e.target.value); setHasChanges(true); }}
+                        className={`flex-1 px-2 py-1 text-sm border border-gray-300 rounded bg-blue-50 ${colors.inputFocus}`} />
+                      <button
+                        type="button"
+                        onClick={() => { setEingereichtAmEdit(new Date().toISOString().slice(0, 10)); setHasChanges(true); }}
+                        className={`px-2 py-1 text-xs font-medium rounded border ${colors.btnPrimary} text-white whitespace-nowrap`}
+                        title="Als eingereicht markieren (Datum = heute)">
+                        Als eingereicht markieren
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -1017,7 +1063,7 @@ export default function ZAPanel({
                           <td className="px-2 py-1.5 border border-gray-300 p-0">
                             <input type="number" step="0.01" min="0"
                               value={zaFormData.nwm_kosten_dritte}
-                              onChange={e => setZAFormData(prev => ({ ...prev, nwm_kosten_dritte: e.target.value }))}
+                              onChange={e => { setZAFormData(prev => ({ ...prev, nwm_kosten_dritte: e.target.value })); setHasChanges(true); }}
                               className={`w-full px-2 py-1.5 text-right border-0 bg-blue-50 ${colors.inputFocus}`}
                               placeholder="0,00" />
                           </td>
@@ -1145,7 +1191,7 @@ export default function ZAPanel({
                         <>
                           <td className="px-2 py-1.5 border border-gray-300">
                             <input type="number" step="0.01" min="0" value={zaFormData.auftraege_dritte_t}
-                              onChange={e => setZAFormData(prev => ({ ...prev, auftraege_dritte_t: e.target.value }))}
+                              onChange={e => { setZAFormData(prev => ({ ...prev, auftraege_dritte_t: e.target.value })); setHasChanges(true); }}
                               className={`w-full px-1 py-0.5 text-right border border-gray-300 rounded bg-blue-50 ${colors.inputFocus}`} placeholder="0,00" />
                           </td>
                           <td className="px-2 py-1.5 border border-gray-300 bg-gray-50 text-gray-400 text-right">--</td>
@@ -1154,7 +1200,7 @@ export default function ZAPanel({
                         <>
                           <td className="px-2 py-1.5 border border-gray-300">
                             <input type="number" step="0.01" min="0" value={zaFormData.auftraege_dritte_t}
-                              onChange={e => setZAFormData(prev => ({ ...prev, auftraege_dritte_t: e.target.value }))}
+                              onChange={e => { setZAFormData(prev => ({ ...prev, auftraege_dritte_t: e.target.value })); setHasChanges(true); }}
                               className={`w-full px-1 py-0.5 text-right border border-gray-300 rounded bg-blue-50 ${colors.inputFocus}`} placeholder="0,00" />
                           </td>
                           <td className="px-2 py-1.5 border border-gray-300 text-center bg-gray-50 text-gray-400">--</td>
@@ -1182,7 +1228,7 @@ export default function ZAPanel({
                         <td className="px-2 py-1.5 border border-gray-300">FuE-Unterauftrag</td>
                         <td className="px-2 py-1.5 border border-gray-300">
                           <input type="number" step="0.01" min="0" value={zaFormData.fue_unterauftrag}
-                            onChange={e => setZAFormData(prev => ({ ...prev, fue_unterauftrag: e.target.value }))}
+                            onChange={e => { setZAFormData(prev => ({ ...prev, fue_unterauftrag: e.target.value })); setHasChanges(true); }}
                             className={`w-full px-1 py-0.5 text-right border border-gray-300 rounded bg-blue-50 ${colors.inputFocus}`} placeholder="0,00" />
                         </td>
                         <td className="px-2 py-1.5 border border-gray-300 text-center bg-gray-50 text-gray-400">--</td>
@@ -1196,7 +1242,7 @@ export default function ZAPanel({
                         <td className="px-2 py-1.5 border border-gray-300">Zeitweilige Personalaufnahme</td>
                         <td className="px-2 py-1.5 border border-gray-300">
                           <input type="number" step="0.01" min="0" value={zaFormData.zeitw_personalaufnahme}
-                            onChange={e => setZAFormData(prev => ({ ...prev, zeitw_personalaufnahme: e.target.value }))}
+                            onChange={e => { setZAFormData(prev => ({ ...prev, zeitw_personalaufnahme: e.target.value })); setHasChanges(true); }}
                             className={`w-full px-1 py-0.5 text-right border border-gray-300 rounded bg-blue-50 ${colors.inputFocus}`} placeholder="0,00" />
                         </td>
                         <td className="px-2 py-1.5 border border-gray-300 text-center bg-gray-50 text-gray-400">--</td>
@@ -1243,7 +1289,7 @@ export default function ZAPanel({
                 <div className="mt-3">
                   <label className="block text-xs text-gray-500 mb-1">Interne Notizen (nicht im Formular)</label>
                   <textarea value={zaFormData.notizen}
-                    onChange={e => setZAFormData(prev => ({ ...prev, notizen: e.target.value }))}
+                    onChange={e => { setZAFormData(prev => ({ ...prev, notizen: e.target.value })); setHasChanges(true); }}
                     rows={2}
                     className={`w-full px-2 py-1.5 text-xs border border-gray-300 rounded ${colors.inputFocus}`}
                     placeholder="Optionale Notizen zur ZA" />
@@ -1269,81 +1315,10 @@ export default function ZAPanel({
                 <button onClick={handleSave}
                   disabled={zaSaving || !zaFormData.zeitraum_von || !zaFormData.zeitraum_bis}
                   className={`flex items-center gap-2 px-4 py-2 ${colors.btnPrimary} text-white rounded-lg disabled:opacity-50 transition-colors text-sm`}>
-                  {zaSaving ? 'Speichern...' : (zaSelectedId ? 'Aktualisieren' : 'ZA speichern')}
+                  {zaSaving ? 'Speichern...' : 'ZA speichern'}
                 </button>
               </div>
 
-              {/* Status-Workflow (nur bei gespeicherter ZA) */}
-              {zaSelectedId && (() => {
-                const currentZA = zaList.find(z => z.id === zaSelectedId);
-                const currentStatus = currentZA?.status || 'entwurf';
-                const sc = getStatusConfig(currentStatus);
-                return (
-                  <div className="border border-gray-200 rounded-lg p-3 bg-gray-50">
-                    <div className="flex items-center justify-between flex-wrap gap-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-gray-500 font-medium">Status:</span>
-                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border ${sc.bg} ${sc.text} ${sc.border}`}>
-                          {sc.label}
-                        </span>
-                        {currentZA?.bewilligt_am && (
-                          <span className="text-xs text-gray-400">
-                            Bewilligt: {new Date(currentZA.bewilligt_am).toLocaleDateString('de-DE')}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {currentStatus === 'entwurf' && (
-                          <button
-                            onClick={() => handleStatusChange('eingereicht')}
-                            disabled={zaSaving}
-                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 transition-colors">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <polyline points="22 2 11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-                            </svg>
-                            Als eingereicht markieren
-                          </button>
-                        )}
-                        {currentStatus === 'eingereicht' && (
-                          <>
-                            <button
-                              onClick={() => handleStatusChange('bewilligt')}
-                              disabled={zaSaving}
-                              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50 transition-colors">
-                              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <polyline points="20 6 9 17 4 12"/>
-                              </svg>
-                              Als bewilligt markieren
-                            </button>
-                            <button
-                              onClick={() => handleStatusChange('entwurf')}
-                              disabled={zaSaving}
-                              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-white hover:bg-gray-100 text-gray-600 border border-gray-300 rounded-lg disabled:opacity-50 transition-colors">
-                              Zurueck zu Entwurf
-                            </button>
-                          </>
-                        )}
-                        {currentStatus === 'bewilligt' && (
-                          <>
-                            <button
-                              onClick={() => handleStatusChange('eingereicht')}
-                              disabled={zaSaving}
-                              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 transition-colors">
-                              Zurueck zu Eingereicht
-                            </button>
-                            <button
-                              onClick={() => handleStatusChange('entwurf')}
-                              disabled={zaSaving}
-                              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-white hover:bg-gray-100 text-gray-600 border border-gray-300 rounded-lg disabled:opacity-50 transition-colors">
-                              Zurueck zu Entwurf
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
             </div>
           )}
 
@@ -1575,7 +1550,7 @@ export default function ZAPanel({
           {/* ====== TAB: ARCHIV ====== */}
           {zaTab === 'archiv' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between mb-2 px-4 pt-4">
                 <h3 className="text-sm font-semibold text-gray-700">Alle Zahlungsanforderungen</h3>
                 <span className="text-xs text-gray-400">{zaList.length} ZA gespeichert</span>
               </div>
@@ -1664,7 +1639,7 @@ export default function ZAPanel({
                                   {edit.saving ? '...' : edit.saved ? 'OK' : 'Sichern'}
                                 </button>
                                 <button
-                                  onClick={() => { loadZAIntoForm(za); setZATab('deckblatt'); }}
+                                  onClick={() => checkUnsavedChanges(() => { loadZAIntoForm(za); setZATab('deckblatt'); })}
                                   className={`text-xs px-2.5 py-1 rounded border transition-colors ${colors.btnZaHover} bg-white text-gray-600 border-gray-300`}>
                                   Oeffnen
                                 </button>
@@ -1683,9 +1658,9 @@ export default function ZAPanel({
                 </div>
               )}
               {/* Legende */}
-              <div className="flex items-center gap-4 pt-2 border-t border-gray-100">
+              <div className="flex items-center gap-4 pt-2 pb-4 px-4 border-t border-gray-100">
                 <span className="text-xs text-gray-400 font-medium">Status:</span>
-                {(['entwurf', 'eingereicht', 'bewilligt'] as const).map(s => {
+                {(['entwurf', 'eingereicht', 'volle_zahlung', 'gekuerzte_zahlung'] as const).map(s => {
                   const cfg = getStatusConfig(s);
                   return (
                     <span key={s} className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${cfg.bg} ${cfg.text} ${cfg.border}`}>
@@ -1700,5 +1675,46 @@ export default function ZAPanel({
         </div>
       )}
     </div>
+
+      {/* Ungespeicherte Aenderungen Dialog - identisch TimesheetForm */}
+      {showUnsavedDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 print:hidden">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Ungespeicherte Aenderungen</h3>
+            <p className="text-gray-600 mb-6">
+              Sie haben ungespeicherte Aenderungen an der ZA. Was moechten Sie tun?
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={async () => {
+                  const callback = showUnsavedDialog;
+                  await handleSave();
+                  setShowUnsavedDialog(null);
+                  callback();
+                }}
+                style={{ backgroundColor: colors.primary }}
+                className="w-full px-4 py-2 text-white rounded-lg hover:opacity-90 font-medium">
+                ZA speichern und fortfahren
+              </button>
+              <button
+                onClick={() => {
+                  const callback = showUnsavedDialog;
+                  setShowUnsavedDialog(null);
+                  setHasChanges(false);
+                  callback();
+                }}
+                className="w-full px-4 py-2 text-red-700 bg-red-100 rounded-lg hover:bg-red-200">
+                Aenderungen verwerfen
+              </button>
+              <button
+                onClick={() => setShowUnsavedDialog(null)}
+                className="w-full px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200">
+                Abbrechen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
