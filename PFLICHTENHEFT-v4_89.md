@@ -1,10 +1,11 @@
 # PFLICHTENHEFT - Projektzeiterfassung (PZE)
 
-**Version:** 4.82
-**SW-Release:** V7.4.7
-**Datum:** 7. Mai 2026
+**Version:** 4.89
+**SW-Release:** V7.4.9
+**Produkt:** PZE V8-C (Cockpit-Paradigma)
+**Datum:** 9. Mai 2026
 **Projekt:** Projektzeiterfassung fuer FuE-Foerdervorhaben
-**Status:** Session 37: Navigation Firma-Portal finalisiert (Dashboard-Zurueck, Redirect, Titel).
+**Status:** Session 42 Zwischenstand: PZE V8-C Konzept + PortalHeader-Redesign live.
 
 ---
 
@@ -278,7 +279,7 @@ Mein-Status aufgeraeumt, Hilfe-Dropdown in PortalNav, BerichtePage stabilisiert
 
 **v7_system_config eingefuehrt (Details: §2.6)**
 
-**SystemConfigPanel v7.4.4-2 + PortalNav v7.4.4-12:**
+**SystemConfigPanel v7.4.4-1 + PortalNav v7.4.4-12:**
 - Toggle manuals_enabled in Berater-Admin
 - Hilfe-Dropdown: employee bekommt nur FAQ, kein Handbuch-Link
 - Stabile URLs (Dateiname ohne Versionsnummer)
@@ -290,6 +291,36 @@ Mein-Status aufgeraeumt, Hilfe-Dropdown in PortalNav, BerichtePage stabilisiert
 - v7.4.4-10: stabile Dateinamen
 - v7.4.4-11: employee ohne Anleitung
 - v7.4.4-12: Schreibweise PZE_Anleitung_ (Unterstrich)
+
+### 3.12 Session 38 (7. Mai 2026) - Fehlzeiten editierbar + Teilzeit + Cockpit-Konzept
+
+**Fehlzeiten direkt editierbar (TimesheetForm v7.4.6-16/17):**
+Keine Automatik mehr fuer U/K/S-Stunden. Anwender traegt selbst ein.
+Tageszellen editierbar wie Excel, weiss, Tastaturnavigation (Pfeiltasten/Tab/Enter),
+hasChanges-Fix. Haftungsrisiko durch Automatik eliminiert.
+
+**Teilzeit Tage x Stunden (EmployeeManagement v7.3.95-15, v7-types v7.4.9-1):**
+Eingabe: Tage/Woche x Stunden/Tag -> weekly_hours berechnet.
+Anzeige: "3T x 8h = 24 h/Woche (TZ-Faktor: 60%)".
+SQL-Migration PROD ausgefuehrt. 40h/38h automatisch befuellt.
+Offene Teilzeit-Daten: Doan/Kirchner Lisa/Freund Marlene -> Katrin klaert.
+
+**ZA-Sortierung (ZAPanel v7.4.4-33):**
+Anlage 1a: MA sortiert nach employee_number (lfd. Nr. gemaess Antrag).
+
+**PM-Summen-Fix (WorkPackageTable v7.4.3-12):**
+sums nutzt assignmentMap (dedupliziert). Verhindert Doppelzaehlung bei
+mehrfachen DB-Eintraegen fuer gleiche wp+employee Kombination.
+
+**DB-Bereinigungen PROD:**
+- Arndt, Annika + Mueller, Anett (Steuerkanzlei Freund): vollstaendig geloescht
+- ANOVIA: Duplikate in v7_work_package_assignments fuer Freund, Marlene entfernt
+- Teilzeit-Daten gesetzt: Fischbach 5Tx7,8h, Luebeck Yacht 5Tx7h, Schoebel 5Tx6h
+
+**Konzept Firma-Cockpit als MIS (KONZEPT-FIRMA-COCKPIT-v1_0.md):**
+Grundkonzept: Pro Firma ein Cockpit mit Firmenkopf, MA-Matrix, Projekte,
+Finanzuebersicht (ZA + Zahlungseingang). Details in Konzept-Dokument.
+Implementierung naechste Sessions.
 
 ### 3.10 Session 36 (6. Mai 2026) - Arbeitszeitgrenzen Phase 3 + Dashboard-Redesign
 
@@ -366,6 +397,118 @@ direkt bearbeitbar.
   client_company_id, v7_employees-Insert mit display_name NOT NULL beachten)
 - ALACsystems GmbH & Co. KG erfolgreich als neue PROD-Firma angelegt (9. Firma)
 
+### 3.13 Session 39 (7. Mai 2026) - ZAPanel Archiv-Tab + Cockpit-Konzept
+
+**ZAPanel v7.4.4-34 bis v7.4.4-40 (Archiv-Tab komplett neu):**
+- Zahlungseingang-Felder inline editierbar (Datum, Betrag, Kommentar)
+- Foerderbetrag live berechnet + in DB gespeichert (foerderbetrag_gesamt)
+- Einreichdatum editierbar im Deckblatt-Formular
+- ZA loeschbar mit Bestaetigungsdialog
+
+**DB-Migration DEV (4 neue Felder auf v7_zahlungsanforderungen):**
+- zahlungseingang_datum, zahlungseingang_betrag, zahlungseingang_kommentar, foerderbetrag_gesamt
+
+**Konzept Firma-Cockpit als MIS (KONZEPT-FIRMA-COCKPIT-v1_1.md):**
+- Entscheidungen A-D getroffen (Cockpit ersetzt Detail-Seite, auch im Firmen-Portal,
+  nur aktive Projekte, Zahlungseingang separater Betrag)
+
+### 3.14 Session 40 (8. Mai 2026) - Cockpit Grundgeruest
+
+**FirmaCockpit v7.4.9-1 bis v7.4.9-5:**
+- 3-Spalten-Layout: Firmendaten+MA | Projekte+KPIs | ZA-Tabelle
+- KPI-Fortschrittsbalken (Laufzeit, PM, Kosten) pro Projekt
+- ZA-Tabelle gruppiert nach Projekt mit Summen-Karten
+- Spaltenverhaeltnis 2|6|4
+
+**PortalHeader v7.3.95-4:** Home-Button (Haeuschen) im Header
+**ProjectDetailPage v7.4.4-57:** Einheitliches returnTo fuer Zurueck-Navigation
+**Wrapper-Seiten:** Fortschritt + Stundennachweis eigenstaendig via Cockpit
+
+### 3.15 Session 41 (8. Mai 2026) - Cockpit als Berater-Zentrale
+
+**projektfortschritt-utils-v7_4_9-1.ts (NEUE Datei: src/lib/):**
+- Berechnungslogik aus ProjektFortschrittPanel extrahiert
+- calculateProjectAnalysis()  --  alle Kennzahlen, Monatsverlauf, Prognose, Szenarien
+- Exportierte Interfaces + Formatierungsfunktionen
+- Ziel: Berechnungen einmal pflegen, ueberall nutzen
+
+**FirmaCockpit v7.4.9-6 bis v7.4.9-10:**
+- v7.4.9-6: Dropdown-Projektauswahl statt Kartenliste, Monatsverlauf-Chart (recharts
+  ComposedChart), Prognose-Box mit Ampel, alle 3 Spalten synchron per Projektauswahl,
+  Timesheets mit work_date fuer Monatsverlauf
+- v7.4.9-7: Firma-Dropdown im Berater-Portal (Firmenwechsel ohne Dashboard),
+  "Neue Firma"-Button
+- v7.4.9-8: Inline-Navigationsleiste (Zwischenversion, ersetzt durch v7.4.9-9)
+- v7.4.9-9: PortalNav (Shared Component) am Cockpit-Kopf  --  konsistente Navigation
+  auf allen Berater-Seiten
+- v7.4.9-10: Action-Buttons in allen Bereichen (Firmendaten bearbeiten, Neuer MA,
+  Neues Projekt, Neue ZA)  --  Navigation zu Verwaltungsseiten mit returnTo
+
+**PortalHeader v7.3.95-5:** Home-Icon (Haeuschen) entfernt  --  redundant mit PortalNav
+
+**PortalNav v7.4.4-15 bis v7.4.4-17:**
+- v7.4.4-15: Cockpit-Sichtbarkeit via v7_system_config Toggles
+- v7.4.4-17: Cockpit-Klick laedt erste Kundenfirma async beim Klick
+
+**SystemConfigPanel v7.4.4-2:**
+- Neue Sektion "Cockpit-Freischaltung" mit zwei Toggles
+- cockpit_berater_enabled + cockpit_firma_enabled
+- system_admin sieht Cockpit immer (unabhaengig von Config)
+
+**ZAPanel v7.4.4-41:**
+- FIX: Sichern im Archiv-Tab speichert foerderbetrag_gesamt mit
+- Behebt: Cockpit zeigte 0 EUR weil foerderbetrag_gesamt NULL war
+
+**DB:** v7_system_config + cockpit_berater_enabled/cockpit_firma_enabled.
+foerderbetrag_gesamt nachtraeglich befuellt (SQL).
+
+**PROD-Deploy:** Alle Aenderungen live. Cockpit nur fuer system_admin sichtbar.
+
+**Offene Punkte (Session 42 Fortsetzung):**
+- Schritt 0b: Login-Footer + BerichtePage-Footer dynamische Version
+- Schritt 1: ZA-Bearbeitung im Cockpit (Klick auf ZA-Nr.)
+- Schritt 2: Action-Buttons Zielnavigation verfeinern
+- Schritt 3: ProjektFortschrittPanel auf projektfortschritt-utils refactoren
+
+### 3.16 Session 42 Zwischenstand (9. Mai 2026) - PZE V8-C + PortalHeader-Redesign
+
+**Konzeptionelle Entscheidungen:**
+
+PZE V8-C Produktbenennung:
+- Produkt heisst ab sofort PZE V8-C ("C" = Cockpit-Paradigma)
+- Code-Pfade und DB-Tabellen bleiben intern v7 (kein Refactoring)
+- V8-C = neues UX-Paradigma: Cockpit als zentrale Arbeitsumgebung
+- Im Header dynamisch: V7 (Cockpit deaktiviert) / V8-C (Cockpit aktiv oder URL = /cockpit)
+
+Architektur Service-Pages (Hybridmodell):
+- ZA-Bearbeitung -> Modal im Cockpit (hoehere Frequenz, beste UX)
+- Alle anderen Service-Seiten -> returnTo-Navigation (bereits implementiert)
+
+**PortalHeader v7.3.95-10 (5 Iterationen, vollstaendig von Props entkoppelt):**
+
+Layout (3-Spalten, volle Seitenbreite):
+- LINKS:  [PZE]-Block + Version (V7/V8-C) + (c) Cubintec
+- MITTE:  Eingeloggte Firma + Portal-Typ (immer aus DB)
+- RECHTS: Username | Rollenbezeichnung + Dropdown (PW-Aendern, Abmelden)
+
+Versionslogik (usePathname, kein Prop-Drilling):
+- V8-C wenn cockpit_berater_enabled=true ODER URL enthaelt /cockpit
+- V7 sonst
+
+Firmenname Berater-Portal (aus DB, nie Props):
+- v7_user_profiles.consultant_company_id -> v7_consultant_companies.name
+- Kundenfirma erscheint nie im Header
+
+Rollenanzeige (aus DB, nie Props):
+- Laedt role aus v7_user_profiles direkt
+- Hierarchie: system_admin > consultant > client_admin > project_leader > employee
+- Bezeichnungen: System Administrator | Berater | Administrator | Projektkoordinator | Mitarbeiter
+
+**Nicht-Code-Arbeiten:**
+- Downloads-Verzeichnis vollstaendig aufgeraeumt und strukturiert
+- Archiv-Unterordner-Struktur wiederhergestellt
+- Alte pze-backup und pze-backup-session40 Ordner bereinigt
+
 ---
 
 ## 4. Komponenten-Uebersicht
@@ -376,23 +519,25 @@ direkt bearbeitbar.
 |-------|---------|----------|
 | ArbeitsplanImport.tsx | 7.3.87 | Excel Download/Upload |
 | ConsultantManagement.tsx | aktuell | Berater-Verwaltung |
-| EmployeeManagement.tsx | **7.3.95-14** | MA + Teilzeit-Historie + Orphan-Erkennung |
+| EmployeeManagement.tsx | **7.3.95-15** | MA + Teilzeit-Historie + Orphan-Erkennung |
 | FirmendatenCard.tsx | 7.4.6-1 | Firmendaten + Feiertagsregion-Dropdown |
 | NWMEigenanteilPanel.tsx | 7.4.5-11 | EA-Berechnung, Archiv, PDF |
 | NWMEinstellungenPanel.tsx | 7.4.5-1 | NWM-Settings, Bankdaten, Rechnungskonfig |
 | NWMPartnerPanel.tsx | 7.4.5-4 | Netzwerkpartner, Smart-Quoten |
-| PortalHeader.tsx | 7.3.95-4 | Header mit Rolle, PW-Aendern |
-| PortalNav.tsx | **7.4.4-13** | Navigation Firma: Dashboard/MeinStatus/Mitarbeiter/Firmendaten |
+| PortalHeader.tsx | **7.3.95-10** | 3-Spalten-Header: PZE+Version links, Firma mitte, User+Rolle rechts; alles aus DB |
+| PortalNav.tsx | **7.4.4-17** | Navigation: Cockpit via Config-Toggles + async Firma-Klick |
 | ProjectTeamManager.tsx | **7.4.4-17** | Team-Verwaltung, ROLE_OPTIONS auf 3 ZA-Werte reduziert |
-| SystemConfigPanel.tsx | **7.4.4-2** | Toggle Anleitungs-Downloads (manuals_enabled) |
-| TimesheetForm.tsx | **7.4.6-14** | Phase 3 Arbeitszeitgrenzen: harte Grenzen, Zellfaerbung |
+| SystemConfigPanel.tsx | **7.4.4-2** | Config-Toggles: manuals_enabled + cockpit_berater/firma_enabled |
+| TimesheetForm.tsx | **7.4.6-17** | Phase 3 Arbeitszeitgrenzen: harte Grenzen, Zellfaerbung |
 | BerichtePage.tsx | **7.4.6-10** | Dashboard (Titel) + Meine Projekte integriert + MA-Redirect |
-| ProjektFortschrittPanel.tsx | 7.4.5-11 | Zielerreichungs-Prognose |
+| FirmaCockpit.tsx | **7.4.9-10** | Cockpit MIS: Monatsverlauf, Prognose, Firma/Projekt-Dropdown, PortalNav, Action-Buttons |
+| ProjektFortschrittPanel.tsx | 7.4.5-22 | Zielerreichungs-Prognose, PDF-Export |
 | StundennachweisMatrix.tsx | **7.4.6-2** | Quelle: projectAssignments (Projektteam) |
-| WorkPackageTable.tsx | 7.4.3-11 | Arbeitsplan, PM 3 Dezimalstellen |
-| ZAPanel.tsx | **7.4.4-32** | Quelle: projectAssignments; Foerderformat-Kommentar bereinigt |
-| ProjectDetailPage.tsx | **7.4.4-55** | Projekt-Detail + NWM; Firma-Portal: Zurueck = Dashboard |
+| WorkPackageTable.tsx | **7.4.3-12** | Arbeitsplan, PM 3 Dezimalstellen |
+| ZAPanel.tsx | **7.4.4-41** | Archiv: Sichern speichert foerderbetrag_gesamt mit |
+| ProjectDetailPage.tsx | **7.4.4-57** | Projekt-Detail + NWM; returnTo-Navigation |
 | lib/holidays/germanHolidays.ts | 7.4.6-1 | Zentrale Feiertags-Utility |
+| lib/projektfortschritt-utils.ts | **7.4.9-1** | Shared Berechnungslogik: Monatsverlauf, Prognose, Szenarien |
 
 ### 4.2 API-Routen
 
@@ -733,6 +878,11 @@ git checkout main && git pull && git merge v7-dev --no-ff --no-edit && git push 
 
 | Version | Datum | Aenderungen |
 |---------|-------|-------------|
+| v4.88 | 08.05.2026 | Session 41 komplett: PortalNav v7.4.4-17 (Cockpit async), SystemConfigPanel v7.4.4-2 (Cockpit-Toggles), ZAPanel v7.4.4-41 (foerderbetrag_gesamt Fix). PROD live, Cockpit nur system_admin. |
+| v4.87 | 08.05.2026 | Session 41: Cockpit als Berater-Zentrale -- Monatsverlauf-Chart, Prognose-Box, Firma-Dropdown, PortalNav, Action-Buttons). PortalHeader v7.3.95-5 (Home-Icon entfernt). Session 40: Cockpit Grundgeruest v7.4.9-1 bis -5. Session 39: ZAPanel Archiv-Tab v7.4.4-34 bis -40, DB-Migration, Cockpit-Konzept v1.1. |
+| v4.85 | 07.05.2026 | Session 39: ZAPanel v7.4.4-34 bis -40 (Archiv-Tab komplett neu: Zahlungseingang-Felder inline, Foerderbetrag live berechnet+gespeichert, Einreichdatum editierbar im Formular, ZA loeschbar). DB-Migration DEV: zahlungseingang_datum/betrag/kommentar, foerderbetrag_gesamt. Cockpit-Konzept v1.1 (Entscheidungen A-D). Vercel DEV/PROD Env verifiziert. PH v4.84 Korrektur SystemConfigPanel. |
+| v4.84 | 07.05.2026 | Korrektur: SystemConfigPanel korrekte Version 7.4.4-1 (war faelschlich 7.4.4-2 dokumentiert). |
+| v4.83 | 07.05.2026 | Session 38: Fehlzeiten editierbar (v7.4.6-16/17), Teilzeit Tage/Stunden (v7.3.95-15, v7.4.9-1), ZA-Sortierung (v7.4.4-33), PM-Summen-Fix (v7.4.3-12), DB-Bereinigungen, Cockpit-Konzept. |
 | v4.82 | 07.05.2026 | Session 37: ProjectDetailPage v7.4.4-55 (Zurueck=Dashboard). /v7/firma/projekte -> Redirect v7.3.90. BerichtePage v7.4.6-10 (Titel Dashboard). §3.11, §4.1/4.2, §5.51-5.53, §9.1 aktualisiert. |
 | v4.81 | 06.05.2026 | Session 36 komplett. Arbeitszeitgrenzen Phase 3 (TimesheetForm v7.4.6-11 bis -14): harte Grenzen Monat+Tag, GF weich, Zellfaerbung, Druck-Sperre. Dashboard-Redesign Firma-Portal (PortalNav v7.4.4-13, BerichtePage v7.4.6-9, Redirect v7.3.43): integrierte Projektliste, neue Nav-Reihenfolge, MA-Redirect-Fix. Matrix+ZA: projectAssignments als Quelle. ROLE_OPTIONS auf 3 Werte. §7e vollstaendig. §9.1 aktualisiert. §12.1 Phase 3 gestrichen. §5 Fehler 5.45-5.50. |
 | v4.80 | 06.05.2026 | Login PW-Toggle (v7.3.90-2). ProjectTeamManager v7.4.4-17. Neu §16 + §17. §12b Regeln 9+10. |
