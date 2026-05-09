@@ -1,12 +1,15 @@
 // src/app/login/page.tsx
-// VERSION: v7.3.90-2 - Passwort-Sichtbarkeit Toggle (Augensymbol)
-// DATUM: 12. Februar 2026
+// VERSION: v7.3.90-4 - Footer ersetzt durch PortalFooter (fixed, navy, print:hidden)
+// DATUM: 9. Mai 2026
+// v7.3.90-3: Footer PZE Projektzeiterfassung + Impressum/AGB
+// v7.3.90-2: Passwort-Sichtbarkeit Toggle (Augensymbol)
 
 'use client';
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import PortalFooter from '@/components/shared/PortalFooter';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -162,11 +165,9 @@ export default function LoginPage() {
           </form>
         </div>
 
-        {/* Footer */}
-        <p className="mt-8 text-center text-xs text-gray-500">
-          PZE v7.3 &middot; &copy; Cubintec GmbH {new Date().getFullYear()}
-        </p>
+        {/* Footer - PortalFooter (fixed, navy, print:hidden) */}
       </div>
     </div>
+    <PortalFooter />
   );
 }

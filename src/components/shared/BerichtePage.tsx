@@ -2,7 +2,8 @@
 // ============================================================================
 // PZE V7 - Shared Component: Berichte & Controlling
 // ============================================================================
-// Version: 7.4.6-10
+// Version: 7.4.6-12
+// v7.4.6-12: Footer ersetzt durch PortalFooter (fixed, Portalfarbe, print:hidden)
 // Datum: 6. Mai 2026
 // v7.4.6-10: Seiten-Titel geaendert: "Berichte & Controlling" -> "Dashboard"
 //   nicht beim initialen Render mit portalRole='employee' Default-Wert
@@ -50,6 +51,7 @@ import { createClient } from '@/lib/supabase/client';
 import * as XLSX from 'xlsx';
 import PortalHeader from '@/components/shared/PortalHeader';
 import PortalNav from '@/components/shared/PortalNav';
+import PortalFooter from '@/components/shared/PortalFooter';
 import ProjektFortschrittPanel from '@/components/shared/ProjektFortschrittPanel';
 import StundennachweisMatrix from '@/components/shared/StundennachweisMatrix';
 import ZAPanel, { loadProjectAssignments } from '@/components/shared/ZAPanel';
@@ -1108,9 +1110,7 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
 
       </main>
 
-      <footer className="text-center py-4 text-sm text-gray-500 mt-8">
-        PZE v7.4.4 &middot; {company?.name || ''}
-      </footer>
+      <PortalFooter portal={portal} />
     </div>
   );
 }
