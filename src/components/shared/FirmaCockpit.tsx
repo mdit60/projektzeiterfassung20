@@ -84,6 +84,7 @@ import {
   Pencil,
 } from 'lucide-react';
 import PortalNav from '@/components/shared/PortalNav';
+import PortalFooter from '@/components/shared/PortalFooter';
 import {
   calculateProjectAnalysis,
   FUNDING_FORMAT_SHORT,
@@ -712,7 +713,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
       {/* PortalNav: Konsistente Navigation direkt unter dem Header */}
       <PortalNav portal={portal} userRole={userRole} />
 
-      <div className="w-full px-4 sm:px-6 lg:px-8 py-6">
+      <div className="w-full px-4 sm:px-6 lg:px-8 py-6 pb-12">
 
       {/* Kopfzeile */}
       <div className="flex items-center gap-4 mb-6">
@@ -1386,6 +1387,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
 
       </div>
     </div>
+      <PortalFooter portal={portal} />
     </>
   );
 }
