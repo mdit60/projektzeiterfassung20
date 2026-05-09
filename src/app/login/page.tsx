@@ -1,6 +1,7 @@
 // src/app/login/page.tsx
-// VERSION: v7.3.90-4 - Footer ersetzt durch PortalFooter (fixed, navy, print:hidden)
+// VERSION: v7.3.90-5 - FIX: Fragment-Wrapper damit PortalFooter valides JSX-Sibling ist
 // DATUM: 9. Mai 2026
+// v7.3.90-4: Footer ersetzt durch PortalFooter (fixed, navy, print:hidden)
 // v7.3.90-3: Footer PZE Projektzeiterfassung + Impressum/AGB
 // v7.3.90-2: Passwort-Sichtbarkeit Toggle (Augensymbol)
 
@@ -63,7 +64,8 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 py-12 px-4 sm:px-6 lg:px-8">
+    <>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full">
         {/* Logo */}
         <div className="text-center mb-8">
@@ -169,5 +171,6 @@ export default function LoginPage() {
       </div>
     </div>
     <PortalFooter />
+    </>
   );
 }
