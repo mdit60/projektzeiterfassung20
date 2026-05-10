@@ -2,11 +2,14 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-50
+// Version: 7.4.4-51
+// v7.4.4-51: "Als eingereicht markieren" Button entfernt
+//   - Datum Einreichung direkt im Datumsfeld setzen genuegt
+//   - calcStatus() setzt automatisch 'eingereicht' wenn Datum gesetzt, sonst 'entwurf'
+//   - Vereinfachung: ein einziger "ZA speichern" Button steuert alles
 // v7.4.4-47: "Aktualisieren" -> "ZA speichern" + hasChanges-Dialog (wie TimesheetForm)
 //   - Neue Status: entwurf / eingereicht / volle_zahlung / gekuerzte_zahlung
 //   - Status-Workflow-Buttons entfernt (manuell setzen nicht mehr noetig)
-//   - "Als eingereicht markieren" Button neben eingereicht_am Datumsfeld
 //   - Validierung: zahlungseingang_datum erfordert zahlungseingang_betrag > 0
 //   - calcStatus() leitet Status automatisch ab, wird beim Speichern gesetzt
 // v7.4.4-41: FIX: handleSaveZahlungseingang speichert foerderbetrag_gesamt mit
@@ -1003,12 +1006,10 @@ export default function ZAPanel({
                       <input type="date" value={eingereichtAmEdit}
                         onChange={e => { setEingereichtAmEdit(e.target.value); setHasChanges(true); }}
                         className={`flex-1 px-2 py-1 text-sm border border-gray-300 rounded bg-blue-50 ${colors.inputFocus}`} />
-                      <button
-                        type="button"
-                        onClick={() => { setEingereichtAmEdit(new Date().toISOString().slice(0, 10)); setHasChanges(true); }}
-                        className={`px-2 py-1 text-xs font-medium rounded border ${colors.btnPrimary} text-white whitespace-nowrap`}
-                        title="Als eingereicht markieren (Datum = heute)">
-                        Als eingereicht markieren
+                      <button onClick={handleSave}
+                        disabled={zaSaving || !zaFormData.zeitraum_von || !zaFormData.zeitraum_bis}
+                        className={`px-3 py-1 text-xs font-medium rounded border ${colors.btnPrimary} text-white whitespace-nowrap disabled:opacity-50 transition-colors`}>
+                        {zaSaving ? 'Speichern...' : 'ZA speichern'}
                       </button>
                     </div>
                   </div>
@@ -1311,14 +1312,6 @@ export default function ZAPanel({
               </div>
 
               {/* Speichern */}
-              <div className="flex justify-end">
-                <button onClick={handleSave}
-                  disabled={zaSaving || !zaFormData.zeitraum_von || !zaFormData.zeitraum_bis}
-                  className={`flex items-center gap-2 px-4 py-2 ${colors.btnPrimary} text-white rounded-lg disabled:opacity-50 transition-colors text-sm`}>
-                  {zaSaving ? 'Speichern...' : 'ZA speichern'}
-                </button>
-              </div>
-
             </div>
           )}
 
