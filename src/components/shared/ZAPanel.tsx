@@ -2,7 +2,8 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-51
+// Version: 7.4.4-52
+// v7.4.4-52: Zeile 3 (blau): 2-Spalten-Layout 50/50 - links ZA Nr./von/bis, rechts Datum+Button
 // v7.4.4-51: "Als eingereicht markieren" Button entfernt
 //   - Datum Einreichung direkt im Datumsfeld setzen genuegt
 //   - calcStatus() setzt automatisch 'eingereicht' wenn Datum gesetzt, sonst 'entwurf'
@@ -980,35 +981,39 @@ export default function ZAPanel({
                   </div>
                 </div>
 
-                {/* Kopfdaten - Zeile 3: ZA Nr. | Abrechnungszeitraum von | bis | Einreichdatum + Button */}
-                <div className="grid gap-3 mb-4 pb-3 border-b border-gray-300" style={{ gridTemplateColumns: '5rem 1fr 1fr 2fr' }}>
-                  <div>
-                    <div className="text-xs text-gray-500 mb-1">ZA Nr.</div>
-                    <input type="number" min="1" value={zaFormData.za_nummer}
-                      onChange={e => { setZAFormData(prev => ({ ...prev, za_nummer: e.target.value })); setHasChanges(true); }}
-                      className={`w-full px-2 py-1 text-sm font-medium border border-gray-300 rounded bg-blue-50 ${colors.inputFocus}`} />
+                {/* Kopfdaten - Zeile 3: linke Haelfte ZA Nr./von/bis | rechte Haelfte Datum+Button */}
+                <div className="grid grid-cols-2 gap-4 mb-4 pb-3 border-b border-gray-300">
+                  {/* Linke Haelfte: ZA Nr. | von | bis */}
+                  <div className="grid gap-2" style={{ gridTemplateColumns: '5rem 1fr 1fr' }}>
+                    <div>
+                      <div className="text-xs text-gray-500 mb-1">ZA Nr.</div>
+                      <input type="number" min="1" value={zaFormData.za_nummer}
+                        onChange={e => { setZAFormData(prev => ({ ...prev, za_nummer: e.target.value })); setHasChanges(true); }}
+                        className={`w-full px-2 py-1 text-sm font-medium border border-gray-300 rounded bg-blue-50 ${colors.inputFocus}`} />
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500 mb-1">Abrechnungszeitraum von</div>
+                      <input type="date" value={zaFormData.zeitraum_von}
+                        onChange={e => { setZAFormData(prev => ({ ...prev, zeitraum_von: e.target.value })); setHasChanges(true); }}
+                        className={`w-full px-2 py-1 text-sm border border-gray-300 rounded bg-blue-50 ${colors.inputFocus}`} />
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500 mb-1">bis</div>
+                      <input type="date" value={zaFormData.zeitraum_bis}
+                        onChange={e => { setZAFormData(prev => ({ ...prev, zeitraum_bis: e.target.value })); setHasChanges(true); }}
+                        className={`w-full px-2 py-1 text-sm border border-gray-300 rounded bg-blue-50 ${colors.inputFocus}`} />
+                    </div>
                   </div>
-                  <div>
-                    <div className="text-xs text-gray-500 mb-1">Abrechnungszeitraum von</div>
-                    <input type="date" value={zaFormData.zeitraum_von}
-                      onChange={e => { setZAFormData(prev => ({ ...prev, zeitraum_von: e.target.value })); setHasChanges(true); }}
-                      className={`w-full px-2 py-1 text-sm border border-gray-300 rounded bg-blue-50 ${colors.inputFocus}`} />
-                  </div>
-                  <div>
-                    <div className="text-xs text-gray-500 mb-1">bis</div>
-                    <input type="date" value={zaFormData.zeitraum_bis}
-                      onChange={e => { setZAFormData(prev => ({ ...prev, zeitraum_bis: e.target.value })); setHasChanges(true); }}
-                      className={`w-full px-2 py-1 text-sm border border-gray-300 rounded bg-blue-50 ${colors.inputFocus}`} />
-                  </div>
+                  {/* Rechte Haelfte: Datum Einreichung + ZA speichern */}
                   <div>
                     <div className="text-xs text-gray-500 mb-1">Datum Einreichung</div>
-                    <div className="flex gap-1">
+                    <div className="flex gap-2">
                       <input type="date" value={eingereichtAmEdit}
                         onChange={e => { setEingereichtAmEdit(e.target.value); setHasChanges(true); }}
                         className={`flex-1 px-2 py-1 text-sm border border-gray-300 rounded bg-blue-50 ${colors.inputFocus}`} />
                       <button onClick={handleSave}
                         disabled={zaSaving || !zaFormData.zeitraum_von || !zaFormData.zeitraum_bis}
-                        className={`px-3 py-1 text-xs font-medium rounded border ${colors.btnPrimary} text-white whitespace-nowrap disabled:opacity-50 transition-colors`}>
+                        className={`px-4 py-1 text-sm font-medium rounded border ${colors.btnPrimary} text-white whitespace-nowrap disabled:opacity-50 transition-colors`}>
                         {zaSaving ? 'Speichern...' : 'ZA speichern'}
                       </button>
                     </div>
