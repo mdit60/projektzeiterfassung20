@@ -3,11 +3,13 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-15
+// Version: 7.4.9-16
+// v7.4.9-16: UX-Verbesserungen
+//   1. Cockpit startet mit "Firma auswaehlen" Placeholder - kein Auto-Select
+//   2. "+ Neue Firma" Button direkt neben Dropdown (nicht ml-auto)
+//   3. Section-Buttons einheitlich mit Text: "+ Neuer MA", "+ Neues Projekt", "+ Neue ZA"
 // v7.4.9-15: Schrift nochmals groesser (text-xs->1rem, text-sm->1.125rem)
-//            via CSS style-tag + Panel-IDs. Monatsverlauf-Chart bleibt unveraendert.
-// v7.4.9-13: handleNeueZA navigiert zu ZASeite
-// Datum: 8. Mai 2026
+// Datum: 11. Mai 2026
 //
 // Firma-Cockpit als MIS (Management Information System)
 // Zeigt alle relevanten Informationen einer Firma auf einen Blick.
@@ -316,6 +318,13 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
   // Berater: Alle Kundenfirmen fuer Dropdown
   const [alleFirmen, setAlleFirmen] = useState<FirmaListItem[]>([]);
 
+  // Berater: Aktuelle Firmenauswahl - '' = Placeholder "Firma auswaehlen"
+  // firmaId aus Props ist der URL-Wert; firmaIdLocal steuert die Anzeige
+  // Berater-Portal startet immer mit leerem State (kein Auto-Select)
+  const [firmaIdLocal, setFirmaIdLocal] = useState<string>(
+    portal === 'berater' ? '' : firmaId
+  );
+
   // Berater: User-Rolle (fuer Admin-Nav-Tab)
   const [userRole, setUserRole] = useState<string>('consultant');
 
@@ -334,8 +343,35 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
   // ==========================================================================
 
   useEffect(() => {
-    loadCockpitData();
-  }, [firmaId]);
+    if (firmaIdLocal) {
+      loadCockpitData();
+    } else {
+      // Kein Auto-Select: nur alleFirmen laden fuer Dropdown
+      loadAlleFirmen();
+      setLoading(false);
+    }
+  }, [firmaIdLocal]);
+
+  async function loadAlleFirmen() {
+    if (portal !== 'berater') return;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data: profile } = await supabase
+      .from('v7_user_profiles')
+      .select('consultant_company_id, role')
+      .eq('id', user.id)
+      .single();
+    if (profile?.role) setUserRole(profile.role);
+    if (profile?.consultant_company_id) {
+      const { data: firmenDB } = await supabase
+        .from('v7_client_companies')
+        .select('id, name')
+        .eq('consultant_company_id', profile.consultant_company_id)
+        .eq('is_active', true)
+        .order('name');
+      setAlleFirmen(firmenDB || []);
+    }
+  }
 
   async function loadCockpitData() {
     try {
@@ -344,35 +380,14 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
 
       // Berater-Portal: Alle Kundenfirmen fuer Dropdown laden
       if (portal === 'berater') {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          const { data: profile } = await supabase
-            .from('v7_user_profiles')
-            .select('consultant_company_id, role')
-            .eq('id', user.id)
-            .single();
-
-          if (profile?.role) {
-            setUserRole(profile.role);
-          }
-
-          if (profile?.consultant_company_id) {
-            const { data: firmenDB } = await supabase
-              .from('v7_client_companies')
-              .select('id, name')
-              .eq('consultant_company_id', profile.consultant_company_id)
-              .eq('is_active', true)
-              .order('name');
-            setAlleFirmen(firmenDB || []);
-          }
-        }
+        await loadAlleFirmen();
       }
 
       // 1. Firmendaten
       const { data: firmaDB, error: firmaErr } = await supabase
         .from('v7_client_companies')
         .select('id, name, contact_person, contact_phone, contact_email, federal_state, holiday_region, standard_weekly_hours')
-        .eq('id', firmaId)
+        .eq('id', firmaIdLocal)
         .single();
 
       if (firmaErr || !firmaDB) {
@@ -385,7 +400,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
       const { data: projektDB } = await supabase
         .from('v7_projects')
         .select('id, name, short_name, funding_reference, funding_format, start_date, end_date, is_active, foerdersatz, overhead_t, bewilligte_summe')
-        .eq('client_company_id', firmaId)
+        .eq('client_company_id', firmaIdLocal)
         .order('is_active', { ascending: false })
         .order('start_date', { ascending: false });
 
@@ -404,7 +419,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
       const { data: maDB } = await supabase
         .from('v7_employees')
         .select('id, display_name, position_title, portal_role, weekly_hours, is_active')
-        .eq('client_company_id', firmaId)
+        .eq('client_company_id', firmaIdLocal)
         .eq('is_active', true)
         .order('display_name');
 
@@ -569,7 +584,13 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
   }
 
   function handleFirmaChange(newFirmaId: string) {
-    if (newFirmaId === firmaId) return;
+    if (!newFirmaId) {
+      setFirmaIdLocal('');
+      setFirma(null);
+      return;
+    }
+    if (newFirmaId === firmaIdLocal) return;
+    setFirmaIdLocal(newFirmaId);
     router.push('/v7/berater/foerderung/firma/' + newFirmaId + '/cockpit');
   }
 
@@ -715,12 +736,12 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
     );
   }
 
-  if (error || !firma) {
+  if (error) {
     return (
       <div className="max-w-4xl mx-auto p-6">
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 flex items-start gap-3">
           <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
-          <span>{error || 'Firma nicht gefunden.'}</span>
+          <span>{error}</span>
         </div>
         <button
           onClick={handleBack}
@@ -730,6 +751,55 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
           <ArrowLeft className="w-4 h-4" />
           Zurueck
         </button>
+      </div>
+    );
+  }
+
+  // Berater-Portal: Kein Auto-Select - Firma auswaehlen Placeholder
+  if (portal === 'berater' && !firmaIdLocal) {
+    return (
+      <div className="max-w-7xl mx-auto p-6">
+        {/* Header mit Dropdown */}
+        <div className="flex items-center gap-3 mb-8">
+          <Building2 className="w-5 h-5 flex-shrink-0" style={{ color: primaryColor }} />
+          <select
+            value=""
+            onChange={(e) => handleFirmaChange(e.target.value)}
+            className="text-xl font-bold text-gray-900 bg-transparent border-none focus:outline-none focus:ring-0 cursor-pointer pr-8 appearance-none"
+            style={{
+              backgroundImage: 'url("data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>') + '")',
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'right 0px center',
+              backgroundSize: '18px',
+            }}
+          >
+            <option value="">-- Firma auswaehlen --</option>
+            {alleFirmen.map(f => (
+              <option key={f.id} value={f.id}>{f.name}</option>
+            ))}
+          </select>
+          <button
+            onClick={handleNeueFirma}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-600 font-medium transition-colors"
+            title="Neue Kundenfirma anlegen"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Neue Firma
+          </button>
+        </div>
+        {/* Hinweis */}
+        <div className="flex flex-col items-center justify-center h-64 text-gray-400 gap-3">
+          <Building2 className="w-12 h-12 opacity-20" />
+          <p className="text-lg">Bitte eine Firma auswaehlen</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!firma) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin" style={{ color: primaryColor }} />
       </div>
     );
   }
@@ -764,7 +834,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
             <Building2 className="w-5 h-5 flex-shrink-0" style={{ color: primaryColor }} />
             {alleFirmen.length > 1 ? (
               <select
-                value={firmaId}
+                value={firmaIdLocal}
                 onChange={(e) => handleFirmaChange(e.target.value)}
                 className="text-xl font-bold text-gray-900 bg-transparent border-none focus:outline-none focus:ring-0 cursor-pointer pr-8 appearance-none"
                 style={{
@@ -774,6 +844,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                   backgroundSize: '18px',
                 }}
               >
+                <option value="">-- Firma auswaehlen --</option>
                 {alleFirmen.map(f => (
                   <option key={f.id} value={f.id}>{f.name}</option>
                 ))}
@@ -783,10 +854,10 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                 {firma.name}
               </h1>
             )}
-            {/* Neue Firma Button */}
+            {/* Neue Firma Button: direkt neben Dropdown */}
             <button
               onClick={handleNeueFirma}
-              className="ml-auto flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-600 font-medium transition-colors"
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-600 font-medium transition-colors"
               title="Neue Kundenfirma anlegen"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -899,6 +970,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                 title="Neuen Mitarbeiter anlegen"
               >
                 <Plus className="w-3.5 h-3.5" />
+                Neuer MA
               </button>
             </div>
 
@@ -965,6 +1037,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                 title="Neues Projekt anlegen"
               >
                 <Plus className="w-3.5 h-3.5" />
+                Neues Projekt
               </button>
             </div>
 
@@ -1323,6 +1396,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                 title="Neue Zahlungsanforderung erstellen"
               >
                 <Plus className="w-3.5 h-3.5" />
+                Neue ZA
               </button>
             </div>
 
