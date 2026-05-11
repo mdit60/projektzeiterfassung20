@@ -1,11 +1,7 @@
 // src/app/v7/berater/foerderung/page.tsx
-// VERSION: v7.4.1-6
-// AENDERUNG v7.4.1-6: Profil+Employee-Insert server-seitig (RLS-Fix, alle 3 Schritte in create-user-Route)
-// AENDERUNG v7.4.1-5: Doppel-Submit verhindert: saved-Flag, Modal schliesst sofort nach Create
-// AENDERUNG v7.4.1-4: Admin-User-Anlage verpflichtend (Checkbox entfernt, E-Mail Pflichtfeld)
-// AENDERUNG v7.4.1-3: Zurueck-Button zum Dashboard hinzugefuegt (oberhalb Seitentitel)
-// AENDERUNG v7.4.1-2: Einladungslink entfernt, Status vereinfacht (nur aktiv/inaktiv)
-// DATUM: 28. Maerz 2026
+// VERSION: v7.4.1-7
+// AENDERUNG v7.4.1-7: ?openNew=true oeffnet "Neue Firma"-Modal direkt (vom Cockpit)
+// AENDERUNG v7.4.1-6: Profil+Employee-Insert server-seitig (RLS-Fix)
 // AENDERUNG v7.4.1: User-Erstellung ueber /api/v7/create-user statt client-seitigem
 //   signUp() - verhindert Ausloggen des aktuellen Beraters. Rolle korrekt auf
 //   client_user gesetzt, portal_role client_admin ueber v7_employees.
@@ -16,7 +12,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
@@ -140,6 +136,7 @@ const DEV_PASSWORD = 'Test1234!';
 
 export default function FoerderungPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClient();
 
   // State
@@ -175,7 +172,18 @@ export default function FoerderungPage() {
     checkAuthAndLoadData();
   }, []);
 
-  const checkAuthAndLoadData = async () => {
+  // Auto-open: ?openNew=true oeffnet Modal direkt (z.B. vom Cockpit)
+  useEffect(() => {
+    if (searchParams.get('openNew') === 'true' && !loading) {
+      setModalMode('create');
+      setEditingCompany(null);
+      setFormData(EMPTY_FORM);
+      setFormError(null);
+      setShowModal(true);
+    }
+  }, [searchParams, loading]);
+
+
     try {
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       if (authError || !user) {

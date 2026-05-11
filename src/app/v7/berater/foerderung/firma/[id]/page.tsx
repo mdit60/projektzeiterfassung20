@@ -2,8 +2,8 @@
 
 // ============================================================================
 // BERATER-PORTAL: Firmen-Detail-Seite
-// Version: 7.4.4-4
-// Datum: 15. April 2026
+// Version: 7.4.4-5
+// v7.4.4-5: openNew aus searchParams lesen, an EmployeeManagement weitergeben
 //
 // Route: /v7/berater/foerderung/firma/[id]
 //
@@ -67,6 +67,7 @@ export default function BeraterFirmaDetailPage() {
   const firmaId = params.id as string;
 
   const tabFromUrl = searchParams.get('tab') as TabKey | null;
+  const openNew = searchParams.get('openNew') === 'true';
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -318,6 +319,7 @@ export default function BeraterFirmaDetailPage() {
             companyId={firmaId}
             portal="berater"
             canEdit={true}
+            openNew={openNew}
           />
         )}
 
