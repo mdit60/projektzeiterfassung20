@@ -3,7 +3,8 @@
 // PZE V7 - Shared Employee Management Component
 // ============================================================================
 // Version: 7.3.95-16
-// v7.3.95-16: openNew Prop - Modal direkt oeffnen wenn vom Cockpit aufgerufen
+// v7.3.95-16: firmaName Prop - Modal-Header zeigt "Neuer Mitarbeiter fuer [Firma]"
+//             openNew Prop - Modal direkt oeffnen wenn vom Cockpit aufgerufen
 // v7.3.95-15: Teilzeit-Erfassung: days_per_week + hours_per_day. weekly_hours berechnet.
 // v7.3.95-14: Verwaiste Login-User (ohne v7_employees) in Mitarbeiterliste anzeigen
 // v7.3.95-13: Tailwind-v4-Syntax-Modernisierung (2 Stellen). Keine
@@ -168,6 +169,7 @@ interface EmployeeManagementProps {
   canEdit: boolean;
   title?: string;
   openNew?: boolean; // Wenn true: Neuer-Mitarbeiter-Modal direkt oeffnen
+  firmaName?: string; // Firmenname fuer Modal-Header
 }
 
 // Cache fuer registrierte E-Mails
@@ -245,6 +247,7 @@ export default function EmployeeManagement({
   canEdit,
   title = 'Mitarbeiter',
   openNew = false,
+  firmaName = '',
 }: EmployeeManagementProps) {
   const supabase = createClient();
   const colors = PORTAL_COLORS[portal];
@@ -1403,7 +1406,9 @@ export default function EmployeeManagement({
           <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center px-6 py-4 border-b sticky top-0 bg-white">
               <h3 className="text-lg font-semibold text-gray-900">
-                {modalMode === 'create' ? 'Neuer Mitarbeiter' : 'Mitarbeiter bearbeiten'}
+                {modalMode === 'create'
+                  ? (firmaName ? `Neuer Mitarbeiter fuer ${firmaName}` : 'Neuer Mitarbeiter')
+                  : 'Mitarbeiter bearbeiten'}
               </h3>
               <button onClick={closeModal} className="text-gray-400 hover:text-gray-600">
                 <X size={24} />
