@@ -3,11 +3,12 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-21
-// v7.4.9-21: Bugfix firmaIdLocal Initialisierung - firmaId aus URL-Prop nutzen
-//   - returnTo-Navigation ladet jetzt korrekt die richtige Firma
-//   - Firmenliste nur wenn firmaId leer (kein Auto-Select bei frischem Start)
-// v7.4.9-20: Direkt-Navigation fuer Anlegen-Buttons
+// Version: 7.4.9-22
+// v7.4.9-22: 
+//   1. firmaId='select' -> Firmenliste anzeigen (Einstiegspunkt ohne Auto-Select)
+//      firmaId=echte UUID -> direkt laden (returnTo-Navigation)
+//   2. Bugfix Mitarbeiter: alle MAs laden unabhaengig von Projektanzahl
+// v7.4.9-21: Bugfix firmaIdLocal - returnTo-Navigation ladet korrekte Firma
 //   - handleNeueFirma: ?openNew=true -> foerderung-page oeffnet Modal direkt
 //   - handleNeuerMitarbeiter: &openNew=true -> EmployeeManagement oeffnet Modal direkt
 //   - handleNeuesProjekt: direkt zu /projekt/neu (kein Umweg ueber Projektliste)
@@ -322,10 +323,12 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
   const [alleFirmen, setAlleFirmen] = useState<FirmaListItem[]>([]);
 
   // Berater: Aktuelle Firmenauswahl - '' = Placeholder "Firma auswaehlen"
-  // firmaId aus Props ist der URL-Wert; firmaIdLocal steuert die Anzeige
-  // firmaId gesetzt (returnTo-Navigation oder direkte URL) -> direkt laden
-  // firmaId leer -> Firmenliste anzeigen (kein Auto-Select)
-  const [firmaIdLocal, setFirmaIdLocal] = useState<string>(firmaId || '');
+  // firmaId='select' -> Firmenliste (Einstieg ohne Auto-Select)
+  // firmaId=echte UUID -> direkt laden (z.B. returnTo-Navigation)
+  const isSelectMode = !firmaId || firmaId === 'select';
+  const [firmaIdLocal, setFirmaIdLocal] = useState<string>(
+    isSelectMode ? '' : firmaId
+  );
 
   // Berater: User-Rolle (fuer Admin-Nav-Tab)
   const [userRole, setUserRole] = useState<string>('consultant');
@@ -426,7 +429,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
         .order('display_name');
 
       const maList: MitarbeiterData[] = [];
-      if (maDB && alleProjekte.length > 0) {
+      if (maDB) {
         for (const ma of maDB) {
           const { data: wpaDB } = await supabase
             .from('v7_work_package_assignments')

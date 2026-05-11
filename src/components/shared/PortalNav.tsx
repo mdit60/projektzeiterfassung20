@@ -4,11 +4,9 @@
 // ============================================================================
 // PZE V7 - Portal-Navigation
 // ============================================================================
-// Version: 7.4.4-17
-// v7.4.4-17: Cockpit-Button: Firma-Abfrage beim Klick (nicht beim Laden)
-//   - Behebt: Klick auf Cockpit im Dashboard wirkungslos
-//   - Async onClick laedt erste Kundenfirma zum Klick-Zeitpunkt
-//   - User ist beim Klick garantiert authentifiziert
+// Version: 7.4.4-18
+// v7.4.4-18: handleCockpitClick -> immer /firma/select/cockpit (Firmenliste)
+//   kein Auto-Select der ersten Firma mehr
 // v7.4.4-16: Cockpit-Button als onClick mit Default-Firma-Fallback
 //   - cockpit_berater_enabled: Cockpit fuer Berater sichtbar (Toggle in Admin)
 //   - cockpit_firma_enabled: Cockpit fuer Firmen-Portal sichtbar (Toggle in Admin)
@@ -292,42 +290,10 @@ export default function PortalNav({
   })();
   const isCockpitActive = pathname ? pathname.endsWith('/cockpit') : false;
 
-  // Cockpit-Klick: Firma aus URL oder erste Kundenfirma laden
+  // Cockpit-Klick: immer zur Firmenliste (select), nie auto-select
   async function handleCockpitClick() {
-    // 1. Firma aus URL?
-    if (cockpitHrefFromUrl) {
-      router.push(cockpitHrefFromUrl);
-      return;
-    }
-    // 2. Erste Kundenfirma aus DB laden (User ist jetzt sicher eingeloggt)
-    try {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data: profile } = await supabase
-          .from('v7_user_profiles')
-          .select('consultant_company_id')
-          .eq('id', user.id)
-          .single();
-        if (profile?.consultant_company_id) {
-          const { data: firmen } = await supabase
-            .from('v7_client_companies')
-            .select('id')
-            .eq('consultant_company_id', profile.consultant_company_id)
-            .eq('is_active', true)
-            .order('name')
-            .limit(1);
-          if (firmen && firmen.length > 0) {
-            router.push('/v7/berater/foerderung/firma/' + firmen[0].id + '/cockpit');
-            return;
-          }
-        }
-      }
-    } catch (err) {
-      console.error('Cockpit navigation error:', err);
-    }
-    // 3. Fallback: Kundenfirmen-Liste
-    router.push('/v7/berater/foerderung');
+    // Wenn bereits in einem Firmen-Cockpit -> zur Firmenliste
+    router.push('/v7/berater/foerderung/firma/select/cockpit');
   }
 
   // -- Config laden ----------------
