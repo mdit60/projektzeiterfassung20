@@ -183,7 +183,7 @@ export default function FoerderungPage() {
     }
   }, [searchParams, loading]);
 
-
+  const checkAuthAndLoadData = async () => {
     try {
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       if (authError || !user) {
