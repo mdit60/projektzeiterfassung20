@@ -290,10 +290,9 @@ export default function PortalNav({
   })();
   const isCockpitActive = pathname ? pathname.endsWith('/cockpit') : false;
 
-  // Cockpit-Klick: immer zur Firmenliste (select), nie auto-select
+  // Cockpit-Klick: im App-Modus -> App-Cockpit, sonst select-Firmenliste
   async function handleCockpitClick() {
-    // Wenn bereits in einem Firmen-Cockpit -> zur Firmenliste
-    router.push('/v7/berater/foerderung/firma/select/cockpit');
+    router.push('/v7/berater/app/cockpit');
   }
 
   // -- Config laden ----------------
@@ -345,6 +344,11 @@ export default function PortalNav({
             </>
           )}
           {navItems.map((item) => {
+            // Im App-Modus: Kundenfirmen ausblenden (Firmenwahl via App-Cockpit)
+            if (item.key === 'foerderung' &&
+                typeof window !== 'undefined' &&
+                localStorage.getItem('pze_mode') === 'app') return null;
+
             if (portal === 'berater' && pathname) {
               if (item.key === 'foerderung') {
                 if (pathname === '/v7/berater/foerderung') return null;
