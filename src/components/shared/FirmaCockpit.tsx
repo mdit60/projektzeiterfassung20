@@ -3,12 +3,12 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-19
-// v7.4.9-19: Bugfix - alle Navigation-Handler nutzen firmaIdLocal statt firmaId (Prop)
-//   - handleBack, handleProjektDetail, handleFortschritt, handleStundennachweis
-//   - handleFirmendaten, handleNeuerMitarbeiter, handleNeuesProjekt
-//   - handleNeueZA, handleOpenZA - behebt ZA-Regression aus v7.4.9-17
-// v7.4.9-18: Startseite mit klickbarer Firmenliste
+// Version: 7.4.9-20
+// v7.4.9-20: Direkt-Navigation fuer Anlegen-Buttons (kein Doppelklick mehr)
+//   - handleNeueFirma: ?openNew=true -> foerderung-page oeffnet Modal direkt
+//   - handleNeuerMitarbeiter: &openNew=true -> EmployeeManagement oeffnet Modal direkt
+//   - handleNeuesProjekt: direkt zu /projekt/neu (kein Umweg ueber Projektliste)
+// v7.4.9-19: Bugfix - alle Handler nutzen firmaIdLocal statt firmaId
 //
 // Firma-Cockpit als MIS (Management Information System)
 // Zeigt alle relevanten Informationen einer Firma auf einen Blick.
@@ -594,7 +594,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
   }
 
   function handleNeueFirma() {
-    router.push('/v7/berater/foerderung');
+    router.push('/v7/berater/foerderung?openNew=true');
   }
 
   function handleProjektdatenClick(projektId: string) {
@@ -644,7 +644,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
 
   function handleNeuerMitarbeiter() {
     if (portal === 'berater') {
-      router.push('/v7/berater/foerderung/firma/' + firmaIdLocal + '?tab=mitarbeiter&returnTo=' + cockpitReturnTo);
+      router.push('/v7/berater/foerderung/firma/' + firmaIdLocal + '?tab=mitarbeiter&openNew=true&returnTo=' + cockpitReturnTo);
     } else {
       router.push('/v7/firma/mitarbeiter');
     }
@@ -652,9 +652,9 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
 
   function handleNeuesProjekt() {
     if (portal === 'berater') {
-      router.push('/v7/berater/foerderung/firma/' + firmaIdLocal + '?tab=projekte&returnTo=' + cockpitReturnTo);
+      router.push('/v7/berater/foerderung/firma/' + firmaIdLocal + '/projekt/neu?returnTo=' + cockpitReturnTo);
     } else {
-      router.push('/v7/firma/projekte');
+      router.push('/v7/firma/projekt/neu');
     }
   }
 

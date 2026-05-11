@@ -2,9 +2,8 @@
 // ============================================================================
 // PZE V7 - Shared Employee Management Component
 // ============================================================================
-// Datum: 22. April 2026
-// Version: 7.3.95-15
-// Datum: 7. Mai 2026
+// Version: 7.3.95-16
+// v7.3.95-16: openNew Prop - Modal direkt oeffnen wenn vom Cockpit aufgerufen
 // v7.3.95-15: Teilzeit-Erfassung: days_per_week + hours_per_day. weekly_hours berechnet.
 // v7.3.95-14: Verwaiste Login-User (ohne v7_employees) in Mitarbeiterliste anzeigen
 // v7.3.95-13: Tailwind-v4-Syntax-Modernisierung (2 Stellen). Keine
@@ -168,6 +167,7 @@ interface EmployeeManagementProps {
   companyId: string;
   canEdit: boolean;
   title?: string;
+  openNew?: boolean; // Wenn true: Neuer-Mitarbeiter-Modal direkt oeffnen
 }
 
 // Cache fuer registrierte E-Mails
@@ -244,6 +244,7 @@ export default function EmployeeManagement({
   companyId,
   canEdit,
   title = 'Mitarbeiter',
+  openNew = false,
 }: EmployeeManagementProps) {
   const supabase = createClient();
   const colors = PORTAL_COLORS[portal];
@@ -407,6 +408,13 @@ export default function EmployeeManagement({
   useEffect(() => {
     if (companyId) loadEmployees();
   }, [companyId, loadEmployees]);
+
+  // Auto-open: wenn openNew=true, Modal nach Laden oeffnen
+  useEffect(() => {
+    if (openNew && canEdit) {
+      setShowModal(true);
+    }
+  }, [openNew, canEdit]);
 
   // ============================================================================
   // PASSWORT ZURUECKSETZEN
