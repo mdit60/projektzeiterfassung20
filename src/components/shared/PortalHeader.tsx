@@ -4,10 +4,10 @@
 // ============================================================================
 // PZE - Gemeinsamer Portal-Header
 // ============================================================================
-// Datum: 9. Mai 2026
-// Version: 7.3.95-10
-//
-// v7.3.95-10: Rolle vollstaendig von Props entkoppelt
+// Version: 7.3.95-11
+// v7.3.95-11: Ansicht-Wechsler im User-Dropdown (nur system_admin)
+//   - "Klassische Ansicht" / "Neue App-Struktur" umschalten via localStorage pze_mode
+//   - Aktive Ansicht mit Haken markiert
 //   PortalHeader laedt role SELBST aus v7_user_profiles (gleicher DB-Fetch)
 //   -> Rolle ist auf ALLEN Seiten identisch, unabhaengig von Props
 //   -> userRole + portalRole Props werden fuer Anzeige ignoriert (nur noch
@@ -33,6 +33,8 @@ import {
   KeyRound,
   Check,
   AlertCircle,
+  Monitor,
+  Layers,
 } from 'lucide-react';
 
 import { V7PortalType, V7UserRole, V7EmployeePortalRole } from '@/types/v7-types';
@@ -95,6 +97,7 @@ export default function PortalHeader({
   const [cockpitGlobalEnabled, setCockpitGlobalEnabled] = useState(false);
   const [beraterCompanyName, setBeraterCompanyName]     = useState<string>('');
   const [userRoleFromDB, setUserRoleFromDB]             = useState<string>('');
+  const [pzeMode, setPzeMode]                           = useState<string>('classic');
 
   // Passwort-aendern State
   const [showPasswordChange, setShowPasswordChange] = useState(false);
@@ -111,6 +114,12 @@ export default function PortalHeader({
   //   1. Cockpit global aktiv? (fuer Versionsanzeige)
   //   2. Berater-Portal: eigene Firma aus v7_consultant_companies laden
   // ------------------------------------------------------------------
+  useEffect(() => {
+    // pze_mode aus localStorage lesen
+    const stored = localStorage.getItem('pze_mode');
+    if (stored === 'classic' || stored === 'app') setPzeMode(stored);
+  }, []);
+
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -346,6 +355,43 @@ export default function PortalHeader({
                         )}
                         <p className="text-xs text-gray-500 mt-1">{displayRole}</p>
                       </div>
+
+                      {/* Ansicht wechseln (nur system_admin) */}
+                      {effectiveRole === 'system_admin' && (
+                        <>
+                          <div className="px-4 py-2 border-t border-gray-100">
+                            <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">Ansicht</p>
+                            <button
+                              onClick={() => {
+                                localStorage.setItem('pze_mode', 'classic');
+                                setUserMenuOpen(false);
+                                router.push('/v7/berater/dashboard');
+                              }}
+                              className="w-full flex items-center justify-between px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded transition-colors"
+                            >
+                              <span className="flex items-center gap-2">
+                                <Monitor size={14} />
+                                Klassische Ansicht
+                              </span>
+                              {pzeMode === 'classic' && <Check size={14} className="text-blue-600" />}
+                            </button>
+                            <button
+                              onClick={() => {
+                                localStorage.setItem('pze_mode', 'app');
+                                setUserMenuOpen(false);
+                                router.push('/v7/berater/app/cockpit');
+                              }}
+                              className="w-full flex items-center justify-between px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded transition-colors"
+                            >
+                              <span className="flex items-center gap-2">
+                                <Layers size={14} />
+                                Neue App-Struktur
+                              </span>
+                              {pzeMode === 'app' && <Check size={14} className="text-blue-600" />}
+                            </button>
+                          </div>
+                        </>
+                      )}
 
                       {/* Passwort aendern */}
                       <button
