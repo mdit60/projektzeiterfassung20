@@ -2,15 +2,16 @@
 // ============================================================================
 // PZE V7 - Shared Project List Component
 // ============================================================================
-// Datum: 12. Februar 2026
-// Version: 7.3.90
+// Datum: 06. Februar 2026
+// Version: 7.3.88-7
+// v7.3.88-7: returnTo Prop - wird an /projekt/neu weitergegeben fuer Zurueck-Navigation
 //
 // Wird von beiden Portalen genutzt:
 // - Firmen-Portal: /v7/firma/projekte
 // - Berater-Portal: /v7/berater/foerderung/firma/[id]?tab=projekte
 //
-// v7.3.90: FIX: Links korrigiert /firma/projekt -> /firma/projekte (Plural)
-// v7.3.88-6: Komponente laedt Projekte selbst statt als Props zu erwarten
+// FIX v7.3.88-6: Komponente laedt Projekte selbst statt als Props zu erwarten
+//                Verhindert "projects is undefined" Fehler
 //
 // Props:
 // - portal: 'berater' | 'firma'
@@ -54,6 +55,7 @@ interface ProjectListProps {
   onProjectClick?: (projectId: string) => void;
   showNewButton?: boolean;
   title?: string;
+  returnTo?: string; // Zurueck-Ziel fuer /projekt/neu (z.B. Firmen-Cockpit URL)
 }
 
 // ============================================================================
@@ -85,6 +87,7 @@ export default function ProjectList({
   onProjectClick,
   showNewButton = true,
   title = 'Projekte',
+  returnTo,
 }: ProjectListProps) {
   const router = useRouter();
   const [searchTerm, setSearchTerm] = useState('');
@@ -154,7 +157,7 @@ export default function ProjectList({
 
   // Sichere Filterung - projects ist immer ein Array
   const filteredProjects = (projects || []).filter(p =>
-    (p.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+    p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     (p.funding_reference && p.funding_reference.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
@@ -167,7 +170,7 @@ export default function ProjectList({
       if (portal === 'berater') {
         router.push(`/v7/berater/foerderung/firma/${companyId}/projekt/${projectId}`);
       } else {
-        router.push(`/v7/firma/projekte/${projectId}`);
+        router.push(`/v7/firma/projekt/${projectId}`);
       }
     }
   };
@@ -175,9 +178,10 @@ export default function ProjectList({
   // Neues Projekt anlegen
   const handleNewProject = () => {
     if (portal === 'berater') {
-      router.push(`/v7/berater/foerderung/firma/${companyId}/projekt/neu`);
+      const url = `/v7/berater/foerderung/firma/${companyId}/projekt/neu`;
+      router.push(returnTo ? `${url}?returnTo=${encodeURIComponent(returnTo)}` : url);
     } else {
-      router.push(`/v7/firma/projekte/neu`);
+      router.push(`/v7/firma/projekt/neu`);
     }
   };
 
@@ -332,7 +336,7 @@ export default function ProjectList({
       {/* Anzahl */}
       <div className="text-sm text-gray-500">
         {filteredProjects.length} {filteredProjects.length === 1 ? 'Projekt' : 'Projekte'}
-        {(projects || []).length !== filteredProjects.length && ` (von ${(projects || []).length} gesamt)`}
+        {projects.length !== filteredProjects.length && ` (von ${projects.length} gesamt)`}
       </div>
     </div>
   );

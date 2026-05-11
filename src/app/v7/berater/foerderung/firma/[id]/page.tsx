@@ -3,8 +3,8 @@
 // ============================================================================
 // BERATER-PORTAL: Firmen-Detail-Seite
 // Version: 7.4.4-6
-// v7.4.4-6: handleBack respektiert returnTo-Parameter; firmaName an EmployeeManagement
-// v7.4.4-5: openNew aus searchParams lesen, an EmployeeManagement weitergeben
+// v7.4.4-6: Zurueck-Button Label dynamisch ("Zurueck zum Cockpit" wenn returnTo gesetzt)
+//            returnTo an ProjectList weitergeben fuer /projekt/neu Navigation
 //
 // Route: /v7/berater/foerderung/firma/[id]
 //
@@ -272,7 +272,7 @@ export default function BeraterFirmaDetailPage() {
               className="flex items-center gap-2 py-4 text-gray-600 hover:text-[#002451] whitespace-nowrap"
             >
               <ArrowLeft className="w-4 h-4" />
-              Kundenfirmen
+              {returnTo ? 'Zurueck zum Cockpit' : 'Kundenfirmen'}
             </button>
 
             {/* Tabs */}
@@ -316,6 +316,7 @@ export default function BeraterFirmaDetailPage() {
           <ProjectList
             companyId={firmaId}
             portal="berater"
+            returnTo={returnTo || undefined}
           />
         )}
 
