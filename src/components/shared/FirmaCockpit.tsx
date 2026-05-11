@@ -3,10 +3,9 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-17
+// Version: 7.4.9-18
+// v7.4.9-18: Placeholder durch Firmenliste ersetzt - klickbare Karten statt leerer Seite
 // v7.4.9-17: Bugfix Firma-Auswahl - router.push entfernt aus handleFirmaChange
-//   - Firmenwechsel nur via firmaIdLocal State, kein Remount der Komponente
-// v7.4.9-16: Kein Auto-Select, Neue Firma neben Dropdown, Section-Buttons mit Text
 //
 // Firma-Cockpit als MIS (Management Information System)
 // Zeigt alle relevanten Informationen einer Firma auf einen Blick.
@@ -74,6 +73,7 @@ import {
   Calendar,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
   Loader2,
   AlertCircle,
   Banknote,
@@ -751,29 +751,16 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
     );
   }
 
-  // Berater-Portal: Kein Auto-Select - Firma auswaehlen Placeholder
+  // Berater-Portal: Kein Auto-Select - Firmenliste zur Auswahl
   if (portal === 'berater' && !firmaIdLocal) {
     return (
       <div className="max-w-7xl mx-auto p-6">
-        {/* Header mit Dropdown */}
-        <div className="flex items-center gap-3 mb-8">
-          <Building2 className="w-5 h-5 flex-shrink-0" style={{ color: primaryColor }} />
-          <select
-            value=""
-            onChange={(e) => handleFirmaChange(e.target.value)}
-            className="text-xl font-bold text-gray-900 bg-transparent border-none focus:outline-none focus:ring-0 cursor-pointer pr-8 appearance-none"
-            style={{
-              backgroundImage: 'url("data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>') + '")',
-              backgroundRepeat: 'no-repeat',
-              backgroundPosition: 'right 0px center',
-              backgroundSize: '18px',
-            }}
-          >
-            <option value="">-- Firma auswaehlen --</option>
-            {alleFirmen.map(f => (
-              <option key={f.id} value={f.id}>{f.name}</option>
-            ))}
-          </select>
+        {/* Header */}
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+            <Building2 className="w-5 h-5" style={{ color: primaryColor }} />
+            Kundenfirmen
+          </h1>
           <button
             onClick={handleNeueFirma}
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-600 font-medium transition-colors"
@@ -783,10 +770,44 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
             Neue Firma
           </button>
         </div>
-        {/* Hinweis */}
-        <div className="flex flex-col items-center justify-center h-64 text-gray-400 gap-3">
-          <Building2 className="w-12 h-12 opacity-20" />
-          <p className="text-lg">Bitte eine Firma auswaehlen</p>
+
+        {/* Firmenliste scrollbar */}
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="max-h-[70vh] overflow-y-auto">
+            {alleFirmen.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-3">
+                <Building2 className="w-10 h-10 opacity-20" />
+                <p className="text-sm">Keine Kundenfirmen vorhanden</p>
+              </div>
+            ) : (
+              <ul className="divide-y divide-gray-100">
+                {alleFirmen.map((f, idx) => (
+                  <li key={f.id}>
+                    <button
+                      onClick={() => handleFirmaChange(f.id)}
+                      className="w-full flex items-center gap-4 px-6 py-4 hover:bg-blue-50 transition-colors text-left group"
+                    >
+                      <span
+                        className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                        style={{ backgroundColor: primaryColor }}
+                      >
+                        {f.name.charAt(0).toUpperCase()}
+                      </span>
+                      <span className="flex-1 text-sm font-medium text-gray-800 group-hover:text-blue-700">
+                        {f.name}
+                      </span>
+                      <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-blue-400 flex-shrink-0" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          {alleFirmen.length > 0 && (
+            <div className="px-6 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-400">
+              {alleFirmen.length} Firma{alleFirmen.length !== 1 ? 'en' : ''} · alphabetisch sortiert
+            </div>
+          )}
         </div>
       </div>
     );
