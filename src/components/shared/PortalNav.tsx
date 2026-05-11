@@ -4,9 +4,9 @@
 // ============================================================================
 // PZE V7 - Portal-Navigation
 // ============================================================================
-// Version: 7.4.4-18
-// v7.4.4-18: handleCockpitClick -> immer /firma/select/cockpit (Firmenliste)
-//   kein Auto-Select der ersten Firma mehr
+// Version: 7.4.4-19
+// v7.4.4-19: Cockpit-Button im Classic-Modus (pze_mode='classic') ausgeblendet
+//   kein Cockpit-Einstieg aus der alten Struktur heraus
 // v7.4.4-16: Cockpit-Button als onClick mit Default-Firma-Fallback
 //   - cockpit_berater_enabled: Cockpit fuer Berater sichtbar (Toggle in Admin)
 //   - cockpit_firma_enabled: Cockpit fuer Firmen-Portal sichtbar (Toggle in Admin)
@@ -322,9 +322,10 @@ export default function PortalNav({
     <nav className="bg-white border-b border-gray-200 shadow-sm print:hidden">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center py-1 -mb-px overflow-visible">
-          {/* Cockpit Button - gesteuert ueber v7_system_config */}
+          {/* Cockpit Button - nur im App-Modus (pze_mode='app') sichtbar */}
           {((portal === 'berater' && (userRole === 'system_admin' || cockpitBeraterEnabled)) ||
-            (portal === 'firma' && cockpitFirmaEnabled)) && (
+            (portal === 'firma' && cockpitFirmaEnabled)) &&
+            typeof window !== 'undefined' && localStorage.getItem('pze_mode') === 'app' && (
             <>
               <button
                 onClick={handleCockpitClick}
