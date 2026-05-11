@@ -3,9 +3,12 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-18
-// v7.4.9-18: Placeholder durch Firmenliste ersetzt - klickbare Karten statt leerer Seite
-// v7.4.9-17: Bugfix Firma-Auswahl - router.push entfernt aus handleFirmaChange
+// Version: 7.4.9-19
+// v7.4.9-19: Bugfix - alle Navigation-Handler nutzen firmaIdLocal statt firmaId (Prop)
+//   - handleBack, handleProjektDetail, handleFortschritt, handleStundennachweis
+//   - handleFirmendaten, handleNeuerMitarbeiter, handleNeuesProjekt
+//   - handleNeueZA, handleOpenZA - behebt ZA-Regression aus v7.4.9-17
+// v7.4.9-18: Startseite mit klickbarer Firmenliste
 //
 // Firma-Cockpit als MIS (Management Information System)
 // Zeigt alle relevanten Informationen einer Firma auf einen Blick.
@@ -597,11 +600,11 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
   function handleProjektdatenClick(projektId: string) {
     const returnTo = encodeURIComponent(
       portal === 'berater'
-        ? '/v7/berater/foerderung/firma/' + firmaId + '/cockpit'
+        ? '/v7/berater/foerderung/firma/' + firmaIdLocal + '/cockpit'
         : '/v7/firma/cockpit'
     );
     if (portal === 'berater') {
-      router.push('/v7/berater/foerderung/firma/' + firmaId + '/projekt/' + projektId + '?returnTo=' + returnTo);
+      router.push('/v7/berater/foerderung/firma/' + firmaIdLocal + '/projekt/' + projektId + '?returnTo=' + returnTo);
     } else {
       router.push('/v7/firma/projekte/' + projektId + '?returnTo=' + returnTo);
     }
@@ -609,7 +612,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
 
   function handleFortschrittClick(projektId: string) {
     if (portal === 'berater') {
-      router.push('/v7/berater/foerderung/firma/' + firmaId + '/cockpit/fortschritt?projekt=' + projektId);
+      router.push('/v7/berater/foerderung/firma/' + firmaIdLocal + '/cockpit/fortschritt?projekt=' + projektId);
     } else {
       router.push('/v7/firma/cockpit/fortschritt?projekt=' + projektId);
     }
@@ -617,7 +620,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
 
   function handleStundennachweisClick(projektId: string) {
     if (portal === 'berater') {
-      router.push('/v7/berater/foerderung/firma/' + firmaId + '/cockpit/stundennachweis?projekt=' + projektId);
+      router.push('/v7/berater/foerderung/firma/' + firmaIdLocal + '/cockpit/stundennachweis?projekt=' + projektId);
     } else {
       router.push('/v7/firma/cockpit/stundennachweis?projekt=' + projektId);
     }
@@ -627,13 +630,13 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
 
   const cockpitReturnTo = encodeURIComponent(
     portal === 'berater'
-      ? '/v7/berater/foerderung/firma/' + firmaId + '/cockpit'
+      ? '/v7/berater/foerderung/firma/' + firmaIdLocal + '/cockpit'
       : '/v7/firma/cockpit'
   );
 
   function handleFirmendatenBearbeiten() {
     if (portal === 'berater') {
-      router.push('/v7/berater/foerderung/firma/' + firmaId + '?tab=firmendaten&returnTo=' + cockpitReturnTo);
+      router.push('/v7/berater/foerderung/firma/' + firmaIdLocal + '?tab=firmendaten&returnTo=' + cockpitReturnTo);
     } else {
       router.push('/v7/firma/firmendaten');
     }
@@ -641,7 +644,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
 
   function handleNeuerMitarbeiter() {
     if (portal === 'berater') {
-      router.push('/v7/berater/foerderung/firma/' + firmaId + '?tab=mitarbeiter&returnTo=' + cockpitReturnTo);
+      router.push('/v7/berater/foerderung/firma/' + firmaIdLocal + '?tab=mitarbeiter&returnTo=' + cockpitReturnTo);
     } else {
       router.push('/v7/firma/mitarbeiter');
     }
@@ -649,7 +652,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
 
   function handleNeuesProjekt() {
     if (portal === 'berater') {
-      router.push('/v7/berater/foerderung/firma/' + firmaId + '?tab=projekte&returnTo=' + cockpitReturnTo);
+      router.push('/v7/berater/foerderung/firma/' + firmaIdLocal + '?tab=projekte&returnTo=' + cockpitReturnTo);
     } else {
       router.push('/v7/firma/projekte');
     }
@@ -662,7 +665,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
         projektId: selectedProjektId,
         returnTo: 'cockpit',
       });
-      router.push('/v7/berater/foerderung/firma/' + firmaId + '/za?' + params.toString());
+      router.push('/v7/berater/foerderung/firma/' + firmaIdLocal + '/za?' + params.toString());
     } else {
       const params = new URLSearchParams({
         projektId: selectedProjektId,
@@ -672,7 +675,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
     }
   }
 
-  // Klick auf ZA-Nummer -> direkt zur ZASeite (V8-C, kein Dashboard-Overhead)
+  // Klick auf ZA-Nummer -> direkt zur ZASeite
   function handleZAClick(za: ZAData) {
     if (portal === 'berater') {
       const params = new URLSearchParams({
@@ -680,7 +683,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
         zaId: za.id,
         returnTo: 'cockpit',
       });
-      router.push('/v7/berater/foerderung/firma/' + firmaId + '/za?' + params.toString());
+      router.push('/v7/berater/foerderung/firma/' + firmaIdLocal + '/za?' + params.toString());
     } else {
       const params = new URLSearchParams({
         projektId: za.project_id,
