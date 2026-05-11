@@ -4,7 +4,8 @@
 // ============================================================================
 // PZE V7 - NWM-Uebersichtsseite (Berater-Portal)
 // ============================================================================
-// Version: 7.4.5-1
+// Version: 7.4.5-2
+// v7.4.5-2: "< Dashboard"-Link im App-Modus ausgeblendet
 // Datum: 26. Maerz 2026
 //
 // Zeigt alle ZIM_NETZWERK-Projekte aller Kunden des Beraters.
@@ -246,6 +247,7 @@ export default function BeraterNetzwerkPage() {
         {/* Seiten-Header */}
         <div className="mb-6">
           <div className="flex items-center gap-3 mb-1">
+            {typeof window !== 'undefined' && localStorage.getItem('pze_mode') !== 'app' && (
             <button
               onClick={() => router.push('/v7/berater/dashboard')}
               className="flex items-center gap-1 text-gray-500 hover:text-gray-900 text-sm transition-colors"
@@ -253,6 +255,7 @@ export default function BeraterNetzwerkPage() {
               <ArrowLeft size={16} />
               Dashboard
             </button>
+            )}
           </div>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
