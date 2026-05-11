@@ -2,7 +2,8 @@
 
 // ============================================================================
 // BERATER-PORTAL: Firmen-Detail-Seite
-// Version: 7.4.4-5
+// Version: 7.4.4-6
+// v7.4.4-6: handleBack respektiert returnTo-Parameter; firmaName an EmployeeManagement
 // v7.4.4-5: openNew aus searchParams lesen, an EmployeeManagement weitergeben
 //
 // Route: /v7/berater/foerderung/firma/[id]
@@ -68,6 +69,7 @@ export default function BeraterFirmaDetailPage() {
 
   const tabFromUrl = searchParams.get('tab') as TabKey | null;
   const openNew = searchParams.get('openNew') === 'true';
+  const returnTo = searchParams.get('returnTo');
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -171,7 +173,11 @@ export default function BeraterFirmaDetailPage() {
   // ==========================================================================
 
   const handleBack = () => {
-    router.push('/v7/berater/foerderung');
+    if (returnTo) {
+      router.push(decodeURIComponent(returnTo));
+    } else {
+      router.push('/v7/berater/foerderung');
+    }
   };
 
   const handleTabChange = (tab: TabKey) => {
@@ -320,6 +326,7 @@ export default function BeraterFirmaDetailPage() {
             portal="berater"
             canEdit={true}
             openNew={openNew}
+            firmaName={firmaName}
           />
         )}
 
