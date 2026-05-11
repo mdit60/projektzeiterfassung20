@@ -3,8 +3,11 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-20
-// v7.4.9-20: Direkt-Navigation fuer Anlegen-Buttons (kein Doppelklick mehr)
+// Version: 7.4.9-21
+// v7.4.9-21: Bugfix firmaIdLocal Initialisierung - firmaId aus URL-Prop nutzen
+//   - returnTo-Navigation ladet jetzt korrekt die richtige Firma
+//   - Firmenliste nur wenn firmaId leer (kein Auto-Select bei frischem Start)
+// v7.4.9-20: Direkt-Navigation fuer Anlegen-Buttons
 //   - handleNeueFirma: ?openNew=true -> foerderung-page oeffnet Modal direkt
 //   - handleNeuerMitarbeiter: &openNew=true -> EmployeeManagement oeffnet Modal direkt
 //   - handleNeuesProjekt: direkt zu /projekt/neu (kein Umweg ueber Projektliste)
@@ -320,10 +323,9 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
 
   // Berater: Aktuelle Firmenauswahl - '' = Placeholder "Firma auswaehlen"
   // firmaId aus Props ist der URL-Wert; firmaIdLocal steuert die Anzeige
-  // Berater-Portal startet immer mit leerem State (kein Auto-Select)
-  const [firmaIdLocal, setFirmaIdLocal] = useState<string>(
-    portal === 'berater' ? '' : firmaId
-  );
+  // firmaId gesetzt (returnTo-Navigation oder direkte URL) -> direkt laden
+  // firmaId leer -> Firmenliste anzeigen (kein Auto-Select)
+  const [firmaIdLocal, setFirmaIdLocal] = useState<string>(firmaId || '');
 
   // Berater: User-Rolle (fuer Admin-Nav-Tab)
   const [userRole, setUserRole] = useState<string>('consultant');
