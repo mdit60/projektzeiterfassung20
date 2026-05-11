@@ -3,13 +3,10 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-16
-// v7.4.9-16: UX-Verbesserungen
-//   1. Cockpit startet mit "Firma auswaehlen" Placeholder - kein Auto-Select
-//   2. "+ Neue Firma" Button direkt neben Dropdown (nicht ml-auto)
-//   3. Section-Buttons einheitlich mit Text: "+ Neuer MA", "+ Neues Projekt", "+ Neue ZA"
-// v7.4.9-15: Schrift nochmals groesser (text-xs->1rem, text-sm->1.125rem)
-// Datum: 11. Mai 2026
+// Version: 7.4.9-17
+// v7.4.9-17: Bugfix Firma-Auswahl - router.push entfernt aus handleFirmaChange
+//   - Firmenwechsel nur via firmaIdLocal State, kein Remount der Komponente
+// v7.4.9-16: Kein Auto-Select, Neue Firma neben Dropdown, Section-Buttons mit Text
 //
 // Firma-Cockpit als MIS (Management Information System)
 // Zeigt alle relevanten Informationen einer Firma auf einen Blick.
@@ -591,7 +588,6 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
     }
     if (newFirmaId === firmaIdLocal) return;
     setFirmaIdLocal(newFirmaId);
-    router.push('/v7/berater/foerderung/firma/' + newFirmaId + '/cockpit');
   }
 
   function handleNeueFirma() {
