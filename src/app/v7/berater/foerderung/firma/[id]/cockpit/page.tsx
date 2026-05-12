@@ -1,13 +1,15 @@
 'use client';
 
-// TEST-SEITE: Firma-Cockpit (Entwurf Session 40)
 // Route: /v7/berater/foerderung/firma/[id]/cockpit
-// Version: 7.4.9-1
+// Version: 7.4.9-2
+// v7.4.9-2: PortalNav ergaenzt (fehlte komplett)
+// v7.4.9-1: Initiale Version (Session 40)
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import PortalHeader from '@/components/shared/PortalHeader';
+import PortalNav from '@/components/shared/PortalNav';
 import FirmaCockpit from '@/components/shared/FirmaCockpit';
 
 export default function BeraterFirmaCockpitPage() {
@@ -17,6 +19,7 @@ export default function BeraterFirmaCockpitPage() {
 
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState('');
+  const [userRole, setUserRole] = useState('consultant');
   const [firmaName, setFirmaName] = useState('');
 
   useEffect(() => {
@@ -36,14 +39,16 @@ export default function BeraterFirmaCockpitPage() {
         return;
       }
       setUserName(profile.display_name || profile.email || '');
+      setUserRole(profile.role || 'consultant');
 
-      const { data: firma } = await supabase
-        .from('v7_client_companies')
-        .select('name')
-        .eq('id', firmaId)
-        .single();
-
-      setFirmaName(firma?.name || '');
+      if (firmaId !== 'select') {
+        const { data: firma } = await supabase
+          .from('v7_client_companies')
+          .select('name')
+          .eq('id', firmaId)
+          .single();
+        setFirmaName(firma?.name || '');
+      }
       setLoading(false);
     }
     init();
@@ -64,9 +69,13 @@ export default function BeraterFirmaCockpitPage() {
     <div className="min-h-screen bg-gray-50">
       <PortalHeader
         portal="berater"
-        companyName={firmaName}
+        companyName={firmaName || 'Berater-Portal'}
         userName={userName}
-        userRole="consultant"
+        userRole={userRole}
+      />
+      <PortalNav
+        portal="berater"
+        userRole={userRole}
       />
       <FirmaCockpit firmaId={firmaId} portal="berater" />
     </div>

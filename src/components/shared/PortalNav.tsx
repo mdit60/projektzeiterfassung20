@@ -4,7 +4,13 @@
 // ============================================================================
 // PZE V7 - Portal-Navigation
 // ============================================================================
-// Version: 7.4.4-19
+// Version: 7.4.4-22
+// v7.4.4-22: Nav konsistent: aktives Item hervorgehoben statt versteckt,
+//            Forschungszulage als Nav-Item ergaenzt,
+//            Kundenfirmen im App-Modus -> Firmenliste (Cockpit-Auswahl)
+// v7.4.4-21: Home-Button im App-Modus -> /v7/berater/app/cockpit (Startseite)
+//            "Kundenfirmen" im App-Modus ausgeblendet (Zugang ueber Startseite-Kachel)
+// v7.4.4-20: Home-Button nur Icon (kein Label "Cockpit"), Icon 20px, title="Startseite"
 // v7.4.4-19: Cockpit-Button im Classic-Modus (pze_mode='classic') ausgeblendet
 //   kein Cockpit-Einstieg aus der alten Struktur heraus
 // v7.4.4-16: Cockpit-Button als onClick mit Default-Firma-Fallback
@@ -43,6 +49,7 @@ import { createClient } from '@/lib/supabase/client';
 import {
   BarChart3,
   Building2,
+  FlaskConical,
   Home,
   LayoutDashboard,
   Settings,
@@ -87,6 +94,7 @@ const NAV_BERATER: NavItem[] = [
   { key: 'foerderung',    label: 'Kundenfirmen',       href: '/v7/berater/foerderung',    icon: <Building2 size={18} /> },
   { key: 'netzwerk',      label: 'Netzwerk',           href: '/v7/berater/netzwerk',      icon: <Network size={18} /> },
   { key: 'multiprojekt',  label: 'Kapazitaetsplanung', href: '/v7/berater/multiprojekt',  icon: <BarChart3 size={18} /> },
+  { key: 'fzul',          label: 'Forschungszulage',   href: '/v7/berater/fzul',          icon: <FlaskConical size={18} /> },
   { key: 'admin',         label: 'Administration',     href: '/v7/berater/admin',         icon: <Settings size={18} />, isAdmin: true },
 ];
 
@@ -290,9 +298,13 @@ export default function PortalNav({
   })();
   const isCockpitActive = pathname ? pathname.endsWith('/cockpit') : false;
 
-  // Cockpit-Klick: im App-Modus -> App-Cockpit, sonst select-Firmenliste
+  // Cockpit-Klick: Im App-Modus immer zur Startseite
   async function handleCockpitClick() {
-    router.push('/v7/berater/app/cockpit');
+    if (typeof window !== 'undefined' && localStorage.getItem('pze_mode') === 'app') {
+      router.push('/v7/berater/app/cockpit');
+    } else {
+      router.push('/v7/berater/foerderung/firma/select/cockpit');
+    }
   }
 
   // -- Config laden ----------------
@@ -329,30 +341,49 @@ export default function PortalNav({
               <button
                 onClick={handleCockpitClick}
                 className={[
-                  'flex items-center space-x-1.5 px-4 py-3 text-sm font-medium',
-                  'border-b-2 transition-colors duration-150 whitespace-nowrap mr-2',
+                  'flex items-center justify-center px-3 py-3',
+                  'border-b-2 transition-colors duration-150 mr-2',
                   isCockpitActive
                     ? 'border-current'
                     : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300',
                 ].join(' ')}
                 style={isCockpitActive ? { color: colors.primary, borderColor: colors.primary } : undefined}
+                title="Startseite"
               >
-                <Home size={18} />
-                <span>Cockpit</span>
+                <Home size={20} />
               </button>
               <div className="h-5 w-px bg-gray-200 mr-2" />
             </>
           )}
           {navItems.map((item) => {
-            // Im App-Modus: Kundenfirmen ausblenden (Firmenwahl via App-Cockpit)
-            if (item.key === 'foerderung' &&
-                typeof window !== 'undefined' &&
-                localStorage.getItem('pze_mode') === 'app') return null;
+            const isAppMode = typeof window !== 'undefined' && localStorage.getItem('pze_mode') === 'app';
 
             if (portal === 'berater' && pathname) {
               if (item.key === 'foerderung') {
+                // Im App-Modus: Kundenfirmen -> Firmenliste (Cockpit-Auswahl)
+                if (isAppMode) {
+                  const isOnFoerderung = pathname.startsWith('/v7/berater/foerderung');
+                  return (
+                    <button
+                      key={item.key}
+                      onClick={() => router.push('/v7/berater/foerderung/firma/select/cockpit')}
+                      className={[
+                        'flex items-center space-x-1.5 px-4 py-3 text-sm font-medium',
+                        'border-b-2 transition-colors duration-150 whitespace-nowrap',
+                        isOnFoerderung
+                          ? 'border-current'
+                          : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300',
+                      ].join(' ')}
+                      style={isOnFoerderung ? { color: colors.primary, borderColor: colors.primary } : undefined}
+                    >
+                      {item.icon}
+                      <span>{item.label}</span>
+                    </button>
+                  );
+                }
                 if (pathname === '/v7/berater/foerderung') return null;
-              } else {
+              } else if (!isAppMode) {
+                // Nur im Classic-Modus: aktives Item verstecken
                 if (pathname.startsWith(item.href)) return null;
               }
             }

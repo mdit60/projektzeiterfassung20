@@ -5,7 +5,8 @@
 // PZE V8-C - Standalone Zahlungsanforderungs-Seite
 // ============================================================================
 // Datum: 9. Mai 2026
-// Version: 1.0.7
+// Version: 1.0.8
+// v1.0.8: "Zurueck zum Cockpit" -> "Zurueck" (kein Cockpit-Begriff mehr in UI)
 // v1.0.7: Volle Breite ohne max-w Einschraenkung
 // v1.0.6: Schriftgroesse angepasst (text-xs->1rem, text-sm->1.125rem) - identisch FirmaCockpit
 //
@@ -84,9 +85,7 @@ export default function ZASeite({
       : `/v7/berater/foerderung/firma/${clientCompanyId}`
     : '/v7/firma/dashboard';
 
-  const zurueckLabel = returnTo === 'cockpit'
-    ? '\u2190 Zurueck zum Cockpit'
-    : '\u2190 Zurueck zur Firma';
+  const zurueckLabel = '\u2190 Zurueck';
 
   // ============================================================================
   // LOADING
