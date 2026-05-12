@@ -4,12 +4,10 @@
 // ============================================================================
 // PZE V7 - App-Navigation (neue Struktur)
 // ============================================================================
-// Version: 1.0.0
+// Version: 1.0.1
+// v1.0.1: Home-Button nur noch Icon (Haeuschen) ohne Label "Cockpit"
+//         Icon etwas groesser (20px) fuer eigenstaendige visuelle Praesenz
 // v1.0.0: Neue saubere Nav fuer App-Modus (pze_mode='app')
-//   - HOME -> /v7/berater/app/cockpit (Berater-App-Cockpit)
-//   - Netzwerk, Kapazitaetsplanung, FZul wie bisher
-//   - Kein Cockpit-Button (ist bereits HOME)
-//   - Komplett getrennt von PortalNav (keine Querverbindungen)
 // ============================================================================
 
 import { usePathname, useRouter } from 'next/navigation';
@@ -28,8 +26,9 @@ export default function AppNav({ userRole }: AppNavProps) {
   const isActive = (path: string) =>
     pathname?.startsWith(path) ?? false;
 
+  const isCockpitActive = pathname === '/v7/berater/app/cockpit';
+
   const navItems = [
-    { key: 'cockpit',     label: 'Cockpit',            href: '/v7/berater/app/cockpit',    icon: <Home size={18} /> },
     { key: 'netzwerk',    label: 'Netzwerk',            href: '/v7/berater/netzwerk',        icon: <Network size={18} /> },
     { key: 'kapazitaet',  label: 'Kapazitaetsplanung',  href: '/v7/berater/multiprojekt',    icon: <BarChart3 size={18} /> },
     { key: 'fzul',        label: 'Forschungszulage',    href: '/v7/berater/fzul',            icon: <FlaskConical size={18} /> },
@@ -40,10 +39,25 @@ export default function AppNav({ userRole }: AppNavProps) {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center py-1 -mb-px overflow-visible">
 
+          {/* Home-Button: nur Icon, kein Label */}
+          <button
+            onClick={() => router.push('/v7/berater/app/cockpit')}
+            className={[
+              'flex items-center justify-center px-3 py-3',
+              'border-b-2 transition-colors duration-150 mr-1',
+              isCockpitActive
+                ? 'border-current'
+                : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300',
+            ].join(' ')}
+            style={isCockpitActive ? { color: PRIMARY, borderColor: PRIMARY } : undefined}
+            title="Startseite"
+          >
+            <Home size={20} />
+          </button>
+
+          {/* Regulaere Nav-Items mit Icon + Label */}
           {navItems.map((item) => {
-            const active = item.key === 'cockpit'
-              ? pathname === '/v7/berater/app/cockpit'
-              : isActive(item.href);
+            const active = isActive(item.href);
             return (
               <button
                 key={item.key}
