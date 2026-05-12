@@ -1,72 +1,86 @@
-# GIT-SICHERUNG Session 44
+# GIT-SICHERUNG Session 44 (final)
 
 **Datum:** 12. Mai 2026
 **SW-Release:** V7.4.9
-**Pflichtenheft:** v4.92
-**PROD-Stand:** AppNav v1.0.1, PortalNav v7.4.4-22, ZASeite v1.0.8, berater-cockpit-page v7.4.9-3
+**Pflichtenheft:** v4.93
+**PROD-Stand:** FirmaCockpit v7.4.9-28, PortalNav v7.4.4-23, AppNav v1.0.1, MitarbeiterModal v1.0.1, ZASeite v1.0.9, login-page v7.3.90-6
 
 ---
 
 ## Zusammenfassung
 
-Session 44 hatte zwei Schwerpunkte: (1) Bereinigung aller Projekt- und Archivverzeichnisse,
-(2) Konsistente Navigation in der neuen App-Struktur. Der Begriff "Cockpit" wurde aus
-der gesamten UI entfernt, ersetzt durch ein reines Home-Icon (Haeuschen). Die Nav-Zeile
-zeigt jetzt auf jeder Seite dieselben Items, aktive Items werden hervorgehoben statt
-versteckt. Forschungszulage wurde als Nav-Item ergaenzt.
+Session 44 war ein umfassender Umbau der Navigation und MA-Verwaltung:
+- "Cockpit" komplett aus der UI entfernt, Home nur noch als Haeuschen-Icon
+- Nav-Zeile konsistent auf jeder Seite (aktive Items hervorgehoben, nicht versteckt)
+- Forschungszulage als Nav-Item ergaenzt
+- "Kundenfirmen" in "Unternehmen" umbenannt
+- Portal-Rolle "Projektleiter" in "Projektkoordinator" umbenannt
+- Alle returnTo-URLs App-Mode-aware (pze_mode aus localStorage)
+- MitarbeiterModal ersetzt EmployeeManagement im Cockpit (kein Table-Bug mehr)
+- Gehaltsdaten + Stundensatzberechnung (Anlage 6.1) im MA-Modal
+- Login-Redirect bei pze_mode='app' direkt zur Startseite
+- Projektverzeichnis komplett bereinigt (downloads, archiv, Claude PV)
+- Neue Konvention: Upload-Checkliste am Session-Ende
 
 ---
 
 ## Geaenderte Dateien
 
+### Neue Dateien
+| Datei | Ziel | Beschreibung |
+|-------|------|-------------|
+| MitarbeiterModal-v1_0_1.tsx | src/components/shared/MitarbeiterModal.tsx | MA Neu/Bearbeiten/Passwort, Gehaltsdaten, Stundensatz |
+| SQL-MIGRATION-gehaltsdaten-v1.sql | (manuell DEV+PROD) | monthly_salary, annual_bonus, company_weekly_hours, hourly_rate |
+
 ### Aktualisierte Komponenten
-| Datei | Version | Ziel | Aenderung |
-|-------|---------|------|-----------|
-| AppNav-v1_0_1.tsx | 1.0.1 | src/components/shared/AppNav.tsx | Home nur Icon, kein Label "Cockpit" |
-| PortalNav-v7_4_4-22.tsx | 7.4.4-22 | src/components/shared/PortalNav.tsx | Home->Startseite, Kundenfirmen->Firmenliste, FZul ergaenzt, aktive Items hervorgehoben |
-| ZASeite-v1_0_8.tsx | 1.0.8 | src/components/shared/ZASeite.tsx | "Zurueck zum Cockpit" -> "Zurueck" |
+| Datei | Version | Ziel |
+|-------|---------|------|
+| AppNav-v1_0_1.tsx | 1.0.1 | src/components/shared/AppNav.tsx |
+| PortalNav-v7_4_4-23.tsx | 7.4.4-23 | src/components/shared/PortalNav.tsx |
+| FirmaCockpit-v7_4_9-28.tsx | 7.4.9-28 | src/components/shared/FirmaCockpit.tsx |
+| ZASeite-v1_0_9.tsx | 1.0.9 | src/components/shared/ZASeite.tsx |
 
 ### Aktualisierte Seiten
-| Datei | Version | Ziel | Aenderung |
-|-------|---------|------|-----------|
-| berater-multiprojekt-page-v7_4_8-12.tsx | 7.4.8-12 | src/app/v7/berater/multiprojekt/page.tsx | Dashboard-Link im App-Modus ausgeblendet |
-| berater-firma-detail-page-v7_4_4-7.tsx | 7.4.4-7 | src/app/v7/berater/foerderung/firma/[id]/page.tsx | "Zurueck zum Cockpit" -> "Zurueck" |
-| berater-cockpit-page-v7_4_9-3.tsx | 7.4.9-3 | src/app/v7/berater/foerderung/firma/[id]/cockpit/page.tsx | userRole korrekt, select-Modus, keine doppelte PortalNav |
+| Datei | Version | Ziel |
+|-------|---------|------|
+| berater-cockpit-page-v7_4_9-3.tsx | 7.4.9-3 | src/app/v7/berater/foerderung/firma/[id]/cockpit/page.tsx |
+| berater-firma-detail-page-v7_4_4-8.tsx | 7.4.4-8 | src/app/v7/berater/foerderung/firma/[id]/page.tsx |
+| berater-multiprojekt-page-v7_4_8-12.tsx | 7.4.8-12 | src/app/v7/berater/multiprojekt/page.tsx |
+| berater-app-cockpit-page-v1_0_1.tsx | 1.0.1 | src/app/v7/berater/app/cockpit/page.tsx |
+| login-page-v7_3_90-6.tsx | 7.3.90-6 | src/app/login/page.tsx |
+
+---
+
+## DB-Migration Session 44
+
+```sql
+ALTER TABLE v7_employees ADD COLUMN IF NOT EXISTS monthly_salary numeric;
+ALTER TABLE v7_employees ADD COLUMN IF NOT EXISTS annual_bonus numeric DEFAULT 0;
+ALTER TABLE v7_employees ADD COLUMN IF NOT EXISTS company_weekly_hours numeric DEFAULT 40;
+ALTER TABLE v7_employees ADD COLUMN IF NOT EXISTS hourly_rate numeric;
+```
+Ausgefuehrt auf DEV und PROD am 12.05.2026.
 
 ---
 
 ## Architektur-Entscheidungen Session 44
 
-1. **Kein "Cockpit" in der UI:** Home-Button ist nur ein Haeuschen-Icon (20px), kein Text.
-   Universell verstaendlich, spart Platz. Tooltip "Startseite" beim Hovern.
-2. **Konsistente Nav:** Im App-Modus werden aktive Items hervorgehoben (nicht versteckt).
-   Auf jeder Seite sieht der User: Home | Kundenfirmen | Netzwerk | Kapazitaetsplanung |
-   Forschungszulage | Administration (nur system_admin).
-3. **Kundenfirmen im App-Modus:** Link fuehrt zur Firmenliste mit Buchstaben-Kacheln
-   (/v7/berater/foerderung/firma/select/cockpit), nicht zur alten Tabelle.
-4. **FirmaCockpit rendert eigene PortalNav:** Page-Wrapper darf keine zweite PortalNav
-   enthalten, sonst Verdopplung.
-5. **Projektverzeichnis-Workflow:** Waehrend der Session nur ins downloads/ herunterladen.
-   Am Session-Ende Upload-Checkliste fuer Claude-Projektverzeichnis erstellen.
+1. **Kein "Cockpit" in der UI:** Home-Button ist nur Haeuschen-Icon, universell verstaendlich
+2. **Konsistente Nav:** Aktive Items hervorgehoben (nicht versteckt), ueberall gleich
+3. **MitarbeiterModal statt EmployeeManagement:** Eigenes leichtgewichtiges Modal im Cockpit, kein Table-Bug
+4. **Gehaltsdaten am Mitarbeiter:** monthly_salary, annual_bonus in v7_employees (stabil). Bewilligter Stundensatz bleibt projektspezifisch in v7_project_assignments
+5. **"Unternehmen" statt "Kundenfirmen":** Professioneller, neutraler Begriff
+6. **"Projektkoordinator" statt "Projektleiter":** Vermeidet Verwechslung mit Projekt-Rolle
+7. **Upload-Checkliste:** Waehrend Session nur downloads, am Ende Checkliste fuers Claude-PV
 
 ---
 
-## Nicht-Code-Arbeiten Session 44
+## Offene Punkte
 
-- Downloads-Verzeichnis bereinigt (57 alte Versionen -> archiv/ mit Unterordnern)
-- Archiv-Unterordner aufgeraeumt (komponenten, git-sicherung, pflichtenheft, konzepte, anleitungen, sonstige)
-- Claude-Projektverzeichnis bereinigt (81 alte Versionen entfernt)
-- PZE-Root bereinigt (alte PFLICHTENHEFT + GIT-SICHERUNG per git rm)
-
----
-
-## Offene Punkte fuer naechste Session
-
-1. Firmen-Cockpit Sub-Pages verdrahten (Neues Projekt, Neue ZA, Firmendaten,
-   Projektdaten/Fortschritt/Stundennachweis, ZA bearbeiten, MA bearbeiten)
-2. returnTo-URLs auf /v7/berater/app/ umstellen
-3. Login-Redirect: pze_mode='app' -> direkt zu App-Cockpit
-4. FZul-Seite: PortalHeader + PortalNav einbauen (wenn Modul ausgebaut wird)
+1. MA-Modal: Teilzeit-Historie (pWAZ-Aenderungen ueber Zeit)
+2. MA-Modal: Login-Erstellung (aktuell nur ueber alte Mitarbeiterverwaltung)
+3. FZul-Seite: PortalHeader + PortalNav (wenn Modul ausgebaut wird)
+4. Classic-Mode Seiten: "Kundenfirmen" noch nicht umbenannt
 5. ProjektFortschrittPanel auf projektfortschritt-utils refactoren
 
 ---
@@ -75,8 +89,8 @@ versteckt. Forschungszulage wurde als Nav-Item ergaenzt.
 
 ```bash
 git checkout v7-dev
-git add PFLICHTENHEFT-v4_92.md GIT-SICHERUNG-v7_4_9-session44.md
-git commit -m "Session 44: Pflichtenheft v4.92 + GIT-Sicherung"
+git add PFLICHTENHEFT-v4_93.md GIT-SICHERUNG-v7_4_9-session44.md
+git commit -m "Session 44 final: Pflichtenheft v4.93 + GIT-Sicherung"
 git push origin v7-dev
 git checkout main && git pull && git merge v7-dev --no-ff --no-edit && git push origin main && git checkout v7-dev
 ```

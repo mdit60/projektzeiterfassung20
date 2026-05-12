@@ -4,7 +4,7 @@
 **SW-Release:** V7.4.9
 **Datum:** 12. Mai 2026
 **Projekt:** Projektzeiterfassung fuer FuE-Foerdervorhaben
-**Status:** Session 44: Nav-Konsistenz, Home nur Icon, "Cockpit" aus UI entfernt, Projektverzeichnis bereinigt
+**Status:** Session 44: Nav komplett, MitarbeiterModal, Gehaltsdaten, Unternehmen-Umbenennung, Login-Redirect
 
 ---
 
@@ -562,13 +562,13 @@ Alte Struktur bleibt unangetastet. Umschaltung nur fuer system_admin.
 | NWMEinstellungenPanel.tsx | 7.4.5-1 | NWM-Settings, Bankdaten, Rechnungskonfig |
 | NWMPartnerPanel.tsx | 7.4.5-4 | Netzwerkpartner, Smart-Quoten |
 | PortalHeader.tsx | **7.3.95-11** | Ansicht-Wechsler (system_admin: Klassisch/App) |
-| PortalNav.tsx | **7.4.4-22** | App-Modus: Home->Startseite, Kundenfirmen->Firmenliste, FZul, aktive Items hervorgehoben |
+| PortalNav.tsx | **7.4.4-23** | App-Modus: Home->Startseite, Unternehmen->Firmenliste, FZul, aktive Items hervorgehoben |
 | AppNav.tsx | **1.0.1** | Neue Navigation fuer App-Struktur, Home nur Icon |
 | ProjectTeamManager.tsx | **7.4.4-17** | Team-Verwaltung, ROLE_OPTIONS auf 3 ZA-Werte reduziert |
 | SystemConfigPanel.tsx | **7.4.4-2** | Config-Toggles: manuals_enabled + cockpit_berater/firma_enabled |
 | TimesheetForm.tsx | **7.4.6-17** | Phase 3 Arbeitszeitgrenzen: harte Grenzen, Zellfaerbung |
 | BerichtePage.tsx | **7.4.6-10** | Dashboard (Titel) + Meine Projekte integriert + MA-Redirect |
-| FirmaCockpit.tsx | **7.4.9-23** | Inline MA-Modal, select-Modus, alle MAs laden |
+| FirmaCockpit.tsx | **7.4.9-28** | Inline MA-Modal, select-Modus, alle MAs laden |
 | ProjektFortschrittPanel.tsx | 7.4.5-22 | Zielerreichungs-Prognose, PDF-Export |
 | StundennachweisMatrix.tsx | **7.4.6-2** | Quelle: projectAssignments (Projektteam) |
 | WorkPackageTable.tsx | **7.4.3-12** | Arbeitsplan, PM 3 Dezimalstellen |
@@ -923,6 +923,7 @@ git checkout main && git pull && git merge v7-dev --no-ff --no-edit && git push 
 
 | Version | Datum | Aenderungen |
 |---------|-------|-------------|
+| v4.93 | 12.05.2026 | Session 44 final: MitarbeiterModal v1.0.1 (Neu/Bearbeiten/PW, Gehaltsdaten Anlage 6.1). FirmaCockpit v7.4.9-28 (App-Mode-aware, PortalNav Select, Unternehmen). PortalNav v7.4.4-23 (konsistent, FZul). "Kundenfirmen"->"Unternehmen". "Projektkoordinator". Login-Redirect. DB-Migration Gehaltsdaten. |
 | v4.92 | 12.05.2026 | Session 44: Nav-Konsistenz. AppNav v1.0.1 (Home nur Icon). PortalNav v7.4.4-22 (Home->Startseite, Kundenfirmen->Firmenliste, FZul ergaenzt, aktive Items hervorgehoben). ZASeite v1.0.8, berater-firma-detail v7.4.4-7 (kein "Cockpit" mehr). berater-cockpit-page v7.4.9-3 (keine doppelte Nav). berater-multiprojekt-page v7.4.8-12 (Dashboard-Link App-Modus). Projektverzeichnis-Bereinigung. Upload-Checkliste-Konvention. |
 | v4.91 | 11.05.2026 | Session 43: Neue parallele App-Struktur (/v7/berater/app/). Ansicht-Wechsler (PortalHeader v7.3.95-11, nur system_admin). AppNav v1.0.0, berater-app-cockpit-page v1.0.0 (4 Kacheln + Firma-Dropdown), berater-app-firma-page v1.0.0. FirmaCockpit v7.4.9-23 (Inline MA-Modal, select-Modus, MA-Bug). EmployeeManagement v7.3.95-17 (modalOnly+onClose). PortalNav v7.4.4-19 (App-Modus). ZAPanel v7.4.4-52 (ZA speichern oben, Grid 50/50). Dashboard-Links in KPT+Netzwerk App-Modus ausgeblendet. |
 | v4.90 | 08.05.2026 | Session 42 komplett: ZASeite v1.0.7, ZAPanel v7.4.4-50, PortalFooter v7.4.9-1, ZA-Workflow. |
