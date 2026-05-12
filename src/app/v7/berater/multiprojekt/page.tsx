@@ -4,7 +4,8 @@
 // ============================================================================
 // PZE V7 - Kapazitaetsplanungs-Tool (Berater-Portal)
 // ============================================================================
-// Version: 7.4.8-11
+// Version: 7.4.8-12
+// v7.4.8-12: Dashboard-Link im App-Modus (pze_mode='app') ausgeblendet
 // Datum: 24. April 2026
 //
 // Layout:
@@ -796,11 +797,13 @@ export default function MultiprojektPage() {
       <main className="flex-1 w-full">
         <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
 
-          {/* Zurueck */}
+          {/* Zurueck - nur im Classic-Modus */}
+          {typeof window !== 'undefined' && localStorage.getItem('pze_mode') !== 'app' && (
           <button onClick={() => router.push('/v7/berater/dashboard')}
             className="flex items-center gap-1 text-sm text-gray-400 hover:text-[#002451] mb-5">
             <ChevronLeft className="w-4 h-4" /> Dashboard
           </button>
+          )}
 
           {/* ============================================================ */}
           {/* KONTROLLLEISTE OBEN: Titel + Firma + Jahresfenster            */}
