@@ -3,7 +3,10 @@
 // src/components/shared/MitarbeiterModal.tsx
 // ============================================================================
 // SHARED COMPONENT: MitarbeiterModal
-// Version: 1.0.0
+// Version: 1.0.1
+// v1.0.1: Gehaltsfelder ergaenzt (Anlage 6.1 Stundensatzberechnung)
+//   monthly_salary, annual_bonus, company_weekly_hours, hourly_rate
+//   Live-Berechnung: Jahresbrutto, Jahresarbeitsstd., Teilzeitfaktor, Stundensatz
 // Leichtgewichtiges Modal fuer MA-Verwaltung direkt im Cockpit.
 // Ersetzt EmployeeManagement-Abhaengigkeit im FirmaCockpit.
 // Modi: 'new' (Anlegen), 'edit' (Bearbeiten), 'password' (PW-Reset)
@@ -43,6 +46,9 @@ interface EmployeeFormData {
   position_title: string;
   qualification: string;
   weekly_hours: string;
+  company_weekly_hours: string;
+  monthly_salary: string;
+  annual_bonus: string;
   employment_start: string;
   employment_end: string;
 }
@@ -56,6 +62,9 @@ const EMPTY_FORM: EmployeeFormData = {
   position_title: '',
   qualification: '',
   weekly_hours: '40',
+  company_weekly_hours: '40',
+  monthly_salary: '',
+  annual_bonus: '0',
   employment_start: '',
   employment_end: '',
 };
@@ -138,6 +147,9 @@ export default function MitarbeiterModal({
         position_title: isSonstige ? data.position_title : (data.position_title || ''),
         qualification: data.qualification || '',
         weekly_hours: data.weekly_hours != null ? String(data.weekly_hours) : '40',
+        company_weekly_hours: data.company_weekly_hours != null ? String(data.company_weekly_hours) : '40',
+        monthly_salary: data.monthly_salary != null ? String(data.monthly_salary).replace('.', ',') : '',
+        annual_bonus: data.annual_bonus != null ? String(data.annual_bonus).replace('.', ',') : '0',
         employment_start: data.employment_start || '',
         employment_end: data.employment_end || '',
       });
@@ -210,9 +222,21 @@ export default function MitarbeiterModal({
       position_title: form.position_title.trim() || null,
       qualification: form.qualification || null,
       weekly_hours: weeklyHours,
+      company_weekly_hours: parseFloat(form.company_weekly_hours.replace(',', '.')) || 40,
+      monthly_salary: form.monthly_salary ? parseFloat(form.monthly_salary.replace(',', '.')) : null,
+      annual_bonus: form.annual_bonus ? parseFloat(form.annual_bonus.replace(',', '.')) : 0,
       employment_start: form.employment_start || null,
       employment_end: form.employment_end || null,
     };
+
+    // Stundensatz berechnen wenn Gehaltsdaten vorhanden
+    if (payload.monthly_salary && weeklyHours > 0) {
+      const jahresbrutto = payload.monthly_salary * 12 + (payload.annual_bonus || 0);
+      const jahresstunden = weeklyHours * 52;
+      payload.hourly_rate = Math.round((jahresbrutto / jahresstunden) * 100) / 100;
+    } else {
+      payload.hourly_rate = null;
+    }
 
     try {
       if (mode === 'new') {
@@ -426,7 +450,110 @@ export default function MitarbeiterModal({
                 </div>
               </div>
 
-              {/* Position + Qualifikation */}
+
+              {/* ============================================================ */}
+              {/* ANLAGE 6.1 - STUNDENSATZBERECHNUNG                          */}
+              {/* ============================================================ */}
+              <div className="border border-gray-200 rounded-lg p-4 space-y-3">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-600">
+                  Anlage 6.1 - Stundensatzberechnung
+                </h3>
+
+                {/* Monatsbruttolohn */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Fix-Monatsbruttolohn (EUR)</label>
+                  <input name="monthly_salary" type="text" value={form.monthly_salary} onChange={handleChange}
+                    placeholder="z.B. 4200" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400" />
+                  <p className="text-xs text-gray-400 mt-1">Fix-Monatsbruttolohn lt. Arbeitsvertrag</p>
+                </div>
+
+                {/* Sonderzahlungen */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Weitere fixe Gehaltsbestandteile (EUR/Jahr)</label>
+                  <input name="annual_bonus" type="text" value={form.annual_bonus} onChange={handleChange}
+                    placeholder="0" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400" />
+                  <p className="text-xs text-gray-400 mt-1">Anlage 6.1a: Weihnachtsgeld, Urlaubsgeld etc. (oft 0)</p>
+                </div>
+
+                {/* Jahresbrutto (berechnet) */}
+                {form.monthly_salary && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 text-sm font-medium text-blue-900">
+                    = Jahresbrutto: <strong>{(() => {
+                      const ms = parseFloat(form.monthly_salary.replace(',', '.')) || 0;
+                      const ab = parseFloat(form.annual_bonus.replace(',', '.')) || 0;
+                      return ((ms * 12 + ab)).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    })()}</strong> EUR
+                  </div>
+                )}
+
+                {/* pWAZ + bWAZ */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">pWAZ (Std.)</label>
+                    <input name="weekly_hours" type="number" step="0.5" min="1" max="45"
+                      value={form.weekly_hours} onChange={handleChange}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400" />
+                    <p className="text-xs text-gray-400 mt-1">lt. Arbeitsvertrag</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">bWAZ (Std.)</label>
+                    <input name="company_weekly_hours" type="number" step="0.5" min="1" max="45"
+                      value={form.company_weekly_hours} onChange={handleChange}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400" />
+                    <p className="text-xs text-gray-400 mt-1">Betriebsueblich (Vollzeit)</p>
+                  </div>
+                </div>
+
+                {/* Berechnete Werte */}
+                {form.monthly_salary && (
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-2 text-sm text-gray-700 space-y-1">
+                    {(() => {
+                      const pWAZ = parseFloat(form.weekly_hours) || 40;
+                      const bWAZ = parseFloat(form.company_weekly_hours) || 40;
+                      const ms = parseFloat(form.monthly_salary.replace(',', '.')) || 0;
+                      const ab = parseFloat(form.annual_bonus.replace(',', '.')) || 0;
+                      const jahresbrutto = ms * 12 + ab;
+                      const jahresstunden = pWAZ * 52;
+                      const teilzeitfaktor = bWAZ > 0 ? pWAZ / bWAZ : 1;
+                      const stundensatz = jahresstunden > 0 ? jahresbrutto / jahresstunden : 0;
+                      return (
+                        <>
+                          <div className="flex justify-between">
+                            <span>Jahresarbeitsstd. (pWAZ x 52):</span>
+                            <span className="font-medium">{jahresstunden.toLocaleString('de-DE')}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Teilzeitfaktor (pWAZ/bWAZ):</span>
+                            <span className="font-medium">{teilzeitfaktor.toLocaleString('de-DE', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}</span>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {/* Stundensatz (berechnet) */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Stundensatz (EUR/h)</label>
+                  <input
+                    type="text"
+                    readOnly
+                    value={(() => {
+                      const pWAZ = parseFloat(form.weekly_hours) || 0;
+                      const ms = parseFloat((form.monthly_salary || '0').replace(',', '.')) || 0;
+                      const ab = parseFloat((form.annual_bonus || '0').replace(',', '.')) || 0;
+                      if (!ms || !pWAZ) return '';
+                      const jahresbrutto = ms * 12 + ab;
+                      const stundensatz = jahresbrutto / (pWAZ * 52);
+                      return stundensatz.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    })()}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-700"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Spalte 3: (Monatslohn x 12 + Fixbestandteile) / (pWAZ x 52)</p>
+                </div>
+              </div>
+
+              {/* Position + Qualifikation (Original) */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Position/Funktion</label>
@@ -476,24 +603,8 @@ export default function MitarbeiterModal({
                 </div>
               )}
 
-              {/* Wochenstunden + Beschaeftigt seit */}
+              {/* Beschaeftigungszeitraum */}
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Wochenstunden (pWAZ) <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    name="weekly_hours"
-                    type="number"
-                    step="0.5"
-                    min="1"
-                    max="45"
-                    value={form.weekly_hours}
-                    onChange={handleChange}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
-                  />
-                  <p className="text-xs text-gray-400 mt-1">Persoenliche Wochenarbeitszeit lt. Vertrag</p>
-                </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Beschaeftigt seit</label>
                   <input
@@ -504,19 +615,17 @@ export default function MitarbeiterModal({
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
                   />
                 </div>
-              </div>
-
-              {/* Beschaeftigt bis */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Beschaeftigt bis</label>
-                <input
-                  name="employment_end"
-                  type="date"
-                  value={form.employment_end}
-                  onChange={handleChange}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
-                />
-                <p className="text-xs text-gray-400 mt-1">Leer lassen wenn noch beschaeftigt</p>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Beschaeftigt bis</label>
+                  <input
+                    name="employment_end"
+                    type="date"
+                    value={form.employment_end}
+                    onChange={handleChange}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Leer lassen wenn noch beschaeftigt</p>
+                </div>
               </div>
 
               {/* Fehler */}
