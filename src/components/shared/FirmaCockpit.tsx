@@ -3,7 +3,9 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-26
+// Version: 7.4.9-28
+// v7.4.9-28: PortalNav im Select-Modus (Unternehmensliste) ergaenzt
+// v7.4.9-27: "Kundenfirmen" -> "Unternehmen" ueberall in UI
 // v7.4.9-26: EmployeeManagement komplett entfernt, neues MitarbeiterModal
 //   - Neuer MA: eigenes Modal statt EmployeeManagement (kein Table-Bug mehr)
 //   - MA bearbeiten: Pencil-Icon oeffnet Edit-Modal direkt
@@ -326,7 +328,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
   const [zaList, setZaList] = useState<ZAData[]>([]);
   const [showInactiveProjekte, setShowInactiveProjekte] = useState(false);
 
-  // Berater: Alle Kundenfirmen fuer Dropdown
+  // Berater: Alle Unternehmen fuer Dropdown
   const [alleFirmen, setAlleFirmen] = useState<FirmaListItem[]>([]);
 
   // Berater: Aktuelle Firmenauswahl - '' = Placeholder "Firma auswaehlen"
@@ -393,7 +395,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
       setLoading(true);
       setError(null);
 
-      // Berater-Portal: Alle Kundenfirmen fuer Dropdown laden
+      // Berater-Portal: Alle Unternehmen fuer Dropdown laden
       if (portal === 'berater') {
         await loadAlleFirmen();
       }
@@ -782,17 +784,19 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
   // Berater-Portal: Kein Auto-Select - Firmenliste zur Auswahl
   if (portal === 'berater' && !firmaIdLocal) {
     return (
+      <>
+      <PortalNav portal={portal} userRole={userRole} />
       <div className="max-w-7xl mx-auto p-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
             <Building2 className="w-5 h-5" style={{ color: primaryColor }} />
-            Kundenfirmen
+            Unternehmen
           </h1>
           <button
             onClick={handleNeueFirma}
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-600 font-medium transition-colors"
-            title="Neue Kundenfirma anlegen"
+            title="Neues Unternehmen anlegen"
           >
             <Plus className="w-3.5 h-3.5" />
             Neue Firma
@@ -805,7 +809,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
             {alleFirmen.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-3">
                 <Building2 className="w-10 h-10 opacity-20" />
-                <p className="text-sm">Keine Kundenfirmen vorhanden</p>
+                <p className="text-sm">Keine Unternehmen vorhanden</p>
               </div>
             ) : (
               <ul className="divide-y divide-gray-100">
@@ -838,6 +842,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
           )}
         </div>
       </div>
+      </>
     );
   }
 
@@ -903,7 +908,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
             <button
               onClick={handleNeueFirma}
               className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-600 font-medium transition-colors"
-              title="Neue Kundenfirma anlegen"
+              title="Neues Unternehmen anlegen"
             >
               <Plus className="w-3.5 h-3.5" />
               Neue Firma

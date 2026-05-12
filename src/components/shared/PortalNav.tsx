@@ -4,7 +4,8 @@
 // ============================================================================
 // PZE V7 - Portal-Navigation
 // ============================================================================
-// Version: 7.4.4-22
+// Version: 7.4.4-23
+// v7.4.4-23: "Kundenfirmen" -> "Unternehmen"
 // v7.4.4-22: Nav konsistent: aktives Item hervorgehoben statt versteckt,
 //            Forschungszulage als Nav-Item ergaenzt,
 //            Kundenfirmen im App-Modus -> Firmenliste (Cockpit-Auswahl)
@@ -91,7 +92,7 @@ const PORTAL_COLORS = {
 // ============================================================================
 
 const NAV_BERATER: NavItem[] = [
-  { key: 'foerderung',    label: 'Kundenfirmen',       href: '/v7/berater/foerderung',    icon: <Building2 size={18} /> },
+  { key: 'foerderung',    label: 'Unternehmen',       href: '/v7/berater/foerderung',    icon: <Building2 size={18} /> },
   { key: 'netzwerk',      label: 'Netzwerk',           href: '/v7/berater/netzwerk',      icon: <Network size={18} /> },
   { key: 'multiprojekt',  label: 'Kapazitaetsplanung', href: '/v7/berater/multiprojekt',  icon: <BarChart3 size={18} /> },
   { key: 'fzul',          label: 'Forschungszulage',   href: '/v7/berater/fzul',          icon: <FlaskConical size={18} /> },
