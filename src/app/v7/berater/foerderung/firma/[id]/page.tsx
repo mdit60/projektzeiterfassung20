@@ -2,7 +2,8 @@
 
 // ============================================================================
 // BERATER-PORTAL: Firmen-Detail-Seite
-// Version: 7.4.4-7
+// Version: 7.4.4-8
+// v7.4.4-8: "Kundenfirmen" -> "Unternehmen"
 // v7.4.4-7: "Zurueck zum Cockpit" -> "Zurueck" (kein Cockpit-Begriff mehr in UI)
 // v7.4.4-6: Zurueck-Button Label dynamisch ("Zurueck zum Cockpit" wenn returnTo gesetzt)
 //            returnTo an ProjectList weitergeben fuer /projekt/neu Navigation
@@ -273,7 +274,7 @@ export default function BeraterFirmaDetailPage() {
               className="flex items-center gap-2 py-4 text-gray-600 hover:text-[#002451] whitespace-nowrap"
             >
               <ArrowLeft className="w-4 h-4" />
-              {returnTo ? 'Zurueck' : 'Kundenfirmen'}
+              {returnTo ? 'Zurueck' : 'Unternehmen'}
             </button>
 
             {/* Tabs */}

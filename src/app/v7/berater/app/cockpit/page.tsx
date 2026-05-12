@@ -2,9 +2,9 @@
 
 // src/app/v7/berater/app/cockpit/page.tsx
 // ============================================================================
-// Version: 1.0.0
+// Version: 1.0.1
 // Berater-App-Cockpit (neue Struktur)
-//   - 4 Kacheln: Kundenfirmen (mit Firma-Dropdown), Netzwerk,
+//   - 4 Kacheln: Unternehmen (mit Firma-Dropdown), Netzwerk,
 //                Kapazitaetsplanung, Forschungszulage
 //   - Firmenwahl -> direkt zum Firmen-Cockpit /v7/berater/app/firma/[id]
 //   - Nur zugaenglich im App-Modus (pze_mode='app')
@@ -89,7 +89,7 @@ function BeraterAppCockpitInner() {
             .single();
           if (cc) setCompanyName(cc.name);
 
-          // Alle Kundenfirmen
+          // Alle Unternehmen
           const { data: firmen } = await supabase
             .from('v7_client_companies')
             .select('id, name')
@@ -172,14 +172,14 @@ function BeraterAppCockpitInner() {
             Willkommen, {userName}!
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            {companyName} · {stats.firmen} Kundenfirmen · {stats.projekte} Projekte
+            {companyName} · {stats.firmen} Unternehmen · {stats.projekte} Projekte
           </p>
         </div>
 
         {/* 4 Kacheln */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
-          {/* KACHEL 1: Kundenfirmen mit Dropdown */}
+          {/* KACHEL 1: Unternehmen mit Dropdown */}
           <div className="bg-white rounded-xl border border-gray-200 p-6 relative">
             {/* Status-Badge */}
             <div className="absolute top-4 right-4">
@@ -194,8 +194,8 @@ function BeraterAppCockpitInner() {
               <Building2 size={24} style={{ color: PRIMARY }} />
             </div>
 
-            <h2 className="text-lg font-bold text-gray-900 mb-1">Kundenfirmen</h2>
-            <p className="text-sm text-gray-500 mb-4">Alle Kundenfirmen und deren Projekte verwalten</p>
+            <h2 className="text-lg font-bold text-gray-900 mb-1">Unternehmen</h2>
+            <p className="text-sm text-gray-500 mb-4">Alle Unternehmen und deren Projekte verwalten</p>
 
             {/* Stats */}
             <div className="flex items-center gap-4 text-xs text-gray-500 mb-4">
