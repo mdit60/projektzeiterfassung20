@@ -3,14 +3,13 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-25
+// Version: 7.4.9-26
+// v7.4.9-26: EmployeeManagement komplett entfernt, neues MitarbeiterModal
+//   - Neuer MA: eigenes Modal statt EmployeeManagement (kein Table-Bug mehr)
+//   - MA bearbeiten: Pencil-Icon oeffnet Edit-Modal direkt
+//   - Passwort: Key-Icon oeffnet PW-Reset-Modal direkt
+//   - Portal-Rolle: "Projektkoordinator" statt "Projektleiter"
 // v7.4.9-25: Navigation App-Mode-aware (pze_mode aus localStorage)
-//   - handleBack: App-Modus -> /v7/berater/app/cockpit
-//   - cockpitReturnTo: App-Modus -> /v7/berater/app/firma/[id]
-//   - handleProjektdatenClick: returnTo App-aware
-//   - handleNeueFirma: App-Modus -> /v7/berater/app/cockpit
-//   - MA-Bearbeiten: Pencil + KeyRound Icons pro MA, -> Firmen-Detail Mitarbeiter-Tab
-//   - Alle returnTo-URLs zeigen im App-Modus auf App-Routen
 // v7.4.9-23: Neuer MA inline-Modal (modalOnly) statt Navigation zur alten Seite
 //   - handleNeuerMitarbeiter oeffnet Modal direkt im Cockpit
 //   - Abbrechen -> bleibt im Cockpit, Daten werden neu geladen
@@ -101,7 +100,7 @@ import {
 } from 'lucide-react';
 import PortalNav from '@/components/shared/PortalNav';
 import PortalFooter from '@/components/shared/PortalFooter';
-import EmployeeManagement from '@/components/shared/EmployeeManagement';
+import MitarbeiterModal from '@/components/shared/MitarbeiterModal';
 import {
   calculateProjectAnalysis,
   FUNDING_FORMAT_SHORT,
@@ -342,7 +341,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
   const [userRole, setUserRole] = useState<string>('consultant');
 
   // Inline-Modal: Neuer Mitarbeiter
-  const [showNewMAModal, setShowNewMAModal] = useState(false);
+  const [maModal, setMaModal] = useState<{ mode: 'new' | 'edit' | 'password'; employeeId?: string } | null>(null);
 
   // Projektauswahl
   const [selectedProjektId, setSelectedProjektId] = useState<string>('');
@@ -665,15 +664,15 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
   }
 
   function handleNeuerMitarbeiter() {
-    setShowNewMAModal(true);
+    setMaModal({ mode: 'new' });
   }
 
-  function handleMABearbeiten() {
-    if (portal === 'berater') {
-      router.push('/v7/berater/foerderung/firma/' + firmaIdLocal + '?tab=mitarbeiter&returnTo=' + cockpitReturnTo);
-    } else {
-      router.push('/v7/firma/mitarbeiter');
-    }
+  function handleMABearbeiten(maId: string) {
+    setMaModal({ mode: 'edit', employeeId: maId });
+  }
+
+  function handleMAPasswort(maId: string) {
+    setMaModal({ mode: 'password', employeeId: maId });
   }
 
   function handleNeuesProjekt() {
@@ -1035,14 +1034,14 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                           {ma.weekly_hours != null ? String(ma.weekly_hours).replace('.', ',') + 'h' : '-'}
                         </span>
                         <button
-                          onClick={handleMABearbeiten}
+                          onClick={() => handleMABearbeiten(ma.id)}
                           className="text-gray-300 hover:text-[#002451] transition-colors"
                           title="Mitarbeiter bearbeiten"
                         >
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
                         <button
-                          onClick={handleMABearbeiten}
+                          onClick={() => handleMAPasswort(ma.id)}
                           className="text-gray-300 hover:text-amber-600 transition-colors"
                           title="Passwort zuruecksetzen"
                         >
@@ -1568,18 +1567,15 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
 
       </div>
     </div>
-      {/* Inline-Modal: Neuer Mitarbeiter */}
-      {showNewMAModal && (
-        <EmployeeManagement
-          portal={portal}
-          companyId={firmaIdLocal}
-          canEdit={true}
-          openNew={true}
-          modalOnly={true}
+      {/* Inline-Modal: Mitarbeiter (Neu / Bearbeiten / Passwort) */}
+      {maModal && (
+        <MitarbeiterModal
+          mode={maModal.mode}
+          firmaId={firmaIdLocal}
           firmaName={firma?.name || ''}
-          onClose={() => {
-            setShowNewMAModal(false);
-            // Daten neu laden um neuen MA anzuzeigen
+          employeeId={maModal.employeeId}
+          onClose={() => setMaModal(null)}
+          onSaved={() => {
             if (firmaIdLocal) loadCockpitData();
           }}
         />

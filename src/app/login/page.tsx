@@ -1,6 +1,7 @@
 // src/app/login/page.tsx
-// VERSION: v7.3.90-5 - FIX: Fragment-Wrapper damit PortalFooter valides JSX-Sibling ist
-// DATUM: 9. Mai 2026
+// VERSION: v7.3.90-6 - Login-Redirect: pze_mode='app' -> App-Cockpit
+// DATUM: 12. Mai 2026
+// v7.3.90-5: FIX: Fragment-Wrapper damit PortalFooter valides JSX-Sibling ist
 // v7.3.90-4: Footer ersetzt durch PortalFooter (fixed, navy, print:hidden)
 // v7.3.90-3: Footer PZE Projektzeiterfassung + Impressum/AGB
 // v7.3.90-2: Passwort-Sichtbarkeit Toggle (Augensymbol)
@@ -46,7 +47,9 @@ export default function LoginPage() {
         if (profile) {
           // V7-Profil vorhanden
           if (profile.role === 'consultant' || profile.role === 'system_admin') {
-            router.push('/v7/berater');
+            // App-Modus: direkt zur Startseite
+            const isAppMode = typeof window !== 'undefined' && localStorage.getItem('pze_mode') === 'app';
+            router.push(isAppMode ? '/v7/berater/app/cockpit' : '/v7/berater');
           } else {
             router.push('/v7/firma');
           }
