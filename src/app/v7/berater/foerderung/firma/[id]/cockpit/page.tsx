@@ -1,15 +1,15 @@
 'use client';
 
 // Route: /v7/berater/foerderung/firma/[id]/cockpit
-// Version: 7.4.9-2
-// v7.4.9-2: PortalNav ergaenzt (fehlte komplett)
+// Version: 7.4.9-3
+// v7.4.9-3: PortalNav entfernt - FirmaCockpit rendert eigene PortalNav
+// v7.4.9-2: PortalNav ergaenzt (war doppelt weil FirmaCockpit eigene hat)
 // v7.4.9-1: Initiale Version (Session 40)
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import PortalHeader from '@/components/shared/PortalHeader';
-import PortalNav from '@/components/shared/PortalNav';
 import FirmaCockpit from '@/components/shared/FirmaCockpit';
 
 export default function BeraterFirmaCockpitPage() {
@@ -71,10 +71,6 @@ export default function BeraterFirmaCockpitPage() {
         portal="berater"
         companyName={firmaName || 'Berater-Portal'}
         userName={userName}
-        userRole={userRole}
-      />
-      <PortalNav
-        portal="berater"
         userRole={userRole}
       />
       <FirmaCockpit firmaId={firmaId} portal="berater" />
