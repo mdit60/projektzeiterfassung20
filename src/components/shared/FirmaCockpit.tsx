@@ -3,12 +3,18 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-22
-// v7.4.9-22: 
-//   1. firmaId='select' -> Firmenliste anzeigen (Einstiegspunkt ohne Auto-Select)
-//      firmaId=echte UUID -> direkt laden (returnTo-Navigation)
-//   2. Bugfix Mitarbeiter: alle MAs laden unabhaengig von Projektanzahl
-// v7.4.9-21: Bugfix firmaIdLocal - returnTo-Navigation ladet korrekte Firma
+// Version: 7.4.9-25
+// v7.4.9-25: Navigation App-Mode-aware (pze_mode aus localStorage)
+//   - handleBack: App-Modus -> /v7/berater/app/cockpit
+//   - cockpitReturnTo: App-Modus -> /v7/berater/app/firma/[id]
+//   - handleProjektdatenClick: returnTo App-aware
+//   - handleNeueFirma: App-Modus -> /v7/berater/app/cockpit
+//   - MA-Bearbeiten: Pencil + KeyRound Icons pro MA, -> Firmen-Detail Mitarbeiter-Tab
+//   - Alle returnTo-URLs zeigen im App-Modus auf App-Routen
+// v7.4.9-23: Neuer MA inline-Modal (modalOnly) statt Navigation zur alten Seite
+//   - handleNeuerMitarbeiter oeffnet Modal direkt im Cockpit
+//   - Abbrechen -> bleibt im Cockpit, Daten werden neu geladen
+// v7.4.9-22: select-Modus, MA-Bug (alle MAs laden)
 //   - handleNeueFirma: ?openNew=true -> foerderung-page oeffnet Modal direkt
 //   - handleNeuerMitarbeiter: &openNew=true -> EmployeeManagement oeffnet Modal direkt
 //   - handleNeuesProjekt: direkt zu /projekt/neu (kein Umweg ueber Projektliste)
@@ -91,9 +97,11 @@ import {
   Target,
   Plus,
   Pencil,
+  KeyRound,
 } from 'lucide-react';
 import PortalNav from '@/components/shared/PortalNav';
 import PortalFooter from '@/components/shared/PortalFooter';
+import EmployeeManagement from '@/components/shared/EmployeeManagement';
 import {
   calculateProjectAnalysis,
   FUNDING_FORMAT_SHORT,
@@ -332,6 +340,9 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
 
   // Berater: User-Rolle (fuer Admin-Nav-Tab)
   const [userRole, setUserRole] = useState<string>('consultant');
+
+  // Inline-Modal: Neuer Mitarbeiter
+  const [showNewMAModal, setShowNewMAModal] = useState(false);
 
   // Projektauswahl
   const [selectedProjektId, setSelectedProjektId] = useState<string>('');
@@ -580,9 +591,11 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
   // NAVIGATION
   // ==========================================================================
 
+  const isAppMode = typeof window !== 'undefined' && localStorage.getItem('pze_mode') === 'app';
+
   function handleBack() {
     if (portal === 'berater') {
-      router.push('/v7/berater/foerderung');
+      router.push(isAppMode ? '/v7/berater/app/cockpit' : '/v7/berater/foerderung');
     } else {
       router.push('/v7/firma/dashboard');
     }
@@ -599,13 +612,15 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
   }
 
   function handleNeueFirma() {
-    router.push('/v7/berater/foerderung?openNew=true');
+    router.push(isAppMode ? '/v7/berater/app/cockpit' : '/v7/berater/foerderung?openNew=true');
   }
 
   function handleProjektdatenClick(projektId: string) {
     const returnTo = encodeURIComponent(
       portal === 'berater'
-        ? '/v7/berater/foerderung/firma/' + firmaIdLocal + '/cockpit'
+        ? (isAppMode
+            ? '/v7/berater/app/firma/' + firmaIdLocal
+            : '/v7/berater/foerderung/firma/' + firmaIdLocal + '/cockpit')
         : '/v7/firma/cockpit'
     );
     if (portal === 'berater') {
@@ -635,7 +650,9 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
 
   const cockpitReturnTo = encodeURIComponent(
     portal === 'berater'
-      ? '/v7/berater/foerderung/firma/' + firmaIdLocal + '/cockpit'
+      ? (isAppMode
+          ? '/v7/berater/app/firma/' + firmaIdLocal
+          : '/v7/berater/foerderung/firma/' + firmaIdLocal + '/cockpit')
       : '/v7/firma/cockpit'
   );
 
@@ -648,8 +665,12 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
   }
 
   function handleNeuerMitarbeiter() {
+    setShowNewMAModal(true);
+  }
+
+  function handleMABearbeiten() {
     if (portal === 'berater') {
-      router.push('/v7/berater/foerderung/firma/' + firmaIdLocal + '?tab=mitarbeiter&openNew=true&returnTo=' + cockpitReturnTo);
+      router.push('/v7/berater/foerderung/firma/' + firmaIdLocal + '?tab=mitarbeiter&returnTo=' + cockpitReturnTo);
     } else {
       router.push('/v7/firma/mitarbeiter');
     }
@@ -1009,9 +1030,25 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                       <span className="text-sm font-medium text-gray-900">
                         {ma.display_name}
                       </span>
-                      <span className="text-xs text-gray-400">
-                        {ma.weekly_hours != null ? String(ma.weekly_hours).replace('.', ',') + 'h' : '-'}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-400">
+                          {ma.weekly_hours != null ? String(ma.weekly_hours).replace('.', ',') + 'h' : '-'}
+                        </span>
+                        <button
+                          onClick={handleMABearbeiten}
+                          className="text-gray-300 hover:text-[#002451] transition-colors"
+                          title="Mitarbeiter bearbeiten"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={handleMABearbeiten}
+                          className="text-gray-300 hover:text-amber-600 transition-colors"
+                          title="Passwort zuruecksetzen"
+                        >
+                          <KeyRound className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                     {ma.position_title && (
                       <span className="text-xs text-gray-500">{ma.position_title}</span>
@@ -1531,6 +1568,23 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
 
       </div>
     </div>
+      {/* Inline-Modal: Neuer Mitarbeiter */}
+      {showNewMAModal && (
+        <EmployeeManagement
+          portal={portal}
+          companyId={firmaIdLocal}
+          canEdit={true}
+          openNew={true}
+          modalOnly={true}
+          firmaName={firma?.name || ''}
+          onClose={() => {
+            setShowNewMAModal(false);
+            // Daten neu laden um neuen MA anzuzeigen
+            if (firmaIdLocal) loadCockpitData();
+          }}
+        />
+      )}
+
       <PortalFooter portal={portal} />
     </>
   );

@@ -5,7 +5,8 @@
 // PZE V8-C - Standalone Zahlungsanforderungs-Seite
 // ============================================================================
 // Datum: 9. Mai 2026
-// Version: 1.0.8
+// Version: 1.0.9
+// v1.0.9: zurueckUrl App-Mode-aware (pze_mode -> /v7/berater/app/firma/[id])
 // v1.0.8: "Zurueck zum Cockpit" -> "Zurueck" (kein Cockpit-Begriff mehr in UI)
 // v1.0.7: Volle Breite ohne max-w Einschraenkung
 // v1.0.6: Schriftgroesse angepasst (text-xs->1rem, text-sm->1.125rem) - identisch FirmaCockpit
@@ -79,9 +80,12 @@ export default function ZASeite({
   } = useBerichteData({ companyId: clientCompanyId, portal });
 
   // Zurueck-URL bestimmen
+  const isAppMode = typeof window !== 'undefined' && localStorage.getItem('pze_mode') === 'app';
   const zurueckUrl = portal === 'berater'
     ? returnTo === 'cockpit'
-      ? `/v7/berater/foerderung/firma/${clientCompanyId}/cockpit`
+      ? (isAppMode
+          ? `/v7/berater/app/firma/${clientCompanyId}`
+          : `/v7/berater/foerderung/firma/${clientCompanyId}/cockpit`)
       : `/v7/berater/foerderung/firma/${clientCompanyId}`
     : '/v7/firma/dashboard';
 
