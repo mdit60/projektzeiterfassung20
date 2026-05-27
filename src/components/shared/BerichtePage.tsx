@@ -2,7 +2,12 @@
 // ============================================================================
 // PZE V7 - Shared Component: Berichte & Controlling
 // ============================================================================
-// Version: 7.4.6-14
+// Version: 7.4.6-15
+// v7.4.6-15: CRITICAL FIX: .limit(10000) auf v7_timesheets-Query ergaenzt.
+//   Supabase Default-Limit von 1000 Zeilen fuehrte zu abgeschnittenen Daten
+//   bei Projekten mit >1000 Timesheet-Eintraegen. Betroffen: Zeiterfassungs-
+//   Status, ProjektFortschrittPanel-Chart, Excel-Export, Compliance-Pruefung.
+// Datum: 27. Mai 2026
 // v7.4.6-14: Revert useSearchParams (wird nicht benoetigt, ZASeite uebernimmt direkte Navigation)
 // Datum: 6. Mai 2026
 // v7.4.6-10: Seiten-Titel geaendert: "Berichte & Controlling" -> "Dashboard"
@@ -404,7 +409,8 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
             .from('v7_timesheets')
             .select('id, project_id, employee_id, work_package_id, work_date, hours, day_type, is_active, is_billable')
             .in('project_id', projectIds)
-            .eq('is_active', true);
+            .eq('is_active', true)
+            .limit(10000);
           setTimesheets(timesheetData || []);
 
           // Completions

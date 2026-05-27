@@ -3,7 +3,8 @@
 // PZE - Shared Data-Loading Hook fuer Berichte-Komponenten
 // ============================================================================
 // Datum: 9. Mai 2026
-// Version: 1.0.0
+// Version: 1.0.1
+// v1.0.1: CRITICAL FIX: .limit(10000) auf v7_timesheets-Query (Supabase 1000-Zeilen-Limit)
 //
 // Zweck:
 //   Zentraler Data-Loading Hook fuer alle Berichte-Komponenten:
@@ -234,7 +235,8 @@ export function useBerichteData({ companyId: clientCompanyId, portal }: UseBeric
             .from('v7_work_packages')
             .select('id, project_id, ap_number, ap_code, name, total_person_months, start_date, end_date, is_technical')
             .in('project_id', projectIds)
-            .eq('is_active', true);
+            .eq('is_active', true)
+            .limit(10000);
           setWorkPackages(wpData || []);
 
           if (wpData && wpData.length > 0) {
