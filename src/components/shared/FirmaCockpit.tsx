@@ -3,7 +3,8 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-28
+// Version: 7.4.9-29
+// v7.4.9-29: CRITICAL FIX: .limit(10000) auf v7_timesheets-Query (Supabase 1000-Zeilen-Limit)
 // v7.4.9-28: PortalNav im Select-Modus (Unternehmensliste) ergaenzt
 // v7.4.9-27: "Kundenfirmen" -> "Unternehmen" ueberall in UI
 // v7.4.9-26: EmployeeManagement komplett entfernt, neues MitarbeiterModal
@@ -533,7 +534,8 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
           .from('v7_timesheets')
           .select('project_id, employee_id, work_date, hours, is_billable')
           .in('project_id', alleProjektIds)
-          .eq('is_active', true);
+          .eq('is_active', true)
+          .limit(10000);
         const tsList: PFTimesheetEntry[] = (tsDB || []).map(t => ({
           project_id: t.project_id,
           employee_id: t.employee_id,

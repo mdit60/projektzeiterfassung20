@@ -4,7 +4,8 @@
 // ============================================================================
 // PZE V7 - Kapazitaetsplanungs-Tool (Berater-Portal)
 // ============================================================================
-// Version: 7.4.8-12
+// Version: 7.4.8-13
+// v7.4.8-13: CRITICAL FIX: .limit(10000) auf v7_timesheets-Query (Supabase 1000-Zeilen-Limit)
 // v7.4.8-12: Dashboard-Link im App-Modus (pze_mode='app') ausgeblendet
 // Datum: 24. April 2026
 //
@@ -625,7 +626,8 @@ export default function MultiprojektPage() {
           .in('project_id', projektIds)
           .gte('work_date', startDatum)
           .lte('work_date', endeDatum)
-          .eq('is_active', true);
+          .eq('is_active', true)
+          .limit(10000);
         tsData = ts || [];
       }
 

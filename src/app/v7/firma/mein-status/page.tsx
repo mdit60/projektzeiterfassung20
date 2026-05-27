@@ -2,7 +2,8 @@
 // ============================================================================
 // PZE V7 - Mein Status (Firmen-Portal)
 // ============================================================================
-// Version: 7.4.4-15
+// Version: 7.4.4-16
+// v7.4.4-16: CRITICAL FIX: .limit(10000) auf v7_timesheets-Query (Supabase 1000-Zeilen-Limit)
 // v7.4.4-15: ZA und Legende naher zusammen, Legende einzeilig kompakt
 // v7.4.4-14: Abstände weiter reduziert fuer bessere ZA-Sichtbarkeit
 // v7.4.4-13: Kennzahlen neben ZE-Header, Warnbalken weg, Kontrast Buttons, Abstände kompakter
@@ -428,7 +429,8 @@ export default function MeinStatusPage() {
             .select('id, project_id, employee_id, work_date, hours, day_type')
             .eq('employee_id', userEmployeeId)
             .eq('is_active', true)
-            .in('project_id', projectIds);
+            .in('project_id', projectIds)
+            .limit(10000);
 
           setTimesheets(timesheetData || []);
 

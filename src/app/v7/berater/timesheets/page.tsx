@@ -2,7 +2,8 @@
 // ============================================================================
 // PZE V7.4 - Timesheet-Viewer Berater-Portal
 // ============================================================================
-// Version: 7.4.0-8
+// Version: 7.4.0-9
+// v7.4.0-9: CRITICAL FIX: .limit(10000) auf v7_timesheets-Query (Supabase 1000-Zeilen-Limit)
 // Datum: 17. April 2026
 //
 // v7.4.0-8: NEU: Offene Rueckfragen-Badge pro Firma im Accordion
@@ -804,7 +805,8 @@ export default function TimesheetViewerPage() {
           .select('id, project_id, employee_id, work_date, hours, day_type, is_active')
           .in('project_id', projectIds)
           .eq('is_active', true)
-          .order('work_date', { ascending: false });
+          .order('work_date', { ascending: false })
+          .limit(10000);
         if (tErr) throw tErr;
         setTimesheets(ts || []);
 

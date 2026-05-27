@@ -4,7 +4,8 @@
 // ============================================================================
 // PZE V7 - Multiprojekt-Tool: Vorhaben-Detailseite
 // ============================================================================
-// Version: 7.4.8-12
+// Version: 7.4.8-13
+// v7.4.8-13: CRITICAL FIX: .limit(10000) auf v7_timesheets-Queries (Supabase 1000-Zeilen-Limit)
 // Datum: 23. April 2026
 //
 // v7.4.8-7: Jahreskalender-Verbesserungen:
@@ -635,7 +636,8 @@ export default function MultiprojektDetailPage() {
           .gte('work_date', startDatum)
           .lte('work_date', endeDatum)
           .eq('is_active', true)
-          .not('day_type', 'in', '("urlaub","krank","sonderurlaub","feiertag")');
+          .not('day_type', 'in', '("urlaub","krank","sonderurlaub","feiertag")')
+          .limit(10000);
 
         if (tsData) {
           tsData.forEach((ts: { employee_id: string; hours: number }) => {
@@ -752,7 +754,8 @@ export default function MultiprojektDetailPage() {
           .gte('work_date', startDatum)
           .lte('work_date', endeDatum)
           .eq('is_active', true)
-          .not('day_type', 'in', '("urlaub","krank","sonderurlaub","feiertag")');
+          .not('day_type', 'in', '("urlaub","krank","sonderurlaub","feiertag")')
+          .limit(10000);
 
         if (tsData) {
           tsData.forEach((ts: { work_date: string; hours: number; day_type: string }) => {
