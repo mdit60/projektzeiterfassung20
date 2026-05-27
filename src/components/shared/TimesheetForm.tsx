@@ -2,8 +2,17 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 7. Mai 2026
-// Version: 7.4.6-17
+// Datum: 27. Mai 2026
+// Version: 7.4.6-19
+// v7.4.6-18: FIX: Feiertage werden automatisch als Fehlzeiten in der S-Zeile
+//   (Sonstige bezahlte Ausfallzeiten) vorbelegt. Beim Laden der Zeiteintraege
+//   werden Werktags-Feiertage ohne bestehenden S-Eintrag mit Tagesstunden
+//   (standard_weekly_hours / 5) vorbelegt. Bereits manuell erfasste S-Werte
+//   werden NICHT ueberschrieben. Betroffen waren z.B. April 2026 (Ostern)
+//   und Mai 2026 (Tag der Arbeit, Christi Himmelfahrt, Pfingstmontag).
+//   FIX: company (federal_state, holiday_region, standard_weekly_hours) in
+//   loadTimeEntries useEffect-Dependencies ergaenzt - ohne diesen Eintrag
+//   lief der Auto-Fill mit staler company-Referenz (noch ohne federal_state).
 // v7.4.6-17: Fehlzeiten-Zellen weiss (statt farbig), Tastaturnavigation
 //   (Pfeiltasten/Tab/Enter), setHasChanges bei Abwesenheitseingabe.
 // Datum: 7. Mai 2026
@@ -1029,6 +1038,45 @@ export default function TimesheetForm({
       console.log('[TimesheetForm] Verarbeitete WP-Eintraege:', wpEntryMap.size);
       console.log('[TimesheetForm] Fehlzeit-Eintraege:', absenceEntries.size);
       console.log('[TimesheetForm] Sonstige Eintraege:', Object.keys(newNonBillable).length);
+
+      // v7.4.6-18: Feiertage automatisch in S-Zeile (Sonstige bezahlte Ausfallzeiten) vorbelegen
+      // Werktags-Feiertage ohne bestehenden S-Eintrag bekommen Tagesstunden (Firmen-Standard / 5).
+      // Bereits manuell erfasste S-Werte werden NICHT ueberschrieben.
+      // v7.4.6-19: Diagnose-Logging fuer Feiertags-Auto-Fill
+      console.log('[TimesheetForm] FEIERTAG-CHECK: company=', company?.name, 'federal_state=', company?.federal_state, 'holiday_region=', company?.holiday_region, 'standard_weekly_hours=', company?.standard_weekly_hours, 'daysInMonth=', daysInMonth);
+      if (company?.federal_state) {
+        const monthHolidays = getGermanHolidays(
+          selectedYear,
+          company.federal_state,
+          (company.holiday_region ?? undefined) as HolidayRegion,
+        );
+        console.log('[TimesheetForm] FEIERTAG-CHECK: monthHolidays.size=', monthHolidays.size, 'keys=', Array.from(monthHolidays.keys()).filter(k => k.startsWith(`${selectedYear}-${String(selectedMonth).padStart(2, '0')}`)));
+        const dailyHrs = Math.round(((company.standard_weekly_hours || 40) / 5) * 100) / 100;
+        let autoFilledCount = 0;
+        for (let d = 1; d <= daysInMonth; d++) {
+          const dow = new Date(selectedYear, selectedMonth - 1, d).getDay();
+          if (dow === 0 || dow === 6) continue; // Wochenende ueberspringen
+          const ds = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+          const isHol = monthHolidays.has(ds);
+          const hasExisting = !!newAbsenceHours.S[d]?.value;
+          if (isHol) {
+            console.log(`[TimesheetForm] FEIERTAG Tag ${d}: ${monthHolidays.get(ds)}, existingS=${hasExisting}, newAbsenceHours.S[${d}]=`, newAbsenceHours.S[d]);
+          }
+          if (isHol && !hasExisting) {
+            newAbsenceHours.S[d] = { id: '', value: dailyHrs.toString() };
+            autoFilledCount++;
+            console.log(`[TimesheetForm] Feiertag auto-fill: Tag ${d} (${monthHolidays.get(ds)}) = ${dailyHrs}h`);
+          }
+        }
+        if (autoFilledCount > 0) {
+          console.log(`[TimesheetForm] ${autoFilledCount} Feiertag(e) in S-Zeile vorbelegt`);
+        } else {
+          console.log('[TimesheetForm] WARNUNG: Keine Feiertage vorbelegt!');
+        }
+      } else {
+        console.log('[TimesheetForm] WARNUNG: company.federal_state ist LEER - keine Feiertags-Vorbelegung!');
+      }
+
       // v7.4.6-16: Fehlzeiten-Stunden in State laden
       setAbsenceHoursInput(newAbsenceHours);
 
@@ -1128,7 +1176,7 @@ export default function TimesheetForm({
     loadTimeEntries();
     // NEU v7.4.3-20: Completion-Status bei jedem Wechsel laden (war vorher nie aufgerufen!)
     loadCompletionStatus(selectedEmployeeId, selectedProjectId, selectedYear, selectedMonth);
-  }, [selectedEmployeeId, selectedProjectId, selectedYear, selectedMonth, workPackages, supabase, assignedWPIds, plannedHoursPerWP, totalBookedPerWP]);
+  }, [selectedEmployeeId, selectedProjectId, selectedYear, selectedMonth, workPackages, supabase, assignedWPIds, plannedHoursPerWP, totalBookedPerWP, company?.federal_state, company?.holiday_region, company?.standard_weekly_hours]);
 
   // ============================================================================
   // EVENT HANDLERS
