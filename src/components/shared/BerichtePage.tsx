@@ -2,8 +2,9 @@
 // ============================================================================
 // PZE V7 - Shared Component: Berichte & Controlling
 // ============================================================================
-// Version: 7.4.6-15
-// v7.4.6-15: CRITICAL FIX: .limit(10000) auf v7_timesheets-Query ergaenzt.
+// Version: 7.4.6-16
+// v7.4.6-16: DIAGNOSE: Console-Logging fuer Timesheet-Analyse
+//   (Stunden pro Monat, pro MA, is_billable-Verteilung)
 //   Supabase Default-Limit von 1000 Zeilen fuehrte zu abgeschnittenen Daten
 //   bei Projekten mit >1000 Timesheet-Eintraegen. Betroffen: Zeiterfassungs-
 //   Status, ProjektFortschrittPanel-Chart, Excel-Export, Compliance-Pruefung.
@@ -412,6 +413,32 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
             .eq('is_active', true)
             .limit(10000);
           setTimesheets(timesheetData || []);
+
+          // v7.4.6-15 DIAGNOSE: Timesheet-Ladung pruefen
+          const tsArr = timesheetData || [];
+          console.log('[BerichtePage] DIAGNOSE: Geladene Timesheets gesamt:', tsArr.length);
+          console.log('[BerichtePage] DIAGNOSE: projectIds:', projectIds);
+          const byMonth: Record<string, number> = {};
+          const byMonthBillable: Record<string, number> = {};
+          const byEmpBillable: Record<string, number> = {};
+          tsArr.forEach((t: any) => {
+            const m = t.work_date?.substring(0, 7) || 'unknown';
+            byMonth[m] = (byMonth[m] || 0) + (t.hours || 0);
+            if (t.is_billable === true) {
+              byMonthBillable[m] = (byMonthBillable[m] || 0) + (t.hours || 0);
+              byEmpBillable[t.employee_id] = (byEmpBillable[t.employee_id] || 0) + (t.hours || 0);
+            }
+          });
+          console.log('[BerichtePage] DIAGNOSE: Stunden pro Monat (alle):', byMonth);
+          console.log('[BerichtePage] DIAGNOSE: Stunden pro Monat (billable):', byMonthBillable);
+          console.log('[BerichtePage] DIAGNOSE: Stunden pro MA (billable):', byEmpBillable);
+          const countByBillable = { true: 0, false: 0, null: 0 };
+          tsArr.forEach((t: any) => {
+            if (t.is_billable === true) countByBillable.true++;
+            else if (t.is_billable === false) countByBillable.false++;
+            else countByBillable.null++;
+          });
+          console.log('[BerichtePage] DIAGNOSE: is_billable Verteilung:', countByBillable);
 
           // Completions
           const { data: completionsData } = await supabase
