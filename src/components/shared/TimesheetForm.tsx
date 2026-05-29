@@ -2,8 +2,12 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 27. Mai 2026
-// Version: 7.4.6-19
+// Datum: 29. Mai 2026
+// Version: 7.4.6-20
+// v7.4.6-20: FIX: AP-Name im Druck/PDF nicht mehr abgeschnitten.
+//   line-clamp im Print aufgehoben, maxWidth entfernt im Print.
+//   Select im Print als statischer Text (kein display:none mehr).
+// v7.4.6-19: Diagnose-Logging fuer Feiertags-Auto-Fill
 // v7.4.6-18: FIX: Feiertage werden automatisch als Fehlzeiten in der S-Zeile
 //   (Sonstige bezahlte Ausfallzeiten) vorbelegt. Beim Laden der Zeiteintraege
 //   werden Werktags-Feiertage ohne bestehenden S-Eintrag mit Tagesstunden
@@ -2334,8 +2338,8 @@ export default function TimesheetForm({
                         )}
                       </select>
                     </td>
-                    <td className="border p-1 text-[10px] leading-tight" style={{ maxWidth: '180px' }}>
-                      <div className="line-clamp-2" title={selectedWP?.name}>
+                    <td className="border p-1 text-[10px] leading-tight print-ap-name">
+                      <div className="line-clamp-2 print-no-clamp" title={selectedWP?.name}>
                         {selectedWP?.name || ''}
                       </div>
                     </td>
@@ -2833,8 +2837,23 @@ export default function TimesheetForm({
           input {
             font-size: 8px !important;
           }
+          /* v7.4.6-20: Select im Druck als statischer Text (kein Pfeil, kein Rahmen) */
           select {
-            display: none !important;
+            -webkit-appearance: none !important;
+            -moz-appearance: none !important;
+            appearance: none !important;
+            border: none !important;
+            background: transparent !important;
+            font-size: 8px !important;
+          }
+          /* v7.4.6-20: AP-Name im Druck nicht abschneiden */
+          .print-ap-name {
+            max-width: none !important;
+          }
+          .print-no-clamp {
+            -webkit-line-clamp: unset !important;
+            display: block !important;
+            overflow: visible !important;
           }
         }
       `}</style>
