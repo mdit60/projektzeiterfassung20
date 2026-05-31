@@ -1,7 +1,13 @@
 // src/app/v7/berater/foerderung/page.tsx
-// VERSION: v7.4.1-7
-// AENDERUNG v7.4.1-7: ?openNew=true oeffnet "Neue Firma"-Modal direkt (vom Cockpit)
-// AENDERUNG v7.4.1-6: Profil+Employee-Insert server-seitig (RLS-Fix)
+// VERSION: v7.4.1-9
+// AENDERUNG v7.4.1-9: ?openNew=true -> Modal auto-open + Redirect zurueck zum App-Cockpit nach Speichern
+// AENDERUNG v7.4.1-8/7: siehe Vorgaenger (openNew-Konzept, Suspense)
+// AENDERUNG v7.4.1-6: Profil+Employee-Insert server-seitig (RLS-Fix, alle 3 Schritte in create-user-Route)
+// AENDERUNG v7.4.1-5: Doppel-Submit verhindert: saved-Flag, Modal schliesst sofort nach Create
+// AENDERUNG v7.4.1-4: Admin-User-Anlage verpflichtend (Checkbox entfernt, E-Mail Pflichtfeld)
+// AENDERUNG v7.4.1-3: Zurueck-Button zum Dashboard hinzugefuegt (oberhalb Seitentitel)
+// AENDERUNG v7.4.1-2: Einladungslink entfernt, Status vereinfacht (nur aktiv/inaktiv)
+// DATUM: 28. Maerz 2026
 // AENDERUNG v7.4.1: User-Erstellung ueber /api/v7/create-user statt client-seitigem
 //   signUp() - verhindert Ausloggen des aktuellen Beraters. Rolle korrekt auf
 //   client_user gesetzt, portal_role client_admin ueber v7_employees.
@@ -97,7 +103,7 @@ const EMPTY_FORM: CompanyFormData = {
 // ============================================
 
 const BUNDESLAENDER = [
-  { code: 'DE-BW', name: 'Baden-Württemberg' },
+  { code: 'DE-BW', name: 'Baden-Wuerttemberg' },
   { code: 'DE-BY', name: 'Bayern' },
   { code: 'DE-BE', name: 'Berlin' },
   { code: 'DE-BB', name: 'Brandenburg' },
@@ -112,7 +118,7 @@ const BUNDESLAENDER = [
   { code: 'DE-SN', name: 'Sachsen' },
   { code: 'DE-ST', name: 'Sachsen-Anhalt' },
   { code: 'DE-SH', name: 'Schleswig-Holstein' },
-  { code: 'DE-TH', name: 'Thüringen' },
+  { code: 'DE-TH', name: 'Thueringen' },
 ];
 
 const BUNDESLAND_NAMES: Record<string, string> = Object.fromEntries(
@@ -121,10 +127,10 @@ const BUNDESLAND_NAMES: Record<string, string> = Object.fromEntries(
 
 // Status-Konfiguration
 const STATUS_CONFIG = {
-  invited: { label: 'Aktiv', color: 'green', icon: '🟢' },
-  registered: { label: 'Aktiv', color: 'green', icon: '🟢' },
-  active: { label: 'Aktiv', color: 'green', icon: '🟢' },
-  inactive: { label: 'Inaktiv', color: 'gray', icon: '⚫' },
+  invited: { label: 'Aktiv', color: 'green', icon: '' },
+  registered: { label: 'Aktiv', color: 'green', icon: '' },
+  active: { label: 'Aktiv', color: 'green', icon: '' },
+  inactive: { label: 'Inaktiv', color: 'gray', icon: '' },
 };
 
 // Festes Entwicklungs-Passwort
@@ -133,14 +139,6 @@ const DEV_PASSWORD = 'Test1234!';
 // ============================================
 // KOMPONENTE
 // ============================================
-
-export default function FoerderungPage() {
-  return (
-    <Suspense fallback={<div className="min-h-screen bg-gray-50 flex items-center justify-center"><div className="text-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div><p className="mt-4 text-gray-600">Lade Daten...</p></div></div>}>
-      <FoerderungPageInner />
-    </Suspense>
-  );
-}
 
 function FoerderungPageInner() {
   const router = useRouter();
@@ -180,16 +178,12 @@ function FoerderungPageInner() {
     checkAuthAndLoadData();
   }, []);
 
-  // Auto-open: ?openNew=true oeffnet Modal direkt (z.B. vom Cockpit)
+  // v7.4.1-9: Auto-Open Modal wenn ?openNew=true (vom Cockpit-Button)
   useEffect(() => {
-    if (searchParams.get('openNew') === 'true' && !loading) {
-      setModalMode('create');
-      setEditingCompany(null);
-      setFormData(EMPTY_FORM);
-      setFormError(null);
-      setShowModal(true);
+    if (!loading && searchParams.get('openNew') === 'true') {
+      openCreateModal();
     }
-  }, [searchParams, loading]);
+  }, [loading]);
 
   const checkAuthAndLoadData = async () => {
     try {
@@ -473,6 +467,11 @@ function FoerderungPageInner() {
         setSaved(true);
         await loadCompanies(userProfile.consultant_company_id);
         closeModal();
+        // v7.4.1-9: Wenn vom App-Cockpit gekommen -> zurueck zum Cockpit (Daten werden neu geladen)
+        if (searchParams.get('openNew') === 'true') {
+          router.push('/v7/berater/app/cockpit');
+          return;
+        }
         return;
 
       } else if (modalMode === 'edit' && editingCompany) {
@@ -599,14 +598,14 @@ function FoerderungPageInner() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="bg-white rounded-lg shadow-lg p-8 max-w-md text-center">
-          <div className="text-red-500 text-5xl mb-4">⚠️</div>
+          <div className="text-red-500 text-5xl mb-4">(!)</div>
           <h2 className="text-xl font-bold text-gray-900 mb-2">Fehler</h2>
           <p className="text-gray-600 mb-6">{error}</p>
           <button
             onClick={() => router.push('/login')}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
           >
-            Zurück zum Login
+            Zurueck zum Login
           </button>
         </div>
       </div>
@@ -657,8 +656,8 @@ function FoerderungPageInner() {
               className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm"
             >
               <option value="all">Alle aktiven ({statusCounts.all})</option>
-              <option value="active">🟢 Aktiv ({statusCounts.active})</option>
-              <option value="inactive">⚫ Inaktiv ({statusCounts.inactive})</option>
+              <option value="active">Aktiv ({statusCounts.active})</option>
+              <option value="inactive">Inaktiv ({statusCounts.inactive})</option>
             </select>
             {/* Suchfeld */}
             <div className="relative">
@@ -706,7 +705,7 @@ function FoerderungPageInner() {
           <div className="bg-white rounded-lg shadow p-12 text-center">
             {companies.length === 0 ? (
               <>
-                <div className="text-5xl mb-4">🏢</div>
+                <div className="text-5xl mb-4"></div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">Keine Kundenfirmen vorhanden</h3>
                 <p className="text-gray-500 mb-6">
                   Legen Sie eine neue Firma an oder importieren Sie einen ZIM-Antrag.
@@ -728,7 +727,7 @@ function FoerderungPageInner() {
               </>
             ) : (
               <>
-                <div className="text-5xl mb-4">🔍</div>
+                <div className="text-5xl mb-4"></div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">Keine Treffer</h3>
                 <p className="text-gray-500">Keine Firma gefunden fuer die gewaehlten Filter</p>
               </>
@@ -797,7 +796,7 @@ function FoerderungPageInner() {
                       {/* Ort */}
                       <td className="px-4 py-3 text-sm text-gray-500">
                         {company.city && <span>{company.city}</span>}
-                        {company.city && company.federal_state && <span> · </span>}
+                        {company.city && company.federal_state && <span> &middot; </span>}
                         {company.federal_state && (
                           <span>{BUNDESLAND_NAMES[company.federal_state] || company.federal_state}</span>
                         )}
@@ -860,7 +859,7 @@ function FoerderungPageInner() {
               {/* Erfolgsmeldung */}
               {successMessage && (
                 <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg">
-                  ✅ {successMessage}
+                  (OK) {successMessage}
                 </div>
               )}
 
@@ -903,7 +902,7 @@ function FoerderungPageInner() {
                   </div>
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Straße
+                      Strasse
                     </label>
                     <input
                       type="text"
@@ -911,7 +910,7 @@ function FoerderungPageInner() {
                       value={formData.street}
                       onChange={handleInputChange}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="Musterstraße 123"
+                      placeholder="Musterstrasse 123"
                     />
                   </div>
                   <div>
@@ -950,7 +949,7 @@ function FoerderungPageInner() {
                       onChange={handleInputChange}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
-                      <option value="">Bitte wählen...</option>
+                      <option value="">Bitte waehlen...</option>
                       {BUNDESLAENDER.map(bl => (
                         <option key={bl.code} value={bl.code}>{bl.name}</option>
                       ))}
@@ -1011,7 +1010,7 @@ function FoerderungPageInner() {
                   <div className="mb-3">
                     <p className="font-medium text-blue-900">Administrator-Zugang</p>
                     <p className="text-sm text-blue-700 mt-0.5">
-                      Erstellt einen Login für den Firmen-Admin (z.B. Geschäftsführer).
+                      Erstellt einen Login fuer den Firmen-Admin (z.B. Geschaeftsfuehrer).
                       Passwort: <code className="bg-blue-100 px-1 rounded">{DEV_PASSWORD}</code>
                     </p>
                   </div>
@@ -1070,7 +1069,7 @@ function FoerderungPageInner() {
                   onChange={handleInputChange}
                   rows={3}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Nur für Berater sichtbar..."
+                  placeholder="Nur fuer Berater sichtbar..."
                 />
               </div>
             </div>
@@ -1107,7 +1106,7 @@ function FoerderungPageInner() {
       )}
 
       {/* ============================================ */}
-      {/* MODAL: Löschen bestätigen */}
+      {/* MODAL: Loeschen bestaetigen */}
       {/* ============================================ */}
 
       {showDeleteConfirm && companyToDelete && (
@@ -1115,8 +1114,8 @@ function FoerderungPageInner() {
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-2">Firma deaktivieren?</h3>
             <p className="text-gray-600 mb-6">
-              Möchten Sie die Firma <strong>"{companyToDelete.name}"</strong> wirklich deaktivieren?
-              Die Daten bleiben erhalten und können später wiederhergestellt werden.
+              Moechten Sie die Firma <strong>"{companyToDelete.name}"</strong> wirklich deaktivieren?
+              Die Daten bleiben erhalten und koennen spaeter wiederhergestellt werden.
             </p>
             <div className="flex justify-end gap-3">
               <button
@@ -1139,5 +1138,13 @@ function FoerderungPageInner() {
       )}
 
     </div>
+  );
+}
+
+export default function FoerderungPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gray-50" />}>
+      <FoerderungPageInner />
+    </Suspense>
   );
 }
