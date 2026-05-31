@@ -1,5 +1,8 @@
 // src/app/v7/berater/foerderung/page.tsx
-// VERSION: v7.4.1-9
+// VERSION: v7.4.1-10
+// AENDERUNG v7.4.1-10: Zurueck-Button modus-bewusst (liest pze_mode aus localStorage).
+//   App-Modus -> zurueck ins App-Cockpit (/v7/berater/app/cockpit),
+//   Classic-Modus -> altes Dashboard (/v7/berater/dashboard). Label zu "Zurueck" vereinheitlicht.
 // AENDERUNG v7.4.1-9: ?openNew=true -> Modal auto-open + Redirect zurueck zum App-Cockpit nach Speichern
 // AENDERUNG v7.4.1-8/7: siehe Vorgaenger (openNew-Konzept, Suspense)
 // AENDERUNG v7.4.1-6: Profil+Employee-Insert server-seitig (RLS-Fix, alle 3 Schritte in create-user-Route)
@@ -634,13 +637,17 @@ function FoerderungPageInner() {
 
       {/* Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Zurueck-Button */}
+        {/* Zurueck-Button - modus-bewusst (v7.4.1-10):
+            App-Modus -> App-Cockpit, sonst altes Dashboard. pze_mode kommt aus localStorage. */}
         <button
-          onClick={() => router.push('/v7/berater/dashboard')}
+          onClick={() => {
+            const appMode = typeof window !== 'undefined' && localStorage.getItem('pze_mode') === 'app';
+            router.push(appMode ? '/v7/berater/app/cockpit' : '/v7/berater/dashboard');
+          }}
           className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-[#002451] mb-4 transition-colors"
         >
           <ArrowLeft size={16} />
-          Dashboard
+          Zurueck
         </button>
         {/* Titel und Aktionen */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
