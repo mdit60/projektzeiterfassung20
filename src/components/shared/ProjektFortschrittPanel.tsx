@@ -2,7 +2,24 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Grafische Auswertung
 // ============================================================================
-// Version: 7.4.5-22
+// Version: 7.4.5-23
+//
+// v7.4.5-23: Refactor - Berechnung auf gemeinsame Utility umgestellt (A-011)
+//   - Inline-Berechnung (useMemo) ersetzt durch calculateProjectAnalysis()
+//     aus src/lib/projektfortschritt-utils.ts. Damit gibt es nur noch EINE
+//     Rechenquelle fuer den Projektfortschritt, die auch das FirmaCockpit nutzt.
+//   - Ergebnisse nachgewiesen identisch zur bisherigen Inline-Logik (Vergleich
+//     Anweisung fuer Anweisung; keine funktionale Aenderung).
+//   - Lokale Doppel-Definitionen entfernt (Konstanten, Format-Helfer,
+//     prognoseFarbe, GF_POSITIONS, arbeitstage-/maxProjektstunden-Helfer).
+//     Stattdessen Import aus der Utility: progressColor, progressBg, fmt1,
+//     fmtEur, fmtH, fmtDateDE.
+//   - Diagramm-Datenfelder an das Utility-Schema angepasst:
+//       maData:    planPM / istPM / planEUR / istEUR
+//       monatData: SollKumuliert / IstKumuliert / IstProjektion / ZielProjektion
+//     Anzeige-Labels (Legende, Tooltip-Text) bleiben unveraendert: die vier
+//     Balken erhalten dafuer ein explizites name=-Prop.
+//   - Layout, Farben, Schriftgroessen, Texte, PDF/Druck unveraendert.
 // v7.4.5-22: FIX Foerderbetrags-Berechnung
 //   - bewilligte_summe als Deckel fuer abrufbare Foerdermittel
 //   - Bei 100% Zielerreichung max = bewilligte_summe (nicht Plan x Foerdersatz)
@@ -11,7 +28,7 @@
 //
 // v7.4.5-20: Custom Legend fuer bessere Lesbarkeit
 //   - Soll-Serien (hell) bekommen dunklere Label-Farbe in der Legende
-//   - Farbkästchen bleibt original, nur Text-Label wird dunkler
+//   - Farbkaestchen bleibt original, nur Text-Label wird dunkler
 //
 // v7.4.5-19: Kontrast-Verbesserung - Anthrazit fuer alle Texte
 //   - text-gray-700/500 -> text-gray-700 (#374151) fuer alle Beschriftungen
@@ -69,6 +86,16 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { TrendingUp, Clock, Euro, Users, CheckCircle, AlertCircle, Target, Printer } from 'lucide-react';
+// Gemeinsame Berechnungslogik (einzige Rechenquelle, auch vom FirmaCockpit genutzt)
+import {
+  calculateProjectAnalysis,
+  progressColor,
+  progressBg,
+  fmt1,
+  fmtEur,
+  fmtH,
+  fmtDateDE,
+} from '@/lib/projektfortschritt-utils';
 
 // Foerderformat-Labels
 const FUNDING_FORMAT_LABELS: Record<string, string> = {
@@ -82,8 +109,6 @@ const FUNDING_FORMAT_LABELS: Record<string, string> = {
 const getFundingLabel = (format: string | null | undefined): string =>
   format ? (FUNDING_FORMAT_LABELS[format] || format) : '';
 
-// GF-Positionen gemaess ZIM-Richtlinie (50%-Regel)
-const GF_POSITIONS = ['Geschaeftsfuehrer', 'Gesellschafter-Geschaeftsfuehrer'];
 
 // ============================================================================
 // TYPEN
@@ -148,101 +173,12 @@ interface ProjektFortschrittPanelProps {
   initialProjectId?: string;
 }
 
-// ============================================================================
-// KONSTANTEN
-// ============================================================================
-
-const HOURS_PER_PM = 173.33;
-const MAX_STUNDEN_MONAT_VOLLZEIT = 173.33;
-const GF_FAKTOR = 0.5; // 50%-Regel fuer Geschaeftsfuehrer
-
-const MONTH_NAMES_SHORT = [
-  'Jan', 'Feb', 'Mrz', 'Apr', 'Mai', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez',
-];
-
-const fmt1 = (v: number) =>
-  v.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-const fmtEur = (v: number) =>
-  v.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' EUR';
-const fmtH = (v: number) =>
-  v.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' h';
-
-// Datum DD.MM.YYYY
-const fmtDateDE = (d: string | null | undefined): string => {
-  if (!d) return '--';
-  const dt = new Date(d);
-  if (isNaN(dt.getTime())) return '--';
-  return dt.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-};
-
-// ============================================================================
-// HILFSFUNKTIONEN
-// ============================================================================
-
-const progressColor = (pct: number, timePct: number): string => {
-  if (pct >= timePct - 5) return 'text-green-600';
-  if (timePct - pct > 25) return 'text-red-600';
-  return 'text-amber-600';
-};
-
-const progressBg = (pct: number, timePct: number): string => {
-  if (pct >= timePct - 5) return 'bg-green-500';
-  if (timePct - pct > 25) return 'bg-red-500';
-  return 'bg-amber-500';
-};
-
-// Arbeitstage im Monat (Mo-Fr, ohne Feiertage - vereinfacht)
-function arbeitstageImMonat(year: number, month: number): number {
-  const days = new Date(year, month, 0).getDate();
-  let count = 0;
-  for (let d = 1; d <= days; d++) {
-    const dow = new Date(year, month - 1, d).getDay();
-    if (dow >= 1 && dow <= 5) count++;
-  }
-  return count;
-}
-
-// Maximale Projektstunden pro Monat fuer einen MA (GF-Regel beachten)
-function maxProjektstundenMonat(emp: Employee | undefined): number {
-  const waz = emp?.weekly_hours ?? 40;
-  const basisMax = MAX_STUNDEN_MONAT_VOLLZEIT * (waz / 40);
-  const istGF = emp?.position_title
-    ? GF_POSITIONS.includes(emp.position_title)
-    : false;
-  return istGF ? basisMax * GF_FAKTOR : basisMax;
-}
-
-// Prueft ob MA ein GF ist
-function istGeschaeftsfuehrer(emp: Employee | undefined): boolean {
-  if (!emp?.position_title) return false;
-  return GF_POSITIONS.includes(emp.position_title);
-}
-
-// ============================================================================
-// PROGNOSE-FARBEN
-// ============================================================================
-
-function prognoseFarbe(erreichungsgrad: number): {
-  stroke: string;
-  bg: string;
-  text: string;
-  label: string;
-  icon: 'gruen' | 'gelb' | 'rot';
-} {
-  if (erreichungsgrad >= 90) return {
-    stroke: '#16a34a', bg: 'bg-green-50', text: 'text-green-700',
-    label: 'Ziel erreichbar', icon: 'gruen',
-  };
-  if (erreichungsgrad >= 60) return {
-    stroke: '#d97706', bg: 'bg-amber-50', text: 'text-amber-700',
-    label: 'Ziel gefaehrdet', icon: 'gelb',
-  };
-  return {
-    stroke: '#dc2626', bg: 'bg-red-50', text: 'text-red-700',
-    label: 'Ziel kritisch', icon: 'rot',
-  };
-}
+// ----------------------------------------------------------------------------
+// Konstanten, Formatierungs- und Rechen-Hilfsfunktionen sind nach
+// src/lib/projektfortschritt-utils.ts ausgelagert (gemeinsame Quelle). Die im
+// Anzeige-Teil benoetigten Helfer (progressColor, progressBg, fmt1, fmtEur, fmtH,
+// fmtDateDE) werden oben importiert. Keine lokale Kopie mehr -> nur eine Quelle.
+// ----------------------------------------------------------------------------
 
 // ============================================================================
 // CUSTOM TOOLTIPS
@@ -363,455 +299,23 @@ export default function ProjektFortschrittPanel({
   // BERECHNUNGEN
   // ============================================================================
 
-  const analysis = useMemo(() => {
-    if (!project) return null;
-
-    const projWPs = workPackages.filter(wp => wp.project_id === project.id);
-    const projAssignments = projectAssignments.filter(pa => pa.project_id === project.id);
-    const projTimesheets = timesheets.filter(
-      t => t.project_id === project.id && t.is_billable !== false
-    );
-
-    const now = new Date();
-
-    // ---- Laufzeit-Fortschritt ----
-    let laufzeitPct = 0;
-    let laufzeitLabel = '--';
-    let gesamtMonate = 0;
-    let vergangeMonate = 0;
-    let verbleibendeMonateAb = 0;
-
-    if (project.start_date && project.end_date) {
-      const start = new Date(project.start_date);
-      const end = new Date(project.end_date);
-      const total = end.getTime() - start.getTime();
-      const elapsed = Math.max(0, Math.min(total, now.getTime() - start.getTime()));
-      laufzeitPct = total > 0 ? Math.round((elapsed / total) * 100) : 0;
-      gesamtMonate = Math.round(total / (30.44 * 24 * 60 * 60 * 1000));
-      vergangeMonate = Math.round(elapsed / (30.44 * 24 * 60 * 60 * 1000));
-      const naechsterMonat = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-      const endMonat = new Date(end.getFullYear(), end.getMonth() + 1, 1);
-      verbleibendeMonateAb = Math.max(0,
-        Math.round((endMonat.getTime() - naechsterMonat.getTime()) / (30.44 * 24 * 60 * 60 * 1000))
-      );
-      laufzeitLabel = `${vergangeMonate} / ${gesamtMonate} Monate`;
-    }
-
-    // ---- PM-Fortschritt ----
-    const gesamtPlanPM = projWPs.reduce((s, wp) => s + (wp.total_person_months || 0), 0);
-    const gesamtPlanStunden = gesamtPlanPM * HOURS_PER_PM;
-    const gesamtIstStunden = projTimesheets.reduce((s, t) => s + (t.hours || 0), 0);
-    const gesamtIstPM = gesamtIstStunden / HOURS_PER_PM;
-    const pmPct = gesamtPlanPM > 0 ? Math.round((gesamtIstPM / gesamtPlanPM) * 100) : 0;
-
-    // ---- Kosten-Fortschritt ----
-    const overhead = (project.overhead_t || 0) / 100;
-    let gesamtPlanKosten = 0;
-    let gesamtIstKosten = 0;
-
-    projAssignments.forEach(pa => {
-      const rate = pa.hourly_rate || 0;
-      if (rate === 0) return;
-      const maWPAs = wpAssignments.filter(wpa => {
-        const wp = projWPs.find(w => w.id === wpa.work_package_id);
-        return wp && wpa.employee_id === pa.employee_id;
-      });
-      const planPM = maWPAs.reduce((s, wpa) => s + (wpa.planned_person_months || 0), 0);
-      gesamtPlanKosten += planPM * HOURS_PER_PM * rate * (1 + overhead);
-      const istH = projTimesheets
-        .filter(t => t.employee_id === pa.employee_id)
-        .reduce((s, t) => s + (t.hours || 0), 0);
-      gesamtIstKosten += istH * rate * (1 + overhead);
-    });
-
-    const kostenPct =
-      gesamtPlanKosten > 0 ? Math.round((gesamtIstKosten / gesamtPlanKosten) * 100) : 0;
-
-    // ---- MA-Daten fuer Balkendiagramme ----
-    const maData = projAssignments
-      .map(pa => {
-        const emp = employees.find(e => e.id === pa.employee_id);
-        const name = emp?.display_name.split(',')[0] || 'MA';
-        const maWPAs = wpAssignments.filter(wpa => {
-          const wp = projWPs.find(w => w.id === wpa.work_package_id);
-          return wp && wpa.employee_id === pa.employee_id;
-        });
-        const planPM = maWPAs.reduce((s, wpa) => s + (wpa.planned_person_months || 0), 0);
-        const istH = projTimesheets
-          .filter(t => t.employee_id === pa.employee_id)
-          .reduce((s, t) => s + (t.hours || 0), 0);
-        const istPM = istH / HOURS_PER_PM;
-        const rate = pa.hourly_rate || 0;
-        const planKosten = planPM * HOURS_PER_PM * rate * (1 + overhead);
-        const istKosten = istH * rate * (1 + overhead);
-        return {
-          name,
-          'Plan PM': Math.round(planPM * 10) / 10,
-          'Ist PM': Math.round(istPM * 10) / 10,
-          'Plan EUR': Math.round(planKosten),
-          'Ist EUR': Math.round(istKosten),
-        };
-      })
-      .filter(d => d['Plan PM'] > 0 || d['Ist PM'] > 0);
-
-    // ---- Monatsverlauf: AP-genaue Soll-Verteilung ----
-    type MonatDatum = {
-      monat: string;
-      year: number;
-      month: number;
-      istVergangenheit: boolean;
-      'Soll': number;
-      'Ist': number;
-      'Soll kumuliert': number;
-      'Ist kumuliert': number | undefined;
-      'Ist Projektion'?: number;
-      'Ziel Projektion'?: number;
-    };
-
-    let monatData: MonatDatum[] = [];
-
-    // ---- Projektion: Durchschnitt letzte 3 abgeschlossene Monate ----
-    const istMonatMap: Record<string, number> = {};
-    projTimesheets.forEach(t => {
-      const d = new Date(t.work_date);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      istMonatMap[key] = (istMonatMap[key] || 0) + t.hours;
-    });
-
-    const vergangeneMonatKeys = Object.keys(istMonatMap)
-      .filter(key => {
-        const [y, m] = key.split('-').map(Number);
-        const monatsEnde = new Date(y, m, 0);
-        return monatsEnde < now;
-      })
-      .sort()
-      .reverse();
-
-    const letzten3 = vergangeneMonatKeys.slice(0, 3);
-    const basisStunden = letzten3.length > 0
-      ? letzten3.reduce((s, k) => s + (istMonatMap[k] || 0), 0) / letzten3.length
-      : 0;
-
-    const prognostizierteGesamtStunden = gesamtIstStunden + basisStunden * verbleibendeMonateAb;
-    const erreichungsgrad = gesamtPlanStunden > 0
-      ? Math.round((prognostizierteGesamtStunden / gesamtPlanStunden) * 100)
-      : 0;
-    const fehlendStunden = Math.max(0, gesamtPlanStunden - prognostizierteGesamtStunden);
-    const pFarbe = prognoseFarbe(Math.min(erreichungsgrad, 100));
-
-    // ---- Beteiligung & Intensitaet ----
-    const aktiveMaIds = new Set<string>();
-    projTimesheets.forEach(t => {
-      const d = new Date(t.work_date);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      if (letzten3.includes(key)) aktiveMaIds.add(t.employee_id);
-    });
-
-    const alleMAIds = Array.from(new Set(projAssignments.map(pa => pa.employee_id)));
-    const aktivCount = aktiveMaIds.size;
-    const gesamtMACount = alleMAIds.length;
-
-    // Arbeitstage der letzten 3 Monate
-    const gesamtArbeitstage3M = letzten3.reduce((s, key) => {
-      const [y, m] = key.split('-').map(Number);
-      return s + arbeitstageImMonat(y, m);
-    }, 0);
-
-    const istHGesamt3M = letzten3.reduce((s, k) => s + (istMonatMap[k] || 0), 0);
-
-    // Oe h/Tag: Team gesamt und je aktivem MA
-    const istHProTagTeam = gesamtArbeitstage3M > 0 ? istHGesamt3M / gesamtArbeitstage3M : 0;
-    const istHProTagJeMA = (gesamtArbeitstage3M > 0 && aktivCount > 0)
-      ? istHGesamt3M / gesamtArbeitstage3M / aktivCount
-      : 0;
-
-    // ---- MA-individuelle Obergrenzen ----
-    const maObergrenzen = alleMAIds.map(empId => {
-      const emp = employees.find(e => e.id === empId);
-      const maxProMonat = maxProjektstundenMonat(emp);
-      const isGF = istGeschaeftsfuehrer(emp);
-      return { empId, maxProMonat, isGF, emp };
-    });
-
-    // Team-Maximum gesamt pro Monat
-    const teamMaxProMonat = maObergrenzen.reduce((s, ma) => s + ma.maxProMonat, 0);
-
-    const gfCount = maObergrenzen.filter(ma => ma.isGF).length;
-    const normalMACount = gesamtMACount - gfCount;
-
-    const avgMaxProTagGF = gfCount > 0
-      ? maObergrenzen.filter(ma => ma.isGF).reduce((s, ma) => s + ma.maxProMonat, 0) / gfCount / 21.7
-      : 0;
-    const avgMaxProTagMA = normalMACount > 0
-      ? maObergrenzen.filter(ma => !ma.isGF).reduce((s, ma) => s + ma.maxProMonat, 0) / normalMACount / 21.7
-      : 0;
-
-    // ---- Restliche Arbeitstage bis Projektende ----
-    let restArbeitstage = 0;
-    if (project.end_date) {
-      const projEnd = new Date(project.end_date);
-      const startCalc = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-      const cur2 = new Date(startCalc);
-      while (cur2 <= projEnd) {
-        restArbeitstage += arbeitstageImMonat(cur2.getFullYear(), cur2.getMonth() + 1);
-        cur2.setMonth(cur2.getMonth() + 1);
-      }
-    }
-
-    const restStunden = Math.max(0, gesamtPlanStunden - gesamtIstStunden);
-
-    // ---- Szenarien ----
-    const szenarien: Array<{
-      label: string;
-      hProTagJeMA: number;
-      teamHProTag: number;
-      erreichbar: boolean;
-      hinweis?: string;
-    }> = [];
-
-    if (restArbeitstage > 0) {
-
-      const teamMaxErreichbar = teamMaxProMonat * verbleibendeMonateAb;
-      const maxErreichbarGesamt = gesamtIstStunden + teamMaxErreichbar;
-      const maxErreichbarPct = gesamtPlanStunden > 0
-        ? Math.round((maxErreichbarGesamt / gesamtPlanStunden) * 100)
-        : 0;
-
-      szenarien.push({
-        label: `Weiter wie bisher (${aktivCount} aktive MA)`,
-        hProTagJeMA: Math.round(istHProTagJeMA * 10) / 10,
-        teamHProTag: Math.round(istHProTagTeam * 10) / 10,
-        erreichbar: erreichungsgrad >= 90,
-      });
-
-      if (maxErreichbarPct < 100) {
-        szenarien.push({
-          label: `Vollast alle ${gesamtMACount} MA (Maximum)`,
-          hProTagJeMA: Math.round((teamMaxProMonat / gesamtMACount / 21.7) * 10) / 10,
-          teamHProTag: Math.round((teamMaxProMonat / 21.7) * 10) / 10,
-          erreichbar: maxErreichbarPct >= 90,
-          hinweis: maxErreichbarPct < 90
-            ? `Selbst bei Vollast: max. ${maxErreichbarPct}% des Foerderziels erreichbar`
-            : undefined,
-        });
-      }
-
-      if (restArbeitstage > 0 && restStunden > 0 && maxErreichbarPct >= 90) {
-        const benoetigtTeamHProTag = restStunden / restArbeitstage;
-        const benoetigtJeMAHProTag = gesamtMACount > 0
-          ? benoetigtTeamHProTag / gesamtMACount
-          : 0;
-
-        const gfMaxHProTag = gfCount > 0 ? avgMaxProTagGF : 0;
-        const maMaxHProTag = normalMACount > 0 ? avgMaxProTagMA : 0;
-
-        const erreichbar = (gfCount === 0 || benoetigtJeMAHProTag <= gfMaxHProTag) &&
-                           (normalMACount === 0 || benoetigtJeMAHProTag <= maMaxHProTag);
-
-        let hinweis: string | undefined;
-        if (!erreichbar) {
-          if (gfCount > 0 && benoetigtJeMAHProTag > gfMaxHProTag) {
-            hinweis = `GF: max. ${Math.round(gfMaxHProTag * 10) / 10} h/Tag moeglich (50%-Regel)`;
-          }
-        }
-
-        if (szenarien.length < 3) {
-          szenarien.push({
-            label: `Fuer 100% Ziel (alle ${gesamtMACount} MA)`,
-            hProTagJeMA: Math.round(benoetigtJeMAHProTag * 10) / 10,
-            teamHProTag: Math.round(benoetigtTeamHProTag * 10) / 10,
-            erreichbar,
-            hinweis,
-          });
-        }
-      }
-    }
-
-    // ---- Kosten-Prognose ----
-    const foerdersatz = project.foerdersatz ?? null;
-    const bewilligteSumme = project.bewilligte_summe ?? null;
-    const kostenDatenVorhanden = foerdersatz !== null && gesamtPlanKosten > 0 && gesamtIstKosten > 0;
-
-    let prognostizierteGesamtKosten = gesamtIstKosten;
-
-    if (kostenDatenVorhanden && prognostizierteGesamtStunden > gesamtIstStunden) {
-      const progDeltaStunden = prognostizierteGesamtStunden - gesamtIstStunden;
-      if (gesamtIstStunden > 0) {
-        const avgStundensatz = gesamtIstKosten / gesamtIstStunden;
-        prognostizierteGesamtKosten = gesamtIstKosten + progDeltaStunden * avgStundensatz;
-      } else {
-        const avgPlanStundensatz = gesamtPlanKosten / gesamtPlanStunden;
-        prognostizierteGesamtKosten = prognostizierteGesamtStunden * avgPlanStundensatz;
-      }
-    }
-
-    const fs = (foerdersatz ?? 0) / 100;
-
-    // Foerderbetrag aus Plankosten (rechnerisch)
-    const foerderbarRechnerischProg = Math.min(prognostizierteGesamtKosten, gesamtPlanKosten) * fs;
-    const foerderbarRechnerischPlan = gesamtPlanKosten * fs;
-
-    // Gedeckelt durch bewilligte Fördersumme (niemals mehr als bewilligt!)
-    const deckel = bewilligteSumme ?? Infinity;
-    const foerderbarProg = Math.min(foerderbarRechnerischProg, deckel);
-    const foerderbarPlan = Math.min(foerderbarRechnerischPlan, deckel);
-
-    // Verschenkt = was von der bewilligten Summe nicht abgerufen wird
-    // Basis ist bewilligte_summe falls vorhanden, sonst rechnerischer Plan
-    const foerderMaximum = bewilligteSumme ?? foerderbarRechnerischPlan;
-    const verschenktProg = Math.max(0, foerderMaximum - foerderbarProg);
-    const verschenktZiel  = 0;
-
-    // ---- Zieltempo ----
-    const teamMaxErreichbarGesamt = gesamtIstStunden + teamMaxProMonat * verbleibendeMonateAb;
-    const maxErreichbarPct = gesamtPlanStunden > 0
-      ? Math.round((teamMaxErreichbarGesamt / gesamtPlanStunden) * 100)
-      : 0;
-    const zielErreichbar = maxErreichbarPct >= 90;
-    const zielStundenProMonat = (zielErreichbar && verbleibendeMonateAb > 0)
-      ? restStunden / verbleibendeMonateAb
-      : 0;
-
-    // ---- Monatsverlauf aufbauen ----
-    if (project.start_date && project.end_date) {
-      const projStart = new Date(project.start_date);
-      const projEnd = new Date(project.end_date);
-
-      const months: { year: number; month: number; label: string }[] = [];
-      const cur = new Date(projStart.getFullYear(), projStart.getMonth(), 1);
-      const endMonth = new Date(projEnd.getFullYear(), projEnd.getMonth(), 1);
-      while (cur <= endMonth) {
-        months.push({
-          year: cur.getFullYear(),
-          month: cur.getMonth() + 1,
-          label: `${MONTH_NAMES_SHORT[cur.getMonth()]} ${String(cur.getFullYear()).slice(-2)}`,
-        });
-        cur.setMonth(cur.getMonth() + 1);
-      }
-
-      const sollMap: Record<string, number> = {};
-      projWPs.forEach(wp => {
-        if (!wp.start_date || !wp.end_date) return;
-        const apStart = new Date(wp.start_date);
-        const apEnd = new Date(wp.end_date);
-        const apWPAs = wpAssignments.filter(wpa => wpa.work_package_id === wp.id);
-        const apTotalPM = apWPAs.reduce((s, wpa) => s + (wpa.planned_person_months || 0), 0);
-        const apTotalHours = apTotalPM * HOURS_PER_PM;
-        if (apTotalHours === 0) return;
-        const apDurationDays =
-          (apEnd.getTime() - apStart.getTime()) / (1000 * 60 * 60 * 24) + 1;
-        if (apDurationDays <= 0) return;
-        const hoursPerDay = apTotalHours / apDurationDays;
-        months.forEach(({ year, month }) => {
-          const monthStart = new Date(year, month - 1, 1);
-          const monthEnd = new Date(year, month, 0);
-          if (apEnd < monthStart || apStart > monthEnd) return;
-          const overlapStart = apStart > monthStart ? apStart : monthStart;
-          const overlapEnd = apEnd < monthEnd ? apEnd : monthEnd;
-          const overlapDays =
-            (overlapEnd.getTime() - overlapStart.getTime()) / (1000 * 60 * 60 * 24) + 1;
-          const key = `${year}-${String(month).padStart(2, '0')}`;
-          sollMap[key] = (sollMap[key] || 0) + hoursPerDay * overlapDays;
-        });
-      });
-
-      let sollKumuliert = 0;
-      let istKumuliert = 0;
-      let projektionKumuliert = gesamtIstStunden;
-      let zielProjektionKumuliert = gesamtIstStunden;
-      const aktuellerMonatKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-
-      monatData = months.map(({ year, month, label }) => {
-        const key = `${year}-${String(month).padStart(2, '0')}`;
-        const soll = Math.round(sollMap[key] || 0);
-        const ist = Math.round(istMonatMap[key] || 0);
-        sollKumuliert += soll;
-        istKumuliert += ist;
-
-        const monatsEnde = new Date(year, month, 0);
-        const istVergangenheit = monatsEnde < now;
-        const istAktuell = key === aktuellerMonatKey;
-
-        let projektion: number | undefined = undefined;
-        let zielProjektion: number | undefined = undefined;
-
-        if (!istVergangenheit || istAktuell) {
-          if (istAktuell) {
-            projektion = istKumuliert;
-            projektionKumuliert = istKumuliert;
-            zielProjektion = istKumuliert;
-            zielProjektionKumuliert = istKumuliert;
-          } else {
-            projektionKumuliert += basisStunden;
-            projektion = Math.round(Math.min(projektionKumuliert, gesamtPlanStunden));
-            if (zielErreichbar && zielStundenProMonat > 0) {
-              zielProjektionKumuliert += zielStundenProMonat;
-              zielProjektion = Math.round(Math.min(zielProjektionKumuliert, gesamtPlanStunden));
-            }
-          }
-        }
-
-        return {
-          monat: label,
-          year,
-          month,
-          istVergangenheit,
-          'Soll': soll,
-          'Ist': ist,
-          'Soll kumuliert': Math.round(sollKumuliert),
-          'Ist kumuliert': istVergangenheit ? Math.round(istKumuliert) : undefined,
-          'Ist Projektion': projektion,
-          'Ziel Projektion': zielProjektion,
-        };
-      });
-    }
-
-    const prognoseAktiv = laufzeitPct > 10 && gesamtPlanStunden > 0;
-
-    return {
-      laufzeitPct,
-      laufzeitLabel,
-      vergangeMonate,
-      gesamtMonate,
-      pmPct,
-      gesamtPlanPM,
-      gesamtIstPM,
-      gesamtPlanStunden,
-      gesamtIstStunden,
-      kostenPct,
-      gesamtPlanKosten,
-      gesamtIstKosten,
-      maData,
-      monatData,
-      prognoseAktiv,
-      erreichungsgrad,
-      fehlendStunden,
-      prognostizierteGesamtStunden,
-      pFarbe,
-      basisStunden,
-      letzten3Count: letzten3.length,
-      zielErreichbar,
-      zielStundenProMonat,
-      kostenDatenVorhanden,
-      foerdersatz,
-      foerderbarProg,
-      foerderbarPlan,
-      verschenktProg,
-      verschenktZiel,
-      prognostizierteGesamtKosten,
-      aktivCount,
-      gesamtMACount,
-      gfCount,
-      normalMACount,
-      istHProTagTeam,
-      istHProTagJeMA,
-      avgMaxProTagGF,
-      avgMaxProTagMA,
-      teamMaxProMonat,
-      szenarien,
-      verbleibendeMonateAb,
-    };
-  }, [project, workPackages, wpAssignments, projectAssignments, employees, timesheets]);
+  // Berechnung ausgelagert nach src/lib/projektfortschritt-utils.ts
+  // (calculateProjectAnalysis): exakt dieselbe Logik wie zuvor inline,
+  // nachgewiesen identische Ergebnisse, einzige Rechenquelle (auch FirmaCockpit).
+  const analysis = useMemo(
+    () =>
+      project
+        ? calculateProjectAnalysis(
+            project,
+            workPackages,
+            wpAssignments,
+            projectAssignments,
+            employees,
+            timesheets,
+          )
+        : null,
+    [project, workPackages, wpAssignments, projectAssignments, employees, timesheets],
+  );
 
   if (!project || !analysis) {
     return (
@@ -1040,8 +544,8 @@ export default function ProjektFortschrittPanel({
                 <YAxis tick={{ fontSize: 11, fill: "#374151" }} unit=" PM" width={45} />
                 <Tooltip content={<PMTooltip />} />
                 <Legend content={<CustomLegend />} />
-                <Bar dataKey="Plan PM" fill="#e2e8f0" radius={[3, 3, 0, 0]} />
-                <Bar dataKey="Ist PM" fill={accentColor} radius={[3, 3, 0, 0]} />
+                <Bar dataKey="planPM" name="Plan PM" fill="#e2e8f0" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="istPM" name="Ist PM" fill={accentColor} radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -1064,8 +568,8 @@ export default function ProjektFortschrittPanel({
                 />
                 <Tooltip content={<KostenTooltip />} />
                 <Legend content={<CustomLegend />} />
-                <Bar dataKey="Plan EUR" fill="#e2e8f0" radius={[3, 3, 0, 0]} />
-                <Bar dataKey="Ist EUR" fill={accentColor} radius={[3, 3, 0, 0]} />
+                <Bar dataKey="planEUR" name="Plan EUR" fill="#e2e8f0" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="istEUR" name="Ist EUR" fill={accentColor} radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -1121,15 +625,15 @@ export default function ProjektFortschrittPanel({
                 <Bar yAxisId="monat" dataKey="Soll" fill="#cbd5e1" radius={[2, 2, 0, 0]} name="Soll (Monat)" maxBarSize={16} />
                 <Bar yAxisId="monat" dataKey="Ist" fill={accentColor} fillOpacity={0.8} radius={[2, 2, 0, 0]} name="Ist (Monat)" maxBarSize={16} />
 
-                <Line yAxisId="kumuliert" type="monotone" dataKey="Soll kumuliert" stroke="#94a3b8" strokeWidth={2} strokeDasharray="6 3" dot={false} name="Soll kumuliert" />
-                <Line yAxisId="kumuliert" type="monotone" dataKey="Ist kumuliert" stroke={accentColor} strokeWidth={2.5} dot={false} name="Ist kumuliert" connectNulls={false} />
+                <Line yAxisId="kumuliert" type="monotone" dataKey="SollKumuliert" stroke="#94a3b8" strokeWidth={2} strokeDasharray="6 3" dot={false} name="Soll kumuliert" />
+                <Line yAxisId="kumuliert" type="monotone" dataKey="IstKumuliert" stroke={accentColor} strokeWidth={2.5} dot={false} name="Ist kumuliert" connectNulls={false} />
 
                 {analysis.prognoseAktiv && (
-                  <Line yAxisId="kumuliert" type="monotone" dataKey="Ist Projektion" stroke={analysis.pFarbe.stroke} strokeWidth={2} strokeDasharray="4 4" dot={false} name="Prognose kumuliert" connectNulls={true} />
+                  <Line yAxisId="kumuliert" type="monotone" dataKey="IstProjektion" stroke={analysis.pFarbe.stroke} strokeWidth={2} strokeDasharray="4 4" dot={false} name="Prognose kumuliert" connectNulls={true} />
                 )}
 
                 {analysis.prognoseAktiv && analysis.zielErreichbar && (
-                  <Line yAxisId="kumuliert" type="monotone" dataKey="Ziel Projektion" stroke="#16a34a" strokeWidth={2} strokeDasharray="4 4" dot={false} name="Zieltempo kumuliert" connectNulls={true} />
+                  <Line yAxisId="kumuliert" type="monotone" dataKey="ZielProjektion" stroke="#16a34a" strokeWidth={2} strokeDasharray="4 4" dot={false} name="Zieltempo kumuliert" connectNulls={true} />
                 )}
               </ComposedChart>
             </ResponsiveContainer>
