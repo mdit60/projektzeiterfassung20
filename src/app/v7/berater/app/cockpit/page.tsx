@@ -2,24 +2,26 @@
 
 // src/app/v7/berater/app/cockpit/page.tsx
 // ============================================================================
-// Version: 1.0.1
+// Version: 1.0.4
 // Berater-App-Cockpit (neue Struktur)
 //   - 4 Kacheln: Unternehmen (mit Firma-Dropdown), Netzwerk,
 //                Kapazitaetsplanung, Forschungszulage
 //   - Firmenwahl -> direkt zum Firmen-Cockpit /v7/berater/app/firma/[id]
+//   - v1.0.2: "+ Neues Unternehmen anlegen" Button in Unternehmen-Kachel
+//             -> /v7/berater/foerderung (Firma-Verwaltung mit Neuanlage-Modal)
 //   - Nur zugaenglich im App-Modus (pze_mode='app')
 //   - Kein Querlink zur alten Struktur
 // ============================================================================
 
 import React, { useState, useEffect, Suspense } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import PortalHeader from '@/components/shared/PortalHeader';
 import AppNav from '@/components/shared/AppNav';
 import {
   Building2, Network, BarChart3, FlaskConical,
   ChevronDown, ChevronRight, Loader2, AlertCircle,
-  CheckCircle, Clock,
+  CheckCircle, Clock, Plus,
 } from 'lucide-react';
 
 const PRIMARY = '#002451';
@@ -46,6 +48,7 @@ export default function BeraterAppCockpitPage() {
 
 function BeraterAppCockpitInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClient();
 
   const [loading, setLoading]               = useState(true);
@@ -146,6 +149,13 @@ function BeraterAppCockpitInner() {
     load();
   }, []);
 
+  // v1.0.4: Wenn von foerderung-page zurueck (z.B. nach Firma-Anlage) -> Daten neu laden
+  useEffect(() => {
+    if (searchParams.get('refreshed') === 'true') {
+      setLoading(true);
+    }
+  }, [searchParams]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -172,14 +182,14 @@ function BeraterAppCockpitInner() {
             Willkommen, {userName}!
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            {companyName} · {stats.firmen} Unternehmen · {stats.projekte} Projekte
+            {companyName} &middot; {stats.firmen} Unternehmen &middot; {stats.projekte} Projekte
           </p>
         </div>
 
         {/* 4 Kacheln */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
-          {/* KACHEL 1: Unternehmen mit Dropdown */}
+          {/* KACHEL 1: Unternehmen mit Dropdown + Neuanlage */}
           <div className="bg-white rounded-xl border border-gray-200 p-6 relative">
             {/* Status-Badge */}
             <div className="absolute top-4 right-4">
@@ -210,13 +220,13 @@ function BeraterAppCockpitInner() {
             </div>
 
             {/* Firma-Dropdown */}
-            <div className="relative">
+            <div className="relative mb-2">
               <button
                 onClick={() => setFirmenDropdownOpen(!firmenDropdownOpen)}
                 className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-white rounded-lg transition-colors"
                 style={{ backgroundColor: PRIMARY }}
               >
-                <span>Firma auswählen</span>
+                <span>Firma auswaehlen</span>
                 <ChevronDown
                   size={16}
                   className={`transition-transform ${firmenDropdownOpen ? 'rotate-180' : ''}`}
@@ -247,6 +257,16 @@ function BeraterAppCockpitInner() {
                 </>
               )}
             </div>
+
+            {/* Neues Unternehmen anlegen */}
+            <button
+              onClick={() => router.push(`/v7/berater/foerderung?openNew=true`)}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border-2 transition-colors hover:bg-blue-50"
+              style={{ borderColor: PRIMARY, color: PRIMARY }}
+            >
+              <Plus size={15} />
+              Neues Unternehmen anlegen
+            </button>
           </div>
 
           {/* KACHEL 2: Netzwerkmanagement */}
