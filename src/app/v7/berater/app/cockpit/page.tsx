@@ -2,8 +2,11 @@
 
 // src/app/v7/berater/app/cockpit/page.tsx
 // ============================================================================
-// Version: 1.0.4
+// Version: 1.0.5
 // Berater-App-Cockpit (neue Struktur)
+//   - v1.0.5: Begruessung UND Header zeigen vollen Namen "Vorname Nachname"
+//             statt nur Nachname. Quelle: first_name + last_name aus v7_user_profiles,
+//             Fallback display_name -> E-Mail.
 //   - 4 Kacheln: Unternehmen (mit Firma-Dropdown), Netzwerk,
 //                Kapazitaetsplanung, Forschungszulage
 //   - Firmenwahl -> direkt zum Firmen-Cockpit /v7/berater/app/firma/[id]
@@ -68,18 +71,18 @@ function BeraterAppCockpitInner() {
 
         const { data: profile } = await supabase
           .from('v7_user_profiles')
-          .select('display_name, role, consultant_company_id')
+          .select('first_name, last_name, display_name, role, consultant_company_id')
           .eq('id', user.id)
           .single();
 
         if (!profile) { router.push('/v7/login'); return; }
 
-        // Name
-        const displayName = profile.display_name || user.email || '';
-        const nameParts = displayName.includes(',')
-          ? displayName.split(',').map((s: string) => s.trim())
-          : displayName.split(' ');
-        setUserName(nameParts[nameParts.length > 1 ? 1 : 0] || displayName);
+        // Name: voller Name "Vorname Nachname" (v1.0.5).
+        // Fallback: display_name, dann E-Mail.
+        const vorname = (profile.first_name || '').trim();
+        const nachname = (profile.last_name || '').trim();
+        const vollName = `${vorname} ${nachname}`.trim();
+        setUserName(vollName || profile.display_name || user.email || '');
         setUserRole(profile.role || '');
         setConsultantCompanyId(profile.consultant_company_id || '');
 
