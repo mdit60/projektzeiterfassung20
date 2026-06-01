@@ -3,7 +3,13 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 1. Juni 2026
-// Version: 7.4.6-21
+// Version: 7.4.6-22
+// v7.4.6-22: A-021: NWM-Tagessperren + Cross-Projekt-Validierung.
+//   NWM-Projekte: Admin/PL kann Tage fuer MA sperren (v7_nwm_blocked_periods).
+//   Gesperrte Zellen: disabled, rosa Hintergrund, Tooltip mit Grund.
+//   Cross-Projekt: Stunden anderer Projekte werden geladen. 9h-Tagesgrenze
+//   gilt jetzt projektuebergreifend (calcCrossProjectTagSumme).
+//   Sperren-Modal: Erstellen/Loeschen von Sperrperioden, MA-Mehrfachauswahl.
 // v7.4.6-21: A-002: Wording bei ZIM_NETZWERK: Abschnitts-Ueberschrift
 //   "foerderbare Management-Arbeiten" statt "foerderbare Projektarbeiten"
 //   (offizielles ZIM-NWM-Template). Standard-Wording unveraendert.
@@ -272,6 +278,18 @@ interface APRow {
   entries: Record<number, CalendarEntry>;
 }
 
+// A-021: NWM-Tagessperren
+interface BlockedPeriod {
+  id: string;
+  project_id: string;
+  employee_id: string;
+  start_date: string;
+  end_date: string;
+  reason: string | null;
+  created_by: string;
+  created_at: string;
+}
+
 interface TimesheetFormProps {
   portal: 'berater' | 'firma';
   companyId: string;
@@ -346,6 +364,21 @@ export default function TimesheetForm({
 
   // NEU v7.4.6-21 (A-003): AP-Quick-View Modal
   const [showAPModal, setShowAPModal] = useState(false);
+
+  // NEU v7.4.6-22 (A-021): NWM-Tagessperren
+  const [blockedDays, setBlockedDays] = useState<Set<number>>(new Set());
+  const [blockedDayReasons, setBlockedDayReasons] = useState<Record<number, string>>({});
+  const [showBlockModal, setShowBlockModal] = useState(false);
+  const [allBlockedPeriods, setAllBlockedPeriods] = useState<BlockedPeriod[]>([]);
+  const [blockSaving, setBlockSaving] = useState(false);
+  const [blockError, setBlockError] = useState<string | null>(null);
+  const [blockFormEmployees, setBlockFormEmployees] = useState<string[]>([]);
+  const [blockFormStart, setBlockFormStart] = useState('');
+  const [blockFormEnd, setBlockFormEnd] = useState('');
+  const [blockFormReason, setBlockFormReason] = useState('');
+
+  // NEU v7.4.6-22 (A-021): Cross-Projekt-Validierung
+  const [otherProjectHours, setOtherProjectHours] = useState<Record<number, number>>({});
   // Sortierte MA-Liste: nach Team-Nr. wenn Projekt gewaehlt, sonst alphabetisch
   const sortedEmployees = useMemo(() => {
     if (teamNumbers.size === 0) return safeEmployees;
@@ -929,6 +962,88 @@ export default function TimesheetForm({
 
     loadAssignmentData();
   }, [selectedEmployeeId, selectedProjectId, workPackages, reloadBookedHours]);
+
+  // A-021: NWM-Sperren + Cross-Projekt-Stunden laden
+  useEffect(() => {
+    if (!selectedEmployeeId || !selectedProjectId) {
+      setBlockedDays(new Set());
+      setBlockedDayReasons({});
+      setOtherProjectHours({});
+      return;
+    }
+
+    const loadBlockedAndCrossProject = async () => {
+      const dim = getDaysInMonth(selectedYear, selectedMonth);
+      const monthStart = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
+      const monthEnd = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${dim}`;
+
+      // 1. NWM-Sperren (nur bei Netzwerk-Projekten)
+      const days = new Set<number>();
+      const reasons: Record<number, string> = {};
+
+      if (isNetzwerk) {
+        const { data: blocks } = await supabase
+          .from('v7_nwm_blocked_periods')
+          .select('*')
+          .eq('project_id', selectedProjectId)
+          .eq('employee_id', selectedEmployeeId)
+          .lte('start_date', monthEnd)
+          .gte('end_date', monthStart);
+
+        if (blocks) {
+          for (const period of blocks) {
+            const pStart = new Date(period.start_date + 'T00:00:00');
+            const pEnd = new Date(period.end_date + 'T00:00:00');
+            for (let d = 1; d <= dim; d++) {
+              const date = new Date(selectedYear, selectedMonth - 1, d);
+              if (date >= pStart && date <= pEnd) {
+                days.add(d);
+                reasons[d] = period.reason || 'Gesperrt durch PL';
+              }
+            }
+          }
+        }
+      }
+
+      setBlockedDays(days);
+      setBlockedDayReasons(reasons);
+
+      // 2. Cross-Projekt-Stunden (alle Projekte des MA ausser aktuelles)
+      const { data: otherEntries } = await supabase
+        .from('v7_timesheets')
+        .select('work_date, hours')
+        .eq('employee_id', selectedEmployeeId)
+        .neq('project_id', selectedProjectId)
+        .gte('work_date', monthStart)
+        .lte('work_date', monthEnd)
+        .eq('is_active', true);
+
+      const hoursByDay: Record<number, number> = {};
+      if (otherEntries) {
+        for (const entry of otherEntries) {
+          const day = new Date(entry.work_date + 'T00:00:00').getDate();
+          hoursByDay[day] = (hoursByDay[day] || 0) + Number(entry.hours);
+        }
+      }
+      setOtherProjectHours(hoursByDay);
+    };
+
+    loadBlockedAndCrossProject();
+  }, [selectedEmployeeId, selectedProjectId, selectedYear, selectedMonth, isNetzwerk]);
+
+  // A-021: Alle Sperren fuer das Projekt laden (fuer Admin-Modal)
+  const loadAllBlockedPeriods = useCallback(async () => {
+    if (!selectedProjectId || !isNetzwerk) {
+      setAllBlockedPeriods([]);
+      return;
+    }
+    const { data } = await supabase
+      .from('v7_nwm_blocked_periods')
+      .select('*')
+      .eq('project_id', selectedProjectId)
+      .order('start_date', { ascending: true });
+    setAllBlockedPeriods(data || []);
+  }, [selectedProjectId, isNetzwerk]);
 
   // Daten laden fuer MA/Projekt/Monat
   useEffect(() => {
@@ -1532,12 +1647,18 @@ export default function TimesheetForm({
     return sum;
   };
 
+  // A-021: Cross-Projekt-Tagessumme (dieses Projekt + andere Projekte)
+  const calcCrossProjectTagSumme = (day: number): number => {
+    return calcTagSumme(day) + (otherProjectHours[day] || 0);
+  };
+
   // Abgeleitete Warnzustaende (live, kein State noetig)
   // Tages-Verletzung pruefen (alle Tage im Monat) - muss VOR tagUeberschritten definiert sein
+  // A-021: Jetzt projektuebergreifend (inkl. Stunden anderer Projekte)
   const findTagVerletzung = (): number | null => {
     const daysInMon = getDaysInMonth(selectedYear, selectedMonth);
     for (let d = 1; d <= daysInMon; d++) {
-      if (Math.round(calcTagSumme(d) * 100) > Math.round(TAGESGRENZE_HART * 100)) return d;
+      if (Math.round(calcCrossProjectTagSumme(d) * 100) > Math.round(TAGESGRENZE_HART * 100)) return d;
     }
     return null;
   };
@@ -1605,12 +1726,16 @@ export default function TimesheetForm({
     // ARBEITSZEITGRENZEN-VALIDIERUNG (v7.4.6-12)
     // ============================================================================
 
-    // 1. HARTE Tagesgrenze 9h
+    // 1. HARTE Tagesgrenze 9h (A-021: projektuebergreifend)
     const verletzterTag = findTagVerletzung();
     if (verletzterTag !== null) {
-      const tagSumme = calcTagSumme(verletzterTag);
+      const tagSumme = calcCrossProjectTagSumme(verletzterTag);
+      const andereStunden = otherProjectHours[verletzterTag] || 0;
+      const crossInfo = andereStunden > 0
+        ? ` (davon ${andereStunden.toFixed(2).replace('.', ',')} h in anderen Projekten)`
+        : '';
       setError(
-        `Max. ${TAGESGRENZE_HART},00 h/Tag (Tag ${verletzterTag}: ${tagSumme.toFixed(2).replace('.', ',')} h) ueberschritten -- nicht zulaessig. Bitte korrigieren.`
+        `Max. ${TAGESGRENZE_HART},00 h/Tag (Tag ${verletzterTag}: ${tagSumme.toFixed(2).replace('.', ',')} h gesamt${crossInfo}) ueberschritten -- nicht zulaessig. Bitte korrigieren.`
       );
       return;
     }
@@ -1830,6 +1955,136 @@ export default function TimesheetForm({
 
   const handleExportPDF = () => {
     handlePrint();
+  };
+
+  // ============================================================================
+  // A-021: NWM-TAGESSPERREN VERWALTUNG
+  // ============================================================================
+
+  const handleCreateBlock = async (employeeIds: string[], startDate: string, endDate: string, reason: string) => {
+    if (employeeIds.length === 0 || !startDate || !endDate || !selectedProjectId) return;
+    setBlockSaving(true);
+    setBlockError(null);
+
+    try {
+      // Validierung: Pruefen ob bereits Stunden gebucht
+      const { data: existingHours } = await supabase
+        .from('v7_timesheets')
+        .select('employee_id, work_date, hours')
+        .eq('project_id', selectedProjectId)
+        .in('employee_id', employeeIds)
+        .gte('work_date', startDate)
+        .lte('work_date', endDate)
+        .eq('is_active', true)
+        .gt('hours', 0);
+
+      if (existingHours && existingHours.length > 0) {
+        const maNames = existingHours
+          .map(e => safeEmployees.find(emp => emp.id === e.employee_id)?.display_name || 'Unbekannt')
+          .filter((v, i, a) => a.indexOf(v) === i);
+        setBlockError(
+          `Sperre nicht moeglich: ${maNames.join(', ')} ` +
+          `ha${maNames.length > 1 ? 'ben' : 't'} bereits Stunden im Zeitraum gebucht.`
+        );
+        return;
+      }
+
+      // Sperren anlegen (ein Eintrag pro MA)
+      const { data: { user } } = await supabase.auth.getUser();
+      const rows = employeeIds.map(empId => ({
+        project_id: selectedProjectId,
+        employee_id: empId,
+        start_date: startDate,
+        end_date: endDate,
+        reason: reason.trim() || null,
+        created_by: user?.id || '',
+      }));
+
+      const { error: insertError } = await supabase
+        .from('v7_nwm_blocked_periods')
+        .insert(rows);
+
+      if (insertError) throw insertError;
+
+      // Neu laden
+      await loadAllBlockedPeriods();
+      // Aktuelle Sperren fuer den angezeigten MA aktualisieren (Trigger useEffect via Dependency)
+      // Workaround: Manuell die blocked days neu laden
+      const dim = getDaysInMonth(selectedYear, selectedMonth);
+      const monthStart = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
+      const monthEnd = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${dim}`;
+      const { data: blocks } = await supabase
+        .from('v7_nwm_blocked_periods')
+        .select('*')
+        .eq('project_id', selectedProjectId)
+        .eq('employee_id', selectedEmployeeId)
+        .lte('start_date', monthEnd)
+        .gte('end_date', monthStart);
+      const newDays = new Set<number>();
+      const newReasons: Record<number, string> = {};
+      if (blocks) {
+        for (const period of blocks) {
+          const pStart = new Date(period.start_date + 'T00:00:00');
+          const pEnd = new Date(period.end_date + 'T00:00:00');
+          for (let d = 1; d <= dim; d++) {
+            const date = new Date(selectedYear, selectedMonth - 1, d);
+            if (date >= pStart && date <= pEnd) {
+              newDays.add(d);
+              newReasons[d] = period.reason || 'Gesperrt durch PL';
+            }
+          }
+        }
+      }
+      setBlockedDays(newDays);
+      setBlockedDayReasons(newReasons);
+    } catch (err: any) {
+      setBlockError(err.message || 'Fehler beim Erstellen der Sperre');
+    } finally {
+      setBlockSaving(false);
+    }
+  };
+
+  const handleDeleteBlock = async (blockId: string) => {
+    try {
+      await supabase.from('v7_nwm_blocked_periods').delete().eq('id', blockId);
+      await loadAllBlockedPeriods();
+      // Blocked days fuer aktuellen MA aktualisieren
+      setBlockedDays(prev => {
+        // Einfachste Loesung: useEffect-Dependency triggern geht nicht direkt,
+        // daher setzen wir einen Reload-Trigger. Alternativ: direkt neu laden.
+        return prev; // wird durch loadAllBlockedPeriods + nachfolgenden Effekt aktualisiert
+      });
+      // Direkt neu laden fuer den aktuellen MA
+      const dim = getDaysInMonth(selectedYear, selectedMonth);
+      const monthStart = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
+      const monthEnd = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${dim}`;
+      const { data: blocks } = await supabase
+        .from('v7_nwm_blocked_periods')
+        .select('*')
+        .eq('project_id', selectedProjectId)
+        .eq('employee_id', selectedEmployeeId)
+        .lte('start_date', monthEnd)
+        .gte('end_date', monthStart);
+      const newDays = new Set<number>();
+      const newReasons: Record<number, string> = {};
+      if (blocks) {
+        for (const period of blocks) {
+          const pStart = new Date(period.start_date + 'T00:00:00');
+          const pEnd = new Date(period.end_date + 'T00:00:00');
+          for (let d = 1; d <= dim; d++) {
+            const date = new Date(selectedYear, selectedMonth - 1, d);
+            if (date >= pStart && date <= pEnd) {
+              newDays.add(d);
+              newReasons[d] = period.reason || 'Gesperrt durch PL';
+            }
+          }
+        }
+      }
+      setBlockedDays(newDays);
+      setBlockedDayReasons(newReasons);
+    } catch (err: any) {
+      setBlockError(err.message || 'Fehler beim Loeschen der Sperre');
+    }
   };
 
   // ============================================================================
@@ -2207,6 +2462,22 @@ export default function TimesheetForm({
                 )}
               </button>
             )}
+
+            {/* A-021: NWM-Sperren-Button (nur NWM-Projekte + Admin) */}
+            {isNetzwerk && isAdmin && (
+              <button
+                onClick={() => { loadAllBlockedPeriods(); setShowBlockModal(true); }}
+                className="relative p-1.5 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700"
+                title="NWM-Tagessperren verwalten"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+                {blockedDays.size > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-red-400 rounded-full"></span>
+                )}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -2380,13 +2651,22 @@ export default function TimesheetForm({
                       const holiday = isHoliday(selectedYear, selectedMonth, day);
                       const entry = row.entries[day];
                       const isAbsence = entry?.value && isAbsenceCode(entry.value);
+                      // A-021: Sperren + Cross-Projekt
+                      const isBlocked = blockedDays.has(day);
+                      const otherHrs = otherProjectHours[day] || 0;
+                      const cellTitle = isBlocked
+                        ? (blockedDayReasons[day] || 'Gesperrt')
+                        : otherHrs > 0
+                          ? `${otherHrs.toFixed(1)} h in anderen Projekten`
+                          : undefined;
 
                       return (
                         <td
                           key={day}
                           className={`border p-0 text-center ${
-                            weekend ? 'bg-gray-200' : holiday ? 'bg-orange-100' : ''
+                            weekend ? 'bg-gray-200' : holiday ? 'bg-orange-100' : isBlocked ? 'bg-red-100' : ''
                           }`}
+                          title={cellTitle}
                         >
                           <input
                             type="text"
@@ -2396,10 +2676,11 @@ export default function TimesheetForm({
                             value={entry?.value || ''}
                             onChange={(e) => handleCellChange(rowIndex, day, e.target.value)}
                             onKeyDown={(e) => handleKeyDown(e, rowIndex, day, 'ap')}
-                            disabled={weekend || !!holiday || !row.workPackageId}
+                            disabled={weekend || !!holiday || !row.workPackageId || isBlocked}
                             maxLength={4}
                             className={`w-full h-8 text-center text-xs border-0 ${
                               weekend || !!holiday ? 'bg-transparent cursor-not-allowed' :
+                              isBlocked ? 'bg-red-100 cursor-not-allowed' :
                               !row.workPackageId ? 'bg-gray-50 cursor-not-allowed' :
                               isAbsence ? 'bg-blue-100 font-bold text-blue-700' : 'bg-white'
                             } focus:ring-1 ${colors.ring} print:bg-transparent`}
@@ -2479,9 +2760,12 @@ export default function TimesheetForm({
                     <td className="border p-1" colSpan={4}>Summe foerderbare Stunden gesamt (2)</td>
                     {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
                       const daySum = calculateDaySum(day);
-                      const tagZuViel = Math.round(daySum * 100) > Math.round(TAGESGRENZE_HART * 100);
+                      const otherHrs = otherProjectHours[day] || 0;
+                      const tagZuViel = Math.round((daySum + otherHrs) * 100) > Math.round(TAGESGRENZE_HART * 100);
                       return (
-                        <td key={day} className={`border p-1 text-center text-[10px] ${tagZuViel ? 'bg-red-400 text-white font-bold' : ''}`}>
+                        <td key={day} className={`border p-1 text-center text-[10px] ${tagZuViel ? 'bg-red-400 text-white font-bold' : ''}`}
+                          title={otherHrs > 0 ? `+${otherHrs.toFixed(1)} h andere Projekte` : undefined}
+                        >
                           {daySum > 0 ? daySum.toFixed(2) : ''}
                         </td>
                       );
@@ -2497,9 +2781,11 @@ export default function TimesheetForm({
                   <td className="border p-1" colSpan={3}>Summe der foerderbaren Stunden (2)</td>
                   {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
                     const daySum = calculateDaySum(day);
-                    const tagZuViel = Math.round(daySum * 100) > Math.round(TAGESGRENZE_HART * 100);
+                    const otherHrs = otherProjectHours[day] || 0;
+                    const tagZuViel = Math.round((daySum + otherHrs) * 100) > Math.round(TAGESGRENZE_HART * 100);
+                    const crossTitle = otherHrs > 0 ? `Dieses Projekt: ${daySum.toFixed(1)} h\nAndere Projekte: ${otherHrs.toFixed(1)} h\nGesamt: ${(daySum + otherHrs).toFixed(1)} h` : undefined;
                     return (
-                      <td key={day} className={`border p-1 text-center text-[10px] ${tagZuViel ? 'bg-red-400 text-white font-bold' : ''}`}>
+                      <td key={day} className={`border p-1 text-center text-[10px] ${tagZuViel ? 'bg-red-400 text-white font-bold' : ''}`} title={crossTitle}>
                         {daySum > 0 ? daySum.toFixed(2) : '0,00'}
                       </td>
                     );
@@ -2523,9 +2809,12 @@ export default function TimesheetForm({
                   const weekend = isWeekend(selectedYear, selectedMonth, day);
                   const holiday = isHoliday(selectedYear, selectedMonth, day);
                   const entry = nonBillableEntries[day];
+                  const isBlocked = blockedDays.has(day);  // A-021
 
                   return (
-                    <td key={day} className={`border p-0 text-center ${weekend ? 'bg-gray-200' : holiday ? 'bg-orange-100' : ''}`}>
+                    <td key={day} className={`border p-0 text-center ${weekend ? 'bg-gray-200' : holiday ? 'bg-orange-100' : isBlocked ? 'bg-red-100' : ''}`}
+                      title={isBlocked ? (blockedDayReasons[day] || 'Gesperrt') : undefined}
+                    >
                       <input
                         type="text"
                         data-row="0"
@@ -2534,10 +2823,11 @@ export default function TimesheetForm({
                         value={entry?.value || ''}
                         onChange={(e) => handleNonBillableChange(day, e.target.value)}
                         onKeyDown={(e) => handleKeyDown(e, 0, day, 'nonbillable')}
-                        disabled={weekend || !!holiday}
+                        disabled={weekend || !!holiday || isBlocked}
                         maxLength={4}
                         className={`w-full h-6 text-center text-xs border-0 ${
-                          weekend || !!holiday ? 'bg-transparent cursor-not-allowed' : 'bg-white'
+                          weekend || !!holiday ? 'bg-transparent cursor-not-allowed' :
+                          isBlocked ? 'bg-red-100 cursor-not-allowed' : 'bg-white'
                         } focus:ring-1 focus:ring-yellow-500 print:bg-transparent`}
                       />
                     </td>
@@ -2855,7 +3145,168 @@ export default function TimesheetForm({
                 onClick={() => setShowAPModal(false)}
                 className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm"
               >
-                Schlie\u00dfen
+                {'Schlie\u00dfen'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* A-021: NWM-Sperren-Verwaltungs-Modal */}
+      {showBlockModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 print:hidden">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-xl mx-4 w-full max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">
+                NWM-Tagessperren: {selectedProject?.short_name || selectedProject?.name || ''}
+              </h3>
+              <button onClick={() => { setShowBlockModal(false); setBlockError(null); }} className="text-gray-400 hover:text-gray-600">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {blockError && (
+              <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm">{blockError}</div>
+            )}
+
+            {/* Neue Sperre anlegen */}
+            <div className="mb-6 bg-gray-50 rounded-lg p-4">
+              <h4 className="font-semibold text-sm text-gray-700 mb-3">Neue Sperre anlegen</h4>
+
+              {/* MA-Auswahl */}
+              <div className="mb-3">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Mitarbeiter (Mehrfachauswahl):</label>
+                <div className="max-h-32 overflow-y-auto border rounded bg-white p-2 space-y-1">
+                  {safeEmployees.map(emp => (
+                    <label key={emp.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-gray-50 px-1 rounded">
+                      <input
+                        type="checkbox"
+                        checked={blockFormEmployees.includes(emp.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setBlockFormEmployees(prev => [...prev, emp.id]);
+                          } else {
+                            setBlockFormEmployees(prev => prev.filter(id => id !== emp.id));
+                          }
+                        }}
+                        className="rounded"
+                      />
+                      {emp.display_name}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Zeitraum */}
+              <div className="flex gap-3 mb-3">
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Von:</label>
+                  <input
+                    type="date"
+                    value={blockFormStart}
+                    onChange={(e) => setBlockFormStart(e.target.value)}
+                    className="w-full border rounded px-2 py-1.5 text-sm"
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Bis:</label>
+                  <input
+                    type="date"
+                    value={blockFormEnd}
+                    onChange={(e) => setBlockFormEnd(e.target.value)}
+                    className="w-full border rounded px-2 py-1.5 text-sm"
+                  />
+                </div>
+              </div>
+
+              {/* Grund */}
+              <div className="mb-3">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Grund (optional, erscheint im Tooltip):</label>
+                <input
+                  type="text"
+                  value={blockFormReason}
+                  onChange={(e) => setBlockFormReason(e.target.value)}
+                  placeholder="z.B. Andere Projektarbeiten, Schulung, ..."
+                  className="w-full border rounded px-2 py-1.5 text-sm"
+                />
+              </div>
+
+              <button
+                onClick={async () => {
+                  await handleCreateBlock(blockFormEmployees, blockFormStart, blockFormEnd, blockFormReason);
+                  if (!blockError) {
+                    setBlockFormEmployees([]);
+                    setBlockFormStart('');
+                    setBlockFormEnd('');
+                    setBlockFormReason('');
+                  }
+                }}
+                disabled={blockSaving || blockFormEmployees.length === 0 || !blockFormStart || !blockFormEnd}
+                className={`px-4 py-2 rounded text-sm font-medium ${
+                  blockFormEmployees.length === 0 || !blockFormStart || !blockFormEnd
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    : 'bg-red-500 text-white hover:bg-red-600'
+                }`}
+              >
+                {blockSaving ? 'Wird gespeichert...' : 'Sperre anlegen'}
+              </button>
+            </div>
+
+            {/* Bestehende Sperren */}
+            <div>
+              <h4 className="font-semibold text-sm text-gray-700 mb-2">
+                Bestehende Sperren ({allBlockedPeriods.length})
+              </h4>
+              {allBlockedPeriods.length === 0 ? (
+                <p className="text-gray-500 text-sm">Keine Sperren vorhanden.</p>
+              ) : (
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 text-left">
+                      <th className="border px-2 py-1.5 font-medium text-gray-700">Mitarbeiter</th>
+                      <th className="border px-2 py-1.5 font-medium text-gray-700">Von</th>
+                      <th className="border px-2 py-1.5 font-medium text-gray-700">Bis</th>
+                      <th className="border px-2 py-1.5 font-medium text-gray-700">Grund</th>
+                      <th className="border px-2 py-1.5 font-medium text-gray-700 text-center w-16"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allBlockedPeriods.map(bp => (
+                      <tr key={bp.id} className="hover:bg-gray-50">
+                        <td className="border px-2 py-1.5">
+                          {safeEmployees.find(e => e.id === bp.employee_id)?.display_name || 'Unbekannt'}
+                        </td>
+                        <td className="border px-2 py-1.5 whitespace-nowrap">
+                          {new Date(bp.start_date + 'T00:00:00').toLocaleDateString('de-DE')}
+                        </td>
+                        <td className="border px-2 py-1.5 whitespace-nowrap">
+                          {new Date(bp.end_date + 'T00:00:00').toLocaleDateString('de-DE')}
+                        </td>
+                        <td className="border px-2 py-1.5 text-gray-600">{bp.reason || '\u2013'}</td>
+                        <td className="border px-2 py-1.5 text-center">
+                          <button
+                            onClick={() => handleDeleteBlock(bp.id)}
+                            className="text-red-500 hover:text-red-700 text-xs font-medium"
+                            title="Sperre loeschen"
+                          >
+                            Loeschen
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div className="flex justify-end mt-4">
+              <button
+                onClick={() => { setShowBlockModal(false); setBlockError(null); }}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm"
+              >
+                {'Schlie\u00dfen'}
               </button>
             </div>
           </div>
