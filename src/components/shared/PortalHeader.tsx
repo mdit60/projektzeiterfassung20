@@ -155,6 +155,21 @@ export default function PortalHeader({
             setUserRoleFromDB(profile.role);
           }
 
+          // v7.3.95-13: Firmen-Portal: portal_role aus v7_employees hat Vorrang
+          // (v7_user_profiles.role ist nur der generische Typ 'client_user',
+          //  die echte Rolle steht in v7_employees.portal_role)
+          if (portal === 'firma' && user) {
+            const { data: empData } = await supabase
+              .from('v7_employees')
+              .select('portal_role')
+              .eq('user_id', user.id)
+              .eq('is_active', true)
+              .single();
+            if (empData?.portal_role) {
+              setUserRoleFromDB(empData.portal_role);
+            }
+          }
+
           // v7.3.95-12: Fuer Nicht-system_admin: pze_mode aus DB-Config synchronisieren.
           // Admin entscheidet, Berater landet automatisch im Cockpit.
           if (profile?.role && profile.role !== 'system_admin' && portal === 'berater') {
