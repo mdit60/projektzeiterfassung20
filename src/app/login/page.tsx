@@ -1,6 +1,10 @@
 // src/app/login/page.tsx
-// VERSION: v7.3.90-6 - Login-Redirect: pze_mode='app' -> App-Cockpit
-// DATUM: 12. Mai 2026
+// VERSION: v7.3.90-7 - Login-Redirect: Cockpit-Modus aus DB-Config statt localStorage
+// DATUM: 1. Juni 2026
+// v7.3.90-7: FIX: Fuer Nicht-system_admin wird pze_mode aus v7_system_config
+//   (cockpit_berater_enabled) gelesen und in localStorage gesetzt.
+//   Berater landen automatisch im Cockpit wenn Admin es freigibt.
+// v7.3.90-6: Login-Redirect: pze_mode='app' -> App-Cockpit
 // v7.3.90-5: FIX: Fragment-Wrapper damit PortalFooter valides JSX-Sibling ist
 // v7.3.90-4: Footer ersetzt durch PortalFooter (fixed, navy, print:hidden)
 // v7.3.90-3: Footer PZE Projektzeiterfassung + Impressum/AGB
@@ -47,8 +51,25 @@ export default function LoginPage() {
         if (profile) {
           // V7-Profil vorhanden
           if (profile.role === 'consultant' || profile.role === 'system_admin') {
-            // App-Modus: direkt zur Startseite
-            const isAppMode = typeof window !== 'undefined' && localStorage.getItem('pze_mode') === 'app';
+            // v7.3.90-7: Cockpit-Modus aus DB-Config bestimmen
+            let isAppMode = false;
+
+            if (profile.role === 'system_admin') {
+              // system_admin: localStorage-Switcher hat Vorrang
+              isAppMode = typeof window !== 'undefined' && localStorage.getItem('pze_mode') === 'app';
+            } else {
+              // consultant: DB-Config entscheidet, localStorage wird synchronisiert
+              const { data: configData } = await supabase
+                .from('v7_system_config')
+                .select('value')
+                .eq('key', 'cockpit_berater_enabled')
+                .single();
+              isAppMode = configData?.value === 'true';
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('pze_mode', isAppMode ? 'app' : 'classic');
+              }
+            }
+
             router.push(isAppMode ? '/v7/berater/app/cockpit' : '/v7/berater');
           } else {
             router.push('/v7/firma');
