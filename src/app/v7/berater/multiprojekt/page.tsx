@@ -4,7 +4,9 @@
 // ============================================================================
 // PZE V7 - Kapazitaetsplanungs-Tool (Berater-Portal)
 // ============================================================================
-// Version: 7.4.8-15
+// Version: 7.4.8-16
+// v7.4.8-16: Klick auf MA-Name navigiert mit ?editMA=[id] -> oeffnet
+//   MA-Bearbeitungs-Modal direkt (Deep-Link via FirmaCockpit v7.4.9-30).
 // v7.4.8-15: MA-Name in Kapazitaetsmatrix klickbar -> Navigation zur
 //   Mitarbeiterverwaltung (Firmen-Cockpit). Mode-aware (App/Classic).
 // v7.4.8-14: A-022 FIX: Monatskapazitaet auf echte Arbeitstage umgestellt.
@@ -216,10 +218,10 @@ function Jahresmatrix({ jahr, maListe, loading, companyId }: JahresmatrixProps) 
                     title={`${ma.display_name} — Klick: Mitarbeiterdaten bearbeiten`}
                     onClick={() => {
                       const isAppMode = typeof window !== 'undefined' && localStorage.getItem('pze_mode') === 'app';
-                      const url = isAppMode
+                      const base = isAppMode
                         ? `/v7/berater/app/firma/${companyId}`
                         : `/v7/berater/foerderung/firma/${companyId}`;
-                      router.push(url);
+                      router.push(`${base}?editMA=${ma.employee_id}`);
                     }}>
                   <span className="block truncate text-blue-700 hover:underline">{ma.display_name}</span>
                 </td>
