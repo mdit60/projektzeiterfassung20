@@ -2,8 +2,14 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 29. Mai 2026
-// Version: 7.4.6-20
+// Datum: 1. Juni 2026
+// Version: 7.4.6-21
+// v7.4.6-21: A-002: Wording bei ZIM_NETZWERK: Abschnitts-Ueberschrift
+//   "foerderbare Management-Arbeiten" statt "foerderbare Projektarbeiten"
+//   (offizielles ZIM-NWM-Template). Standard-Wording unveraendert.
+//   A-003: AP-Quick-View Popup: Info-Icon neben Projekt-Dropdown oeffnet
+//   Modal mit AP-Liste (AP-Code, Name, Laufzeit, geplante PM).
+//   Sichtbar fuer alle Nutzer. Eigener State, kein Eingriff in Formular-Logik.
 // v7.4.6-20: FIX: AP-Name im Druck/PDF nicht mehr abgeschnitten.
 //   line-clamp im Print aufgehoben, maxWidth entfernt im Print.
 //   Select im Print als statischer Text (kein display:none mehr).
@@ -338,6 +344,8 @@ export default function TimesheetForm({
   const [noteResolvedBy, setNoteResolvedBy] = useState<string>('');
   const [noteResolvedAt, setNoteResolvedAt] = useState<string>('');
 
+  // NEU v7.4.6-21 (A-003): AP-Quick-View Modal
+  const [showAPModal, setShowAPModal] = useState(false);
   // Sortierte MA-Liste: nach Team-Nr. wenn Projekt gewaehlt, sonst alphabetisch
   const sortedEmployees = useMemo(() => {
     if (teamNumbers.size === 0) return safeEmployees;
@@ -406,6 +414,7 @@ export default function TimesheetForm({
   const availableWorkPackages = safeWorkPackages.filter(wp => wp.project_id === selectedProjectId);
   const selectedEmployee = safeEmployees.find(e => e.id === selectedEmployeeId);
   const isDurchfuehrbarkeitsstudie = selectedProject?.funding_format?.includes('DS') || false;
+  const isNetzwerk = selectedProject?.funding_format === 'ZIM_NETZWERK';  // A-002: Wording-Steuerung
 
   // Hilfsfunktion: Prueft ob AP technisch ist (robust gegen verschiedene DB-Datentypen)
   const isTechnicalAP = (wp: WorkPackage | undefined | null): boolean => {
@@ -2133,6 +2142,16 @@ export default function TimesheetForm({
                   </option>
                 ))}
               </select>
+              {/* A-003: AP-Quick-View Icon */}
+              <button
+                onClick={() => setShowAPModal(true)}
+                className="p-1 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700"
+                title="Arbeitspakete anzeigen"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </button>
             </div>
 
             {/* Monat */}
@@ -2284,7 +2303,7 @@ export default function TimesheetForm({
               {/* Abschnitt 1: Foerderbare Arbeiten */}
               <tr>
                 <td className="border p-1 font-semibold" colSpan={(isDurchfuehrbarkeitsstudie ? 4 : 3) + daysInMonth + 2} style={{ backgroundColor: '#FFF9E6' }}>
-                  1. foerderbare Projektarbeiten (1)
+                  {isNetzwerk ? '1. f\u00f6rderbare Management-Arbeiten (1)' : '1. f\u00f6rderbare Projektarbeiten (1)'}
                 </td>
               </tr>
 
@@ -2765,6 +2784,78 @@ export default function TimesheetForm({
                 }`}
               >
                 {noteSaving ? '...' : 'Speichern'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* A-003: AP-Quick-View Modal */}
+      {showAPModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 print:hidden">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-2xl mx-4 w-full max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Arbeitspakete {selectedProject?.short_name || selectedProject?.name || ''}
+              </h3>
+              <button onClick={() => setShowAPModal(false)} className="text-gray-400 hover:text-gray-600">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {availableWorkPackages.length === 0 ? (
+              <p className="text-gray-500 text-sm">Keine Arbeitspakete vorhanden.</p>
+            ) : (
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="bg-gray-50 text-left">
+                    <th className="border px-2 py-1.5 font-medium text-gray-700">AP</th>
+                    <th className="border px-2 py-1.5 font-medium text-gray-700">Bezeichnung</th>
+                    <th className="border px-2 py-1.5 font-medium text-gray-700 text-center">Laufzeit</th>
+                    <th className="border px-2 py-1.5 font-medium text-gray-700 text-right">PM</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {availableWorkPackages
+                    .sort((a, b) => (a.ap_code || '').localeCompare(b.ap_code || ''))
+                    .map(wp => (
+                      <tr key={wp.id} className="hover:bg-gray-50">
+                        <td className="border px-2 py-1.5 whitespace-nowrap font-mono text-xs">{wp.ap_code || `AP ${wp.ap_number}`}</td>
+                        <td className="border px-2 py-1.5">{wp.name}</td>
+                        <td className="border px-2 py-1.5 text-center whitespace-nowrap text-xs">
+                          {wp.start_date && wp.end_date
+                            ? `${new Date(wp.start_date).toLocaleDateString('de-DE')} \u2013 ${new Date(wp.end_date).toLocaleDateString('de-DE')}`
+                            : wp.start_date
+                              ? `ab ${new Date(wp.start_date).toLocaleDateString('de-DE')}`
+                              : '\u2013'}
+                        </td>
+                        <td className="border px-2 py-1.5 text-right whitespace-nowrap">
+                          {wp.total_person_months != null ? wp.total_person_months.toFixed(1) : '\u2013'}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-gray-50 font-semibold">
+                    <td className="border px-2 py-1.5" colSpan={3}>Gesamt</td>
+                    <td className="border px-2 py-1.5 text-right">
+                      {availableWorkPackages
+                        .reduce((sum, wp) => sum + (wp.total_person_months || 0), 0)
+                        .toFixed(1)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+
+            <div className="flex justify-end mt-4">
+              <button
+                onClick={() => setShowAPModal(false)}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm"
+              >
+                Schlie\u00dfen
               </button>
             </div>
           </div>
