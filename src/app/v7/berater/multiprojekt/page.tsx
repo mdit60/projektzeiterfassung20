@@ -4,7 +4,12 @@
 // ============================================================================
 // PZE V7 - Kapazitaetsplanungs-Tool (Berater-Portal)
 // ============================================================================
-// Version: 7.4.8-13
+// Version: 7.4.8-14
+// v7.4.8-14: A-022 FIX: Monatskapazitaet auf echte Arbeitstage umgestellt.
+//   Vorher: pauschale 173,33h x (WAZ/40) fuer jeden Monat (Jahresdurchschnitt).
+//   Jetzt: countWorkdaysInMonth(jahr, monat, bundesland) x (WAZ/5).
+//   Beruecksichtigt Feiertage des Bundeslandes und MA-spezifische WAZ.
+//   Zusaetzlich: v7_employee_hours_history fuer unterjaerige WAZ-Aenderungen.
 // v7.4.8-13: CRITICAL FIX: .limit(10000) auf v7_timesheets-Query (Supabase 1000-Zeilen-Limit)
 // v7.4.8-12: Dashboard-Link im App-Modus (pze_mode='app') ausgeblendet
 // Datum: 24. April 2026
@@ -40,6 +45,8 @@ import {
   V7FzulVorhaben,
   V7FzulVorhabenInsert,
 } from '@/types/v7-types';
+import { countWorkdaysInMonth, normalizeStateCode } from '@/lib/holidays/germanHolidays';
+import type { HolidayRegion } from '@/lib/holidays/germanHolidays';
 
 // ============================================================================
 // TYPEN
@@ -107,6 +114,18 @@ function getAmpelBg(fp: number)   { return fp > 50 ? 'bg-green-50 border-green-2
 
 function monatsKap(weeklyHours: number): number {
   return Math.round((weeklyHours / 40) * 173.33 * 10) / 10;
+}
+
+// A-022: Effektive WAZ fuer einen Stichtag aus der Hours-History ermitteln
+function getEffectiveWeeklyHours(
+  history: Array<{ gueltig_ab: string; weekly_hours: number }>,
+  stichtag: string,
+  fallback: number,
+): number {
+  if (!history || history.length === 0) return fallback;
+  const sorted = [...history].sort((a, b) => b.gueltig_ab.localeCompare(a.gueltig_ab));
+  const eintrag = sorted.find((e) => e.gueltig_ab <= stichtag);
+  return eintrag ? eintrag.weekly_hours : fallback;
 }
 
 // ============================================================================
@@ -537,6 +556,28 @@ export default function MultiprojektPage() {
 
       const employeeIds = employees.map((e: { id: string }) => e.id);
 
+      // A-022: Bundesland + Feiertagsregion der Firma laden
+      const { data: companyInfo } = await supabase
+        .from('v7_client_companies')
+        .select('federal_state, holiday_region')
+        .eq('id', companyId)
+        .single();
+      const stateCode = normalizeStateCode(companyInfo?.federal_state);
+      const holidayRegion = (companyInfo?.holiday_region || undefined) as HolidayRegion | undefined;
+
+      // A-022: WAZ-Verlauf pro MA laden (fuer unterjaerige Aenderungen)
+      let historyMap: Record<string, Array<{ gueltig_ab: string; weekly_hours: number }>> = {};
+      const { data: histData } = await supabase
+        .from('v7_employee_hours_history')
+        .select('employee_id, weekly_hours, gueltig_ab')
+        .in('employee_id', employeeIds);
+      if (histData) {
+        histData.forEach((h: { employee_id: string; weekly_hours: number; gueltig_ab: string }) => {
+          if (!historyMap[h.employee_id]) historyMap[h.employee_id] = [];
+          historyMap[h.employee_id].push({ gueltig_ab: h.gueltig_ab, weekly_hours: h.weekly_hours });
+        });
+      }
+
       const { data: projekte } = await supabase
         .from('v7_projects')
         .select('id, name, short_name, funding_format, start_date, end_date')
@@ -681,11 +722,19 @@ export default function MultiprojektPage() {
       });
 
       const result: MaKapazitaet[] = employees.map((emp: { id: string; display_name: string; weekly_hours: number }) => {
-        const gesamt = monatsKap(emp.weekly_hours || 40);
+        const empHistory = historyMap[emp.id] || [];
         const monatsDaten: MonatKapazitaet[] = [];
 
         jahreRange.forEach(j => {
           for (let m = 1; m <= 12; m++) {
+            // A-022: Effektive WAZ fuer diesen Monat (aus History oder Stammdaten)
+            const stichtag = `${j}-${String(m).padStart(2, '0')}-01`;
+            const effWAZ = getEffectiveWeeklyHours(empHistory, stichtag, emp.weekly_hours || 40);
+            // A-022: Echte Arbeitstage dieses Monats (Werktage minus Feiertage)
+            const arbeitstage = countWorkdaysInMonth(j, m, stateCode, holidayRegion);
+            // A-022: Monatskapazitaet = Arbeitstage x Tagesstunden
+            const gesamt = Math.round(arbeitstage * (effWAZ / 5) * 10) / 10;
+
             const geplantProjekte = geplant[emp.id]?.[j]?.[m] || {};
             const verbuchtProjekte = verbucht[emp.id]?.[j]?.[m] || {};
             const g = Math.round(Object.values(geplantProjekte).reduce((s, v) => s + v, 0) * 10) / 10;
