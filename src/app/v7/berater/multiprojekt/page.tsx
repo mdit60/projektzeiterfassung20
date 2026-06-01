@@ -4,7 +4,9 @@
 // ============================================================================
 // PZE V7 - Kapazitaetsplanungs-Tool (Berater-Portal)
 // ============================================================================
-// Version: 7.4.8-14
+// Version: 7.4.8-15
+// v7.4.8-15: MA-Name in Kapazitaetsmatrix klickbar -> Navigation zur
+//   Mitarbeiterverwaltung (Firmen-Cockpit). Mode-aware (App/Classic).
 // v7.4.8-14: A-022 FIX: Monatskapazitaet auf echte Arbeitstage umgestellt.
 //   Vorher: pauschale 173,33h x (WAZ/40) fuer jeden Monat (Jahresdurchschnitt).
 //   Jetzt: countWorkdaysInMonth(jahr, monat, bundesland) x (WAZ/5).
@@ -136,9 +138,11 @@ interface JahresmatrixProps {
   jahr: number;
   maListe: MaKapazitaet[];
   loading: boolean;
+  companyId: string;  // A-022: fuer Klick auf MA-Name -> Mitarbeiterverwaltung
 }
 
-function Jahresmatrix({ jahr, maListe, loading }: JahresmatrixProps) {
+function Jahresmatrix({ jahr, maListe, loading, companyId }: JahresmatrixProps) {
+  const router = useRouter();
   const [tooltip, setTooltip] = useState<{
     ma: MaKapazitaet; monat: MonatKapazitaet; x: number; y: number;
   } | null>(null);
@@ -206,11 +210,18 @@ function Jahresmatrix({ jahr, maListe, loading }: JahresmatrixProps) {
               <tr key={ma.employee_id}
                   className={`border-b border-gray-200 ${rowBg} hover:bg-blue-50`}>
 
-                {/* Name schmal mit Tooltip bei Truncate */}
-                <td className={`px-2 py-2 font-semibold text-gray-800 text-center sticky left-0 z-10 border-r border-gray-300 ${rowBg} hover:bg-blue-50`}
+                {/* Name schmal mit Tooltip bei Truncate — klickbar -> MA-Verwaltung */}
+                <td className={`px-2 py-2 font-semibold text-gray-800 text-center sticky left-0 z-10 border-r border-gray-300 ${rowBg} hover:bg-blue-50 cursor-pointer`}
                     style={{ minWidth: '80px', width: '80px', fontSize: '12px' }}
-                    title={ma.display_name}>
-                  <span className="block truncate">{ma.display_name}</span>
+                    title={`${ma.display_name} — Klick: Mitarbeiterdaten bearbeiten`}
+                    onClick={() => {
+                      const isAppMode = typeof window !== 'undefined' && localStorage.getItem('pze_mode') === 'app';
+                      const url = isAppMode
+                        ? `/v7/berater/app/firma/${companyId}`
+                        : `/v7/berater/foerderung/firma/${companyId}`;
+                      router.push(url);
+                    }}>
+                  <span className="block truncate text-blue-700 hover:underline">{ma.display_name}</span>
                 </td>
 
                 {/* WAZ */}
@@ -949,6 +960,7 @@ export default function MultiprojektPage() {
                     jahr={jahr}
                     maListe={maKapazitaeten}
                     loading={kapazitaetLoading}
+                    companyId={selectedCompanyId}
                   />
                 </div>
               ))}
