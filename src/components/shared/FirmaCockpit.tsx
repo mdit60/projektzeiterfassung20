@@ -65,7 +65,7 @@
 // v7.4.9-1: Erstversion - Grundgeruest mit Live-Daten
 // ============================================================================
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import {
@@ -349,14 +349,19 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
   const [maModal, setMaModal] = useState<{ mode: 'new' | 'edit' | 'password'; employeeId?: string } | null>(null);
 
   // v7.4.9-30: Deep-Link ?editMA=[employeeId] -> Modal direkt oeffnen
+  // v7.4.9-30: ?returnTo=[url] -> nach Modal-Schliessung zurueck navigieren
   const searchParams = useSearchParams();
+  const returnToRef = useRef<string | null>(null);
   useEffect(() => {
     const editMAId = searchParams.get('editMA');
+    const returnTo = searchParams.get('returnTo');
+    if (returnTo) returnToRef.current = returnTo;
     if (editMAId && !maModal) {
       setMaModal({ mode: 'edit', employeeId: editMAId });
       // URL bereinigen (Parameter entfernen, kein Reload)
       const url = new URL(window.location.href);
       url.searchParams.delete('editMA');
+      url.searchParams.delete('returnTo');
       window.history.replaceState({}, '', url.toString());
     }
   }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1596,9 +1601,13 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
           firmaId={firmaIdLocal}
           firmaName={firma?.name || ''}
           employeeId={maModal.employeeId}
-          onClose={() => setMaModal(null)}
+          onClose={() => {
+            setMaModal(null);
+            if (returnToRef.current) { router.push(returnToRef.current); returnToRef.current = null; }
+          }}
           onSaved={() => {
             if (firmaIdLocal) loadCockpitData();
+            if (returnToRef.current) { setMaModal(null); router.push(returnToRef.current); returnToRef.current = null; }
           }}
         />
       )}

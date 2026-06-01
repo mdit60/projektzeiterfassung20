@@ -4,7 +4,9 @@
 // ============================================================================
 // PZE V7 - Kapazitaetsplanungs-Tool (Berater-Portal)
 // ============================================================================
-// Version: 7.4.8-16
+// Version: 7.4.8-17
+// v7.4.8-17: returnTo-Parameter bei MA-Klick: nach Modal-Schliessung
+//   zurueck zur Kapazitaetsplanung (nicht im FirmaCockpit bleiben).
 // v7.4.8-16: Klick auf MA-Name navigiert mit ?editMA=[id] -> oeffnet
 //   MA-Bearbeitungs-Modal direkt (Deep-Link via FirmaCockpit v7.4.9-30).
 // v7.4.8-15: MA-Name in Kapazitaetsmatrix klickbar -> Navigation zur
@@ -221,7 +223,7 @@ function Jahresmatrix({ jahr, maListe, loading, companyId }: JahresmatrixProps) 
                       const base = isAppMode
                         ? `/v7/berater/app/firma/${companyId}`
                         : `/v7/berater/foerderung/firma/${companyId}`;
-                      router.push(`${base}?editMA=${ma.employee_id}`);
+                      router.push(`${base}?editMA=${ma.employee_id}&returnTo=/v7/berater/multiprojekt`);
                     }}>
                   <span className="block truncate text-blue-700 hover:underline">{ma.display_name}</span>
                 </td>
