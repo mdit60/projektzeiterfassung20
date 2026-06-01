@@ -4,7 +4,11 @@
 // ============================================================================
 // PZE - Gemeinsamer Portal-Header
 // ============================================================================
-// Version: 7.3.95-11
+// Version: 7.3.95-12
+// v7.3.95-12: FIX: Config-Query auf korrekte Spalten (key/value statt config_key/config_value).
+//   FIX: Cockpit-Modus fuer Nicht-system_admin automatisch aus DB-Config synchronisieren.
+//   Wenn cockpit_berater_enabled=true, wird localStorage pze_mode='app' gesetzt.
+//   Berater muessen sich nicht um den Modus kuemmern - Admin entscheidet.
 // v7.3.95-11: Ansicht-Wechsler im User-Dropdown (nur system_admin)
 //   - "Klassische Ansicht" / "Neue App-Struktur" umschalten via localStorage pze_mode
 //   - Aktive Ansicht mit Haken markiert
@@ -123,13 +127,14 @@ export default function PortalHeader({
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // 1. Cockpit-Config
+        // 1. Cockpit-Config (FIX v7.3.95-12: korrekte Spalten key/value)
         const { data: configData } = await supabase
           .from('v7_system_config')
-          .select('config_value')
-          .eq('config_key', 'cockpit_berater_enabled')
+          .select('value')
+          .eq('key', 'cockpit_berater_enabled')
           .single();
-        if (configData?.config_value === 'true') {
+        const cockpitEnabled = configData?.value === 'true';
+        if (cockpitEnabled) {
           setCockpitGlobalEnabled(true);
         }
 
@@ -145,6 +150,14 @@ export default function PortalHeader({
           // Rolle aus DB speichern - unabhaengig von Portal
           if (profile?.role) {
             setUserRoleFromDB(profile.role);
+          }
+
+          // v7.3.95-12: Fuer Nicht-system_admin: pze_mode aus DB-Config synchronisieren.
+          // Admin entscheidet, Berater landet automatisch im Cockpit.
+          if (profile?.role && profile.role !== 'system_admin' && portal === 'berater') {
+            const newMode = cockpitEnabled ? 'app' : 'classic';
+            localStorage.setItem('pze_mode', newMode);
+            setPzeMode(newMode);
           }
 
           // Berater-Firma nur fuer Berater-Portal
