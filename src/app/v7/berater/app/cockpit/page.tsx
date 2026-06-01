@@ -2,8 +2,16 @@
 
 // src/app/v7/berater/app/cockpit/page.tsx
 // ============================================================================
-// Version: 1.0.5
+// Version: 1.0.6
 // Berater-App-Cockpit (neue Struktur)
+//   - v1.0.6: Inerten refreshed-Listener (A-018) ersatzlos entfernt. Der
+//             useEffect setzte bei ?refreshed=true nur loading=true, ohne
+//             Reload und ohne loading je zurueckzusetzen (load() laeuft per
+//             leeren Deps nur beim Mount) -> latente Spinner-Falle. Die
+//             Foerderseite sendet den Parameter ohnehin nicht; das Cockpit
+//             laedt beim Remount via router.push frisch. useSearchParams und
+//             searchParams damit ungenutzt -> entfernt. Suspense-Huelle
+//             bewusst belassen (keine Strukturaenderung).
 //   - v1.0.5: Begruessung UND Header zeigen vollen Namen "Vorname Nachname"
 //             statt nur Nachname. Quelle: first_name + last_name aus v7_user_profiles,
 //             Fallback display_name -> E-Mail.
@@ -17,7 +25,7 @@
 // ============================================================================
 
 import React, { useState, useEffect, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import PortalHeader from '@/components/shared/PortalHeader';
 import AppNav from '@/components/shared/AppNav';
@@ -51,7 +59,6 @@ export default function BeraterAppCockpitPage() {
 
 function BeraterAppCockpitInner() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const supabase = createClient();
 
   const [loading, setLoading]               = useState(true);
@@ -151,13 +158,6 @@ function BeraterAppCockpitInner() {
     }
     load();
   }, []);
-
-  // v1.0.4: Wenn von foerderung-page zurueck (z.B. nach Firma-Anlage) -> Daten neu laden
-  useEffect(() => {
-    if (searchParams.get('refreshed') === 'true') {
-      setLoading(true);
-    }
-  }, [searchParams]);
 
   if (loading) {
     return (
