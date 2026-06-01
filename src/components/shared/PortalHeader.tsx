@@ -4,7 +4,9 @@
 // ============================================================================
 // PZE - Gemeinsamer Portal-Header
 // ============================================================================
-// Version: 7.3.95-12
+// Version: 7.3.95-13
+// v7.3.95-13: FIX: client_user Rolle im Header als 'Nutzer' anzeigen
+//   (statt rohem DB-Wert 'client_user').
 // v7.3.95-12: FIX: Config-Query auf korrekte Spalten (key/value statt config_key/config_value).
 //   FIX: Cockpit-Modus fuer Nicht-system_admin automatisch aus DB-Config synchronisieren.
 //   Wenn cockpit_berater_enabled=true, wird localStorage pze_mode='app' gesetzt.
@@ -72,6 +74,7 @@ function getRoleLabel(role: string): string {
     consultant:     'Berater',
     berater:        'Berater',
     client_admin:   'Administrator',
+    client_user:    'Nutzer',
     project_leader: 'Projektkoordinator',
     employee:       'Mitarbeiter',
   };
