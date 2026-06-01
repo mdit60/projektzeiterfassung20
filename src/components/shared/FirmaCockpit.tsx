@@ -3,7 +3,9 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-29
+// Version: 7.4.9-30
+// v7.4.9-30: Deep-Link: ?editMA=[employeeId] oeffnet MA-Edit-Modal automatisch.
+//   Wird von Kapazitaetsplanung genutzt (Klick auf MA-Name -> direkt bearbeiten).
 // v7.4.9-29: CRITICAL FIX: .limit(10000) auf v7_timesheets-Query (Supabase 1000-Zeilen-Limit)
 // v7.4.9-28: PortalNav im Select-Modus (Unternehmensliste) ergaenzt
 // v7.4.9-27: "Kundenfirmen" -> "Unternehmen" ueberall in UI
@@ -64,7 +66,7 @@
 // ============================================================================
 
 import { useState, useEffect, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import {
   ComposedChart,
@@ -345,6 +347,19 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
 
   // Inline-Modal: Neuer Mitarbeiter
   const [maModal, setMaModal] = useState<{ mode: 'new' | 'edit' | 'password'; employeeId?: string } | null>(null);
+
+  // v7.4.9-30: Deep-Link ?editMA=[employeeId] -> Modal direkt oeffnen
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const editMAId = searchParams.get('editMA');
+    if (editMAId && !maModal) {
+      setMaModal({ mode: 'edit', employeeId: editMAId });
+      // URL bereinigen (Parameter entfernen, kein Reload)
+      const url = new URL(window.location.href);
+      url.searchParams.delete('editMA');
+      window.history.replaceState({}, '', url.toString());
+    }
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Projektauswahl
   const [selectedProjektId, setSelectedProjektId] = useState<string>('');
