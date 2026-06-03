@@ -1,0 +1,530 @@
+PZE Projektzeiterfassung  |  Entwicklungsdokumentation	V7.4.6  |  Mai 2026
+
+| **PZE** Projektzeiterfassung Entwicklungsdokumentation Projektbericht nach ZIM-Ergebnisberichtsformat |
+| --- |
+
+| **Dokument** | Entwicklungsdokumentation / Ergebnisbericht |
+| --- | --- |
+| **Version** | 1.0  │  Stand: Mai 2026 |
+| **SW-Release** | V7.4.6  │  Pflichtenheft v4.79 |
+| **Vorhaben** | SaaS-Plattform fuer Projektzeiterfassung in oeffentlich gefoerderten FuE-Projekten |
+| **Auftraggeber** | Martin Ditscherlein, Direktor Strategie & Management, Cubintec GmbH |
+| **Bearbeitung** | Martin Ditscherlein (Fachkonzept), Claude AI Opus (Softwareentwicklung) |
+| **Laufzeit** | Oktober 2024 bis Mai 2026 (ca. 7 Monate aktive Entwicklung) |
+| **Betrieb** | pze.itenion.com  │  Vercel  │  Supabase Frankfurt (eu-central-1) |
+
+# **1.  Ausgangssituation und Problemstellung**
+
+## **1.1  Fachlicher Hintergrund**
+
+Oeffentlich gefoerderte Forschungs- und Entwicklungsprojekte (FuE) kleiner und mittlerer Unternehmen (KMU) unterliegen strengen Dokumentationspflichten gegenueber dem Foerdermittelgeber. Bei ZIM-Projekten (Zentrales Innovationsprogramm Mittelstand, gefuehrt vom Bundesministerium fuer Wirtschaft und Klimaschutz / BMWK) sind Unternehmen verpflichtet, fuer jeden am Projekt beteiligten Mitarbeiter monatlich die erbrachten Projektstunden einzeln, tagesgenau und schutzwuerdig zu dokumentieren.
+
+Dieser sogenannte Stundennachweis (ZIM: 'Anlage 6.3 Stundennachweis') muss regelmaessig als Nachweis bei Zahlungsanforderungen (ZA) beim Projekttraeger (VDI/VDE-IT) eingereicht werden und ist bei Pruefungen und Audits vorlage- und erlaeuterungspflichtig. Gleiches gilt fuer Vorhaben im Rahmen der Forschungszulage (FZul, §35a EStG) sowie weiterer BMBF-Foerderprogramme.
+
+## **1.2  Problemlage vor dem Projekt**
+
+Vor der Entwicklung von PZE verwendeten betroffene Unternehmen ueberwiegend Excel-Tabellen oder proprietaere Eigenloesungen zur Stundenerfassung. Dies fuehrte regelmaessig zu folgenden Problemen:
+
+- Fehlerhafte oder unvollstaendige Stundennachweise bei Einreichung von Zahlungsanforderungen
+
+- Fehlende Konsistenzpruefung gegen Arbeitszeitgrenzen (max. 9h/Tag, Monatsgrenze, 50%-Regel fuer GF)
+
+- Manuelle und fehleranfaellige Erstellung der formalen Nachweisdokumente
+
+- Kein zentrales Tool fuer Berater, der mehrere Kundenfirmen gleichzeitig betreut
+
+- Keine automatische Beruecksichtigung regionaler Feiertage und Teilzeitregelungen
+
+- Keine integrierte Plan/Ist-Abweichungsanalyse mit Foerderkonsequenzen
+
+Beratungsunternehmen, die KMU bei der Foerdermittelabwicklung unterstuetzen, hatten ausserdem keinen werkzeuggestuetzten Ueberblick ueber die Zeiterfassungsqualitaet ihrer Kunden und mussten Stundennachweise manuell zusammenfuehren.
+
+## **1.3  Loesungsansatz**
+
+PZE wurde als webbasierte Multi-Mandanten-SaaS-Plattform konzipiert, die speziell auf die Anforderungen der Foerdermittelabwicklung im ZIM-Kontext zugeschnitten ist. Die Plattform bietet:
+
+- Ein Firmen-Portal fuer Mitarbeiter, Projektleiter und Firmen-Administratoren
+
+- Ein Berater-Portal fuer Foerderberater, die mehrere Kundenfirmen betreuen
+
+- Automatisierte Korrektheitspruefung der Zeiterfassungen gegen foerderrechtliche Grenzen
+
+- Direkte Datenaufbereitung fuer ZA-Formulare (VDI/VDE-IT Format)
+
+- Unterstuetzung fuer ZIM-Netzwerkmanagement (NWM) mit vollstaendiger Eigenanteilsberechnung
+
+# **2.  Projektziele und Anforderungen**
+
+## **2.1  Hauptziele**
+
+| **Nr.** | **Ziel** | **Status** |
+| --- | --- | --- |
+| Z1 | Webbasierte, DSGVO-konforme Zeiterfassung fuer gefuerderte FuE-Projekte | Erreicht |
+| Z2 | Dual-Portal-Architektur (Firmen + Berater) mit gemeinsamen Komponenten | Erreicht |
+| Z3 | Automatisierte Stundennachweiserstellung (PDF-Export) | Erreicht |
+| Z4 | ZIM-Netzwerkmanagement mit Eigenanteilsberechnung | Erreicht |
+| Z5 | Forschungszulage-Analyse-Tool (3-Jahres-Ansicht) | Erreicht (v1) |
+| Z6 | Live-Validierung Arbeitszeitgrenzen (Ampel-Trio) | In Planung (Phase 3) |
+| Z7 | Multi-Mandanten-Faehigkeit mit vollstaendiger Datentrennung (RLS) | Erreicht |
+| Z8 | Produktivbetrieb mit mindestens 5 Kundenfirmen bis Ende Q1/2026 | Uebertroffen (9 Firmen) |
+
+## **2.2  Zielgruppen**
+
+| **Rolle** | **Beschreibung** | **Portal** |
+| --- | --- | --- |
+| system_admin | Vollzugriff auf alle Firmen und Konfiguration | Berater (blau) |
+| consultant | Berater betreut mehrere Kundenfirmen | Berater (blau) |
+| client_admin | Firmen-Admin / Geschaeftsfuehrer | Firmen (gruen) |
+| project_leader | Projektleiter mit Zugriff auf eigene Projekte + Team | Firmen (gruen) |
+| employee | Mitarbeiter, nur eigene Zeiterfassung | Firmen (gruen) |
+
+## **2.3  Nicht-funktionale Anforderungen**
+
+- DSGVO: Vollstaendige Mandantentrennung per Row-Level Security (RLS) auf Datenbankebene
+
+- Verfuegbarkeit: 99,9% durch Nutzung von Managed Services (Vercel, Supabase)
+
+- Performance: Ladezeiten < 2 Sekunden fuer alle Hauptansichten
+
+- Skalierbarkeit: Unbegrenzte Anzahl von Mandanten, Projekten und Mitarbeitern
+
+- Barrierefreiheit: Nokia/Apple-Prinzip -- alle Funktionen ohne Hover-Versteckung sichtbar
+
+- Sicherheit: Auth via Supabase Auth, rollenbasierte Zugriffskontrolle auf allen Ebenen
+
+# **3.  Entwicklungsprozess und Methodik**
+
+## **3.1  Entwicklungsansatz**
+
+PZE wurde als KI-assistiertes Softwareprojekt entwickelt. Martin Ditscherlein verantwortete Fachkonzept, Anforderungsmanagement, Qualitaetssicherung und Produktionstest. Claude AI (Anthropic) uebernahm die vollstaendige Softwareentwicklung, Architekturberatung und technische Dokumentation.
+
+Der iterative Entwicklungsprozess umfasste 35 dokumentierte Sessions von Oktober 2024 bis Mai 2026. Jede Session endete mit einer GIT-Sicherung und einer aktualisierten Version des Pflichtenhefts, das als 'Living Document' die gesamte Systemspezifikation enthaelt.
+
+## **3.2  Technologieentscheidungen**
+
+| **Komponente** | **Technologie** | **Begruendung** |
+| --- | --- | --- |
+| Frontend | Next.js 15.5, React 19, TypeScript | SSR + SSG, App Router, starke Typisierung |
+| Styling | Tailwind CSS 4 | Utility-First, responsive, konsistente Designsprache |
+| Datenbank | Supabase (PostgreSQL) | Managed, EU-Region Frankfurt, eingebaute RLS, Auth |
+| Hosting | Vercel | Zero-Config Deploy, CDN global, Git-Integration |
+| Auth | Supabase Auth | E-Mail/Passwort, kein SSO erforderlich |
+| Icons | Lucide React | Konsistentes Icon-Set, Tree-Shaking |
+| ZIM Parser | Python/pikepdf (lokal) | Robuste PDF-Verarbeitung fuer ZIM-Antragsformulare |
+| E-Mail | Resend.com + itenion.com | DKIM-verifizierte Domain, SMTP fuer Auth-Mails |
+
+## **3.3  Architektur-Prinzipien**
+
+**Shared Components:**  Alle UI-Komponenten werden gemeinsam von Firmen- und Berater-Portal genutzt. Ein `portal`-Parameter steuert Farbgebung und Verhalten. Code-Duplizierung ist explizit verboten.
+
+**Dual-Portal-Farbarchitektur:**  Blau (#002451) = Berater-Portal (zeigt: 'Ich bin Berater'), Gruen (#65A655) = Firmen-Portal (zeigt: 'Ich bin Firmen-User'). Die Header-Farbe ist ein Identitaetsindikator, kein Datenkontext-Indikator.
+
+**Git-Branch-Strategie:**  `v7-dev` fuer aktive Entwicklung, `main` fuer Produktion. Kein auto-merge -- jeder Produktionsdeploy ist ein bewusster manueller Schritt.
+
+**Versionierungskonvention:**  [Komponente]-v[Release]_[Build]-[Iteration].tsx. Jede Dateimodifikation = neues Inkrement. Rollback jederzeit moeglich.
+
+**UTF-8-Regel:**  Alle Code-Dateien enthalten ausschliesslich ASCII. Umlaute in Code-Kommentaren als ae/oe/ue/ss. UI-Texte koennen korrekte Umlaute enthalten.
+
+## **3.4  Qualitaetssicherung**
+
+- Jede Aenderung wird lokal mit `pnpm dev` getestet und aktiv durchgeklickt
+
+- Vollstaendige Null-Safety und TypeScript-Strenge (kein `any`)
+
+- Bugfix-Tracking im Pflichtenheft (laufend nummeriert, Stand: 44 dokumentierte Fehler, alle behoben)
+
+- PROD-Test immer auf pze.itenion.com (nie auf Preview-URLs, da nur PROD-Daten relevant)
+
+# **4.  Entwicklungshistorie**
+
+## **4.1  Phase 1: Konzept und Grundlagen  (Okt. -- Dez. 2024)**
+
+In der ersten Entwicklungsphase wurden die fachlichen Anforderungen der ZIM-Foerdermittelabwicklung analysiert und ein erstes Datenbankschema entwickelt. Die Version V6 bildete den Prototyp mit FZul-Modul und erstem ZIM-Import-Konzept. Die Erkenntnisse dieser Phase fuehrten zu einem vollstaendigen Architektur-Neustart mit V7.
+
+## **4.2  Phase 2: V7-Kern -- Dual-Portal-Architektur  (Jan. -- Feb. 2026)**
+
+Builds v7.3.42 -- v7.3.95: Kompletter Neuaufbau mit Dual-Portal-Architektur und Shared-Components-Prinzip. Kernmodule dieser Phase:
+
+- Firmen-Portal: Login, Dashboard, Projektverwaltung, Zeiterfassung
+
+- Berater-Portal: Kundenfirmenliste, Firma-Detail-Ansicht, ZIM-PDF-Import
+
+- Vollstaendiger Arbeitsplan-Import (Excel-basiert) mit AP-Zuordnung
+
+- EmployeeManagement: Mitarbeiterverwaltung, Rollen, Login-Erstellung
+
+- User Manuals: Benutzeranleitungen fuer Projektleiter und Firmen-Administrator
+
+- Erste PROD-Kundenfirma live: Steuerkanzlei Robin Freund
+
+## **4.3  Phase 3: Berater-Analysetools + ZA-Modul  (Feb. -- Mrz. 2026)**
+
+Builds v7.4.0 -- v7.4.4: Erweiterung um Analyse- und Abrechnungswerkzeuge:
+
+- Timesheet-Viewer: Firmen-/Projekt-/MA-uebergreifende Stundenuebersicht fuer Berater
+
+- ZA-Modul (Zahlungsanforderungen): Vollstaendige Datenaufbereitung fuer VDI/VDE-IT-Formular
+
+- FirmendatenCard: Verwaltung von Firmenbasisdaten inkl. Feiertagsregion
+
+- ProjectDetailPage: Vollstaendige Projektverwaltung mit AP-Tabelle und Team-Manager
+
+- StundennachweisMatrix: Monatsmatrix mit Plan/Ist-Ampeln und Vollstaendigkeitspruefung
+
+- Timesheet-Notizen: Interne Rueckfragen pro MA/Projekt/Monat
+
+## **4.4  Phase 4: NWM-Modul + Feiertage  (Mrz. 2026)**
+
+ZIM-Netzwerkmanagement vollstaendig implementiert (Sessions 7-8):
+
+- NWM-Einstellungen: Netzwerktyp, Phase, Bankdaten, Rechnungskonfiguration
+
+- Netzwerkpartner-Verwaltung: Stammdaten, anteilige Foerderquoten, USt-Satz
+
+- Eigenanteilsberechnung: Perioden-basiert (3-Monats-Rhythmus), Snapshot-Archiv, PDF-Export
+
+- Feiertagsberechnung: Zentrale Utility fuer alle 16 Bundeslaender inkl. regionaler Sonderfaelle
+
+- Monatsabschluss-Workflow: MA schliesst Monat ab, Admin kann aufheben
+
+## **4.5  Phase 5: Kapazitaetsplanung + Prognose  (Apr. 2026, Sessions 22-32)**
+
+- Arbeitszeitgrenzen Phase 1+2: Datenbasis (Teilzeit-Historie-Tabelle) und UI-Verwaltung
+
+- AP-Dropdown-Filter: Nur relevante APs mit gueltiger Laufzeit vorgeblendet
+
+- KPT Kapazitaetsplanungstool: 3-Jahres-Ansicht aller Projekte einer Firma
+
+- ProjektFortschrittPanel: Zielerreichungs-Prognose mit 3 Szenarien und Foerderkonsequenzen
+
+- BerichtePage: Accordion-Prinzip, optimierte Ladestruktur
+
+- PROD-Migration: 8 Kundenfirmen, NWM YachtConnect live
+
+## **4.6  Phase 6: Stabilisierung + Doku  (Apr. -- Mai 2026, Sessions 33-35)**
+
+- Mein-Status Seite: Ampelstatus aller Projekte, Rueckfragen, rollenbasierte Anleitungen
+
+- Hilfe-Dropdown: Kontextsensitiver Zugang zu Benutzeranleitungen in der Navigation
+
+- v7_system_config: Key/Value-Konfigurationstabelle, Toggle fuer Anleitungs-Downloads
+
+- Benutzeranleitungen v2.1 + v2.2: Projektleiter und Firmen-Administrator vollstaendig neu
+
+- TimesheetForm: 6 Bugfixes (AP-Sortierung, Feiertagsbehandlung, Vertretungsfall u.a.)
+
+- Firmenanlage-Fix: RLS-Problem, Doppel-Submit-Schutz, server-seitige Create-Route
+
+- EmployeeManagement: Orphan-Erkennung fuer verwaiste Login-User
+
+- 9. PROD-Kundenfirma angelegt: ALACsystems GmbH & Co. KG
+
+# **5.  Erzielte Ergebnisse**
+
+## **5.1  Firmen-Portal**
+
+Das Firmen-Portal ist die primaere Arbeitsumgebung fuer Mitarbeiter, Projektleiter und Firmen-Administratoren der gefuerderten Unternehmen.
+
+### **5.1.1  Dashboard**
+
+Modulares Kachel-Dashboard mit direktem Zugang zu allen Funktionsbereichen. Fuer Firmen-Administratoren werden offene Rueckfragen aus dem Notizensystem direkt auf dem Dashboard angezeigt.
+
+### **5.1.2  Zeiterfassung (TimesheetForm)**
+
+Das zentrale Element von PZE ist die Zeiterfassungsmaske (TimesheetForm). Sie bietet:
+
+- Monatsmatrix mit allen Arbeitstagen des gewaehlten Monats
+
+- AP-Spalten: Zugeordnete Arbeitspakete sind vorbelegt; weitere AP aus dem Projekt koennen ergaenzt werden
+
+- Fehlzeiten-Zeilen: Urlaub, Krankheit, Sonstiges (foerderrechtlich getrennt)
+
+- Feiertags-Automatik: Feiertagszellen gesperrt basierend auf Firmenstandort und Bundesland
+
+- Tastatur-Navigation: ArrowDown/ArrowUp zwischen AP-Zeilen, Tab zwischen Zellen
+
+- Monatsabschluss: MA markiert Monat als vollstaendig (nicht revidierbar ohne Admin)
+
+- Stunden-Summen: Spalten- und Zeilensummen, 'Offen'-Spalte zeigt verbleibende Planstunden
+
+- AP-Sortierung: Numerisch korrekt (3.1 < 3.1.1 < 3.2 < 4) an allen Einsatzpunkten
+
+### **5.1.3  Projektverwaltung**
+
+Vollstaendige Projektverwaltung mit Foerderformat-spezifischen Feldern:
+
+- Projektanlage: Manuell oder per ZIM-PDF-Import (Python/pikepdf Parser)
+
+- Arbeitsplan: Arbeitspakete mit Laufzeit, Personenmonaten, Start/Ende
+
+- Team-Manager: Mitarbeiter-Projekt-Zuordnung mit Beschaeftigungszeitraum
+
+- AP-Zuordnung: Planned PM pro MA und AP; Stundensatz projektspezifisch
+
+- Projektfortschritt-Panel: Plan/Ist-Vergleich, Prognose-Diagramm, Foerderkonsequenzen
+
+### **5.1.4  Berichte und Controlling**
+
+Die BerichtePage bietet im Accordion-Format:
+
+- Stundennachweis-Matrix: Monatsuebersicht aller MA mit Ampelstatus (gruen/gelb/rot)
+
+- Projektuebersicht: Kumulierte Stunden und PM-Erreichung aller Projekte
+
+- ZA-Vorbereitung: Stundensummen fuer Zahlungsanforderung aufbereitet
+
+### **5.1.5  Mitarbeiterverwaltung**
+
+Vollstaendige Mitarbeiterverwaltung durch Firmen-Administrator:
+
+- Stammdaten, E-Mail, Position, Wochen-Arbeitszeit
+
+- Teilzeit-Historie: Laufende Aenderungen der Wochenarbeitszeit mit Gueltigkeitsdatum
+
+- Login-Erstellung: Direkt aus der Mitarbeiterliste heraus
+
+- Orphan-Erkennung: Verwaiste Login-User ohne Mitarbeitereintrag werden angezeigt
+
+## **5.2  Berater-Portal**
+
+Das Berater-Portal gibt Foerderberatern vollstaendigen Ueberblick ueber alle betreuten Kundenfirmen und bietet erweiterte Analysetools.
+
+### **5.2.1  Kundenfirmen-Verwaltung**
+
+- Kundenfirmenliste mit Status und letzter Aktivitaet
+
+- Firmenanlage direkt im Berater-Portal (server-seitig, mit Auth + Profil + Employee-Eintrag)
+
+- Firma-Detail: Alle Projekte, Mitarbeiter, Zeiterfassungen der betreuten Firma
+
+### **5.2.2  Zeiterfassungs-Viewer**
+
+- Firmen-/Projekt-/MA-uebergreifende Stundenuebersicht
+
+- Filterbarer Zeitraum, gruppierbar nach verschiedenen Dimensionen
+
+- Direkte Anzeige von Zeiterfassungsluecken und Rueckfragen
+
+### **5.2.3  Kapazitaetsplanungstool (KPT)**
+
+- 3-Jahres-Ansicht aller Projekte einer Kundenfirma
+
+- Darstellung der verfuegbaren Personenmonate (frei) pro Monat und MA
+
+- Druckfunktion: PDF-Export fuer Beratungsgespraeche
+
+- FZul-Hilfstool in der rechten Spalte (Platzhalter-Stand)
+
+### **5.2.4  NWM-Uebersicht**
+
+- Alle Netzwerkmanagement-Projekte aller betreuten Firmen auf einen Blick
+
+- Direkter Zugang zum jeweiligen Netzwerkprojekt
+
+### **5.2.5  Administration**
+
+- Berater-Verwaltung: Anlage und Bearbeitung von Berater-Accounts
+
+- System-Konfiguration: Toggle fuer Benutzeranleitungen (manuals_enabled)
+
+## **5.3  NWM-Modul (ZIM-Netzwerkmanagement)**
+
+Das NWM-Modul ist ein eigenstaendiges Subsystem fuer ZIM-Netzwerkmanagement-Projekte. Es behandelt ZIM-Netzwerkprojekte als foerderrechtlich eigenstaendige Einheiten pro Foerderzeitraum (Phase 1 / Phase 2).
+
+| **Funktion** | **Beschreibung** |
+| --- | --- |
+| NWM-Einstellungen | Netzwerktyp, Phase, Bewilligungsdatum, Bankdaten, Rechnungskonfiguration |
+| Foerdersatz-Stufung | Automatisch: National/International, Phase 1/2, Jahr 1-4 gem. ZIM-Richtlinie 2024 |
+| Netzwerkpartner | Stammdaten, anteilige Eigenanteil-Quote (Smart-Quotenaufteilung), USt-Satz |
+| Eigenanteil-Berechnung | Perioden-basiert (3-Monate), Snapshot, PDF-Export, Zahlungsstatus-Tracking |
+| Netzwerkjahre | v7_nwm_foerderzeitraeume: Laufzeiten + Foerderquoten je Netzwerkjahr |
+| AP-Planung NWM | v7_nwm_ap_planung: Geplante PM je Foerderzeitraum und MA |
+
+## **5.4  ZA-Modul (Zahlungsanforderungen)**
+
+Das ZA-Modul bereitet alle noetigen Daten fuer die Einreichung von Zahlungsanforderungen beim Projekttraeger VDI/VDE-IT auf:
+
+- Status-Workflow: Entwurf --> Eingereicht --> Bewilligt (mit Rollback-Option)
+
+- ZIM-Standard: Personalkosten, Drittkosten, Sonstige Kosten
+
+- ZIM-DS: Durchfuehrbarkeits-Sondertabelle
+
+- ZIM_NETZWERK: NWM-Kostentabelle mit Eigenanteil-Berechnung
+
+- Stundensatz-Logik: hourly_rate_approved hat Vorrang vor hourly_rate
+
+## **5.5  Datenbankarchitektur**
+
+Die Datenbank umfasst 16 Kern-Tabellen mit vollstaendiger Row-Level Security:
+
+| **Tabelle** | **Beschreibung** |
+| --- | --- |
+| v7_user_profiles | Login-User mit Rolle und Firmenzuordnung |
+| v7_client_companies | Kundenfirmen mit Wochenarbeitszeit, Bundesland, Feiertagsregion |
+| v7_employees | Mitarbeiter mit portal_role, Position, Wochenarbeitszeit |
+| v7_employee_hours_history | Teilzeit-Aenderungshistorie pro Mitarbeiter |
+| v7_projects | Projekte mit Foerderformat, NWM-Feldern, Laufzeit |
+| v7_work_packages | Arbeitspakete mit PM, Laufzeit, Start/Ende |
+| v7_project_assignments | MA-Projekt-Zuordnung mit Stundensatz |
+| v7_work_package_assignments | MA-AP-Zuordnung mit geplanten PM |
+| v7_timesheets | Zeiterfassungseintraege (work_date, hours, day_type) |
+| v7_timesheet_completions | Monatsabschluesse pro MA/Projekt/Monat |
+| v7_timesheet_notes | Interne Rueckfragen (offen/erledigt) |
+| v7_zahlungsanforderungen | ZA pro Projekt mit Status-Workflow |
+| v7_netzwerk_partner | NWM Netzwerkpartner-Stammdaten |
+| v7_netzwerk_eigenanteile | NWM EA-Snapshots mit Zahlungsstatus |
+| v7_nwm_foerderzeitraeume | NWM Netzwerkjahre mit Foerderquoten |
+| v7_system_config | Systemweite Key/Value-Konfiguration |
+
+# **6.  Produktionsbetrieb**
+
+## **6.1  PROD-Kundenliste (Stand: 1. Mai 2026)**
+
+| **Nr.** | **Firma** | **Standort** | **Bundesland** |
+| --- | --- | --- | --- |
+| 1 | ALACsystems GmbH & Co. KG | Kirchhundem | NRW |
+| 2 | Androlite GmbH | Schwabach | Bayern (BY_EVAN) |
+| 3 | AS System | Trittau | Schleswig-Holstein |
+| 4 | Automotive Synergies GmbH & Co. KG | Schwabach | Bayern |
+| 5 | Cubintec GmbH | Bad Neustadt a.d.S. | Bayern |
+| 6 | Fischbach Bauunternehmung | Wangen i.A. | Baden-Wuerttemberg |
+| 7 | Global Maritime Management GmbH | Trittau | Schleswig-Holstein |
+| 8 | Luebeck Yacht Trave Schiff GmbH | Luebeck | Schleswig-Holstein |
+| 9 | Steuerkanzlei Robin Freund | Buechen | Schleswig-Holstein |
+| 10 | STOMA GmbH | Siegburg | NRW |
+
+## **6.2  Betriebsinfrastruktur**
+
+| **Produktions-URL** | https://pze.itenion.com |
+| --- | --- |
+| **Hosting** | Vercel (Production Branch: main) |
+| **Datenbank PROD** | Supabase PZE-production (eu-central-1, Frankfurt) |
+| **Datenbank DEV** | Supabase projektzeiterfassung20 (eu-central-1, Frankfurt) |
+| **Git-Repository** | GitHub: mdit60/projektzeiterfassung20 |
+| **Prod-Branch** | main (manueller Merge nach bestandenem lokalem Test) |
+| **Dev-Branch** | v7-dev (aktive Entwicklung) |
+| **E-Mail-Service** | Resend.com, Absender: cubintec.pze@itenion.com |
+| **Auth** | Supabase Auth (E-Mail/Passwort) |
+
+## **6.3  Benutzeranleitungen (Stand Session 34)**
+
+| **Dokument** | **Version** | **Zielgruppe** | **Status** |
+| --- | --- | --- | --- |
+| PZE-Anleitung-Projektleiter | v2.1 | Projektleiter | Verfuegbar |
+| PZE-Anleitung-Firmen-Administrator | v2.2.0 | client_admin | Verfuegbar |
+| PZE-FAQ-Zeiterfassung | v1 | Alle Firmen-User | Verfuegbar |
+| Berater-Portal Anleitung | v1.0 | Berater / consultant | Erstellt Mai 2026 |
+
+Alle Anleitungen sind im Firmen-Portal unter dem Hilfe-Dropdown der Navigation abrufbar. Die Freigabe erfolgt ueber den manuals_enabled-Toggle in der Berater-Administration. Anleitungs-PDFs nutzen stabile Dateinamen (ohne Versionsnummer) -- neue Versionen ersetzen einfach die Datei ohne Code-Deployment.
+
+# **7.  Aktuelle Komponentenliste  (SW-Release V7.4.6)**
+
+## **7.1  Shared Components**
+
+| **Datei** | **Version** | **Funktion** |
+| --- | --- | --- |
+| TimesheetForm.tsx | 7.4.6-10 | Zeiterfassung: Monatsmatrix, AP-Filter, Monatsabschluss, 44 Fehler behoben |
+| StundennachweisMatrix.tsx | 7.4.6-1 | Matrix-Ampel + Feiertagsregion-Berechnung |
+| BerichtePage.tsx | 7.4.6-5 | Berichte & Controlling, Accordion, Plan/Ist |
+| ProjektFortschrittPanel.tsx | 7.4.5-11 | Prognose-Diagramm, 3 Szenarien, Foerderkonsequenzen |
+| ProjectDetailPage.tsx | 7.4.4-54 | Projekt-Detail, NWM-Tab-Switch (FROZEN - Compiler-Bug) |
+| EmployeeManagement.tsx | 7.3.95-14 | Mitarbeiter + Teilzeit-Historie + Orphan-Erkennung |
+| NWMEigenanteilPanel.tsx | 7.4.5-11 | EA-Berechnung, Archiv, PDF |
+| NWMPartnerPanel.tsx | 7.4.5-4 | Netzwerkpartner-Verwaltung |
+| NWMEinstellungenPanel.tsx | 7.4.5-1 | NWM-Einstellungen, Bankdaten |
+| ZAPanel.tsx | 7.4.4-30 | ZA-Formular inkl. NWM-Kostentabelle |
+| ProjectTeamManager.tsx | 7.4.4-16 | Team-Verwaltung, employment_end-Limit |
+| PortalNav.tsx | 7.4.4-12 | Navigation + Hilfe-Dropdown + manuals_enabled |
+| PortalHeader.tsx | 7.3.95-4 | Header blau/gruen, Passwort-Aendern |
+| SystemConfigPanel.tsx | 7.4.4-2 | Toggle Anleitungs-Downloads |
+| FirmendatenCard.tsx | 7.4.6-1 | Firmendaten + Feiertagsregion-Dropdown |
+| WorkPackageTable.tsx | 7.4.3-11 | Arbeitsplan-Tabelle, PM 3 Dezimalstellen |
+
+## **7.2  API-Routen**
+
+| **Route** | **Version** | **Funktion** |
+| --- | --- | --- |
+| /api/v7/create-user | 7.4.1-1 | Auth + Profil + Employee server-seitig (Service-Role-Key) |
+| /api/v7/create-employee-login | 7.3.95-1 | Login fuer bestehenden Mitarbeiter-Eintrag |
+| /api/v7/arbeitsplan-import | 7.3.87 | Excel-Arbeitsplan-Import |
+
+## **7.3  Hilfs-Libraries**
+
+| **Datei** | **Version** | **Funktion** |
+| --- | --- | --- |
+| lib/holidays/germanHolidays.ts | 7.4.6-1 | Zentrale Feiertags-Utility fuer alle 16 BL + Sonderfaelle |
+| lib/v7-types.ts | 7.4.8-1 | Zentrale TypeScript-Typdefinitionen |
+| lib/v7-module-config.ts | 7.3.90-7 | Modul-Konfiguration fuer Foerderformat-spezifische UI |
+
+# **8.  Offene Punkte und Ausblick**
+
+Folgende Punkte sind im Backlog dokumentiert und fuer kommende Entwicklungssessions geplant:
+
+| **Prio** | **Feature** | **Beschreibung** | **Aufwand** |
+| --- | --- | --- | --- |
+| 1 | Berater-Portal Anleitung | Benutzerhandbuch fuer Berater-Portal. Erstellt in Session 36. | Gering |
+| 2 | Arbeitszeitgrenzen Phase 3 | Live-Ampel-Trio in TimesheetForm, Matrix, BerichtePage: Monatsgrenze, 50%-GF-Regel, 9h-Tagesgrenze | Mittel |
+| 3 | Stundennachweis-Wording | ZIM_NETZWERK-Projekte: 'Management-Arbeiten' statt 'foerderbare Projektarbeiten' | Gering |
+| 4 | AP-Quick-View Popup | Button neben Projekt-Dropdown in TimesheetForm: zeigt AP-Liste mit Laufzeiten und PM | Gering |
+| 5 | ZAPanel Rollback | Schritt 'Bewilligt -> Eingereicht' als Zwischenstufe (aktuell nur -> Entwurf) | Gering |
+| 6 | NWM-Prognose im KPT | Gestufte Foerderquoten je Netzwerkjahr im ProjektFortschrittPanel | Mittel |
+| 7 | FZul-Modul | Vollstaendiges Forschungszulage-Analyse-Modul (Konzept offen) | Hoch |
+| 8 | De-minimis-Datenbank | Tracking und Verwaltung von De-minimis-Beihilfen pro Unternehmen | Mittel |
+| 9 | Vercel-Optimierung | Preview-Build fuer v7-dev deaktivieren (spart Build-Minuten) | Minimal |
+
+## **8.1  Technische Schulden**
+
+- Unique Constraint auf v7_timesheets: Verhindert Duplikate, benoetigt sorgfaeltige Planung (legitime Mehrfachbuchungen verschiedener APs am gleichen Tag muss erlaubt bleiben)
+
+- NWM-Jahresabrechnung: Gestufte Foerderquoten im ZAPanel vollstaendig verifizieren
+
+- ProjectDetailPage FROZEN: Komponente darf wegen Vercel-SWC-Compiler-Bug nicht veraendert werden; Felder nicht ueber Props, sondern direkt aus DB laden
+
+## **8.2  Strategischer Ausblick**
+
+PZE hat sich von einem Prototyp zu einer vollstaendig produktiven SaaS-Plattform entwickelt. Die naechsten Entwicklungsprioritaeten liegen in der Vertiefung der Compliance-Funktionen (Arbeitszeitgrenzen-Ampel), der Fertigstellung der Nutzerdokumentation sowie der Vorbereitung des Forschungszulage-Moduls. Die technische Basis ist stabil und skalierbar fuer weitere Kundenfirmen und neue Berater.
+
+# **9.  Fehlerhistorie  (alle Fehler behoben)**
+
+Seit Projektbeginn wurden 44 dokumentierte Fehler identifiziert und in derselben oder der naechstfolgenden Entwicklungssession behoben. Alle Fehler sind im Pflichtenheft unter §5 detailliert dokumentiert.
+
+## **9.1  Auswahl kritischer Fehler und Loesungen**
+
+| **Nr.** | **Fehler** | **Behoben in** |
+| --- | --- | --- |
+| 5.33 | AP-Ueberschriften im Dropdown waehlbar | v7.4.6-2 |
+| 5.34 | Abgelaufene AP in neue Monate vorbelegt | v7.4.6-3 |
+| 5.35 | Vorbelegte AP-Zeilen in zufaelliger Reihenfolge | v7.4.6-4 |
+| 5.37 | AP-Sortierung falsch (3.4 vor 3.1.1) | v7.4.6-6 |
+| 5.38 | Fehlzeiten-Berechnung U/K/S unvollstaendig | v7.4.6-7 |
+| 5.39 | Tastatur-Navigation ArrowDown funktionslos bei leeren AP-Zeilen | v7.4.6-8 |
+| 5.40 | offen-Spalte ohne Hinweis auf negativen Vertretungsfall | v7.4.6-9 |
+| 5.41 | Feiertag auf Wochenende: Fehlzeiten-Tageszelle falsch befuellt | v7.4.6-10 |
+| 5.42 | Firmenanlage: RLS-Fehler bei Profil-Insert (clientseitig) | v7.4.1-6 |
+| 5.43 | Firmenanlage: Doppel-Submit durch verzoegertes Modal-Close | v7.4.1-5 |
+| 5.44 | GF ohne v7_employees-Eintrag nicht verwaltbar | v7.3.95-14 + SQL-Prozess |
+
+# **10.  Glossar**
+
+| **Begriff** | **Erklaerung** |
+| --- | --- |
+| ZIM | Zentrales Innovationsprogramm Mittelstand (Foerderprogramm BMWK) |
+| BMBF | Bundesministerium fuer Bildung und Forschung |
+| FZul | Forschungszulage nach §35a EStG (steuerliche Forschungsfoerderung) |
+| FuE | Forschung und Entwicklung |
+| KMU | Kleine und mittlere Unternehmen |
+| PM | Personenmonate (1 PM = 173,33 Stunden = 40h/Woche x 52/12) |
+| AP | Arbeitspaket (Teilaufgabe innerhalb eines Projekts) |
+| ZA | Zahlungsanforderung (Mittelabruf beim Projekttraeger VDI/VDE-IT) |
+| NWM | Netzwerkmanagement (ZIM-Foerderformat fuer Netzwerkprojekte) |
+| Stundennachweis | Monatliche tagesgenaue Dokumentation der Projektstunden |
+| RLS | Row Level Security (PostgreSQL / Supabase, DSGVO-Mandantentrennung) |
+| DSGVO | Datenschutz-Grundverordnung |
+| Foerdersatz | Prozentualer Anteil der foerderfaehigen Kosten, den der Foerdermittelgeber erstattet |
+| EA | Eigenanteil (nicht gefoerderter Kostenanteil, bei NWM von Netzwerkpartnern zu tragen) |
+| GF | Geschaeftsfuehrer (unterliegt 50%-Obergrenzenregel bei ZIM-Projekten) |
+| client_admin | Rolle Firmen-Administrator (i.d.R. Geschaeftsfuehrer oder Prokurist) |
+| SaaS | Software as a Service (webbasiertes Software-Abonnementmodell) |
+
+	Cubintec GmbH  |  Martin Ditscherlein	Seite
