@@ -3,7 +3,12 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-30
+// Version: 7.4.9-31
+// v7.4.9-31: A-020 - Firmen-Deaktivierung im App-Paradigma.
+//   - Trash2-Icon in Firmendaten-Karte (nur Berater-Portal, alle Berater).
+//   - Bestaetigungs-Dialog (Wording analog klassische foerderung-Seite).
+//   - DB-Update: is_active=false, status=inactive, updated_at (wie klassisch).
+//   - Nach Erfolg: Rueck-Navigation ins App-Cockpit bzw. foerderung-Liste.
 // v7.4.9-30: Deep-Link: ?editMA=[employeeId] oeffnet MA-Edit-Modal automatisch.
 //   Wird von Kapazitaetsplanung genutzt (Klick auf MA-Name -> direkt bearbeiten).
 // v7.4.9-29: CRITICAL FIX: .limit(10000) auf v7_timesheets-Query (Supabase 1000-Zeilen-Limit)
@@ -102,6 +107,7 @@ import {
   Plus,
   Pencil,
   KeyRound,
+  Trash2,
 } from 'lucide-react';
 import PortalNav from '@/components/shared/PortalNav';
 import PortalFooter from '@/components/shared/PortalFooter';
@@ -347,6 +353,10 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
 
   // Inline-Modal: Neuer Mitarbeiter
   const [maModal, setMaModal] = useState<{ mode: 'new' | 'edit' | 'password'; employeeId?: string } | null>(null);
+
+  // v7.4.9-31: A-020 - Firmen-Deaktivierung
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // v7.4.9-30: Deep-Link ?editMA=[employeeId] -> Modal direkt oeffnen
   // v7.4.9-30: ?returnTo=[url] -> nach Modal-Schliessung zurueck navigieren
@@ -687,6 +697,40 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
     }
   }
 
+  // v7.4.9-31: A-020 - Firma deaktivieren (nur Berater-Portal)
+  // Update analog klassische foerderung-Seite: is_active=false, status=inactive.
+  // Daten bleiben erhalten (Soft-Delete), wiederherstellbar ueber Status-Filter
+  // auf der klassischen foerderung-Seite.
+  async function handleFirmaDeaktivieren() {
+    if (!firma || portal !== 'berater') return;
+    setDeleting(true);
+    try {
+      const { error: deleteError } = await supabase
+        .from('v7_client_companies')
+        .update({
+          is_active: false,
+          status: 'inactive',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', firmaIdLocal);
+
+      if (deleteError) {
+        setError('Firma konnte nicht deaktiviert werden: ' + deleteError.message);
+        setShowDeleteConfirm(false);
+        return;
+      }
+
+      setShowDeleteConfirm(false);
+      // Zurueck ins App-Cockpit bzw. zur Foerderung-Liste - Firma ist nun raus
+      router.push(isAppMode ? '/v7/berater/app/cockpit' : '/v7/berater/foerderung');
+    } catch (err: any) {
+      setError('Unerwarteter Fehler beim Deaktivieren: ' + (err?.message || ''));
+      setShowDeleteConfirm(false);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   function handleNeuerMitarbeiter() {
     setMaModal({ mode: 'new' });
   }
@@ -972,13 +1016,24 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
               >
                 Firmendaten
               </h2>
-              <button
-                onClick={handleFirmendatenBearbeiten}
-                className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 transition-colors"
-                title="Firmendaten bearbeiten"
-              >
-                <Pencil className="w-3 h-3" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleFirmendatenBearbeiten}
+                  className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 transition-colors"
+                  title="Firmendaten bearbeiten"
+                >
+                  <Pencil className="w-3 h-3" />
+                </button>
+                {portal === 'berater' && (
+                  <button
+                    onClick={() => setShowDeleteConfirm(true)}
+                    className="flex items-center gap-1 text-xs text-gray-400 hover:text-red-600 transition-colors"
+                    title="Firma deaktivieren"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="space-y-3 text-sm">
@@ -1610,6 +1665,35 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
             if (returnToRef.current) { setMaModal(null); router.push(returnToRef.current); returnToRef.current = null; }
           }}
         />
+      )}
+
+      {/* v7.4.9-31: A-020 - Bestaetigungsdialog Firma deaktivieren */}
+      {showDeleteConfirm && firma && portal === 'berater' && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Firma deaktivieren?</h3>
+            <p className="text-gray-600 mb-6">
+              Moechten Sie die Firma <strong>&quot;{firma.name}&quot;</strong> wirklich deaktivieren?
+              Die Daten bleiben erhalten und koennen spaeter wiederhergestellt werden.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100"
+                disabled={deleting}
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={handleFirmaDeaktivieren}
+                disabled={deleting}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400"
+              >
+                {deleting ? 'Wird deaktiviert...' : 'Deaktivieren'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <PortalFooter portal={portal} />

@@ -3,7 +3,11 @@
 // src/components/shared/MitarbeiterModal.tsx
 // ============================================================================
 // SHARED COMPONENT: MitarbeiterModal
-// Version: 1.0.1
+// Version: 1.0.2
+// v1.0.2: E-Mail-Bestaetigungsfeld bei Neuanlage (Schutz gegen Tippfehler).
+//   Zweites Feld "E-Mail bestaetigen" nur in mode='new'. Live-Hinweis bei
+//   Abweichung (kleingeschrieben+getrimmt), "Anlegen" gesperrt bis identisch,
+//   harte Pruefung in handleSave.
 // v1.0.1: Gehaltsfelder ergaenzt (Anlage 6.1 Stundensatzberechnung)
 //   monthly_salary, annual_bonus, company_weekly_hours, hourly_rate
 //   Live-Berechnung: Jahresbrutto, Jahresarbeitsstd., Teilzeitfaktor, Stundensatz
@@ -95,6 +99,7 @@ export default function MitarbeiterModal({
   onSaved,
 }: MitarbeiterModalProps) {
   const [form, setForm] = useState<EmployeeFormData>(EMPTY_FORM);
+  const [emailConfirm, setEmailConfirm] = useState('');
   const [sonstigeAktiv, setSonstigeAktiv] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -202,6 +207,14 @@ export default function MitarbeiterModal({
     if (!form.display_name.trim()) {
       setError('Anzeigename ist erforderlich.');
       return;
+    }
+
+    // v1.0.2: Bei Neuanlage E-Mail-Bestaetigung pruefen (Tippfehler-Schutz)
+    if (mode === 'new' && form.email.trim()) {
+      if (form.email.trim().toLowerCase() !== emailConfirm.trim().toLowerCase()) {
+        setError('Die E-Mail-Adressen stimmen nicht ueberein. Bitte pruefen.');
+        return;
+      }
     }
 
     const weeklyHours = parseFloat(form.weekly_hours.replace(',', '.'));
@@ -418,6 +431,29 @@ export default function MitarbeiterModal({
                   placeholder="z.B. max.mueller@firma.de" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400" />
                 <p className="text-xs text-gray-400 mt-1">Erforderlich fuer Portal-Login.</p>
               </div>
+
+              {/* E-Mail bestaetigen (nur Neuanlage, Tippfehler-Schutz) - v1.0.2 */}
+              {mode === 'new' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">E-Mail bestaetigen</label>
+                  <input
+                    type="email"
+                    value={emailConfirm}
+                    onChange={(e) => setEmailConfirm(e.target.value)}
+                    onPaste={(e) => e.preventDefault()}
+                    placeholder="E-Mail zur Sicherheit erneut eingeben"
+                    className={[
+                      'w-full border rounded-lg px-3 py-2 text-sm focus:ring-2',
+                      emailConfirm.trim() && form.email.trim().toLowerCase() !== emailConfirm.trim().toLowerCase()
+                        ? 'border-red-400 focus:ring-red-200 focus:border-red-400'
+                        : 'border-gray-300 focus:ring-blue-200 focus:border-blue-400',
+                    ].join(' ')}
+                  />
+                  {emailConfirm.trim() && form.email.trim().toLowerCase() !== emailConfirm.trim().toLowerCase() && (
+                    <p className="text-xs text-red-600 mt-1">E-Mail-Adressen stimmen nicht ueberein.</p>
+                  )}
+                </div>
+              )}
 
               {/* Portal-Rolle */}
               <div>
@@ -658,7 +694,11 @@ export default function MitarbeiterModal({
           {(mode === 'new' || mode === 'edit') && (
             <button
               onClick={handleSave}
-              disabled={loading}
+              disabled={
+                loading ||
+                (mode === 'new' && !!form.email.trim() &&
+                  form.email.trim().toLowerCase() !== emailConfirm.trim().toLowerCase())
+              }
               className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 transition-colors"
               style={{ backgroundColor: '#002451' }}
             >

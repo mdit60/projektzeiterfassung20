@@ -2,9 +2,15 @@
 // ============================================================================
 // PZE V7 - Shared Employee Management Component
 // ============================================================================
-// Version: 7.3.95-16
-// v7.3.95-16: firmaName Prop - Modal-Header zeigt "Neuer Mitarbeiter fuer [Firma]"
-//             openNew Prop - Modal direkt oeffnen wenn vom Cockpit aufgerufen
+// Version: 7.3.95-18
+// v7.3.95-18: E-Mail-Bestaetigungsfeld bei Neuanlage (Schutz gegen Tippfehler).
+//   Zweites Feld "E-Mail bestaetigen" nur bei modalMode='create'. Live-Hinweis
+//   bei Abweichung (kleingeschrieben+getrimmt), "Anlegen" gesperrt bis identisch,
+//   harte Pruefung in handleSave.
+// v7.3.95-17: modalOnly + onClose Props
+//   - modalOnly=true: rendert NUR das Modal, keine Liste/Header
+//   - onClose(): wird bei Abbrechen UND nach erfolgreichem Anlegen aufgerufen
+//   - Fuer Inline-Verwendung in FirmaCockpit (App-Struktur)
 // v7.3.95-15: Teilzeit-Erfassung: days_per_week + hours_per_day. weekly_hours berechnet.
 // v7.3.95-14: Verwaiste Login-User (ohne v7_employees) in Mitarbeiterliste anzeigen
 // v7.3.95-13: Tailwind-v4-Syntax-Modernisierung (2 Stellen). Keine
@@ -170,6 +176,8 @@ interface EmployeeManagementProps {
   title?: string;
   openNew?: boolean; // Wenn true: Neuer-Mitarbeiter-Modal direkt oeffnen
   firmaName?: string; // Firmenname fuer Modal-Header
+  modalOnly?: boolean; // Wenn true: NUR Modal rendern, keine Liste/Header
+  onClose?: () => void; // Callback bei Modal-Schliessung (Abbrechen oder nach Anlegen)
 }
 
 // Cache fuer registrierte E-Mails
@@ -248,6 +256,8 @@ export default function EmployeeManagement({
   title = 'Mitarbeiter',
   openNew = false,
   firmaName = '',
+  modalOnly = false,
+  onClose,
 }: EmployeeManagementProps) {
   const supabase = createClient();
   const colors = PORTAL_COLORS[portal];
@@ -267,6 +277,7 @@ export default function EmployeeManagement({
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [formData, setFormData] = useState<EmployeeFormData>(EMPTY_FORM);
+  const [emailConfirm, setEmailConfirm] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   // v7.3.95-9: Merkt sich ob User im Position-Dropdown "Sonstige" gewaehlt hat.
   // Brauchen wir, weil position_title dann '' wird und sonst nicht zu
@@ -734,6 +745,7 @@ export default function EmployeeManagement({
     setModalMode('create');
     setEditingEmployee(null);
     setFormData(EMPTY_FORM);
+    setEmailConfirm('');
     setFormError(null);
     setSonstigeAktiv(false);  // v7.3.95-8
     // v7.3.95-9: Phase 2 - History-State zuruecksetzen
@@ -757,6 +769,7 @@ export default function EmployeeManagement({
       employment_end: emp.employment_end || '',
       portal_role: emp.portal_role || 'employee',
     });
+    setEmailConfirm('');
     // v7.3.95-8: sonstigeAktiv true, wenn position_title nicht in Standardrollen
     // ist (d.h. Freitext-Altbestand wie "Entwickler", "GF" usw.).
     const pt = emp.position_title || '';
@@ -777,11 +790,14 @@ export default function EmployeeManagement({
     setShowModal(false);
     setEditingEmployee(null);
     setFormData(EMPTY_FORM);
+    setEmailConfirm('');
     setFormError(null);
     setSonstigeAktiv(false);  // v7.3.95-8
     // v7.3.95-9: Phase 2 - History-State zuruecksetzen
     setHoursHistory([]);
     setHistoryExpanded(false);
+    // v7.3.95-17: onClose Callback (fuer modalOnly / Inline-Cockpit)
+    if (onClose) onClose();
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -816,6 +832,14 @@ export default function EmployeeManagement({
 
   const handleSave = async () => {
     if (!validateForm()) return;
+
+    // v7.3.95-18: Bei Neuanlage E-Mail-Bestaetigung pruefen (Tippfehler-Schutz)
+    if (modalMode === 'create' && formData.email.trim()) {
+      if (formData.email.trim().toLowerCase() !== emailConfirm.trim().toLowerCase()) {
+        setFormError('Die E-Mail-Adressen stimmen nicht ueberein. Bitte pruefen.');
+        return;
+      }
+    }
 
     setSaving(true);
     setFormError(null);
@@ -1179,9 +1203,13 @@ export default function EmployeeManagement({
   // RENDER - HAUPT
   // ============================================================================
 
+  // modalOnly-Modus: nichts rendern wenn Modal geschlossen
+  if (modalOnly && !showModal) return null;
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
+    <div className={modalOnly ? '' : 'space-y-6'}>
+      {/* Header + Liste: nur wenn NICHT modalOnly */}
+      {!modalOnly && (<>
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
@@ -1397,6 +1425,7 @@ export default function EmployeeManagement({
       <div className="text-sm text-gray-500">
         {filteredEmployees.length} {filteredEmployees.length === 1 ? 'Mitarbeiter' : 'Mitarbeiter'}
       </div>
+      </>)}
 
       {/* ================================================================ */}
       {/* MODAL: Mitarbeiter erstellen/bearbeiten */}
@@ -1479,6 +1508,28 @@ export default function EmployeeManagement({
                   Erforderlich fuer Portal-Login.
                 </p>
               </div>
+
+              {/* E-Mail bestaetigen (nur Neuanlage, Tippfehler-Schutz) - v7.3.95-18 */}
+              {modalMode === 'create' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">E-Mail bestaetigen</label>
+                  <input
+                    type="email"
+                    value={emailConfirm}
+                    onChange={(e) => setEmailConfirm(e.target.value)}
+                    onPaste={(e) => e.preventDefault()}
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 ${
+                      emailConfirm.trim() && formData.email.trim().toLowerCase() !== emailConfirm.trim().toLowerCase()
+                        ? 'border-red-400 focus:ring-red-200'
+                        : `border-gray-300 ${colors.focus}`
+                    }`}
+                    placeholder="E-Mail zur Sicherheit erneut eingeben"
+                  />
+                  {emailConfirm.trim() && formData.email.trim().toLowerCase() !== emailConfirm.trim().toLowerCase() && (
+                    <p className="text-xs text-red-600 mt-1">E-Mail-Adressen stimmen nicht ueberein.</p>
+                  )}
+                </div>
+              )}
 
               {/* Portal-Rolle */}
               <div>
@@ -1772,7 +1823,11 @@ export default function EmployeeManagement({
               </button>
               <button
                 onClick={handleSave}
-                disabled={saving}
+                disabled={
+                  saving ||
+                  (modalMode === 'create' && !!formData.email.trim() &&
+                    formData.email.trim().toLowerCase() !== emailConfirm.trim().toLowerCase())
+                }
                 className={`px-4 py-2 text-white rounded-lg disabled:opacity-50 flex items-center gap-2 ${colors.button}`}
               >
                 {saving && <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>}
