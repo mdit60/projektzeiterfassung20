@@ -3,7 +3,13 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-31
+// Version: 7.4.9-32
+// v7.4.9-32: A-023 (Schritt 1) - Nav-Entkopplung Cockpit-Mode vom Portal-Mode.
+//   - Im App-Modus (Berater) wird AppNav statt PortalNav gerendert.
+//   - Bedingung: portal==='berater' && isAppMode ? AppNav : PortalNav.
+//   - Entfernt den redundanten "Unternehmen"-Reiter im App-FirmaCockpit;
+//     Firmenwechsel laeuft ausschliesslich ueber den Dropdown links oben.
+//   - Firmen-Portal (gruen) und Classic-Modus bleiben unveraendert auf PortalNav.
 // v7.4.9-31: A-020 - Firmen-Deaktivierung im App-Paradigma.
 //   - Trash2-Icon in Firmendaten-Karte (nur Berater-Portal, alle Berater).
 //   - Bestaetigungs-Dialog (Wording analog klassische foerderung-Seite).
@@ -110,6 +116,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import PortalNav from '@/components/shared/PortalNav';
+import AppNav from '@/components/shared/AppNav';
 import PortalFooter from '@/components/shared/PortalFooter';
 import MitarbeiterModal from '@/components/shared/MitarbeiterModal';
 import {
@@ -851,7 +858,9 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
   if (portal === 'berater' && !firmaIdLocal) {
     return (
       <>
-      <PortalNav portal={portal} userRole={userRole} />
+      {portal === 'berater' && isAppMode
+        ? <AppNav userRole={userRole} />
+        : <PortalNav portal={portal} userRole={userRole} />}
       <div className="max-w-7xl mx-auto p-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
@@ -937,8 +946,10 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
         #cockpit-projekte .text-sm,
         #cockpit-prognose .text-sm { font-size: 1.125rem !important; line-height: 1.75rem !important; }
       `}</style>
-      {/* PortalNav: Konsistente Navigation direkt unter dem Header */}
-      <PortalNav portal={portal} userRole={userRole} />
+      {/* Nav: App-Modus (Berater) -> AppNav, sonst PortalNav (A-023 Schritt 1) */}
+      {portal === 'berater' && isAppMode
+        ? <AppNav userRole={userRole} />
+        : <PortalNav portal={portal} userRole={userRole} />}
 
       <div className="w-full px-4 sm:px-6 lg:px-8 py-6 pb-12">
 
