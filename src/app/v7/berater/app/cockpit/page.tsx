@@ -2,8 +2,15 @@
 
 // src/app/v7/berater/app/cockpit/page.tsx
 // ============================================================================
-// Version: 1.0.6
+// Version: 1.0.7
 // Berater-App-Cockpit (neue Struktur)
+//   - v1.0.7: A-023 - Firmen-Reaktivierung im Cockpit. Aufklappbarer Bereich
+//             "Inaktive Firmen (N)" unter dem Firma-Dropdown (nur sichtbar wenn
+//             inaktive Firmen existieren). Pro Firma Wiederherstellen-Button
+//             (RotateCcw) + Bestaetigungsdialog. DB-Update analog klassische
+//             Logik: is_active=true, status=active, updated_at. Nach Erfolg
+//             reiner Client-State-Update (Firma wandert zurueck in Dropdown).
+//             Gegenstueck zu A-020 (Deaktivierung im FirmaCockpit).
 //   - v1.0.6: Inerten refreshed-Listener (A-018) ersatzlos entfernt. Der
 //             useEffect setzte bei ?refreshed=true nur loading=true, ohne
 //             Reload und ohne loading je zurueckzusetzen (load() laeuft per
@@ -32,7 +39,7 @@ import AppNav from '@/components/shared/AppNav';
 import {
   Building2, Network, BarChart3, FlaskConical,
   ChevronDown, ChevronRight, Loader2, AlertCircle,
-  CheckCircle, Clock, Plus,
+  CheckCircle, Clock, Plus, RotateCcw,
 } from 'lucide-react';
 
 const PRIMARY = '#002451';
@@ -69,6 +76,12 @@ function BeraterAppCockpitInner() {
   const [stats, setStats]                   = useState<TileStats>({ firmen: 0, projekte: 0, nwmAnzahl: 0, offeneEA: 0 });
   const [firmenDropdownOpen, setFirmenDropdownOpen] = useState(false);
   const [consultantCompanyId, setConsultantCompanyId] = useState('');
+
+  // v1.0.7: A-023 - Firmen-Reaktivierung
+  const [inaktiveFirmen, setInaktiveFirmen] = useState<FirmaItem[]>([]);
+  const [showInaktive, setShowInaktive] = useState(false);
+  const [firmaToReaktivieren, setFirmaToReaktivieren] = useState<FirmaItem | null>(null);
+  const [reaktivieren, setReaktivieren] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -110,6 +123,15 @@ function BeraterAppCockpitInner() {
             .eq('is_active', true)
             .order('name');
           setAlleFirmen(firmen || []);
+
+          // v1.0.7: A-023 - Inaktive Firmen separat laden (fuer Reaktivierung)
+          const { data: inaktive } = await supabase
+            .from('v7_client_companies')
+            .select('id, name')
+            .eq('consultant_company_id', profile.consultant_company_id)
+            .eq('status', 'inactive')
+            .order('name');
+          setInaktiveFirmen(inaktive || []);
 
           const companyIds = (firmen || []).map(f => f.id);
 
@@ -158,6 +180,45 @@ function BeraterAppCockpitInner() {
     }
     load();
   }, []);
+
+  // v1.0.7: A-023 - Firma wiederherstellen. DB-Update analog klassische Logik.
+  // Nach Erfolg: Client-State-Update, Firma wandert zurueck in den Dropdown
+  // (kein Reload). Status wird hart auf 'active' gesetzt (wie klassisch).
+  async function handleReaktivieren() {
+    if (!firmaToReaktivieren) return;
+    setReaktivieren(true);
+    try {
+      const { error: updErr } = await supabase
+        .from('v7_client_companies')
+        .update({
+          is_active: true,
+          status: 'active',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', firmaToReaktivieren.id);
+
+      if (updErr) {
+        console.error('Reaktivierung fehlgeschlagen:', updErr);
+        setReaktivieren(false);
+        return;
+      }
+
+      const wieder = firmaToReaktivieren;
+      // Aus inaktiv-Liste raus
+      setInaktiveFirmen(prev => prev.filter(f => f.id !== wieder.id));
+      // In aktive Liste rein, alphabetisch einsortiert
+      setAlleFirmen(prev =>
+        [...prev, wieder].sort((a, b) => a.name.localeCompare(b.name, 'de'))
+      );
+      // Firmen-Zaehler in den Stats erhoehen
+      setStats(prev => ({ ...prev, firmen: prev.firmen + 1 }));
+      setFirmaToReaktivieren(null);
+    } catch (err) {
+      console.error('Reaktivierung Fehler:', err);
+    } finally {
+      setReaktivieren(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -270,6 +331,46 @@ function BeraterAppCockpitInner() {
               <Plus size={15} />
               Neues Unternehmen anlegen
             </button>
+
+            {/* v1.0.7: A-023 - Inaktive Firmen (nur wenn vorhanden) */}
+            {inaktiveFirmen.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-gray-100">
+                <button
+                  onClick={() => setShowInaktive(!showInaktive)}
+                  className="w-full flex items-center justify-between text-xs text-gray-400 hover:text-gray-600 transition-colors py-1"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <RotateCcw size={12} />
+                    Inaktive Firmen ({inaktiveFirmen.length})
+                  </span>
+                  <ChevronDown
+                    size={14}
+                    className={`transition-transform ${showInaktive ? 'rotate-180' : ''}`}
+                  />
+                </button>
+
+                {showInaktive && (
+                  <div className="mt-2 space-y-1">
+                    {inaktiveFirmen.map(firma => (
+                      <div
+                        key={firma.id}
+                        className="flex items-center justify-between px-3 py-2 rounded-lg bg-gray-50 border border-gray-100"
+                      >
+                        <span className="text-sm text-gray-400">{firma.name}</span>
+                        <button
+                          onClick={() => setFirmaToReaktivieren(firma)}
+                          className="flex items-center gap-1 text-xs font-medium text-green-600 hover:text-green-700 transition-colors"
+                          title="Firma wiederherstellen"
+                        >
+                          <RotateCcw size={13} />
+                          Wiederherstellen
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* KACHEL 2: Netzwerkmanagement */}
@@ -339,6 +440,35 @@ function BeraterAppCockpitInner() {
 
         </div>
       </main>
+
+      {/* v1.0.7: A-023 - Bestaetigungsdialog Firma wiederherstellen */}
+      {firmaToReaktivieren && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Firma wiederherstellen?</h3>
+            <p className="text-gray-600 mb-6">
+              Moechten Sie die Firma <strong>&quot;{firmaToReaktivieren.name}&quot;</strong> wieder
+              aktivieren? Sie erscheint danach wieder in der Firmenauswahl.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setFirmaToReaktivieren(null)}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100"
+                disabled={reaktivieren}
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={handleReaktivieren}
+                disabled={reaktivieren}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400"
+              >
+                {reaktivieren ? 'Wird wiederhergestellt...' : 'Wiederherstellen'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
