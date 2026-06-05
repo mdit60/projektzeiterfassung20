@@ -1,6 +1,6 @@
 # GIT-SICHERUNG - Session 51
 
-**Datum:** 03. Juni 2026
+**Datum:** 03. Juni 2026 (Nachtrag 05. Juni 2026)
 **SW-Release:** V7.4.9
 **Pflichtenheft:** v5.00
 **Branch:** v7-dev -> main (deployed)
@@ -106,19 +106,55 @@ nicht angefasst.**
 - PROD verifiziert: Deaktivieren/Reaktivieren im Cockpit OK, E-Mail-Bestaetigung
   sperrt bei Abweichung.
 
-## Komponentenversionen (Stand Session 51)
+## Nachtrag (05.06.2026) - Navigations-Feinschliff App-Paradigma + Deploy-Infrastruktur
+
+Beim Durchklicken des App-Modus auf PROD fielen nach dem Haupt-Deploy noch drei Punkte auf:
+
+### A-025 - "Unternehmen"-Tab im App-Modus fuehrte auf die alte Firmenliste (NEU, erledigt)
+- **Datei:** `src/components/shared/PortalNav.tsx` -> **v7.4.4-24**
+- Problem: Vom Cockpit auf Netzwerk/Kapazitaetsplanung, dann "Unternehmen" -> landete auf
+  der alten Auswahlseite (`/foerderung/firma/select/cockpit`) statt im App-Cockpit.
+- Loesung: Der "Unternehmen"-Tab wird im App-Modus (`pze_mode='app'`) komplett ausgeblendet.
+  Zugang zur Firmenauswahl ausschliesslich ueber das Home-Icon -> App-Cockpit. Damit ist die
+  App-Nav auf allen Seiten identisch zur Cockpit-Nav (AppNav). Classic-Modus unveraendert.
+
+### A-006 (Teil) - Header-Vereinheitlichung der FZul-Seite (erledigt; Modul-Ausbau bleibt offen)
+- **Datei:** `src/app/v7/berater/fzul/page.tsx` -> **v7.3.1-1**
+- Eigenstaendige Kopfzeile (Ozeanblau #0369a1, "Zurueck"-Button, eigenes Logout, KEINE
+  Navi-Zeile) ersetzt durch Standard-Muster PortalHeader (hideNavigation) + PortalNav.
+- Folge: korrektes Berater-Blau #002451, Navigationszeile vorhanden, Rueckkehr ins Cockpit
+  ueber Home-Icon. `companyName`-Prop bewusst NICHT uebergeben (PortalHeader laedt eigene
+  Firma selbst). Umlaute in allen sichtbaren UI-Texten erhalten (kein ae/oe/ue).
+- Entfernt: COLORS-Konstante + handleLogout (nur von der alten Kopfzeile genutzt).
+- VERBLEIBT OFFEN unter A-006: FZul-Modul-Ausbau (Analyse/Multiprojekt-Zuordnung).
+  "Analyse starten" fuehrt weiterhin ins Leere (404) - Modul in Vorbereitung.
+
+### Deploy-Infrastruktur - ZWEI Remotes (Prozess-Korrektur)
+- PROD haengt NICHT an `origin` (mdit60/projektzeiterfassung20 = Dev-Repo), sondern am Remote
+  `cubintec` (kkcub/pze-cubintec). Ein Push nur auf `origin/main` deployt NICHTS auf
+  pze.itenion.com.
+- Symptom heute: PortalNav-Fix lag auf `origin/main`, Production zeigte nichts. Nach
+  `git push cubintec main` (sauberer Fast-Forward `0e7b862..ac90647`) lief der Deploy.
+- KORRIGIERTES DEPLOY-RITUAL: Beim PROD-Deploy IMMER auf BEIDE Remotes pushen:
+  `git push origin main && git push cubintec main`.
+
+---
+
+## Komponentenversionen (Stand Session 51, inkl. Nachtrag 05.06.)
 | Komponente | Version |
 |---|---|
 | FirmaCockpit | v7.4.9-31 |
 | berater-app-cockpit-page | v1.0.7 |
 | MitarbeiterModal | v1.0.2 |
 | EmployeeManagement | v7.3.95-18 |
+| PortalNav | v7.4.4-24 |
+| berater-fzul-page | v7.3.1-1 |
 
 ## Offene Punkte (Stand Ende Session 51)
 | ID | Thema | Status |
 |---|---|---|
 | A-001 | Berater-Portal Benutzerhandbuch (PDF/Wording) | In Arbeit |
-| A-006 | FZul-Modul ausbauen (inkl. Header-Vereinheitlichung) | Offen |
+| A-006 | FZul-Modul ausbauen (Analyse/Multiprojekt-Zuordnung) | Teil-erledigt: Header-Vereinheitlichung der fzul-Seite umgesetzt (berater-fzul-page v7.3.1-1, 05.06.). Modul-Ausbau offen |
 | A-007 | De-minimis-Beihilfen-Modul | Offen |
 | A-012 | Standalone Stundennachweis-/Projektfortschritt-Seiten | Offen |
 | A-013 | Legacy-Cluster aufraeumen (firmen/[id] + v7/page + import) | Offen (hochgestuft) |
