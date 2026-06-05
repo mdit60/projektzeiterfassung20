@@ -1,19 +1,25 @@
 // src/app/v7/berater/fzul/page.tsx
-// VERSION: v7.3.1 (SW-Release V7.3)
-// DATUM: 07. Januar 2026
-// ÄNDERUNG: Header-Vereinheitlichung Ozeanblau
+// VERSION: v7.3.1-1 (SW-Release V7.4.9)
+// ============================================
+// v7.3.1-1: A-006 Header-Vereinheitlichung. Die eigenstaendige Kopfzeile
+//           (Ozeanblau #0369a1, "Zurueck"-Button, eigenes Logout) wurde durch
+//           das Standard-Muster ersetzt: PortalHeader (hideNavigation) + PortalNav,
+//           wie auf Dashboard/Netzwerk/Kapazitaetsplanung. Damit erscheint die
+//           Navigationszeile und die Rueckkehr ins Cockpit ist ueber das
+//           Home-Icon moeglich. Inhalt (Firmenauswahl, Suche, Grid) unveraendert.
+//           Analyse-Routing bleibt vorerst offen (Modul in Vorbereitung).
+//           Entfernt: COLORS-Konstante und handleLogout (nur von der alten
+//           Kopfzeile genutzt).
+// v7.3.1:   Header-Vereinheitlichung Ozeanblau (07. Januar 2026)
+// ============================================
 
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-
-// FARBEN
-const COLORS = {
-  beraterPortal: '#0369a1', // Ozeanblau
-  firmenPortal: '#65A655', // Cubintec-Grün
-};
+import PortalHeader from '@/components/shared/PortalHeader'
+import PortalNav from '@/components/shared/PortalNav'
 
 // ============================================
 // TYPEN
@@ -125,15 +131,6 @@ export default function FzulBeratungPage() {
   }, [loadData])
 
   // ============================================
-  // LOGOUT
-  // ============================================
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut()
-    router.push('/login')
-  }
-
-  // ============================================
   // GEFILTERTE FIRMEN
   // ============================================
 
@@ -149,10 +146,13 @@ export default function FzulBeratungPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Firmen werden geladen...</p>
+      <div className="min-h-screen bg-gray-50">
+        <PortalHeader portal="berater" userName="" userRole="consultant" companyName="" hideNavigation />
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+            <p className="mt-4 text-gray-600">Firmen werden geladen...</p>
+          </div>
         </div>
       </div>
     )
@@ -164,47 +164,9 @@ export default function FzulBeratungPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header - Einheitlich Ozeanblau */}
-      <header style={{ backgroundColor: COLORS.beraterPortal }} className="shadow-sm">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-4">
-            {/* Links: Zurück + PZE + Titel */}
-            <div className="flex items-center gap-4">
-              <button
-                onClick={() => router.push('/v7/berater')}
-                className="text-blue-200 hover:text-white flex items-center gap-1"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-                Zurück
-              </button>
-              <div className="bg-white rounded-lg px-3 py-1.5 text-sm font-bold" style={{ color: COLORS.beraterPortal }}>
-                PZE
-              </div>
-              <div>
-                <h1 className="text-lg font-semibold text-white">Berater-Portal</h1>
-                <p className="text-sm text-blue-200">FZul-Beratung · Forschungszulage §35a EStG</p>
-              </div>
-            </div>
-
-            {/* Rechts: Benutzer + Abmelden */}
-            <div className="flex items-center gap-4">
-              <span className="text-white text-sm">{profile?.display_name}</span>
-              <button
-                onClick={handleLogout}
-                className="text-blue-200 hover:text-white flex items-center gap-1"
-                title="Abmelden"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                </svg>
-                Abmelden
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
+      {/* Einheitlicher Header + Navigationszeile (A-006) */}
+      <PortalHeader portal="berater" userName="" userRole="consultant" companyName="" hideNavigation />
+      <PortalNav portal="berater" userRole={profile?.role || 'consultant'} />
 
       {/* Main Content */}
       <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
