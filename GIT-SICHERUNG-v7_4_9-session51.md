@@ -119,7 +119,14 @@ Beim Durchklicken des App-Modus auf PROD fielen nach dem Haupt-Deploy noch drei 
   App-Nav auf allen Seiten identisch zur Cockpit-Nav (AppNav). Classic-Modus unveraendert.
 
 ### A-006 (Teil) - Header-Vereinheitlichung der FZul-Seite (erledigt; Modul-Ausbau bleibt offen)
-- **Datei:** `src/app/v7/berater/fzul/page.tsx` -> **v7.3.1-1**
+- **Datei:** `src/app/v7/berater/fzul/page.tsx` -> **v7.4.9-2**
+- VERSIONSNUMMER-KORREKTUR (05.06., beim PV-Aufraeumen entdeckt): Zunaechst als v7.3.1-1 auf
+  Basis der live-v7.3.1 erstellt. In downloads/ lag aber bereits eine VERWORFENE v7.4.9-1
+  (halbfertiger Header-Umbau aus Session 49, per git restore verworfen - A-017): ASCII-mangled
+  Bundeslaender/UI-Texte, redundante v7_consultant_companies-Query/companyName-Prop, fehlendes
+  hideNavigation (-> doppelte Nav), totes handleLogout. Da v7.4.9-1 die hoechste vorhandene
+  Nummer war, neu herausgegeben als v7.4.9-2 (Code unveraendert gegenueber v7.3.1-1). Die
+  verworfene v7.4.9-1 und die Zwischen-v7.3.1-1 wandern aus downloads/ nach archiv/.
 - Eigenstaendige Kopfzeile (Ozeanblau #0369a1, "Zurueck"-Button, eigenes Logout, KEINE
   Navi-Zeile) ersetzt durch Standard-Muster PortalHeader (hideNavigation) + PortalNav.
 - Folge: korrektes Berater-Blau #002451, Navigationszeile vorhanden, Rueckkehr ins Cockpit
@@ -148,13 +155,13 @@ Beim Durchklicken des App-Modus auf PROD fielen nach dem Haupt-Deploy noch drei 
 | MitarbeiterModal | v1.0.2 |
 | EmployeeManagement | v7.3.95-18 |
 | PortalNav | v7.4.4-24 |
-| berater-fzul-page | v7.3.1-1 |
+| berater-fzul-page | v7.4.9-2 |
 
 ## Offene Punkte (Stand Ende Session 51)
 | ID | Thema | Status |
 |---|---|---|
 | A-001 | Berater-Portal Benutzerhandbuch (PDF/Wording) | In Arbeit |
-| A-006 | FZul-Modul ausbauen (Analyse/Multiprojekt-Zuordnung) | Teil-erledigt: Header-Vereinheitlichung der fzul-Seite umgesetzt (berater-fzul-page v7.3.1-1, 05.06.). Modul-Ausbau offen |
+| A-006 | FZul-Modul ausbauen (Analyse/Multiprojekt-Zuordnung) | Teil-erledigt: Header-Vereinheitlichung der fzul-Seite umgesetzt (berater-fzul-page v7.4.9-2, 05.06.). Modul-Ausbau offen |
 | A-007 | De-minimis-Beihilfen-Modul | Offen |
 | A-012 | Standalone Stundennachweis-/Projektfortschritt-Seiten | Offen |
 | A-013 | Legacy-Cluster aufraeumen (firmen/[id] + v7/page + import) | Offen (hochgestuft) |

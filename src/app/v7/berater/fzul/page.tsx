@@ -1,16 +1,23 @@
 // src/app/v7/berater/fzul/page.tsx
-// VERSION: v7.3.1-1 (SW-Release V7.4.9)
+// VERSION: v7.4.9-2 (SW-Release V7.4.9)
 // ============================================
-// v7.3.1-1: A-006 Header-Vereinheitlichung. Die eigenstaendige Kopfzeile
-//           (Ozeanblau #0369a1, "Zurueck"-Button, eigenes Logout) wurde durch
-//           das Standard-Muster ersetzt: PortalHeader (hideNavigation) + PortalNav,
-//           wie auf Dashboard/Netzwerk/Kapazitaetsplanung. Damit erscheint die
-//           Navigationszeile und die Rueckkehr ins Cockpit ist ueber das
-//           Home-Icon moeglich. Inhalt (Firmenauswahl, Suche, Grid) unveraendert.
-//           Analyse-Routing bleibt vorerst offen (Modul in Vorbereitung).
-//           Entfernt: COLORS-Konstante und handleLogout (nur von der alten
-//           Kopfzeile genutzt).
-// v7.3.1:   Header-Vereinheitlichung Ozeanblau (07. Januar 2026)
+// v7.4.9-2: A-006 Header-Vereinheitlichung der FZul-Seite - finale, korrekte Fassung.
+//           Versionsnummer bewusst auf v7.4.9-2 gezogen: in downloads/ lag bereits eine
+//           VERWORFENE v7.4.9-1 (halbfertiger Header-Umbau, in Session 49 per git restore
+//           verworfen - A-017). Diese Datei ersetzt sie endgueltig. Aufbau auf der sauberen
+//           live-Basis v7.3.1.
+//           Eigenstaendige Kopfzeile (Ozeanblau #0369a1, "Zurueck"-Button, eigenes Logout)
+//           ersetzt durch PortalHeader (hideNavigation) + PortalNav. Korrektes Berater-Blau
+//           #002451, Navigationszeile vorhanden, Rueckkehr ins Cockpit ueber Home-Icon.
+//           BEWUSST ANDERS als die verworfene v7.4.9-1:
+//           (a) Umlaute in allen sichtbaren UI-Texten erhalten (keine ae/oe/ue-Regressionen);
+//           (b) KEINE redundante v7_consultant_companies-Query / kein companyName-Prop
+//               (PortalHeader laedt die Beraterfirma selbst);
+//           (c) hideNavigation gesetzt -> keine doppelte Navigationszeile;
+//           (d) totes handleLogout + COLORS-Konstante entfernt.
+//           Inhalt (Firmenauswahl, Suche, Grid) unveraendert. Analyse-Routing offen
+//           (Modul in Vorbereitung).
+// v7.3.1:   Header-Vereinheitlichung Ozeanblau (07. Januar 2026, live-Basis)
 // ============================================
 
 'use client'
