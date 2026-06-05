@@ -4,7 +4,15 @@
 // ============================================================================
 // PZE V7 - Portal-Navigation
 // ============================================================================
-// Version: 7.4.4-23
+// Version: 7.4.4-24
+// v7.4.4-24: App-Modus-Arbeitsfluss-Fix. Der "Unternehmen"-Tab wird im
+//            App-Modus (pze_mode='app') ausgeblendet, statt auf die alte
+//            Firmenliste (/foerderung/firma/select/cockpit) zu routen.
+//            Hintergrund: Diese alte Auswahlseite ist im App-Modus durch das
+//            App-Cockpit (/v7/berater/app/cockpit) abgeloest. Zugang zur
+//            Firmenauswahl jetzt ausschliesslich ueber das Home-Icon -> Cockpit.
+//            Die App-Nav ist damit auf allen Unterseiten identisch zur
+//            Cockpit-Nav (AppNav). Classic-Modus unveraendert.
 // v7.4.4-23: "Kundenfirmen" -> "Unternehmen"
 // v7.4.4-22: Nav konsistent: aktives Item hervorgehoben statt versteckt,
 //            Forschungszulage als Nav-Item ergaenzt,
@@ -361,27 +369,10 @@ export default function PortalNav({
 
             if (portal === 'berater' && pathname) {
               if (item.key === 'foerderung') {
-                // Im App-Modus: Kundenfirmen -> Firmenliste (Cockpit-Auswahl)
-                if (isAppMode) {
-                  const isOnFoerderung = pathname.startsWith('/v7/berater/foerderung');
-                  return (
-                    <button
-                      key={item.key}
-                      onClick={() => router.push('/v7/berater/foerderung/firma/select/cockpit')}
-                      className={[
-                        'flex items-center space-x-1.5 px-4 py-3 text-sm font-medium',
-                        'border-b-2 transition-colors duration-150 whitespace-nowrap',
-                        isOnFoerderung
-                          ? 'border-current'
-                          : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300',
-                      ].join(' ')}
-                      style={isOnFoerderung ? { color: colors.primary, borderColor: colors.primary } : undefined}
-                    >
-                      {item.icon}
-                      <span>{item.label}</span>
-                    </button>
-                  );
-                }
+                // Im App-Modus: Unternehmen-Tab komplett ausgeblendet.
+                // Zugang zur Firmenauswahl ausschliesslich ueber Home-Icon -> App-Cockpit.
+                // Damit ist die App-Nav auf allen Seiten identisch zur Cockpit-Nav (AppNav).
+                if (isAppMode) return null;
                 if (pathname === '/v7/berater/foerderung') return null;
               } else if (!isAppMode) {
                 // Nur im Classic-Modus: aktives Item verstecken
