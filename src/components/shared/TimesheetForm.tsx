@@ -2,8 +2,15 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 1. Juni 2026
-// Version: 7.4.6-22
+// Datum: 8. Juni 2026
+// Version: 7.4.6-23
+// v7.4.6-23: FIX Regression: Abwesenheitscode (U/K/S/F) in AP-Tageszelle
+//   wird automatisch in die zugehoerige Fehlzeit-Zeile (U/K/S) uebernommen
+//   - mit MA-Tagesstunden (employeeDailyHours), F -> Sonstige (S). Die AP-Zelle
+//   wird dabei geleert. Seit v7.4.6-16 lief ein dort getippter Code ins Leere
+//   (calculateAbsenceSums liest nur absenceHoursInput). Direkte Eingabe in den
+//   unteren Fehlzeit-Zeilen bleibt unveraendert moeglich. Eingriff nur in
+//   handleCellChange. (Symptom: 'U' angezeigt, aber unten nicht als Fehlzeit.)
 // v7.4.6-22: A-021: NWM-Tagessperren + Cross-Projekt-Validierung.
 //   NWM-Projekte: Admin/PL kann Tage fuer MA sperren (v7_nwm_blocked_periods).
 //   Gesperrte Zellen: disabled, rosa Hintergrund, Tooltip mit Grund.
@@ -1325,6 +1332,33 @@ export default function TimesheetForm({
   };
 
   const handleCellChange = (rowIndex: number, day: number, value: string) => {
+    // v7.4.6-23: FIX Regression - Abwesenheitscode (U/K/S/F) in einer AP-Tageszelle
+    // wird automatisch in die zugehoerige Fehlzeit-Zeile uebernommen (mit den
+    // MA-Tagesstunden), statt wirkungslos in der AP-Zeile zu verbleiben.
+    // Mapping: U->U, K->K, S->S, F->S (Feiertag/Sonstige, analog Feiertags-Auto-Fill).
+    if (value && isAbsenceCode(value)) {
+      const raw = value.toUpperCase();
+      const code: 'U' | 'K' | 'S' = raw === 'U' ? 'U' : raw === 'K' ? 'K' : 'S';
+      // AP-Zelle leeren - der Code wird NICHT in der AP-Zeile gespeichert
+      setApRows(prev => {
+        const newRows = [...prev];
+        const newEntries = { ...newRows[rowIndex].entries };
+        delete newEntries[day];
+        newRows[rowIndex] = { ...newRows[rowIndex], entries: newEntries };
+        return newRows;
+      });
+      // In die passende Fehlzeit-Zeile mit MA-Tagesstunden eintragen
+      setAbsenceHoursInput(prev => {
+        const next = { ...prev };
+        next[code] = {
+          ...prev[code],
+          [day]: { id: prev[code][day]?.id || '', value: employeeDailyHours.toString() },
+        };
+        return next;
+      });
+      setHasChanges(true);
+      return;
+    }
     setApRows(prev => {
       const newRows = [...prev];
       const newEntries = { ...newRows[rowIndex].entries };
