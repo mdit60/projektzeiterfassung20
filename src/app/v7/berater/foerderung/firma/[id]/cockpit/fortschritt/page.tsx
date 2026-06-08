@@ -2,7 +2,10 @@
 
 // Route: /v7/berater/foerderung/firma/[id]/cockpit/fortschritt
 // Eigenstaendige Seite fuer ProjektFortschrittPanel (ohne BerichtePage)
-// Version: 7.4.9-4
+// Version: 7.4.9-5
+// v7.4.9-5: FIX "Zurueck" fuehrt jetzt deterministisch ins Firma-Cockpit
+//   (App-Modus bzw. klassisch), statt per router.back() im alten Foerder-
+//   Portal zu landen (gleicher Bug wie auf der Stundennachweis-Matrix-Seite).
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
@@ -103,6 +106,17 @@ export default function CockpitFortschrittPage() {
     loadData();
   }, [firmaId, router]);
 
+  function handleBack() {
+    // v7.4.9-5: deterministisch zurueck ins Firma-Cockpit (App- oder klassisch),
+    // nicht per router.back() (landete sonst im alten Foerder-Portal).
+    const appMode = typeof window !== 'undefined' && localStorage.getItem('pze_mode') === 'app';
+    router.push(
+      appMode
+        ? `/v7/berater/app/firma/${firmaId}`
+        : `/v7/berater/foerderung/firma/${firmaId}/cockpit`
+    );
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -124,7 +138,7 @@ export default function CockpitFortschrittPage() {
       />
       <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-4">
         <button
-          onClick={() => router.back()}
+          onClick={handleBack}
           className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors mb-4"
         >
           <ArrowLeft className="w-4 h-4" />
