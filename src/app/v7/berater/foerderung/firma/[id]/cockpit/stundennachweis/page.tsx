@@ -2,7 +2,15 @@
 
 // Route: /v7/berater/foerderung/firma/[id]/cockpit/stundennachweis
 // Eigenstaendige Seite fuer StundennachweisMatrix (ohne BerichtePage)
-// Version: 7.4.9-4
+// Version: 7.4.9-5
+// v7.4.9-5: FIX Cockpit-Navigation:
+//   (1) Zellen-Klick uebergab den Monat als ?monat=YYYY-MM und ?ma= - die
+//       Zeiterfassungs-Seite liest aber ?employee=, ?year=, ?month=. Dadurch
+//       wurden MA und Monat ignoriert und der aktuelle Monat geoeffnet.
+//       Jetzt korrekte Parameter + ?returnUrl= zurueck auf die Matrix.
+//   (2) "Zurueck" fuehrt jetzt deterministisch ins Firma-Cockpit (App-Modus
+//       bzw. klassisch), statt per router.back() im alten Foerder-Portal zu
+//       landen.
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
@@ -145,9 +153,22 @@ export default function CockpitStundennachweisPage() {
   }
 
   function handleNavigateToZE(employeeId: string, year: number, month: number) {
-    const monthStr = String(month).padStart(2, '0');
+    // v7.4.9-5: Parameter an die Zeiterfassungs-Seite anpassen (employee/year/month)
+    // und returnUrl zurueck auf diese Matrix mitgeben, damit "Zurueck" dorthin fuehrt.
+    const returnUrl = encodeURIComponent(window.location.pathname + window.location.search);
     router.push(
-      `/v7/berater/foerderung/firma/${firmaId}/zeiterfassung?projekt=${matrixProjectId}&ma=${employeeId}&monat=${year}-${monthStr}`
+      `/v7/berater/foerderung/firma/${firmaId}/zeiterfassung?employee=${employeeId}&year=${year}&month=${month}&returnUrl=${returnUrl}`
+    );
+  }
+
+  function handleBack() {
+    // v7.4.9-5: deterministisch zurueck ins Firma-Cockpit (App- oder klassisch),
+    // nicht per router.back() (landete sonst im alten Foerder-Portal).
+    const appMode = typeof window !== 'undefined' && localStorage.getItem('pze_mode') === 'app';
+    router.push(
+      appMode
+        ? `/v7/berater/app/firma/${firmaId}`
+        : `/v7/berater/foerderung/firma/${firmaId}/cockpit`
     );
   }
 
@@ -172,7 +193,7 @@ export default function CockpitStundennachweisPage() {
       />
       <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-4">
         <button
-          onClick={() => router.back()}
+          onClick={handleBack}
           className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors mb-4"
         >
           <ArrowLeft className="w-4 h-4" />
