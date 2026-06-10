@@ -2,8 +2,23 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 8. Juni 2026
-// Version: 7.4.6-23
+// Datum: 10. Juni 2026
+// Version: 7.4.6-25
+// v7.4.6-25: Kontrast verstaerkt. Alle in -24 auf gray-700 gesetzten Stellen
+//   (Feld-Labels, Hinweis, beide Fussnoten, Unterschriftszeilen, Steuerungs-
+//   Labels "Mitarbeiter:"/"Projekt:") jetzt einheitlich gray-900, damit auch
+//   der Fussnoten-Bereich kraeftig dunkel ist. Gesamtes Dokument durchgaengig
+//   nahezu schwarz. Rein farblich; Schriftgroessen unveraendert. Modal-/
+//   Footer-/Icon-Graustufen weiterhin unangetastet.
+// v7.4.6-24: Kontrast-Optimierung (Anzeige + Druck). Dokument-Container
+//   bekommt explizites text-gray-900, damit alle bisher farblosen Inhalte
+//   (Werte, Tagesspalten, AP-Namen, Abschnittsueberschriften, Eingabe-/
+//   Auswahlfelder) kraeftig dunkel dargestellt werden. Helle Beschriftungen
+//   (Feld-Labels, rechtliche Hinweise/Fussnoten, Unterschriftszeilen, die
+//   Steuerungs-Labels "Mitarbeiter:"/"Projekt:") von gray-500/600 auf gray-700.
+//   Rein farblicher Eingriff: kein Layout, keine Struktur, kein Print-CSS
+//   geaendert. Farbige Zellen, Platzhalter-Striche und Dialog-Fenster
+//   bewusst unveraendert.
 // v7.4.6-23: FIX Regression: Abwesenheitscode (U/K/S/F) in AP-Tageszelle
 //   wird automatisch in die zugehoerige Fehlzeit-Zeile (U/K/S) uebernommen
 //   - mit MA-Tagesstunden (employeeDailyHours), F -> Sonstige (S). Die AP-Zelle
@@ -2398,7 +2413,7 @@ export default function TimesheetForm({
           <div className="flex flex-wrap items-center gap-4">
             {/* Mitarbeiter */}
             <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-gray-600">Mitarbeiter:</label>
+              <label className="text-sm font-medium text-gray-900">Mitarbeiter:</label>
               <select
                 value={selectedEmployeeId}
                 onChange={(e) => {
@@ -2416,7 +2431,7 @@ export default function TimesheetForm({
 
             {/* Projekt */}
             <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-gray-600">Projekt:</label>
+              <label className="text-sm font-medium text-gray-900">Projekt:</label>
               <select
                 value={selectedProjectId}
                 onChange={(e) => {
@@ -2530,39 +2545,39 @@ export default function TimesheetForm({
 
       {/* STUNDENNACHWEIS-FORMULAR */}
       <div ref={printRef} className="max-w-full mx-auto p-4 print:p-0 print:m-0">
-        <div className="bg-white shadow-lg print:shadow-none overflow-x-auto">
+        <div className="bg-white shadow-lg print:shadow-none overflow-x-auto text-gray-900">
           {/* Header-Bereich */}
           <table className="w-full border-collapse text-xs" style={{ minWidth: '1000px', tableLayout: 'fixed' }}>
             <tbody>
               <tr>
                 <td className="border p-2 print:p-1.5" style={{ width: '50%' }}>
-                  <div className="text-[10px] print:text-[8px] text-gray-500">Zuwendungsempfaenger (Firmenstempel)</div>
+                  <div className="text-[10px] print:text-[8px] text-gray-900">Zuwendungsempfaenger (Firmenstempel)</div>
                   <div className="font-bold text-lg print:text-base text-center py-2">{company?.name}</div>
                 </td>
                 <td className="border p-2 print:p-1.5 text-center" style={{ width: '50%', backgroundColor: HEADER_ORANGE }}>
                   <div className="font-bold text-xl print:text-lg">Stundennachweis</div>
-                  <div className="text-[10px] print:text-[8px] text-gray-600 mt-1">
+                  <div className="text-[10px] print:text-[8px] text-gray-900 mt-1">
                     Der Stundennachweis verbleibt beim Zuwendungsempfaenger und ist nur nach Aufforderung vorzulegen.
                   </div>
                 </td>
               </tr>
               <tr>
                 <td className="border p-2 print:p-1">
-                  <div className="text-[10px] print:text-[8px] text-gray-500">Vorhabenthema</div>
+                  <div className="text-[10px] print:text-[8px] text-gray-900">Vorhabenthema</div>
                   <div className="font-semibold text-base print:text-sm text-center py-1">{selectedProject?.name || '-'}</div>
                 </td>
                 <td className="border p-2 print:p-1" style={{ backgroundColor: HEADER_ORANGE }}>
-                  <div className="text-[10px] print:text-[8px] text-gray-500">Foerderkennzeichen</div>
+                  <div className="text-[10px] print:text-[8px] text-gray-900">Foerderkennzeichen</div>
                   <div className="font-bold text-lg print:text-base text-center py-1">{selectedProject?.funding_reference || '-'}</div>
                 </td>
               </tr>
               <tr>
                 <td className="border p-2 print:p-1">
-                  <div className="text-[10px] print:text-[8px] text-gray-500">Monat</div>
+                  <div className="text-[10px] print:text-[8px] text-gray-900">Monat</div>
                   <div className="font-semibold text-base print:text-sm text-center py-1">{formatDisplayDate()}</div>
                 </td>
                 <td className="border p-2 print:p-1">
-                  <div className="text-[10px] print:text-[8px] text-gray-500">Mitarbeiter(in): [Name, Vorname]</div>
+                  <div className="text-[10px] print:text-[8px] text-gray-900">Mitarbeiter(in): [Name, Vorname]</div>
                   <div className="font-semibold text-base print:text-sm text-center py-1">
                     {selectedEmployee ? `${selectedEmployee.last_name || ''}, ${selectedEmployee.first_name || ''}`.trim() || selectedEmployee.display_name : '-'}
                   </div>
@@ -2572,7 +2587,7 @@ export default function TimesheetForm({
           </table>
 
           {/* Hinweistext */}
-          <div className="px-2 py-1 print:px-1 print:py-0.5 text-[8px] print:text-[6px] text-gray-600 border-x">
+          <div className="px-2 py-1 print:px-1 print:py-0.5 text-[8px] print:text-[6px] text-gray-900 border-x">
             Die zu Lasten des Vorhabens abzurechnenden Personalstunden sind taeglich eigenhaendig von der betreffenden Person zu erfassen. Nur die produktiven, fuer das Vorhaben geleisteten Stunden sind zuwendungsfaehig.
           </div>
 
@@ -2990,7 +3005,7 @@ export default function TimesheetForm({
           </table>
 
           {/* Hinweistexte */}
-          <div className="px-2 py-1 print:px-1 print:py-0.5 text-[7px] print:text-[5px] text-gray-600 border-x border-b">
+          <div className="px-2 py-1 print:px-1 print:py-0.5 text-[7px] print:text-[5px] text-gray-900 border-x border-b">
             <p>
               <strong>(1)</strong> Die geleisteten Projektbearbeitungsstunden sind fuer den gesamten Bewilligungszeitraum <strong>eigenhaendig und zeitnah</strong>, d. h. mindestens innerhalb einer Woche zu erfassen. Die Angaben sind subventionserheblich im Sinne des Paragraph 264 Strafgesetzbuch.
             </p>
@@ -3002,7 +3017,7 @@ export default function TimesheetForm({
           {/* Unterschriften */}
           <div className="border-x border-b flex">
             <div className="flex-1 p-3 print:p-2 border-r border-gray-400">
-              <div className="text-[9px] print:text-[7px] text-gray-500 mb-8 print:mb-6">Datum / Unterschrift des Mitarbeiters</div>
+              <div className="text-[9px] print:text-[7px] text-gray-900 mb-8 print:mb-6">Datum / Unterschrift des Mitarbeiters</div>
               <input
                 type="text"
                 value={signatureDate}
@@ -3011,7 +3026,7 @@ export default function TimesheetForm({
               />
             </div>
             <div className="flex-1 p-3 print:p-2">
-              <div className="text-[9px] print:text-[7px] text-gray-500 mb-8 print:mb-6">Datum / Unterschrift Geschaeftsfuehrer bzw. FuE-Verantwortlicher</div>
+              <div className="text-[9px] print:text-[7px] text-gray-900 mb-8 print:mb-6">Datum / Unterschrift Geschaeftsfuehrer bzw. FuE-Verantwortlicher</div>
               <input
                 type="text"
                 value={signatureDate}
