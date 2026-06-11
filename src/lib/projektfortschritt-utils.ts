@@ -2,8 +2,16 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Berechnungslogik (Shared Utility)
 // ============================================================================
-// Version: 7.4.9-1
-// Datum: 8. Mai 2026
+// Version: 7.4.9-2
+// Datum: 11. Juni 2026
+// v7.4.9-2: Zwei Korrekturen an der Foerder-Prognose.
+//   1. Foerder-Maximum = min(bewilligte_summe, Plankosten x Foerdersatz). Mehr
+//      als die foerderfaehigen Plankosten ist nie abrufbar, auch wenn die
+//      bewilligte Summe rundungsbedingt hoeher gespeichert ist. Behebt die
+//      Phantom-"Verschenkt"-Betraege (z.B. 6 EUR) bei 100% Planerfuellung.
+//   2. Neue Felder prognoseStundenAbrechenbar (= min(Hochrechnung, Plan)) und
+//      tempoUeberPlan. Die Roh-Hochrechnung bleibt fuer Tempo/Szenarien intern
+//      erhalten; fuer die abrechnungsrelevante Anzeige wird auf den Plan gekappt.
 //
 // Extrahierte Berechnungslogik aus ProjektFortschrittPanel v7.4.5-22.
 // Wird genutzt von:
@@ -131,6 +139,8 @@ export interface ProjectAnalysis {
   erreichungsgrad: number;
   fehlendStunden: number;
   prognostizierteGesamtStunden: number;
+  prognoseStundenAbrechenbar: number;   // v7.4.9-2: auf Plan gekappt (Abrechnung)
+  tempoUeberPlan: boolean;              // v7.4.9-2: Roh-Hochrechnung > Plan
   pFarbe: PrognoseFarbe;
   basisStunden: number;
   letzten3Count: number;
@@ -436,6 +446,12 @@ export function calculateProjectAnalysis(
   const fehlendStunden = Math.max(0, gesamtPlanStunden - prognostizierteGesamtStunden);
   const pFarbe = prognoseFarbe(Math.min(erreichungsgrad, 100));
 
+  // v7.4.9-2: Abrechnungsrelevante Hochrechnung auf den Plan gekappt - mehr als
+  // das Foerderziel kann nicht abgerechnet werden. Die Roh-Hochrechnung bleibt
+  // fuer die Tempo- und Szenarienlogik unveraendert erhalten.
+  const prognoseStundenAbrechenbar = Math.min(prognostizierteGesamtStunden, gesamtPlanStunden);
+  const tempoUeberPlan = prognostizierteGesamtStunden > gesamtPlanStunden;
+
   // ---- Beteiligung & Intensitaet ----
   const aktiveMaIds = new Set<string>();
   projTimesheets.forEach(t => {
@@ -583,7 +599,11 @@ export function calculateProjectAnalysis(
   const foerderbarProg = Math.min(foerderbarRechnerischProg, deckel);
   const foerderbarPlan = Math.min(foerderbarRechnerischPlan, deckel);
 
-  const foerderMaximum = bewilligteSumme ?? foerderbarRechnerischPlan;
+  // v7.4.9-2: Maximal erreichbare Zuwendung = Minimum aus bewilligter Summe und
+  // (Plankosten x Foerdersatz). Mehr als die foerderfaehigen Plankosten kann nie
+  // abgerufen werden, auch wenn die bewilligte Summe rundungsbedingt hoeher
+  // gespeichert ist. Behebt Phantom-"Verschenkt"-Betraege bei 100% Plan.
+  const foerderMaximum = Math.min(bewilligteSumme ?? Infinity, foerderbarRechnerischPlan);
   const verschenktProg = Math.max(0, foerderMaximum - foerderbarProg);
   const verschenktZiel = 0;
 
@@ -712,6 +732,8 @@ export function calculateProjectAnalysis(
     erreichungsgrad,
     fehlendStunden,
     prognostizierteGesamtStunden,
+    prognoseStundenAbrechenbar,
+    tempoUeberPlan,
     pFarbe,
     basisStunden,
     letzten3Count: letzten3.length,
