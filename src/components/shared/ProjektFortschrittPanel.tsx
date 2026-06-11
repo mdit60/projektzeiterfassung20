@@ -2,7 +2,14 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Grafische Auswertung
 // ============================================================================
-// Version: 7.4.5-23
+// Version: 7.4.5-24
+//
+// v7.4.5-24: Prognose-Anzeige korrigiert. "Prognose gesamt" zeigt jetzt die auf
+//   den Plan gekappte Hochrechnung (prognoseStundenAbrechenbar) statt der
+//   ungekappten Roh-Hochrechnung - mehr als das Foerderziel ist nicht
+//   abrechenbar. Bei Tempo ueber Plan ein kurzer Hinweis statt einer Zahl ueber
+//   dem Ziel. "Verschenkt" wird durch die Utility-Korrektur (v7.4.9-2) bei 100%
+//   Plan sauber 0 (keine Phantom-EUR mehr).
 //
 // v7.4.5-23: Refactor - Berechnung auf gemeinsame Utility umgestellt (A-011)
 //   - Inline-Berechnung (useMemo) ersetzt durch calculateProjectAnalysis()
@@ -685,8 +692,13 @@ export default function ProjektFortschrittPanel({
                   <div>
                     <div className="text-xs text-gray-700 mb-0.5">Prognose gesamt</div>
                     <div className={`text-sm font-bold ${analysis.pFarbe.text}`}>
-                      {fmtH(Math.round(analysis.prognostizierteGesamtStunden))}
+                      {fmtH(Math.round(analysis.prognoseStundenAbrechenbar))}
                     </div>
+                    {analysis.tempoUeberPlan && (
+                      <div className="text-[10px] text-green-700 mt-0.5">
+                        Tempo &uuml;ber Plan &mdash; Ziel sicher erreichbar
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-2 mb-1">

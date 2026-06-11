@@ -3,7 +3,12 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-32
+// Version: 7.4.9-33
+// v7.4.9-33: Prognose-Anzeige konsistent zum ProjektFortschrittPanel (v7.4.5-24).
+//   "Prognose gesamt" zeigt die auf den Plan gekappte Hochrechnung
+//   (analysis.prognoseStundenAbrechenbar) statt der ungekappten Roh-Hochrechnung;
+//   bei Tempo ueber Plan kurzer Hinweis "Tempo ueber Plan". Nutzt die neuen
+//   Felder aus projektfortschritt-utils v7.4.9-2. Reine Anzeige, keine Logik.
 // v7.4.9-32: A-023 (Schritt 1) - Nav-Entkopplung Cockpit-Mode vom Portal-Mode.
 //   - Im App-Modus (Berater) wird AppNav statt PortalNav gerendert.
 //   - Bedingung: portal==='berater' && isAppMode ? AppNav : PortalNav.
@@ -1501,8 +1506,11 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                   <div>
                     <div className="text-[10px] text-gray-500 mb-0.5">Prognose gesamt</div>
                     <div className={'text-xs font-bold ' + analysis.pFarbe.text}>
-                      {fmtH(Math.round(analysis.prognostizierteGesamtStunden))}
+                      {fmtH(Math.round(analysis.prognoseStundenAbrechenbar))}
                     </div>
+                    {analysis.tempoUeberPlan && (
+                      <div className="text-[9px] text-green-700 mt-0.5">Tempo &uuml;ber Plan</div>
+                    )}
                   </div>
                 </div>
 
