@@ -2,8 +2,19 @@
 // ============================================================================
 // PZE V7 - Shared Component: Stundennachweis-Matrix
 // ============================================================================
-// Version: 7.4.6-2
-// Datum: 6. Mai 2026
+// Version: 7.4.6-3
+// Datum: 11. Juni 2026
+// v7.4.6-3: NEU Sammeldruck-Modus. Ein Umschalt-Knopf ("Sammeldruck") macht die
+//   Matrix zur Auswahlflaeche: Klick auf eine Monatsspalte waehlt den Monat
+//   fuer alle MA, Klick auf einen MA-Namen die ganze Zeile, Klick auf eine
+//   Zelle einzeln, Eck-Feld = alles/nichts. "Drucken (n)" laedt die Detail-
+//   daten der Auswahl selbst nach (Company, WPs, Employees, Timesheets), baut
+//   daraus mit StundennachweisSheet + buildStundennachweisSheetData die
+//   Blaetter und ruft window.print auf. Nur die Blaetter landen auf Papier
+//   (CSS-Trick: alles ausser #snw-print-root im Druck ausgeblendet) -- die
+//   einbindenden Seiten (Cockpit, BerichtePage) bleiben unveraendert.
+//   Ausserhalb des Modus verhaelt sich die Matrix exakt wie bisher
+//   (Zellklick -> Zeiterfassung).
 // v7.4.6-2: matrixEmployees-Quelle geaendert: war wpAssignments (Arbeitsplan),
 //   jetzt projectAssignments (Projektteam). Damit erscheinen ALLE MA im
 //   Projektteam in der Matrix, unabhaengig ob sie im Arbeitsplan stehen.
@@ -55,13 +66,19 @@
 
 'use client';
 
-import React, { useMemo } from 'react';
-import { Grid3x3, CheckCircle, AlertTriangle, XCircle } from 'lucide-react';
+import React, { useMemo, useState, useEffect } from 'react';
+import { Grid3x3, CheckCircle, AlertTriangle, XCircle, Printer, X, CheckSquare, Square } from 'lucide-react';
 import {
   getGermanHolidays,
   countWorkdaysInMonth,
   type HolidayRegion,
 } from '@/lib/holidays/germanHolidays';
+import { createClient } from '@/lib/supabase/client';
+import StundennachweisSheet from '@/components/shared/StundennachweisSheet';
+import {
+  buildStundennachweisSheetData,
+  type StundennachweisSheetData,
+} from '@/lib/stundennachweisSheetData';
 
 // ============================================================================
 // FOERDERFORMAT-LABELS
@@ -326,8 +343,194 @@ export default function StundennachweisMatrix({
     return { project, months, years, employees: matrixEmployees, cells };
   }, [activeProjectId, projects, workPackages, wpAssignments, projectAssignments, employees, timesheets, company, completions]);
 
+  // ==========================================================================
+  // v7.4.6-3: SAMMELDRUCK
+  // ==========================================================================
+  const [druckModus, setDruckModus] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [printSheets, setPrintSheets] = useState<StundennachweisSheetData[] | null>(null);
+  const [printing, setPrinting] = useState(false);
+
+  // Auswahl bei Projektwechsel zuruecksetzen (Keys sind projektbezogen).
+  useEffect(() => { setSelected(new Set()); }, [activeProjectId]);
+
+  // Druckbare (= waehlbare) Zellen: alles ausser Zukunft/ausserhalb.
+  const selectableKeys = useMemo(() => {
+    const s = new Set<string>();
+    if (!matrixData) return s;
+    matrixData.cells.forEach(c => {
+      if (c.status !== 'future' && c.status !== 'outside') {
+        s.add(`${c.employeeId}|${c.year}|${c.month}`);
+      }
+    });
+    return s;
+  }, [matrixData]);
+
+  const isSelected = (employeeId: string, year: number, month: number): boolean =>
+    selected.has(`${employeeId}|${year}|${month}`);
+
+  const toggleGroup = (keys: string[]) => {
+    if (keys.length === 0) return;
+    setSelected(prev => {
+      const next = new Set(prev);
+      const allSel = keys.every(k => next.has(k));
+      if (allSel) keys.forEach(k => next.delete(k));
+      else keys.forEach(k => next.add(k));
+      return next;
+    });
+  };
+
+  const toggleCell = (employeeId: string, year: number, month: number) => {
+    const k = `${employeeId}|${year}|${month}`;
+    if (!selectableKeys.has(k)) return;
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k); else next.add(k);
+      return next;
+    });
+  };
+
+  const columnKeys = (year: number, month: number): string[] =>
+    (matrixData?.employees || [])
+      .map(e => `${e.id}|${year}|${month}`)
+      .filter(k => selectableKeys.has(k));
+
+  const rowKeys = (employeeId: string): string[] =>
+    (matrixData?.months || [])
+      .map(m => `${employeeId}|${m.year}|${m.month}`)
+      .filter(k => selectableKeys.has(k));
+
+  const allSelectableKeys = (): string[] => Array.from(selectableKeys);
+
+  const toggleDruckModus = () => {
+    setDruckModus(prev => {
+      if (prev) setSelected(new Set()); // beim Verlassen Auswahl leeren
+      return !prev;
+    });
+  };
+
+  const handleSammeldruck = async () => {
+    if (selected.size === 0 || !activeProjectId) return;
+    const proj = projects.find(p => p.id === activeProjectId);
+    if (!proj) return;
+    setPrinting(true);
+    try {
+      const supabase = createClient();
+      const cells = Array.from(selected).map(k => {
+        const [employeeId, y, m] = k.split('|');
+        return { employeeId, year: Number(y), month: Number(m) };
+      });
+      const empIds = Array.from(new Set(cells.map(c => c.employeeId)));
+
+      // Zeitspanne der Auswahl bestimmen
+      let minDate = '9999-12-31';
+      let maxDate = '0000-01-01';
+      cells.forEach(c => {
+        const first = `${c.year}-${String(c.month).padStart(2, '0')}-01`;
+        const lastDay = new Date(c.year, c.month, 0).getDate();
+        const last = `${c.year}-${String(c.month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+        if (first < minDate) minDate = first;
+        if (last > maxDate) maxDate = last;
+      });
+
+      const [companyRes, wpRes, empRes, tsRes] = await Promise.all([
+        supabase
+          .from('v7_client_companies')
+          .select('id, name, federal_state, holiday_region, standard_weekly_hours')
+          .eq('id', companyId)
+          .single(),
+        supabase
+          .from('v7_work_packages')
+          .select('id, project_id, ap_number, ap_sub_number, ap_code, name, is_technical, total_person_months')
+          .eq('project_id', activeProjectId)
+          .eq('is_active', true),
+        supabase
+          .from('v7_employees')
+          .select('id, display_name, first_name, last_name')
+          .in('id', empIds),
+        supabase
+          .from('v7_timesheets')
+          .select('id, employee_id, work_package_id, work_date, hours, is_billable, absence_code, is_active')
+          .eq('project_id', activeProjectId)
+          .eq('is_active', true)
+          .in('employee_id', empIds)
+          .gte('work_date', minDate)
+          .lte('work_date', maxDate),
+      ]);
+
+      const comp = companyRes.data as { name?: string; federal_state?: string | null; holiday_region?: string | null; standard_weekly_hours?: number | null } | null;
+      const wps = (wpRes.data || []) as Array<{ id: string; ap_code: string | null; ap_number: number | null; ap_sub_number: number | null; name: string | null; is_technical: boolean | string | number | null; total_person_months: number | null }>;
+      const emps = (empRes.data || []) as Array<{ id: string; display_name: string; first_name: string | null; last_name: string | null }>;
+      const tsAll = (tsRes.data || []) as Array<{ employee_id: string; work_package_id: string | null; work_date: string; hours: number | null; is_billable: boolean | null; absence_code: string | null }>;
+
+      // Feiertage je benoetigtem Jahr einmal berechnen
+      const region = (comp?.holiday_region ?? undefined) as HolidayRegion;
+      const holidaysByYear: Record<number, Map<string, string>> = {};
+      Array.from(new Set(cells.map(c => c.year))).forEach(y => {
+        holidaysByYear[y] = getGermanHolidays(y, comp?.federal_state ?? null, region);
+      });
+
+      // Reihenfolge: nach MA-Reihenfolge der Matrix, dann Jahr/Monat
+      const empOrder = new Map<string, number>();
+      (matrixData?.employees || []).forEach((e, idx) => empOrder.set(e.id, idx));
+      cells.sort((a, b) => {
+        const ea = empOrder.get(a.employeeId) ?? 9999;
+        const eb = empOrder.get(b.employeeId) ?? 9999;
+        if (ea !== eb) return ea - eb;
+        if (a.year !== b.year) return a.year - b.year;
+        return a.month - b.month;
+      });
+
+      const sheets: StundennachweisSheetData[] = cells.map(c => {
+        const emp = emps.find(e => e.id === c.employeeId);
+        const rows = tsAll.filter(t => {
+          if (t.employee_id !== c.employeeId) return false;
+          const parts = t.work_date.split('-').map(Number);
+          return parts[0] === c.year && parts[1] === c.month;
+        });
+        return buildStundennachweisSheetData({
+          rows,
+          project: { name: proj.name, funding_reference: proj.funding_reference, funding_format: proj.funding_format },
+          workPackages: wps,
+          company: { name: comp?.name ?? '', standard_weekly_hours: comp?.standard_weekly_hours ?? null },
+          employee: emp
+            ? { display_name: emp.display_name, first_name: emp.first_name, last_name: emp.last_name }
+            : { display_name: '-', first_name: null, last_name: null },
+          year: c.year,
+          month: c.month,
+          holidays: holidaysByYear[c.year],
+        });
+      });
+
+      setPrintSheets(sheets);
+    } catch (err) {
+      console.error('[StundennachweisMatrix] Sammeldruck-Fehler:', err);
+      alert('Beim Laden der Druckdaten ist ein Fehler aufgetreten.');
+    } finally {
+      setPrinting(false);
+    }
+  };
+
+  // Wenn die Blaetter im DOM sind: Druckdialog oeffnen.
+  useEffect(() => {
+    if (printSheets && printSheets.length > 0) {
+      const id = window.setTimeout(() => window.print(), 120);
+      return () => window.clearTimeout(id);
+    }
+  }, [printSheets]);
+
+  // Nach dem Drucken Blaetter wieder aus dem DOM nehmen.
+  useEffect(() => {
+    const after = () => setPrintSheets(null);
+    window.addEventListener('afterprint', after);
+    return () => window.removeEventListener('afterprint', after);
+  }, []);
+
+  const selectedCount = selected.size;
+
   return (
-    <div className="mt-6 border border-gray-200 rounded-lg overflow-hidden">
+    <>
+    <div className="mt-6 border border-gray-200 rounded-lg overflow-hidden print:hidden">
 
       {/* Header */}
       <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex items-center justify-between">
@@ -391,6 +594,53 @@ export default function StundennachweisMatrix({
         </div>
       </div>
 
+      {/* v7.4.6-3: Sammeldruck-Bedienleiste */}
+      <div className="bg-white px-4 py-2 border-b border-gray-200 flex items-center justify-between gap-3 flex-wrap print:hidden">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={toggleDruckModus}
+            className={`flex items-center gap-2 text-sm px-3 py-1.5 rounded border transition-colors ${
+              druckModus
+                ? 'text-white border-transparent'
+                : `bg-white ${accentColor} border-gray-300 hover:bg-gray-50`
+            }`}
+            style={druckModus ? { backgroundColor: portal === 'berater' ? '#002451' : '#65A655' } : undefined}
+          >
+            <Printer className="w-4 h-4" /> Sammeldruck
+          </button>
+          {druckModus && (
+            <span className="text-xs text-gray-500">
+              Monatsspalte, MA-Name oder Zelle anklicken zum Aus-/Abwaehlen.
+            </span>
+          )}
+        </div>
+        {druckModus && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => toggleGroup(allSelectableKeys())}
+              className="text-xs px-2 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50"
+            >
+              Alle / keine
+            </button>
+            <button
+              onClick={handleSammeldruck}
+              disabled={selectedCount === 0 || printing}
+              className="flex items-center gap-2 text-sm px-3 py-1.5 rounded text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ backgroundColor: portal === 'berater' ? '#002451' : '#65A655' }}
+            >
+              <Printer className="w-4 h-4" />
+              {printing ? 'Lade...' : `Drucken (${selectedCount})`}
+            </button>
+            <button
+              onClick={toggleDruckModus}
+              className="flex items-center gap-1 text-xs px-2 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50"
+            >
+              <X className="w-3.5 h-3.5" /> Abbrechen
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Tabelle */}
       {!matrixData ? (
         <div className="p-8 text-center text-gray-500">
@@ -401,8 +651,19 @@ export default function StundennachweisMatrix({
           <table className="min-w-full text-xs">
             <thead>
               <tr className="bg-gray-100 border-b border-gray-200">
-                <th className="px-3 py-2 text-left font-semibold text-gray-600 w-40 sticky left-0 bg-gray-100 z-10">
-                  Mitarbeiter
+                <th
+                  className={`px-3 py-2 text-left font-semibold text-gray-600 w-40 sticky left-0 bg-gray-100 z-10 ${druckModus ? 'cursor-pointer select-none' : ''}`}
+                  onClick={druckModus ? () => toggleGroup(allSelectableKeys()) : undefined}
+                  title={druckModus ? 'Alle aus-/abwaehlen' : undefined}
+                >
+                  {druckModus ? (
+                    <span className="flex items-center gap-1">
+                      {selectableKeys.size > 0 && allSelectableKeys().every(k => selected.has(k))
+                        ? <CheckSquare className="w-4 h-4" />
+                        : <Square className="w-4 h-4 text-gray-400" />}
+                      Mitarbeiter
+                    </span>
+                  ) : 'Mitarbeiter'}
                 </th>
                 {matrixData.years.map(year => {
                   const monthsInYear = matrixData.months.filter(m => m.year === year);
@@ -419,9 +680,20 @@ export default function StundennachweisMatrix({
                 {matrixData.months.map(({ year, month, label }) => {
                   const now = new Date();
                   const isCurrent = year === now.getFullYear() && month === now.getMonth() + 1;
+                  const cKeys = druckModus ? columnKeys(year, month) : [];
+                  const colSel = cKeys.length > 0 && cKeys.every(k => selected.has(k));
                   return (
                     <th key={`${year}-${month}`}
-                      className={`px-1 py-2 text-center font-medium w-10 border-l border-gray-200 ${isCurrent ? 'text-blue-700 bg-blue-50' : 'text-gray-500'}`}>
+                      onClick={druckModus && cKeys.length > 0 ? () => toggleGroup(cKeys) : undefined}
+                      title={druckModus ? 'Monat fuer alle MA aus-/abwaehlen' : undefined}
+                      className={`px-1 py-2 text-center font-medium w-10 border-l border-gray-200 ${isCurrent ? 'text-blue-700 bg-blue-50' : 'text-gray-500'} ${druckModus && cKeys.length > 0 ? 'cursor-pointer select-none' : ''} ${colSel ? 'bg-blue-100 text-blue-800' : ''}`}>
+                      {druckModus && (
+                        <span className="flex justify-center mb-0.5">
+                          {colSel
+                            ? <CheckSquare className="w-3 h-3" />
+                            : (cKeys.length > 0 ? <Square className="w-3 h-3 text-gray-400" /> : null)}
+                        </span>
+                      )}
                       {label}
                     </th>
                   );
@@ -431,8 +703,22 @@ export default function StundennachweisMatrix({
             <tbody className="divide-y divide-gray-100">
               {matrixData.employees.map((emp, empIdx) => (
                 <tr key={emp.id} className={empIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                  <td className={`px-3 py-2 font-medium text-gray-800 sticky left-0 z-10 ${empIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
-                    {emp.display_name}
+                  <td
+                    onClick={druckModus ? () => { const rk = rowKeys(emp.id); if (rk.length) toggleGroup(rk); } : undefined}
+                    title={druckModus ? 'Alle Monate dieses MA aus-/abwaehlen' : undefined}
+                    className={`px-3 py-2 font-medium text-gray-800 sticky left-0 z-10 ${empIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} ${druckModus ? 'cursor-pointer select-none' : ''}`}>
+                    {druckModus ? (
+                      <span className="flex items-center gap-1">
+                        {(() => {
+                          const rk = rowKeys(emp.id);
+                          const sel = rk.length > 0 && rk.every(k => selected.has(k));
+                          return sel
+                            ? <CheckSquare className="w-4 h-4" />
+                            : <Square className="w-4 h-4 text-gray-400" />;
+                        })()}
+                        {emp.display_name}
+                      </span>
+                    ) : emp.display_name}
                   </td>
                   {matrixData.months.map(({ year, month }) => {
                     const cell = matrixData.cells.find(
@@ -468,8 +754,11 @@ export default function StundennachweisMatrix({
                         title={tooltip}>
                         <div className="relative w-8 h-7 mx-auto">
                           <div
-                            className={`w-full h-full rounded flex items-center justify-center text-white font-bold transition-colors ${colorMap[status] || 'bg-gray-100'}`}
-                            onClick={() => { if (isClickable) onNavigateToZE(emp.id, year, month); }}
+                            className={`w-full h-full rounded flex items-center justify-center text-white font-bold transition-colors ${colorMap[status] || 'bg-gray-100'} ${druckModus && isClickable && isSelected(emp.id, year, month) ? 'ring-2 ring-offset-1 ring-blue-700' : ''}`}
+                            onClick={() => {
+                              if (druckModus) { if (isClickable) toggleCell(emp.id, year, month); }
+                              else if (isClickable) onNavigateToZE(emp.id, year, month);
+                            }}
                           >
                             {status === 'complete' && <CheckCircle size={14} />}
                             {status === 'partial'  && <AlertTriangle size={14} />}
@@ -490,9 +779,45 @@ export default function StundennachweisMatrix({
         </div>
       )}
 
-      <div className="bg-gray-50 px-4 py-2 border-t border-gray-200 text-xs text-gray-500">
-        Klick auf eine Zelle oeffnet die Zeiterfassung des Mitarbeiters fuer den jeweiligen Monat.
+      <div className="bg-gray-50 px-4 py-2 border-t border-gray-200 text-xs text-gray-500 print:hidden">
+        {druckModus
+          ? 'Sammeldruck: die gewaehlten Stundennachweise werden zu einem Ausdruck/PDF zusammengefasst (je Blatt eine Seite). Im Druckdialog "Als PDF speichern" waehlen.'
+          : 'Klick auf eine Zelle oeffnet die Zeiterfassung des Mitarbeiters fuer den jeweiligen Monat.'}
       </div>
     </div>
+
+    {/* v7.4.6-3: Druck-Container -- nur die Blaetter landen auf Papier.
+        Der Style blendet im Druck ALLES ausser #snw-print-root aus und wird nur
+        eingehaengt, solange Blaetter aktiv sind (sonst wuerde ein manuelles
+        Strg+P der Seite leer drucken). */}
+    {printSheets && printSheets.length > 0 && (
+      <>
+        <div id="snw-print-root" className="hidden print:block">
+          {printSheets.map((sheet, i) => (
+            <StundennachweisSheet
+              key={i}
+              data={sheet}
+              pageBreakAfter={i < printSheets.length - 1}
+            />
+          ))}
+        </div>
+        <style dangerouslySetInnerHTML={{ __html: `
+          @media print {
+            body * { visibility: hidden !important; }
+            #snw-print-root, #snw-print-root * { visibility: visible !important; }
+            #snw-print-root { position: absolute; left: 0; top: 0; width: 100%; }
+            html, body {
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+              background: #fff !important;
+              margin: 0 !important;
+            }
+            @page { size: A4 landscape; margin: 5mm; }
+            #snw-print-root table { font-size: 8px !important; }
+          }
+        ` }} />
+      </>
+    )}
+    </>
   );
 }
