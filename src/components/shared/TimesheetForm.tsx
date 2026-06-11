@@ -2,8 +2,28 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 10. Juni 2026
-// Version: 7.4.6-25
+// Datum: 11. Juni 2026
+// Version: 7.4.6-28
+// v7.4.6-28: UX-Fix. Rote Fehler-/Warnmeldung (z.B. Tagesstunden-Warnung aus
+//   -27) bleibt nicht mehr stehen, bis gespeichert wird. Neues onFocus auf allen
+//   Eingabezellen (AP, nicht foerderbar, U/K/S) setzt die Meldung zurueck, sobald
+//   der Nutzer in eine andere Zelle wechselt. Neuer Helfer handleCellFocus.
+// v7.4.6-27: Wie -26 (Punkte 1 + 2 unveraendert), Punkt 3 verfeinert: Halbe
+//   Tage bleiben zulaessig. Statt jede Fehlzeit zu blockieren, wird nur
+//   geblockt, wenn an einem Tag Fehlzeit (U/K/S) + Arbeitszeit (AP + nicht
+//   foerderbar) die Tagesstunden (employeeDailyHours) ueberschreiten - in
+//   handleCellChange/handleNonBillableChange mit Hinweis, plus Backstop in
+//   handleSave. Neue Helfer: sumAbsenceHoursForDay, sumWorkHoursForDay, fmtH.
+// v7.4.6-26: Drei Korrekturen.
+//   1. Doppel-Speichern verhindert: setSaving(true) fehlte komplett, der
+//      Speichern-Button sperrte sich nie -> ein zweiter Klick startete
+//      handleSave parallel und legte alle Zeilen erneut per INSERT an (Ursache
+//      der Dubletten in PROD). Jetzt synchroner savingRef-Riegel +
+//      setSaving(true); Reset im finally.
+//   2. Pfeil-Navigation ueber Feiertage: canEdit ueberspringt jetzt auch
+//      Feiertage und gesperrte Tage (nicht nur Wochenenden). Vorher blieb der
+//      Fokus an der disabled Feiertagszelle haengen; ueber Wochenenden ging es.
+//   3. Fehlzeit-Schutz (in -27 verfeinert, siehe oben).
 // v7.4.6-25: Kontrast verstaerkt. Alle in -24 auf gray-700 gesetzten Stellen
 //   (Feld-Labels, Hinweis, beide Fussnoten, Unterschriftszeilen, Steuerungs-
 //   Labels "Mitarbeiter:"/"Projekt:") jetzt einheitlich gray-900, damit auch
@@ -414,6 +434,10 @@ export default function TimesheetForm({
 
   // State
   const [saving, setSaving] = useState(false);
+  // v7.4.6-26: Synchroner Wiedereintritts-Riegel gegen Doppel-Speichern.
+  // setSaving allein reicht nicht (State-Update ist asynchron); ein Ref blockt
+  // einen zweiten parallelen handleSave-Aufruf sofort, bevor er INSERTen kann.
+  const savingRef = useRef(false);
   const [isCompleted, setIsCompleted] = useState(false);
   const [loadingCompletion, setLoadingCompletion] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -671,6 +695,56 @@ export default function TimesheetForm({
   // Basiert auf weeklyHoursAtMonth (aus Teilzeit-Historie), nicht Firmen-Standard.
   // Teilzeit 30h/Woche -> 6h/Tag | Vollzeit 40h/Woche -> 8h/Tag
   const employeeDailyHours = Math.round((weeklyHoursAtMonth / 5) * 100) / 100;
+
+  // v7.4.6-26: Prueft, ob an einem Tag bereits eine Fehlzeit (U/K/S) mit Stunden
+  // erfasst ist. Liefert den Code zurueck oder null. Grundlage fuer die Sperre,
+  // damit nicht versehentlich Arbeitsstunden auf einen Urlaubs-/Kranktag gebucht
+  // werden (z.B. wenn Fehlzeiten fuer den ganzen Monat vorab eingetragen wurden).
+  const getAbsenceCodeForDay = (day: number): 'U' | 'K' | 'S' | null => {
+    const codes: Array<'U' | 'K' | 'S'> = ['U', 'K', 'S'];
+    for (const code of codes) {
+      const e = absenceHoursInput[code]?.[day];
+      if (e?.value && parseHours(e.value) > 0) return code;
+    }
+    return null;
+  };
+
+  // v7.4.6-26: Klartext-Bezeichnung der Fehlzeit fuer Hinweis-Meldungen.
+  const absenceLabel = (code: 'U' | 'K' | 'S'): string =>
+    code === 'U' ? 'Urlaub' : code === 'K' ? 'Krankheit' : 'Sonstige bezahlte Ausfallzeit';
+
+  // v7.4.6-27: Summe der erfassten Fehlzeit-Stunden (U+K+S) an einem Tag.
+  const sumAbsenceHoursForDay = (day: number): number => {
+    let s = 0;
+    (['U', 'K', 'S'] as const).forEach(code => {
+      const e = absenceHoursInput[code]?.[day];
+      if (e?.value) s += parseHours(e.value);
+    });
+    return s;
+  };
+
+  // v7.4.6-27: Summe der Arbeitsstunden an einem Tag (AP-Zeilen + nicht
+  // foerderbar). Einzelne Quellen lassen sich ausklammern, um den gerade
+  // getippten Wert separat hinzurechnen zu koennen.
+  const sumWorkHoursForDay = (
+    day: number,
+    opts?: { excludeApRow?: number; excludeNonBillable?: boolean }
+  ): number => {
+    let s = 0;
+    apRows.forEach((r, idx) => {
+      if (opts?.excludeApRow === idx) return;
+      const v = r.entries[day]?.value;
+      if (v && !isAbsenceCode(v)) s += parseHours(v);
+    });
+    if (!opts?.excludeNonBillable) {
+      const nb = nonBillableEntries[day]?.value;
+      if (nb && !isAbsenceCode(nb)) s += parseHours(nb);
+    }
+    return s;
+  };
+
+  // v7.4.6-27: Stundenformat mit Komma fuer Meldungen.
+  const fmtH = (h: number): string => h.toFixed(2).replace('.', ',');
 
   const formatWorkDate = (day: number): string => {
     return `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -1346,6 +1420,12 @@ export default function TimesheetForm({
     setHasChanges(true);
   };
 
+  // v7.4.6-28: Transiente Fehlermeldung (z.B. Tagesstunden-Warnung) verschwindet,
+  // sobald der Nutzer in eine andere Zelle wechselt - nicht erst beim Speichern.
+  const handleCellFocus = () => {
+    if (error) setError(null);
+  };
+
   const handleCellChange = (rowIndex: number, day: number, value: string) => {
     // v7.4.6-23: FIX Regression - Abwesenheitscode (U/K/S/F) in einer AP-Tageszelle
     // wird automatisch in die zugehoerige Fehlzeit-Zeile uebernommen (mit den
@@ -1374,6 +1454,19 @@ export default function TimesheetForm({
       setHasChanges(true);
       return;
     }
+    // v7.4.6-27: Halbe Tage sind erlaubt. Blockiert wird nur, wenn an diesem Tag
+    // Fehlzeit + Arbeitszeit die Tagesstunden ueberschreiten.
+    if (value && !isAbsenceCode(value)) {
+      const absH = sumAbsenceHoursForDay(day);
+      if (absH > 0) {
+        const workH = sumWorkHoursForDay(day, { excludeApRow: rowIndex }) + parseHours(value);
+        if (absH + workH > employeeDailyHours + 0.001) {
+          const abs = getAbsenceCodeForDay(day);
+          setError(`Tag ${day}: Fehlzeit (${abs ? absenceLabel(abs) : 'Abwesenheit'}, ${fmtH(absH)} h) plus Arbeitszeit (${fmtH(workH)} h) ueberschreitet die Tagesstunden (${fmtH(employeeDailyHours)} h). Bitte Fehlzeit oder Stunden anpassen.`);
+          return;
+        }
+      }
+    }
     setApRows(prev => {
       const newRows = [...prev];
       const newEntries = { ...newRows[rowIndex].entries };
@@ -1389,6 +1482,19 @@ export default function TimesheetForm({
   };
 
   const handleNonBillableChange = (day: number, value: string) => {
+    // v7.4.6-27: Wie AP-Zeile - nur blockieren, wenn Fehlzeit + Arbeitszeit die
+    // Tagesstunden ueberschreiten (halbe Tage zulaessig).
+    if (value && !isAbsenceCode(value)) {
+      const absH = sumAbsenceHoursForDay(day);
+      if (absH > 0) {
+        const workH = sumWorkHoursForDay(day, { excludeNonBillable: true }) + parseHours(value);
+        if (absH + workH > employeeDailyHours + 0.001) {
+          const abs = getAbsenceCodeForDay(day);
+          setError(`Tag ${day}: Fehlzeit (${abs ? absenceLabel(abs) : 'Abwesenheit'}, ${fmtH(absH)} h) plus Arbeitszeit (${fmtH(workH)} h) ueberschreitet die Tagesstunden (${fmtH(employeeDailyHours)} h). Bitte Fehlzeit oder Stunden anpassen.`);
+          return;
+        }
+      }
+    }
     setNonBillableEntries(prev => {
       const newEntries = { ...prev };
       if (value) {
@@ -1414,6 +1520,12 @@ export default function TimesheetForm({
 
     const canEdit = (r: number, d: number, type: 'ap' | 'nonbillable' | 'absence-U' | 'absence-K' | 'absence-S'): boolean => {
       if (isWeekend(selectedYear, selectedMonth, d)) return false;
+      // v7.4.6-26: Feiertage und gesperrte Tage genauso ueberspringen wie
+      // Wochenenden. Sonst versucht die Pfeil-Navigation, eine disabled-Zelle
+      // (Feiertag/Sperre) zu fokussieren, was fehlschlaegt - der Fokus bleibt
+      // dann am Feiertag haengen. Ueber reine Wochenenden ging es bereits.
+      if (isHoliday(selectedYear, selectedMonth, d)) return false;
+      if (blockedDays.has(d)) return false;
       if (type === 'ap' && !apRows[r]?.workPackageId) return false;
       return true;
     };
@@ -1797,9 +1909,30 @@ export default function TimesheetForm({
       );
       return;
     }
+    // 3. v7.4.6-27: An keinem Tag darf Fehlzeit + Arbeitszeit die Tagesstunden
+    //    ueberschreiten. Backstop zur Eingabe-Sperre - faengt auch nachtraeglich
+    //    erfasste Fehlzeiten ab. Halbe Tage bleiben zulaessig.
+    const tageImMonat = getDaysInMonth(selectedYear, selectedMonth);
+    for (let d = 1; d <= tageImMonat; d++) {
+      const absH = sumAbsenceHoursForDay(d);
+      if (absH <= 0) continue;
+      const workH = sumWorkHoursForDay(d);
+      if (absH + workH > employeeDailyHours + 0.001) {
+        const abs = getAbsenceCodeForDay(d);
+        setError(`Tag ${d}: Fehlzeit (${abs ? absenceLabel(abs) : 'Abwesenheit'}, ${fmtH(absH)} h) plus Arbeitszeit (${fmtH(workH)} h) ueberschreitet die Tagesstunden (${fmtH(employeeDailyHours)} h). Bitte anpassen.`);
+        return;
+      }
+    }
     // (GF-Warnung ist rein informativ in der UI, kein Speichern-Block)
     setError(null);
     setSuccessMessage(null);
+
+    // v7.4.6-26: Doppel-Speichern-Riegel. setSaving(true) sperrt den Button
+    // sichtbar; savingRef faengt einen schnellen zweiten Aufruf synchron ab,
+    // bevor er INSERTen kann (Ursache der frueheren Dubletten).
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
 
     try {
       const now = new Date().toISOString();
@@ -1956,6 +2089,7 @@ export default function TimesheetForm({
       console.error('Speichern fehlgeschlagen:', err);
       setError('Fehler beim Speichern: ' + err.message);
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -2725,6 +2859,7 @@ export default function TimesheetForm({
                             value={entry?.value || ''}
                             onChange={(e) => handleCellChange(rowIndex, day, e.target.value)}
                             onKeyDown={(e) => handleKeyDown(e, rowIndex, day, 'ap')}
+                            onFocus={handleCellFocus}
                             disabled={weekend || !!holiday || !row.workPackageId || isBlocked}
                             maxLength={4}
                             className={`w-full h-8 text-center text-xs border-0 ${
@@ -2872,6 +3007,7 @@ export default function TimesheetForm({
                         value={entry?.value || ''}
                         onChange={(e) => handleNonBillableChange(day, e.target.value)}
                         onKeyDown={(e) => handleKeyDown(e, 0, day, 'nonbillable')}
+                        onFocus={handleCellFocus}
                         disabled={weekend || !!holiday || isBlocked}
                         maxLength={4}
                         className={`w-full h-6 text-center text-xs border-0 ${
@@ -2917,6 +3053,7 @@ export default function TimesheetForm({
                             setHasChanges(true);
                           }}
                           onKeyDown={e => handleKeyDown(e, 0, day, 'absence-U')}
+                          onFocus={handleCellFocus}
                           className="w-full h-6 text-center text-xs border-0 bg-transparent focus:ring-1 focus:ring-blue-400 print:bg-transparent"
                           maxLength={4}
                           placeholder=""
@@ -2952,6 +3089,7 @@ export default function TimesheetForm({
                             setHasChanges(true);
                           }}
                           onKeyDown={e => handleKeyDown(e, 0, day, 'absence-K')}
+                          onFocus={handleCellFocus}
                           className="w-full h-6 text-center text-xs border-0 bg-transparent focus:ring-1 focus:ring-red-400 print:bg-transparent"
                           maxLength={4}
                           placeholder=""
@@ -2988,6 +3126,7 @@ export default function TimesheetForm({
                             setHasChanges(true);
                           }}
                           onKeyDown={e => handleKeyDown(e, 0, day, 'absence-S')}
+                          onFocus={handleCellFocus}
                           className="w-full h-6 text-center text-xs border-0 bg-transparent focus:ring-1 focus:ring-purple-400 print:bg-transparent"
                           maxLength={4}
                           placeholder=""
