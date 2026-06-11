@@ -3,7 +3,14 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 11. Juni 2026
-// Version: 7.4.6-28
+// Version: 7.4.6-29
+// v7.4.6-29: "offen"-Spalte zeigt fuer Mitarbeiter, die einem AP NICHT
+//   planmaessig zugeordnet sind, die projektweite Restzahl des AP in Blau
+//   (Gesamt-Soll des AP minus projektweit gebuchte Stunden aller MA). So sieht
+//   man, wo noch foerderbares Potenzial offen ist, ohne das Gesamt-Soll zu
+//   ueberschreiten. Variante A: nur freie Stunden in Blau, sonst neutral (0),
+//   kein Alarm. Zugeordnete MA weiterhin gruen/rot. Neuer State
+//   projectBookedPerWP (Laden in reloadBookedHours), Helfer calculateWPOpenHours.
 // v7.4.6-28: UX-Fix. Rote Fehler-/Warnmeldung (z.B. Tagesstunden-Warnung aus
 //   -27) bleibt nicht mehr stehen, bis gespeichert wird. Neues onFocus auf allen
 //   Eingabezellen (AP, nicht foerderbar, U/K/S) setzt die Meldung zurueck, sobald
@@ -476,6 +483,10 @@ export default function TimesheetForm({
   const [plannedHoursPerWP, setPlannedHoursPerWP] = useState<Record<string, number>>({});
   // Bereits erfasste Stunden pro WP ueber ALLE Monate (kumuliert aus v7_timesheets)
   const [totalBookedPerWP, setTotalBookedPerWP] = useState<Record<string, number>>({});
+  // v7.4.6-29: Projektweit gebuchte Stunden je AP (ueber ALLE Mitarbeiter).
+  // Grundlage fuer die blau angezeigte projektweite Restzahl bei nicht
+  // zugeordneten Mitarbeitern.
+  const [projectBookedPerWP, setProjectBookedPerWP] = useState<Record<string, number>>({});
   // IDs der APs, die dem MA laut Arbeitsplan zugeordnet sind
   const [assignedWPIds, setAssignedWPIds] = useState<string[]>([]);
 
@@ -878,6 +889,27 @@ export default function TimesheetForm({
 
       setTotalBookedPerWP(booked);
       console.log('[TimesheetForm] Kumulierte Stunden aktualisiert:', booked);
+
+      // v7.4.6-29: Projektweite Buchungen je AP (alle MA) - fuer blaue Restzahl
+      // bei nicht zugeordneten Mitarbeitern.
+      const { data: projEntries, error: projErr } = await supabaseClient
+        .from('v7_timesheets')
+        .select('work_package_id, hours')
+        .eq('project_id', selectedProjectId)
+        .eq('is_active', true)
+        .eq('is_billable', true);
+      if (projErr) {
+        console.error('[TimesheetForm] Fehler beim Laden der projektweiten Stunden:', projErr);
+      } else {
+        const projBooked: Record<string, number> = {};
+        (projEntries || []).forEach((e: any) => {
+          if (e.work_package_id) {
+            const h = parseFloat(e.hours) || 0;
+            if (h > 0) projBooked[e.work_package_id] = (projBooked[e.work_package_id] || 0) + h;
+          }
+        });
+        setProjectBookedPerWP(projBooked);
+      }
     } catch (err) {
       console.error('[TimesheetForm] Fehler beim Reload der Stunden:', err);
     }
@@ -1695,6 +1727,19 @@ export default function TimesheetForm({
       return null; // Noch keine Stunden -> "-"
     }
     return Math.round(planned - booked);
+  };
+
+  // v7.4.6-29: Projektweite Restzahl eines AP = Gesamt-Soll (total_person_months
+  // x 173,33) minus projektweit gebuchte Stunden aller MA. Wird bei nicht
+  // zugeordneten Mitarbeitern in Blau angezeigt (Variante A: nur als freie
+  // Stunden, kein Alarm). null wenn kein Gesamt-Soll bekannt.
+  const calculateWPOpenHours = (wpId: string | null): number | null => {
+    if (!wpId) return null;
+    const wp = safeWorkPackages.find(w => w.id === wpId);
+    if (!wp || wp.total_person_months == null) return null;
+    const plannedTotal = wp.total_person_months * MONATSGRENZE_VOLLZEIT;
+    const booked = projectBookedPerWP[wpId] || 0;
+    return Math.round(plannedTotal - booked);
   };
 
   const calculateDaySum = (day: number): number => {
@@ -2876,14 +2921,30 @@ export default function TimesheetForm({
                     <td className="border p-1 text-center font-semibold bg-gray-50">
                       {calculateRowSum(row) > 0 ? calculateRowSum(row).toFixed(2) : '0,00'}
                     </td>
-                    {/* NEU v7.4.3: offen-Spalte */}
+                    {/* NEU v7.4.3: offen-Spalte | v7.4.6-29: blaue AP-Restzahl bei nicht zugeordneten MA */}
                     <td className="border p-1 text-center text-xs print:hidden" style={{ backgroundColor: '#F1F8E9' }}>
                       {(() => {
-                        const remaining = calculateRemainingHours(row.workPackageId);
-                        if (remaining === null) return <span className="text-gray-300">-</span>;
-                        if (remaining > 0) return <span className="text-green-700 font-semibold">{remaining}</span>;
-                        if (remaining < 0) return <span className="text-red-600 font-bold">{remaining}</span>;
-                        return <span className="text-gray-500">0</span>;
+                        const wpId = row.workPackageId;
+                        if (!wpId) return <span className="text-gray-300">-</span>;
+                        const istZugeordnet = plannedHoursPerWP[wpId] !== undefined;
+                        if (istZugeordnet) {
+                          const remaining = calculateRemainingHours(wpId);
+                          if (remaining === null) return <span className="text-gray-300">-</span>;
+                          if (remaining > 0) return <span className="text-green-700 font-semibold">{remaining}</span>;
+                          if (remaining < 0) return <span className="text-red-600 font-bold">{remaining}</span>;
+                          return <span className="text-gray-500">0</span>;
+                        }
+                        // v7.4.6-29: MA nicht dem AP zugeordnet -> projektweite offene
+                        // AP-Stunden in Blau (Variante A: nur freie Stunden, kein Alarm).
+                        const wpOpen = calculateWPOpenHours(wpId);
+                        if (wpOpen !== null && wpOpen > 0) {
+                          return (
+                            <span className="text-blue-700 font-semibold" title="Projektweit noch offene Stunden dieses Arbeitspakets (MA nicht zugeordnet)">
+                              {wpOpen}
+                            </span>
+                          );
+                        }
+                        return <span className="text-gray-400">0</span>;
                       })()}
                     </td>
                   </tr>
