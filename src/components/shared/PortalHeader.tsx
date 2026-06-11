@@ -4,7 +4,11 @@
 // ============================================================================
 // PZE - Gemeinsamer Portal-Header
 // ============================================================================
-// Version: 7.3.95-13
+// Version: 7.3.95-14
+// v7.3.95-14: FIX: Header-Klick (Firmenname) im Berater-Portal beruecksichtigt
+//   jetzt den Modus. App-Struktur -> /v7/berater/app/cockpit, klassische
+//   Ansicht -> /v7/berater/dashboard. Vorher fest auf das alte Dashboard, daher
+//   landete man aus dem App-Cockpit faelschlich im alten Dashboard.
 // v7.3.95-13: FIX: client_user Rolle im Header als 'Nutzer' anzeigen
 //   (statt rohem DB-Wert 'client_user').
 // v7.3.95-12: FIX: Config-Query auf korrekte Spalten (key/value statt config_key/config_value).
@@ -216,7 +220,12 @@ export default function PortalHeader({
     : (companyName || 'PZE');
 
   const portalTitle   = portal === 'berater' ? 'Berater-Portal' : 'Firmen-Portal';
-  const dashboardHref = portal === 'berater' ? '/v7/berater/dashboard' : '/v7/firma/dashboard';
+  // v7.3.95-14: Im Berater-Portal haengt das Klick-Ziel des Headers vom Modus ab.
+  // App-Struktur -> neues Cockpit, klassische Ansicht -> altes Dashboard.
+  // (Vorher fest /v7/berater/dashboard, daher landete man aus der App im alten Dashboard.)
+  const dashboardHref = portal === 'berater'
+    ? (pzeMode === 'app' ? '/v7/berater/app/cockpit' : '/v7/berater/dashboard')
+    : '/v7/firma/dashboard';
 
   // Rollenbezeichnung vollstaendig aus DB - Props nur als Fallback waehrend Laden
   //   Hierarchie: system_admin > consultant > client_admin > project_leader > employee
