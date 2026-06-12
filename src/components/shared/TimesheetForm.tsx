@@ -3,7 +3,13 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 11. Juni 2026
-// Version: 7.4.6-29
+// Version: 7.4.6-30
+// v7.4.6-30: NEU "Meine Arbeitspakete"-Popup in der Zeiterfassung. Ein Knopf
+//   neben der Mitarbeiter-Auswahl oeffnet ein Modal mit den dem aktuellen
+//   Mitarbeiter im Arbeitsplan zugeordneten Arbeitspaketen (AP-Code,
+//   Bezeichnung, ggf. T/NT, geplante und noch offene Stunden) -- ohne Umweg
+//   ueber den Arbeitsplan. Reine Anzeige, nutzt vorhandene Bausteine
+//   (assignedWPIds, plannedHoursPerWP, calculateRemainingHours).
 // v7.4.6-29: "offen"-Spalte zeigt fuer Mitarbeiter, die einem AP NICHT
 //   planmaessig zugeordnet sind, die projektweite Restzahl des AP in Blau
 //   (Gesamt-Soll des AP minus projektweit gebuchte Stunden aller MA). So sieht
@@ -413,6 +419,8 @@ export default function TimesheetForm({
 
   // NEU v7.4.6-21 (A-003): AP-Quick-View Modal
   const [showAPModal, setShowAPModal] = useState(false);
+  // NEU v7.4.6-30: "Meine Arbeitspakete"-Modal (dem MA zugeordnete APs)
+  const [showMyAPModal, setShowMyAPModal] = useState(false);
 
   // NEU v7.4.6-22 (A-021): NWM-Tagessperren
   const [blockedDays, setBlockedDays] = useState<Set<number>>(new Set());
@@ -2608,6 +2616,19 @@ export default function TimesheetForm({
               </select>
             </div>
 
+            {/* v7.4.6-30: Meine Arbeitspakete (zugeordnete APs des MA) */}
+            <button
+              onClick={() => setShowMyAPModal(true)}
+              disabled={!selectedEmployeeId}
+              className={`flex items-center gap-1.5 text-sm px-2.5 py-1 rounded border border-gray-300 ${colors.text} hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed`}
+              title="Dem Mitarbeiter im Arbeitsplan zugeordnete Arbeitspakete anzeigen"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+              Meine Arbeitspakete{assignedWPIds.length > 0 ? ` (${assignedWPIds.length})` : ''}
+            </button>
+
             {/* Projekt */}
             <div className="flex items-center gap-2">
               <label className="text-sm font-medium text-gray-900">Projekt:</label>
@@ -3392,6 +3413,95 @@ export default function TimesheetForm({
             <div className="flex justify-end mt-4">
               <button
                 onClick={() => setShowAPModal(false)}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm"
+              >
+                {'Schlie\u00dfen'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* v7.4.6-30: Meine Arbeitspakete (dem aktuellen MA zugeordnete APs) */}
+      {showMyAPModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 print:hidden">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-2xl mx-4 w-full max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Zugeordnete Arbeitspakete{selectedEmployee ? ` \u2013 ${selectedEmployee.display_name}` : ''}
+              </h3>
+              <button onClick={() => setShowMyAPModal(false)} className="text-gray-400 hover:text-gray-600">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {(() => {
+              const myAPs = safeWorkPackages
+                .filter(wp => assignedWPIds.includes(wp.id))
+                .sort(compareApCode);
+              if (myAPs.length === 0) {
+                return (
+                  <p className="text-gray-500 text-sm">
+                    Diesem Mitarbeiter sind im Arbeitsplan keine Arbeitspakete zugeordnet.
+                  </p>
+                );
+              }
+              return (
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 text-left">
+                      <th className="border px-2 py-1.5 font-medium text-gray-700">AP</th>
+                      <th className="border px-2 py-1.5 font-medium text-gray-700">Bezeichnung</th>
+                      {isDurchfuehrbarkeitsstudie && (
+                        <th className="border px-2 py-1.5 font-medium text-gray-700 text-center">T/NT</th>
+                      )}
+                      <th className="border px-2 py-1.5 font-medium text-gray-700 text-right">geplant (h)</th>
+                      <th className="border px-2 py-1.5 font-medium text-gray-700 text-right">offen (h)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {myAPs.map(wp => {
+                      const apDisplay = wp.ap_code
+                        ? wp.ap_code.replace(/^AP\s*/i, '')
+                        : `${wp.ap_number}${wp.ap_sub_number ? `.${wp.ap_sub_number}` : ''}`;
+                      const planned = plannedHoursPerWP[wp.id];
+                      const remaining = calculateRemainingHours(wp.id);
+                      return (
+                        <tr key={wp.id} className="hover:bg-gray-50">
+                          <td className="border px-2 py-1.5 whitespace-nowrap font-mono text-xs">{apDisplay}</td>
+                          <td className="border px-2 py-1.5">{wp.name}</td>
+                          {isDurchfuehrbarkeitsstudie && (
+                            <td className="border px-2 py-1.5 text-center">
+                              {isTechnicalAP(wp)
+                                ? <span className="text-green-700 font-bold text-xs">T</span>
+                                : <span className="text-blue-700 font-bold text-xs">NT</span>}
+                            </td>
+                          )}
+                          <td className="border px-2 py-1.5 text-right whitespace-nowrap">
+                            {planned != null ? Math.round(planned) : '\u2013'}
+                          </td>
+                          <td className="border px-2 py-1.5 text-right whitespace-nowrap">
+                            {remaining == null
+                              ? '\u2013'
+                              : <span className={remaining > 0 ? 'text-green-700 font-semibold' : remaining < 0 ? 'text-red-600 font-bold' : 'text-gray-500'}>{remaining}</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              );
+            })()}
+
+            <p className="text-xs text-gray-400 mt-3">
+              Quelle: Arbeitsplan-Zuordnung. &quot;offen&quot; = geplante minus bereits gebuchte Stunden dieses Mitarbeiters.
+            </p>
+
+            <div className="flex justify-end mt-4">
+              <button
+                onClick={() => setShowMyAPModal(false)}
                 className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm"
               >
                 {'Schlie\u00dfen'}
