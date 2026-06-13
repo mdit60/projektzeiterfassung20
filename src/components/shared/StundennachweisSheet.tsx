@@ -2,8 +2,12 @@
 // ============================================================================
 // PZE V7 - Shared Component: Stundennachweis-Blatt (Anzeige/Druck)
 // ============================================================================
-// Version: 1.0.0
-// Datum: 11. Juni 2026
+// Version: 1.0.1
+// Datum: 13. Juni 2026
+// Aenderung v1.0.1: Bedingte Kurzarbeit-Zeile in Abschnitt 3 (Fehlzeiten).
+//   Erscheint NUR, wenn der Monat mindestens einen Kurzarbeitstag hat
+//   (data.kurzarbeitDays > 0). Markiert die Tage mit "KA", Summe = Tageszahl.
+//   Rein informativ, keine Stunden.
 // Zweck: Reine Anzeige-Komponente fuer EIN Stundennachweis-Blatt. Rendert das
 //   offizielle Layout statisch (keine Eingabefelder, keine DB, kein State) aus
 //   einem vorberechneten Anzeigemodell (buildStundennachweisSheetData).
@@ -60,6 +64,7 @@ export default function StundennachweisSheet({
     companyName, projectName, fundingReference, employeeName, monthLabel,
     daysInMonth, isNetzwerk, isDurchfuehrbarkeitsstudie, days, apRows,
     nonBillableByDay, nonBillableSum, absenceByDay, absenceSums,
+    kurzarbeitByDay, kurzarbeitDays,
     daySumBillable, totalBillable, techDaySum, ntDaySum, techTotal, ntTotal,
     signatureDate,
   } = data;
@@ -293,6 +298,23 @@ export default function StundennachweisSheet({
               })}
               <td className="border p-1 text-center font-semibold bg-purple-100">{fmtSum0(absenceSums.S)}</td>
             </tr>
+            {/* v1.0.1: Kurzarbeit -- nur wenn vorhanden. Rein informativ, keine Stunden. */}
+            {kurzarbeitDays > 0 && (
+              <tr>
+                <td className="border p-1 text-[10px]" colSpan={labelCols}>Kurzarbeit (informativ, keine Stunden)</td>
+                {dayList.map(day => {
+                  const d = days[day - 1];
+                  const weekend = d?.weekend;
+                  const isKA = !!kurzarbeitByDay[day];
+                  return (
+                    <td key={day} className={`border p-1 text-center text-[10px] ${weekend ? 'bg-gray-100' : isKA ? 'bg-amber-100' : 'bg-white'}`}>
+                      {weekend ? '' : (isKA ? 'KA' : '')}
+                    </td>
+                  );
+                })}
+                <td className="border p-1 text-center font-semibold bg-amber-100">{kurzarbeitDays} Tg.</td>
+              </tr>
+            )}
           </tbody>
         </table>
 

@@ -2,8 +2,12 @@
 // ============================================================================
 // PZE V7 - Helfer: Stundennachweis-Anzeigemodell
 // ============================================================================
-// Version: 1.0.0
-// Datum: 11. Juni 2026
+// Version: 1.0.1
+// Datum: 13. Juni 2026
+// Aenderung v1.0.1: Kurzarbeit (absence_code 'KA', 0 Stunden) wird als reiner
+//   Tag-Marker eingelesen (kurzarbeitByDay) und als Tageszahl summiert
+//   (kurzarbeitDays). Keine Stunden, rein informativ. Frueher fielen
+//   KA-Zeilen durch (nur U/K/S wurden beruecksichtigt).
 // Zweck: Rekonstruiert aus gespeicherten v7_timesheets-Zeilen das
 //   Anzeigemodell fuer EIN Stundennachweis-Blatt (ein Mitarbeiter, ein
 //   Projekt, ein Monat). Reine Logik, kein React, kein Supabase --
@@ -117,6 +121,9 @@ export interface StundennachweisSheetData {
     S: Record<number, number>;
   };
   absenceSums: { U: number; K: number; S: number };
+  // v1.0.1: Kurzarbeit -- reiner Tag-Marker (keine Stunden), rein informativ
+  kurzarbeitByDay: Record<number, boolean>;
+  kurzarbeitDays: number;
   daySumBillable: Record<number, number>;
   totalBillable: number;
   techDaySum: Record<number, number>;
@@ -206,6 +213,8 @@ export function buildStundennachweisSheetData(
     K: {} as Record<number, number>,
     S: {} as Record<number, number>,
   };
+  // v1.0.1: Kurzarbeit-Tage (reiner Marker, keine Stunden)
+  const kurzarbeitByDay: Record<number, boolean> = {};
 
   rows.forEach(r => {
     const parts = r.work_date.split('-');
@@ -221,6 +230,9 @@ export function buildStundennachweisSheetData(
       const code = (r.absence_code || '').toUpperCase();
       if (code === 'U' || code === 'K' || code === 'S') {
         absenceByDay[code][day] = (absenceByDay[code][day] || 0) + (h > 0 ? h : 0);
+      } else if (code === 'KA') {
+        // v1.0.1: Kurzarbeit -- nur Markierung, Stunden werden ignoriert
+        kurzarbeitByDay[day] = true;
       }
     } else if (!r.is_billable && !r.work_package_id && !r.absence_code) {
       nonBillableByDay[day] = (nonBillableByDay[day] || 0) + (h > 0 ? h : 0);
@@ -324,6 +336,8 @@ export function buildStundennachweisSheetData(
     nonBillableSum: round2(nonBillableSum),
     absenceByDay,
     absenceSums,
+    kurzarbeitByDay,
+    kurzarbeitDays: Object.keys(kurzarbeitByDay).length,
     daySumBillable,
     totalBillable: round2(totalBillable),
     techDaySum,

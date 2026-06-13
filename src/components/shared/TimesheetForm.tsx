@@ -2,8 +2,29 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 11. Juni 2026
-// Version: 7.4.6-30
+// Datum: 13. Juni 2026
+// Version: 7.4.6-33
+// v7.4.6-33: FIX Fehlzeiten-Stapelung. Eine Fehlzeit (U/K/S) setzte bisher nur
+//   die gewaehlte Zeile, ohne die anderen Fehlzeiten desselben Tages zu raeumen
+//   -- so liessen sich U+K+S am selben Tag stapeln (z.B. 3x8h = 24h). Jetzt
+//   exklusiv: das Setzen einer Fehlzeit entfernt die anderen U/K/S und einen
+//   etwaigen KA-Marker dieses Tages. Ein Tag ist genau EINE Kategorie.
+//   Enthaelt zusaetzlich den -32-Fix (Rechtsklick an KA-Tagen).
+// v7.4.6-32: FIX Kurzarbeit -- an einem KA-Tag liess sich der Marker nicht mehr
+//   entfernen. Ursache: das deaktivierte AP-Eingabefeld schluckt den Rechtsklick,
+//   sodass das onContextMenu der Zelle (td) nicht ausgeloest wurde. Loesung:
+//   gesperrtes AP-Feld an KA-Tagen auf pointer-events:none -- der Rechtsklick
+//   geht jetzt zur Zelle durch und oeffnet das Menue ("Kurzarbeit entfernen").
+// v7.4.6-31: NEU Kurzarbeit + Rechtsklick-Auswahl. Rechtsklick auf eine
+//   AP-Tageszelle oeffnet ein Kontextmenue mit Urlaub / Krankheit / Sonstige
+//   Ausfallzeit / Kurzarbeit. U/K/S nutzen dieselbe Logik wie das Tippen
+//   (handleCellChange) -- kein doppelter Code. Kurzarbeit ist ein reiner
+//   Tag-Marker (absence_code='KA', 0 Stunden, rein informativ): kein
+//   Stundeneintrag irgendwo, der Tag wird im AP-Raster getoent + gesperrt und
+//   erscheint -- NUR wenn vorhanden -- als eigene Zeile in Abschnitt 3
+//   (Fehlzeiten) mit "KA"-Markierung und Tageszahl als Summe. Fehlklick-Schutz:
+//   KA wird nicht auf Tage mit bereits erfassten Stunden/Fehlzeiten gesetzt.
+//   Keine DB-Migration ('KA' ist nur ein neuer Wert in absence_code).
 // v7.4.6-30: NEU "Meine Arbeitspakete"-Popup in der Zeiterfassung. Ein Knopf
 //   neben der Mitarbeiter-Auswahl oeffnet ein Modal mit den dem aktuellen
 //   Mitarbeiter im Arbeitsplan zugeordneten Arbeitspaketen (AP-Code,
@@ -486,6 +507,11 @@ export default function TimesheetForm({
     S: Record<number, CalendarEntry>;
   }>({ U: {}, K: {}, S: {} });
 
+  // v7.4.6-31: Kurzarbeit -- reiner Tag-Marker (keine Stunden). Praesenz je Tag.
+  const [kurzarbeitInput, setKurzarbeitInput] = useState<Record<number, { id?: string }>>({});
+  // v7.4.6-31: Rechtsklick-Kontextmenue (Urlaub/Krankheit/Sonstige/Kurzarbeit)
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; rowIndex: number; day: number } | null>(null);
+
   // NEU v7.4.3: Arbeitsplan-Daten fuer "offen"-Spalte und AP-Vorbelegung
   // Geplante Stunden pro WP fuer den aktuellen MA (aus v7_work_package_assignments)
   const [plannedHoursPerWP, setPlannedHoursPerWP] = useState<Record<string, number>>({});
@@ -731,6 +757,9 @@ export default function TimesheetForm({
   // v7.4.6-26: Klartext-Bezeichnung der Fehlzeit fuer Hinweis-Meldungen.
   const absenceLabel = (code: 'U' | 'K' | 'S'): string =>
     code === 'U' ? 'Urlaub' : code === 'K' ? 'Krankheit' : 'Sonstige bezahlte Ausfallzeit';
+
+  // v7.4.6-31: Ist dieser Tag als Kurzarbeit markiert?
+  const isKurzarbeitDay = (day: number): boolean => !!kurzarbeitInput[day];
 
   // v7.4.6-27: Summe der erfassten Fehlzeit-Stunden (U+K+S) an einem Tag.
   const sumAbsenceHoursForDay = (day: number): number => {
@@ -1261,6 +1290,8 @@ export default function TimesheetForm({
       const absenceEntries = new Map<number, { id: string; value: string }>();
       // v7.4.6-16: Fehlzeiten-Stunden direkt editierbar
       const newAbsenceHours: { U: Record<number, CalendarEntry>; K: Record<number, CalendarEntry>; S: Record<number, CalendarEntry> } = { U: {}, K: {}, S: {} };
+      // v7.4.6-31: Kurzarbeit-Tage (reiner Marker)
+      const newKurzarbeit: Record<number, { id?: string }> = {};
 
       entries?.forEach(entry => {
         const day = parseInt(entry.work_date.split('-')[2]);
@@ -1276,15 +1307,19 @@ export default function TimesheetForm({
         } else if (entry.absence_code && !entry.work_package_id) {
           // v7.4.6-16: Fehlzeiten (U/K/S) direkt in absenceHoursInput laden
           // NICHT mehr in absenceEntries (wuerde sonst doppelt in AP-Zeilen erscheinen)
-          const code = entry.absence_code as 'U' | 'K' | 'S';
-          if (['U', 'K', 'S'].includes(code)) {
+          // v7.4.6-31: Kurzarbeit (KA) als reinen Tag-Marker laden.
+          const codeRaw = (entry.absence_code || '').toUpperCase();
+          if (codeRaw === 'KA') {
+            newKurzarbeit[day] = { id: entry.id };
+          } else if (['U', 'K', 'S'].includes(codeRaw)) {
+            const code = codeRaw as 'U' | 'K' | 'S';
             if (!newAbsenceHours[code]) newAbsenceHours[code] = {};
             newAbsenceHours[code][day] = {
               id: entry.id,
               value: entry.hours > 0 ? entry.hours.toString() : ''
             };
           }
-          console.log('[TimesheetForm] Fehlzeit-Eintrag gefunden:', { day, absence_code: entry.absence_code });
+          console.log('[TimesheetForm] Fehlzeit-/KA-Eintrag gefunden:', { day, absence_code: entry.absence_code });
         } else if (!entry.is_billable && !entry.work_package_id && !entry.absence_code) {
           // Sonstige nicht zuschussfaehige Arbeiten (ohne absence_code)
           newNonBillable[day] = { id: entry.id, value: entry.hours > 0 ? entry.hours.toString() : '' };
@@ -1343,6 +1378,8 @@ export default function TimesheetForm({
 
       // v7.4.6-16: Fehlzeiten-Stunden in State laden
       setAbsenceHoursInput(newAbsenceHours);
+      // v7.4.6-31: Kurzarbeit-Marker in State laden
+      setKurzarbeitInput(newKurzarbeit);
 
       let rowIndex = 0;
       wpEntryMap.forEach((dayMap, wpId) => {
@@ -1467,6 +1504,12 @@ export default function TimesheetForm({
   };
 
   const handleCellChange = (rowIndex: number, day: number, value: string) => {
+    // v7.4.6-31: Defensiv -- an einem Kurzarbeitstag werden keine Arbeitsstunden
+    // erfasst (die AP-Zellen sind dort ohnehin gesperrt).
+    if (value && !isAbsenceCode(value) && isKurzarbeitDay(day)) {
+      setError(`Tag ${day} ist als Kurzarbeit markiert -- es koennen keine Arbeitsstunden erfasst werden. Bitte zuerst die Kurzarbeit-Markierung entfernen (Rechtsklick).`);
+      return;
+    }
     // v7.4.6-23: FIX Regression - Abwesenheitscode (U/K/S/F) in einer AP-Tageszelle
     // wird automatisch in die zugehoerige Fehlzeit-Zeile uebernommen (mit den
     // MA-Tagesstunden), statt wirkungslos in der AP-Zeile zu verbleiben.
@@ -1482,14 +1525,27 @@ export default function TimesheetForm({
         newRows[rowIndex] = { ...newRows[rowIndex], entries: newEntries };
         return newRows;
       });
-      // In die passende Fehlzeit-Zeile mit MA-Tagesstunden eintragen
+      // v7.4.6-33: EXKLUSIV -- ein Tag ist genau EINE Kategorie. Die gewaehlte
+      // Fehlzeit setzen UND die anderen beiden Fehlzeiten dieses Tages entfernen
+      // (verhindert das fruehere Stapeln von U+K+S am selben Tag).
       setAbsenceHoursInput(prev => {
-        const next = { ...prev };
+        const next = { U: { ...prev.U }, K: { ...prev.K }, S: { ...prev.S } };
+        (['U', 'K', 'S'] as const).forEach(c => {
+          if (c !== code) delete next[c][day];
+        });
         next[code] = {
-          ...prev[code],
+          ...next[code],
           [day]: { id: prev[code][day]?.id || '', value: employeeDailyHours.toString() },
         };
         return next;
+      });
+      // v7.4.6-33: Falls der Tag als Kurzarbeit markiert war -> Marker entfernen
+      // (Umklassifizierung auf eine bezahlte Fehlzeit).
+      setKurzarbeitInput(prev => {
+        if (!prev[day]) return prev;
+        const n = { ...prev };
+        delete n[day];
+        return n;
       });
       setHasChanges(true);
       return;
@@ -1547,6 +1603,58 @@ export default function TimesheetForm({
     setHasChanges(true);
   };
 
+  // ==========================================================================
+  // v7.4.6-31: Rechtsklick-Kontextmenue + Kurzarbeit
+  // ==========================================================================
+
+  // Rechtsklick auf eine AP-Tageszelle. Nur an bearbeitbaren Tagen (kein
+  // Wochenende, kein Feiertag, nicht gesperrt). Oeffnet das Auswahlmenue.
+  const handleContextMenu = (e: React.MouseEvent, rowIndex: number, day: number) => {
+    if (isWeekend(selectedYear, selectedMonth, day)) return;
+    if (isHoliday(selectedYear, selectedMonth, day)) return;
+    if (blockedDays.has(day)) return;
+    e.preventDefault();
+    setCtxMenu({ x: e.clientX, y: e.clientY, rowIndex, day });
+  };
+
+  const closeCtxMenu = () => setCtxMenu(null);
+
+  // U/K/S aus dem Menue: exakt dieselbe Logik wie das Tippen des Buchstabens
+  // (handleCellChange) -- kein doppelter Code. F wird dort wie S behandelt.
+  const applyAbsenceFromMenu = (rowIndex: number, day: number, code: 'U' | 'K' | 'S') => {
+    // handleCellChange setzt die Fehlzeit exklusiv und entfernt dabei einen
+    // etwaigen KA-Marker dieses Tages (v7.4.6-33).
+    handleCellChange(rowIndex, day, code);
+    closeCtxMenu();
+  };
+
+  // Kurzarbeit setzen: reiner Tag-Marker, 0 Stunden. Fehlklick-Schutz: nicht
+  // auf Tage mit bereits erfassten Arbeits- oder Fehlzeit-Stunden.
+  const applyKurzarbeit = (day: number) => {
+    closeCtxMenu();
+    if (isKurzarbeitDay(day)) return; // schon markiert
+    const workH = sumWorkHoursForDay(day);
+    const absH = sumAbsenceHoursForDay(day);
+    if (workH > 0 || absH > 0) {
+      setError(`Tag ${day} enthaelt bereits Eintraege (Stunden oder Fehlzeit). Bitte zuerst leeren, dann als Kurzarbeit markieren.`);
+      return;
+    }
+    setError(null);
+    setKurzarbeitInput(prev => ({ ...prev, [day]: { id: prev[day]?.id } }));
+    setHasChanges(true);
+  };
+
+  // Kurzarbeit-Markierung wieder entfernen.
+  const removeKurzarbeit = (day: number) => {
+    closeCtxMenu();
+    setKurzarbeitInput(prev => {
+      const next = { ...prev };
+      delete next[day];
+      return next;
+    });
+    setHasChanges(true);
+  };
+
   // Keyboard Navigation
   const handleKeyDown = (
     e: React.KeyboardEvent<HTMLInputElement>,
@@ -1566,6 +1674,7 @@ export default function TimesheetForm({
       // dann am Feiertag haengen. Ueber reine Wochenenden ging es bereits.
       if (isHoliday(selectedYear, selectedMonth, d)) return false;
       if (blockedDays.has(d)) return false;
+      if (isKurzarbeitDay(d)) return false;  // v7.4.6-31
       if (type === 'ap' && !apRows[r]?.workPackageId) return false;
       return true;
     };
@@ -2083,6 +2192,32 @@ export default function TimesheetForm({
             entriesToSave.push(record);
           }
         });
+      });
+
+      // v7.4.6-31: Kurzarbeit -- reiner Tag-Marker. BEWUSST 0 Stunden, daher
+      // KEIN "hours === 0"-Filter (sonst wuerde der Marker nie gespeichert).
+      Object.entries(kurzarbeitInput).forEach(([dayStr, entry]) => {
+        const day = parseInt(dayStr);
+        const record = {
+          employee_id: selectedEmployeeId,
+          work_package_id: null,
+          project_id: selectedProjectId,
+          work_date: formatWorkDate(day),
+          hours: 0,
+          is_billable: false,
+          absence_code: 'KA',
+          data_source: 'manual',
+          entered_by: currentUserId,
+          entered_at: now,
+          is_active: true,
+          updated_at: now,
+        };
+        if (entry.id) {
+          entriesToSave.push({ id: entry.id, ...record });
+          idsToKeep.push(entry.id);
+        } else {
+          entriesToSave.push(record);
+        }
       });
 
       // Alte Eintraege deaktivieren
@@ -2902,8 +3037,11 @@ export default function TimesheetForm({
                       const isAbsence = entry?.value && isAbsenceCode(entry.value);
                       // A-021: Sperren + Cross-Projekt
                       const isBlocked = blockedDays.has(day);
+                      const isKA = isKurzarbeitDay(day);  // v7.4.6-31
                       const otherHrs = otherProjectHours[day] || 0;
-                      const cellTitle = isBlocked
+                      const cellTitle = isKA
+                        ? 'Kurzarbeit (Rechtsklick zum Entfernen)'
+                        : isBlocked
                         ? (blockedDayReasons[day] || 'Gesperrt')
                         : otherHrs > 0
                           ? `${otherHrs.toFixed(1)} h in anderen Projekten`
@@ -2913,9 +3051,10 @@ export default function TimesheetForm({
                         <td
                           key={day}
                           className={`border p-0 text-center ${
-                            weekend ? 'bg-gray-200' : holiday ? 'bg-orange-100' : isBlocked ? 'bg-red-100' : ''
+                            weekend ? 'bg-gray-200' : holiday ? 'bg-orange-100' : isBlocked ? 'bg-red-100' : isKA ? 'bg-amber-100 print:bg-white' : ''
                           }`}
                           title={cellTitle}
+                          onContextMenu={(e) => handleContextMenu(e, rowIndex, day)}
                         >
                           <input
                             type="text"
@@ -2926,11 +3065,12 @@ export default function TimesheetForm({
                             onChange={(e) => handleCellChange(rowIndex, day, e.target.value)}
                             onKeyDown={(e) => handleKeyDown(e, rowIndex, day, 'ap')}
                             onFocus={handleCellFocus}
-                            disabled={weekend || !!holiday || !row.workPackageId || isBlocked}
+                            disabled={weekend || !!holiday || !row.workPackageId || isBlocked || isKA}
                             maxLength={4}
                             className={`w-full h-8 text-center text-xs border-0 ${
                               weekend || !!holiday ? 'bg-transparent cursor-not-allowed' :
                               isBlocked ? 'bg-red-100 cursor-not-allowed' :
+                              isKA ? 'bg-amber-100 cursor-not-allowed pointer-events-none print:bg-transparent' :
                               !row.workPackageId ? 'bg-gray-50 cursor-not-allowed' :
                               isAbsence ? 'bg-blue-100 font-bold text-blue-700' : 'bg-white'
                             } focus:ring-1 ${colors.ring} print:bg-transparent`}
@@ -3076,10 +3216,11 @@ export default function TimesheetForm({
                   const holiday = isHoliday(selectedYear, selectedMonth, day);
                   const entry = nonBillableEntries[day];
                   const isBlocked = blockedDays.has(day);  // A-021
+                  const isKA = isKurzarbeitDay(day);  // v7.4.6-31
 
                   return (
-                    <td key={day} className={`border p-0 text-center ${weekend ? 'bg-gray-200' : holiday ? 'bg-orange-100' : isBlocked ? 'bg-red-100' : ''}`}
-                      title={isBlocked ? (blockedDayReasons[day] || 'Gesperrt') : undefined}
+                    <td key={day} className={`border p-0 text-center ${weekend ? 'bg-gray-200' : holiday ? 'bg-orange-100' : isBlocked ? 'bg-red-100' : isKA ? 'bg-amber-100 print:bg-white' : ''}`}
+                      title={isKA ? 'Kurzarbeit' : isBlocked ? (blockedDayReasons[day] || 'Gesperrt') : undefined}
                     >
                       <input
                         type="text"
@@ -3090,11 +3231,12 @@ export default function TimesheetForm({
                         onChange={(e) => handleNonBillableChange(day, e.target.value)}
                         onKeyDown={(e) => handleKeyDown(e, 0, day, 'nonbillable')}
                         onFocus={handleCellFocus}
-                        disabled={weekend || !!holiday || isBlocked}
+                        disabled={weekend || !!holiday || isBlocked || isKA}
                         maxLength={4}
                         className={`w-full h-6 text-center text-xs border-0 ${
                           weekend || !!holiday ? 'bg-transparent cursor-not-allowed' :
-                          isBlocked ? 'bg-red-100 cursor-not-allowed' : 'bg-white'
+                          isBlocked ? 'bg-red-100 cursor-not-allowed' :
+                          isKA ? 'bg-amber-100 cursor-not-allowed print:bg-transparent' : 'bg-white'
                         } focus:ring-1 focus:ring-yellow-500 print:bg-transparent`}
                       />
                     </td>
@@ -3119,9 +3261,10 @@ export default function TimesheetForm({
                   const weekend = isWeekend(selectedYear, selectedMonth, day);
                   const holiday = isHoliday(selectedYear, selectedMonth, day);
                   const entry = absenceHoursInput.U[day];
+                  const isKA = isKurzarbeitDay(day);  // v7.4.6-31
                   return (
-                    <td key={day} className={`border p-0 text-center text-[10px] ${weekend ? 'bg-gray-100' : 'bg-white'}`}>
-                      {!weekend && (
+                    <td key={day} className={`border p-0 text-center text-[10px] ${weekend ? 'bg-gray-100' : isKA ? 'bg-amber-100 print:bg-white' : 'bg-white'}`}>
+                      {!weekend && !isKA && (
                         <input
                           type="text" inputMode="decimal"
                           value={entry?.value || ''}
@@ -3155,9 +3298,10 @@ export default function TimesheetForm({
                 {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
                   const weekend = isWeekend(selectedYear, selectedMonth, day);
                   const entry = absenceHoursInput.K[day];
+                  const isKA = isKurzarbeitDay(day);  // v7.4.6-31
                   return (
-                    <td key={day} className={`border p-0 text-center text-[10px] ${weekend ? 'bg-gray-100' : 'bg-white'}`}>
-                      {!weekend && (
+                    <td key={day} className={`border p-0 text-center text-[10px] ${weekend ? 'bg-gray-100' : isKA ? 'bg-amber-100 print:bg-white' : 'bg-white'}`}>
+                      {!weekend && !isKA && (
                         <input
                           type="text" inputMode="decimal"
                           value={entry?.value || ''}
@@ -3192,9 +3336,10 @@ export default function TimesheetForm({
                   const weekend = isWeekend(selectedYear, selectedMonth, day);
                   const holiday = isHoliday(selectedYear, selectedMonth, day);
                   const entry = absenceHoursInput.S[day];
+                  const isKA = isKurzarbeitDay(day);  // v7.4.6-31
                   return (
-                    <td key={day} className={`border p-0 text-center text-[10px] ${weekend ? 'bg-gray-100' : holiday ? 'bg-orange-100' : 'bg-white'}`}>
-                      {!weekend && (
+                    <td key={day} className={`border p-0 text-center text-[10px] ${weekend ? 'bg-gray-100' : holiday ? 'bg-orange-100' : isKA ? 'bg-amber-100 print:bg-white' : 'bg-white'}`}>
+                      {!weekend && !isKA && (
                         <input
                           type="text" inputMode="decimal"
                           value={entry?.value || ''}
@@ -3222,6 +3367,25 @@ export default function TimesheetForm({
                 </td>
                 <td className="border p-1 bg-purple-50 print:hidden"></td>
               </tr>
+              {/* v7.4.6-31: Kurzarbeit -- nur wenn vorhanden. Rein informativ, keine Stunden. */}
+              {Object.keys(kurzarbeitInput).length > 0 && (
+                <tr>
+                  <td className="border p-1 text-[10px]" colSpan={isDurchfuehrbarkeitsstudie ? 4 : 3}>Kurzarbeit (informativ, keine Stunden)</td>
+                  {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
+                    const weekend = isWeekend(selectedYear, selectedMonth, day);
+                    const isKA = isKurzarbeitDay(day);
+                    return (
+                      <td key={day} className={`border p-1 text-center text-[10px] font-semibold ${weekend ? 'bg-gray-100' : isKA ? 'bg-amber-100 text-amber-800' : 'bg-white'}`}>
+                        {!weekend && isKA ? 'KA' : ''}
+                      </td>
+                    );
+                  })}
+                  <td className="border p-1 text-center font-semibold bg-amber-100">
+                    {Object.keys(kurzarbeitInput).length} Tg.
+                  </td>
+                  <td className="border p-1 bg-amber-50 print:hidden"></td>
+                </tr>
+              )}
             </tbody>
           </table>
 
@@ -3711,6 +3875,60 @@ export default function TimesheetForm({
                 Speichern
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* v7.4.6-31: Rechtsklick-Kontextmenue (Urlaub/Krankheit/Sonstige/Kurzarbeit) */}
+      {ctxMenu && (
+        <div className="fixed inset-0 z-50 print:hidden" onClick={closeCtxMenu} onContextMenu={(e) => { e.preventDefault(); closeCtxMenu(); }}>
+          <div
+            className="absolute bg-white border border-gray-300 rounded-md shadow-lg py-1 text-sm min-w-[200px]"
+            style={{ top: ctxMenu.y, left: ctxMenu.x }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-3 py-1 text-[11px] text-gray-500 border-b border-gray-100">
+              Tag {ctxMenu.day} eintragen als:
+            </div>
+            <button
+              type="button"
+              className="block w-full text-left px-3 py-1.5 hover:bg-blue-50"
+              onClick={() => applyAbsenceFromMenu(ctxMenu.rowIndex, ctxMenu.day, 'U')}
+            >
+              Urlaub
+            </button>
+            <button
+              type="button"
+              className="block w-full text-left px-3 py-1.5 hover:bg-red-50"
+              onClick={() => applyAbsenceFromMenu(ctxMenu.rowIndex, ctxMenu.day, 'K')}
+            >
+              Krankheit
+            </button>
+            <button
+              type="button"
+              className="block w-full text-left px-3 py-1.5 hover:bg-purple-50"
+              onClick={() => applyAbsenceFromMenu(ctxMenu.rowIndex, ctxMenu.day, 'S')}
+            >
+              Sonstige Ausfallzeit (z. B. Feiertag)
+            </button>
+            <div className="border-t border-gray-100 my-1"></div>
+            {isKurzarbeitDay(ctxMenu.day) ? (
+              <button
+                type="button"
+                className="block w-full text-left px-3 py-1.5 hover:bg-amber-50 text-amber-800"
+                onClick={() => removeKurzarbeit(ctxMenu.day)}
+              >
+                Kurzarbeit entfernen
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="block w-full text-left px-3 py-1.5 hover:bg-amber-50 text-amber-800"
+                onClick={() => applyKurzarbeit(ctxMenu.day)}
+              >
+                Kurzarbeit (keine Stunden)
+              </button>
+            )}
           </div>
         </div>
       )}
