@@ -3,7 +3,26 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 13. Juni 2026
-// Version: 7.4.6-33
+// Version: 7.4.6-36
+// v7.4.6-36: FIX Rahmen am Bildschirm. Unter Tailwind 4 hat "border" keine
+//   Standard-Grau-Farbe mehr (currentColor) -- in leeren Zellen wurden die
+//   Rahmen dadurch praktisch unsichtbar (Localhost), waehrend Produktiv/Druck
+//   sie zeigten. Loesung: explizite Rahmenfarbe (#d1d5db) gezielt nur fuer die
+//   Stundennachweis-Tabelle (.pze-ts-sheet), nicht global. Hinweis: falls die
+//   Rahmen auch anderswo in der App fehlen, waere die saubere Wurzelloesung
+//   eine Default-border-color-Regel in globals.css (Tailwind-4-Migration).
+// v7.4.6-35: Kosmetik -- Wochenend-Zellen der Zeile "sonstige Arbeiten" wieder
+//   im selben Grau (bg-gray-200) wie die uebrigen Wochenend-Spalten, damit das
+//   Raster einheitlich aussieht. Editierbar bleiben sie (Input transparent ueber
+//   grauem Feld). Hinweis: die Eingabemoeglichkeit am Wochenende sollte im
+//   Benutzerhandbuch ergaenzt werden.
+// v7.4.6-34: NEU Wochenend-Erfassung fuer nicht foerderbare Zeiten (z.B.
+//   Dienstreise). Variante 2: NUR die Zeile "sonstige Arbeiten" (nicht
+//   zuschussfaehig) ist am Wochenende editierbar; AP-Zeilen und U/K/S bleiben
+//   am Wochenende gesperrt (keine versehentlich foerderbaren Wochenendstunden).
+//   Die harte 9h-Tagesgrenze gilt nicht mehr am Wochenende (sie betrifft
+//   foerderbare Werktagsstunden). Druck/Sammeldruck zeigen die Stunden bereits
+//   in der Sonstige-Zeile -- keine Aenderung an Sheet/Daten-Util noetig.
 // v7.4.6-33: FIX Fehlzeiten-Stapelung. Eine Fehlzeit (U/K/S) setzte bisher nur
 //   die gewaehlte Zeile, ohne die anderen Fehlzeiten desselben Tages zu raeumen
 //   -- so liessen sich U+K+S am selben Tag stapeln (z.B. 3x8h = 24h). Jetzt
@@ -1981,6 +2000,10 @@ export default function TimesheetForm({
   const findTagVerletzung = (): number | null => {
     const daysInMon = getDaysInMonth(selectedYear, selectedMonth);
     for (let d = 1; d <= daysInMon; d++) {
+      // v7.4.6-34: Wochenenden von der 9h-Tagesgrenze ausnehmen. Am Wochenende
+      // sind nur nicht-foerderbare "sonstige Arbeiten" (z.B. Dienstreise)
+      // moeglich; die PT-Tagesgrenze gilt fuer foerderbare Werktagsstunden.
+      if (isWeekend(selectedYear, selectedMonth, d)) continue;
       if (Math.round(calcCrossProjectTagSumme(d) * 100) > Math.round(TAGESGRENZE_HART * 100)) return d;
     }
     return null;
@@ -2879,7 +2902,7 @@ export default function TimesheetForm({
       )}
 
       {/* STUNDENNACHWEIS-FORMULAR */}
-      <div ref={printRef} className="max-w-full mx-auto p-4 print:p-0 print:m-0">
+      <div ref={printRef} className="pze-ts-sheet max-w-full mx-auto p-4 print:p-0 print:m-0">
         <div className="bg-white shadow-lg print:shadow-none overflow-x-auto text-gray-900">
           {/* Header-Bereich */}
           <table className="w-full border-collapse text-xs" style={{ minWidth: '1000px', tableLayout: 'fixed' }}>
@@ -3219,8 +3242,8 @@ export default function TimesheetForm({
                   const isKA = isKurzarbeitDay(day);  // v7.4.6-31
 
                   return (
-                    <td key={day} className={`border p-0 text-center ${weekend ? 'bg-gray-200' : holiday ? 'bg-orange-100' : isBlocked ? 'bg-red-100' : isKA ? 'bg-amber-100 print:bg-white' : ''}`}
-                      title={isKA ? 'Kurzarbeit' : isBlocked ? (blockedDayReasons[day] || 'Gesperrt') : undefined}
+                    <td key={day} className={`border p-0 text-center ${holiday ? 'bg-orange-100' : isBlocked ? 'bg-red-100' : isKA ? 'bg-amber-100 print:bg-white' : weekend ? 'bg-gray-200' : ''}`}
+                      title={isKA ? 'Kurzarbeit' : isBlocked ? (blockedDayReasons[day] || 'Gesperrt') : weekend ? 'Wochenende -- nur fuer nicht foerderbare Zeiten (z. B. Dienstreise)' : undefined}
                     >
                       <input
                         type="text"
@@ -3231,12 +3254,13 @@ export default function TimesheetForm({
                         onChange={(e) => handleNonBillableChange(day, e.target.value)}
                         onKeyDown={(e) => handleKeyDown(e, 0, day, 'nonbillable')}
                         onFocus={handleCellFocus}
-                        disabled={weekend || !!holiday || isBlocked || isKA}
+                        disabled={!!holiday || isBlocked || isKA}
                         maxLength={4}
                         className={`w-full h-6 text-center text-xs border-0 ${
-                          weekend || !!holiday ? 'bg-transparent cursor-not-allowed' :
+                          !!holiday ? 'bg-transparent cursor-not-allowed' :
                           isBlocked ? 'bg-red-100 cursor-not-allowed' :
-                          isKA ? 'bg-amber-100 cursor-not-allowed print:bg-transparent' : 'bg-white'
+                          isKA ? 'bg-amber-100 cursor-not-allowed pointer-events-none print:bg-transparent' :
+                          weekend ? 'bg-transparent' : 'bg-white'
                         } focus:ring-1 focus:ring-yellow-500 print:bg-transparent`}
                       />
                     </td>
@@ -3935,6 +3959,14 @@ export default function TimesheetForm({
 
       {/* Print Styles */}
       <style jsx global>{`
+        /* v7.4.6-36: Explizite Rahmenfarbe fuer das Stundennachweis-Raster.
+           Tailwind 4 setzt fuer "border" keine Standard-Grau-Farbe mehr
+           (faellt auf currentColor zurueck -> bei leeren Zellen unsichtbar).
+           Hier gezielt nur fuer diese Tabelle gesetzt, nicht global. */
+        .pze-ts-sheet table td,
+        .pze-ts-sheet table th {
+          border-color: #d1d5db;
+        }
         @media print {
           html, body {
             -webkit-print-color-adjust: exact !important;
