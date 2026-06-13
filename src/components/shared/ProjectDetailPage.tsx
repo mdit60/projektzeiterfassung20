@@ -3,7 +3,12 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 8. Mai 2026
-// Version: 7.4.4-57
+// Version: 7.4.4-58
+// v7.4.4-58: Deep-Link-Unterstuetzung fuer Cockpit-Kaestchen-Sprung.
+//   - activeTab-Initializer liest generischen ?tab-Parameter (z.B. ?tab=team).
+//   - ?editMember=[employeeId] wird gelesen und an ProjectTeamManager
+//     durchgereicht (oeffnet dort den Bearbeiten-Dialog des MA automatisch).
+//   - Reine Navigation/Prop-Durchreichung, keine Logikaenderung.
 // v7.4.4-57: Zurueck-Button immer "Zurueck" (einheitlich, Haeuschen = Cockpit)
 // v7.4.4-56: returnTo-Parameter: Zurueck-Button fuehrt zum Cockpit wenn von dort gesprungen
 // v7.4.4-55: Firmen-Portal: Zurueck-Button zeigt "Dashboard" statt "Projekte"
@@ -338,7 +343,16 @@ export default function ProjectDetailPage({
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<TabKey>(() => {
     const nwmTabParam = searchParams?.get('nwmTab');
-    return nwmTabParam ? 'netzwerk' : 'uebersicht';
+    if (nwmTabParam) return 'netzwerk';
+    const tabParam = searchParams?.get('tab');
+    if (
+      tabParam === 'uebersicht' || tabParam === 'arbeitspakete' ||
+      tabParam === 'team' || tabParam === 'zeiterfassung' ||
+      tabParam === 'zahlungsanforderungen' || tabParam === 'netzwerk'
+    ) {
+      return tabParam;
+    }
+    return 'uebersicht';
   });
   const [nwmTab, setNwmTab] = useState<NWMTabKey>(() => {
     const param = searchParams?.get('nwmTab');
@@ -347,6 +361,7 @@ export default function ProjectDetailPage({
   });
   const [fromNWMList] = useState<boolean>(() => !!searchParams?.get('nwmTab'));
   const [returnTo] = useState<string | null>(() => searchParams?.get('returnTo') || null);
+  const [initialEditEmployeeId] = useState<string | null>(() => searchParams?.get('editMember') || null);
 
   // State Arbeitspakete
   const [workPackages, setWorkPackages] = useState<WorkPackage[]>([]);
@@ -1696,6 +1711,7 @@ export default function ProjectDetailPage({
               clientCompanyId={companyId || project.client_company_id}
               onTeamChange={loadData}
               canEdit={adminUser}
+              initialEditEmployeeId={initialEditEmployeeId}
             />
           </div>
         )}

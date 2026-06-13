@@ -3,7 +3,15 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-33
+// Version: 7.4.9-34
+// v7.4.9-34: Projekt-Kaestchen in MA-Liste anklickbar -> Sprung in Team-Liste
+//   des Projekts mit direktem Bearbeiten-Dialog des Mitarbeiters.
+//   - PFEmployee: projektNamen (string[]) ersetzt durch projekte ({id,name}[])
+//     fuer indexgleiche Verlinkung (Name + Projekt-ID je Kaestchen).
+//   - Neuer handleTeamMemberClick: navigiert nach
+//     /projekt/[id]?tab=team&editMember=[employeeId]&returnTo=[Cockpit].
+//   - Trennt sauber: Stift = Arbeitsvertrag (firmenweit), Kaestchen =
+//     Projekt-Zugehoerigkeit (Team-Liste). Reine UI/Navigation, keine Logik.
 // v7.4.9-33: Prognose-Anzeige konsistent zum ProjektFortschrittPanel (v7.4.5-24).
 //   "Prognose gesamt" zeigt die auf den Plan gekappte Hochrechnung
 //   (analysis.prognoseStundenAbrechenbar) statt der ungekappten Roh-Hochrechnung;
@@ -200,7 +208,7 @@ interface MitarbeiterData {
   weekly_hours: number | null;
   is_active: boolean;
   projektIds: string[];
-  projektNamen: string[];
+  projekte: { id: string; name: string }[];
 }
 
 interface ZAData {
@@ -500,14 +508,14 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
             }
           }
 
-          const projektNamen = alleProjekte
+          const projekte = alleProjekte
             .filter(p => projektIdSet.has(p.id) && p.is_active)
-            .map(p => p.short_name || p.name);
+            .map(p => ({ id: p.id, name: p.short_name || p.name }));
 
           maList.push({
             ...ma,
             projektIds: Array.from(projektIdSet),
-            projektNamen,
+            projekte,
           });
         }
       }
@@ -672,6 +680,22 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
       router.push('/v7/berater/foerderung/firma/' + firmaIdLocal + '/projekt/' + projektId + '?returnTo=' + returnTo);
     } else {
       router.push('/v7/firma/projekte/' + projektId + '?returnTo=' + returnTo);
+    }
+  }
+
+  function handleTeamMemberClick(projektId: string, employeeId: string) {
+    const returnTo = encodeURIComponent(
+      portal === 'berater'
+        ? (isAppMode
+            ? '/v7/berater/app/firma/' + firmaIdLocal
+            : '/v7/berater/foerderung/firma/' + firmaIdLocal + '/cockpit')
+        : '/v7/firma/cockpit'
+    );
+    const suffix = '?tab=team&editMember=' + employeeId + '&returnTo=' + returnTo;
+    if (portal === 'berater') {
+      router.push('/v7/berater/foerderung/firma/' + firmaIdLocal + '/projekt/' + projektId + suffix);
+    } else {
+      router.push('/v7/firma/projekte/' + projektId + suffix);
     }
   }
 
@@ -1150,20 +1174,23 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                     {ma.position_title && (
                       <span className="text-xs text-gray-500">{ma.position_title}</span>
                     )}
-                    {ma.projektNamen.length > 0 && (
+                    {ma.projekte.length > 0 && (
                       <div className="mt-1 flex flex-wrap gap-1">
-                        {ma.projektNamen.map((pName, idx) => (
-                          <span
-                            key={idx}
-                            className="inline-block text-xs px-2 py-0.5 rounded-full border"
+                        {ma.projekte.map((proj) => (
+                          <button
+                            key={proj.id}
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleTeamMemberClick(proj.id, ma.id); }}
+                            className="inline-block text-xs px-2 py-0.5 rounded-full border cursor-pointer hover:opacity-80 transition-opacity"
                             style={{
                               color: primaryColor,
                               borderColor: primaryColor + '40',
                               backgroundColor: primaryColor + '10',
                             }}
+                            title={'Im Projekt ' + proj.name + ' bearbeiten (Team-Liste)'}
                           >
-                            {pName}
-                          </span>
+                            {proj.name}
+                          </button>
                         ))}
                       </div>
                     )}
