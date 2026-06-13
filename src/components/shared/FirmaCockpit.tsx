@@ -3,7 +3,17 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-34
+// Version: 7.4.9-35
+// v7.4.9-35: Cockpit-MA-Liste konsistent zur Projekt-Team-Liste.
+//   - Projektzugehoerigkeit (Kaestchen + Filter) jetzt aus v7_project_assignments
+//     statt v7_work_package_assignments -> Teammitglieder ohne AP-Zuordnung
+//     (nachtraeglich aufgenommen) erscheinen jetzt ebenfalls vorne.
+//   - Ausgeschiedene Teammitglieder (assignment_end in Vergangenheit) werden
+//     angezeigt, aber grau statt blau/gruen markiert (Variante 1).
+//   - Sortierung bei gewaehltem Projekt nach employee_number (Team-/Antrags-
+//     Nummerierung, konsistent zur Team-Liste und zum TimesheetForm),
+//     ohne gewaehltes Projekt alphabetisch.
+//   - Reine Anzeige/Sortierung, keine Schreiblogik.
 // v7.4.9-34: Projekt-Kaestchen in MA-Liste anklickbar -> Sprung in Team-Liste
 //   des Projekts mit direktem Bearbeiten-Dialog des Mitarbeiters.
 //   - PFEmployee: projektNamen (string[]) ersetzt durch projekte ({id,name}[])
@@ -208,7 +218,7 @@ interface MitarbeiterData {
   weekly_hours: number | null;
   is_active: boolean;
   projektIds: string[];
-  projekte: { id: string; name: string }[];
+  projekte: { id: string; name: string; ausgeschieden: boolean; nummer: number | null }[];
 }
 
 interface ZAData {
@@ -493,28 +503,45 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
 
       const maList: MitarbeiterData[] = [];
       if (maDB) {
+        const heute = new Date().toISOString().split('T')[0];
         for (const ma of maDB) {
-          const { data: wpaDB } = await supabase
-            .from('v7_work_package_assignments')
-            .select('work_package_id, is_active, v7_work_packages!inner(project_id)')
-            .eq('employee_id', ma.id)
-            .eq('is_active', true);
+          // v7.4.9-35: Projektzugehoerigkeit aus Projekt-Zuordnungen (nicht AP-Zuordnungen),
+          //   damit Cockpit-Liste und Team-Liste konsistent sind. assignment_end -> ausgeschieden,
+          //   employee_number -> Sortierung wie im Team / Antrag.
+          const { data: paDB } = await supabase
+            .from('v7_project_assignments')
+            .select('project_id, assignment_end, employee_number')
+            .eq('employee_id', ma.id);
 
-          const projektIdSet = new Set<string>();
-          if (wpaDB) {
-            for (const wpa of wpaDB) {
-              const wp = wpa.v7_work_packages as any;
-              if (wp?.project_id) projektIdSet.add(wp.project_id);
+          // je Projekt: aktiv (mind. eine nicht-beendete Zuordnung) + Team-Nummer
+          const projektInfo = new Map<string, { aktiv: boolean; nummer: number | null }>();
+          if (paDB) {
+            for (const pa of paDB) {
+              if (!pa.project_id) continue;
+              const aktiv = !pa.assignment_end || pa.assignment_end >= heute;
+              const prev = projektInfo.get(pa.project_id);
+              projektInfo.set(pa.project_id, {
+                aktiv: (prev?.aktiv ?? false) || aktiv,
+                nummer: prev?.nummer ?? (pa.employee_number ?? null),
+              });
             }
           }
 
           const projekte = alleProjekte
-            .filter(p => projektIdSet.has(p.id) && p.is_active)
-            .map(p => ({ id: p.id, name: p.short_name || p.name }));
+            .filter(p => projektInfo.has(p.id) && p.is_active)
+            .map(p => {
+              const info = projektInfo.get(p.id)!;
+              return {
+                id: p.id,
+                name: p.short_name || p.name,
+                ausgeschieden: !info.aktiv,
+                nummer: info.nummer,
+              };
+            });
 
           maList.push({
             ...ma,
-            projektIds: Array.from(projektIdSet),
+            projektIds: Array.from(projektInfo.keys()),
             projekte,
           });
         }
@@ -833,7 +860,16 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
 
   // MA gefiltert nach ausgewaehltem Projekt
   const filteredMA = selectedProjektId
-    ? mitarbeiter.filter(ma => ma.projektIds.includes(selectedProjektId))
+    ? mitarbeiter
+        .filter(ma => ma.projektIds.includes(selectedProjektId))
+        .sort((a, b) => {
+          const na = a.projekte.find(p => p.id === selectedProjektId)?.nummer ?? null;
+          const nb = b.projekte.find(p => p.id === selectedProjektId)?.nummer ?? null;
+          if (na !== null && nb !== null) return na - nb;
+          if (na !== null) return -1;
+          if (nb !== null) return 1;
+          return a.display_name.localeCompare(b.display_name);
+        })
     : mitarbeiter;
 
   // ZA gefiltert nach ausgewaehltem Projekt
@@ -1176,22 +1212,27 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                     )}
                     {ma.projekte.length > 0 && (
                       <div className="mt-1 flex flex-wrap gap-1">
-                        {ma.projekte.map((proj) => (
-                          <button
-                            key={proj.id}
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); handleTeamMemberClick(proj.id, ma.id); }}
-                            className="inline-block text-xs px-2 py-0.5 rounded-full border cursor-pointer hover:opacity-80 transition-opacity"
-                            style={{
-                              color: primaryColor,
-                              borderColor: primaryColor + '40',
-                              backgroundColor: primaryColor + '10',
-                            }}
-                            title={'Im Projekt ' + proj.name + ' bearbeiten (Team-Liste)'}
-                          >
-                            {proj.name}
-                          </button>
-                        ))}
+                        {ma.projekte.map((proj) => {
+                          const farbe = proj.ausgeschieden ? '#6b7280' : primaryColor;
+                          return (
+                            <button
+                              key={proj.id}
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); handleTeamMemberClick(proj.id, ma.id); }}
+                              className="inline-block text-xs px-2 py-0.5 rounded-full border cursor-pointer hover:opacity-80 transition-opacity"
+                              style={{
+                                color: farbe,
+                                borderColor: farbe + '40',
+                                backgroundColor: farbe + '10',
+                              }}
+                              title={proj.ausgeschieden
+                                ? ('Aus Projekt ' + proj.name + ' ausgeschieden - Team-Liste oeffnen')
+                                : ('Im Projekt ' + proj.name + ' bearbeiten (Team-Liste)')}
+                            >
+                              {proj.name}
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
