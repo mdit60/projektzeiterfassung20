@@ -3,7 +3,14 @@
 // PZE V7 - Projekt-Team Management
 // ============================================================================
 // Datum: 6. Mai 2026
-// Version: 7.4.4-17
+// Version: 7.4.4-18
+// AENDERUNGEN v7.4.4-18:
+// - Neue optionale Prop initialEditEmployeeId: oeffnet nach dem Laden einmalig
+//   den Bearbeiten-Dialog des passenden Team-Mitglieds (Deep-Link aus dem
+//   Cockpit-Kaestchen, ?editMember=[employeeId]).
+// - Einmalig per useRef-Guard; nur wenn canEdit und Member im Team gefunden.
+// - Reine Zusatzfunktion, bestehendes Verhalten unveraendert.
+//
 // AENDERUNGEN v7.4.4-17:
 // - ROLE_OPTIONS reduziert auf 3 Werte: Projektleiter, Projektmitarbeiter,
 //   Wissenschaftlicher Mitarbeiter.
@@ -63,7 +70,7 @@
 
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import {
   Plus,
@@ -121,6 +128,7 @@ interface ProjectTeamManagerProps {
   canEdit: boolean;
   portal: 'berater' | 'firma';
   onTeamChange?: () => void;
+  initialEditEmployeeId?: string | null;
 }
 
 // Rollen-Optionen fuer Dropdown (reduziert auf 3 ZA-relevante Werte, Session 36)
@@ -1089,6 +1097,7 @@ export default function ProjectTeamManager({
   canEdit,
   portal,
   onTeamChange,
+  initialEditEmployeeId,
 }: ProjectTeamManagerProps) {
   const supabase = createClient();
   const colors = PORTAL_COLORS[portal];
@@ -1104,9 +1113,24 @@ export default function ProjectTeamManager({
   const [memberHasTimeEntries, setMemberHasTimeEntries] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  // v7.4.4-18: Deep-Link aus Cockpit-Kaestchen -> Bearbeiten-Dialog einmalig oeffnen
+  const didAutoOpenEdit = useRef(false);
+
   useEffect(() => {
     loadData();
   }, [projectId, clientCompanyId]);
+
+  useEffect(() => {
+    if (didAutoOpenEdit.current) return;
+    if (!initialEditEmployeeId || !canEdit) return;
+    if (teamMembers.length === 0) return;
+    const target = teamMembers.find(m => m.employee_id === initialEditEmployeeId);
+    if (target) {
+      setEditingMember(target);
+      setShowEditDialog(true);
+      didAutoOpenEdit.current = true;
+    }
+  }, [teamMembers, initialEditEmployeeId, canEdit]);
 
   const loadData = async () => {
     setLoading(true);
