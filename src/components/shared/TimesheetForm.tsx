@@ -3,25 +3,16 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 13. Juni 2026
-// Version: 7.4.6-40
-// v7.4.6-40: DIAGNOSE (temporaer) - Banner jetzt IMMER sichtbar (fix oben,
-//   z-9999), mit Startwert und Statusmarken: effect-start (zeigt projektId/
-//   emplId), early-return bei leerem selectedProjectId, "Abfrage startet",
-//   und Endergebnis (rows/error/teamIDs/empIDs). So sehen wir, wie weit der
-//   Effekt kommt. Reine Diagnose, Filterlogik unveraendert.
-// Version: 7.4.6-39
-// v7.4.6-39: DIAGNOSE (temporaer, sichtbar im UI). Statt Konsole zeigt das
-//   Formular oben einen gelben Streifen mit dem Ergebnis der Team-Abfrage
-//   (Projekt-ID, Zeilenzahl, error, teamIDs, empIDs). Query in try/catch, damit
-//   auch eine geworfene Exception sichtbar wird. Reine Diagnose, Filterlogik
-//   unveraendert. Wird nach Klaerung wieder entfernt.
-// Version: 7.4.6-38
-// v7.4.6-38: DIAGNOSE (temporaer) - Teil 2a filtert nicht; MA-Dropdown zeigt
-//   weiter alle MA. Code ist live, Cache ausgeschlossen -> teamMemberIds bleibt
-//   leer. Diese Version liest den Query-error mit aus und loggt Projekt-ID,
-//   Zeilenzahl, error, Assignment-MA-IDs und safeEmployees-IDs in die Konsole,
-//   um die Ursache (Query-Fehler / RLS / leeres Ergebnis / ID-Mismatch) zu
-//   sehen. Wird nach der Diagnose wieder entfernt.
+// Version: 7.4.6-42
+// v7.4.6-42: Diagnose komplett entfernt (Banner, dbgInfo-State, Statusmarken,
+//   try/catch-Logging). Der Filter funktioniert: Ursache war ein Reihenfolge-
+//   Crash (siehe -41), keine Daten-/RLS-Frage. Inhaltlich = sauberer Stand von
+//   -37 plus der -41-Korrektur (teamEmployees nach den selected*-States).
+// v7.4.6-41: FIX Reihenfolge-Crash. teamEmployees (useMemo, liest
+//   selectedEmployeeId) stand oberhalb der selected*-State-Deklarationen ->
+//   Runtime ReferenceError "selectedEmployeeId before initialization", Formular
+//   stuerzte beim Rendern ab. teamEmployees jetzt NACH den selected*-States.
+// v7.4.6-38..-40: temporaere Diagnose (wieder entfernt in -42).
 // Version: 7.4.6-37
 // v7.4.6-37: Teil 2a - MA-Auswahl aufs Projektteam beschraenken. Das Formular
 //   lud zwar das Projektteam (teamNumbers), zeigte im MA-Dropdown aber alle
@@ -471,8 +462,6 @@ export default function TimesheetForm({
   // v7.4.6-37 (Teil 2a): alle dem Projekt zugeordneten MA-IDs (auch ohne
   // employee_number) - Grundlage fuer den MA-Dropdown-Filter.
   const [teamMemberIds, setTeamMemberIds] = useState<Set<string>>(new Set());
-  // v7.4.6-39: temporaerer Diagnose-Text (sichtbar im UI-Banner)
-  const [dbgInfo, setDbgInfo] = useState<string>('init (Effekt noch nicht gelaufen)');
 
   // NEU v7.4.3-20: Assignment-Daten fuer Zeitraum-Einschraenkung
   const [assignmentStart, setAssignmentStart] = useState<string | null>(null);
@@ -521,20 +510,6 @@ export default function TimesheetForm({
     });
   }, [safeEmployees, teamNumbers]);
 
-  // v7.4.6-37 (Teil 2a): MA-Dropdown auf das Projektteam filtern.
-  // Faellt das Team leer (Ladephase oder Projekt ohne Team), volle Liste als
-  // Fallback (kein leeres Dropdown). Der aktuell gewaehlte MA bleibt immer
-  // sichtbar, damit Deep-Links/Reset-Latenz keinen leeren Select erzeugen.
-  const teamEmployees = useMemo(() => {
-    if (teamMemberIds.size === 0) return sortedEmployees;
-    const inTeam = sortedEmployees.filter(e => teamMemberIds.has(e.id));
-    if (selectedEmployeeId && !teamMemberIds.has(selectedEmployeeId)) {
-      const sel = safeEmployees.find(e => e.id === selectedEmployeeId);
-      if (sel) return [sel, ...inTeam];
-    }
-    return inTeam;
-  }, [sortedEmployees, teamMemberIds, selectedEmployeeId, safeEmployees]);
-
   // State
   const [saving, setSaving] = useState(false);
   // v7.4.6-26: Synchroner Wiedereintritts-Riegel gegen Doppel-Speichern.
@@ -552,6 +527,23 @@ export default function TimesheetForm({
   const [selectedProjectId, setSelectedProjectId] = useState<string>(initialProjectId || safeProjects[0]?.id || '');
   const [selectedYear, setSelectedYear] = useState<number>(initialYear || new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState<number>(initialMonth || new Date().getMonth() + 1);
+
+  // v7.4.6-41 FIX: teamEmployees MUSS nach den selected*-States stehen
+  // (es liest selectedEmployeeId). Vorher stand es darueber -> Runtime-Crash
+  // "can't access lexical declaration 'selectedEmployeeId' before initialization",
+  // wodurch das Formular gar nicht rendern konnte (daher Fallback alle MA).
+  // v7.4.6-37 (Teil 2a): MA-Dropdown auf das Projektteam filtern. Faellt das
+  // Team leer (Ladephase / Projekt ohne Team), volle Liste als Fallback (kein
+  // leeres Dropdown). Der aktuell gewaehlte MA bleibt immer sichtbar.
+  const teamEmployees = useMemo(() => {
+    if (teamMemberIds.size === 0) return sortedEmployees;
+    const inTeam = sortedEmployees.filter(e => teamMemberIds.has(e.id));
+    if (selectedEmployeeId && !teamMemberIds.has(selectedEmployeeId)) {
+      const sel = safeEmployees.find(e => e.id === selectedEmployeeId);
+      if (sel) return [sel, ...inTeam];
+    }
+    return inTeam;
+  }, [sortedEmployees, teamMemberIds, selectedEmployeeId, safeEmployees]);
 
   // Unterschriftsdatum
   const [signatureDate, setSignatureDate] = useState<string>('');
@@ -1021,9 +1013,7 @@ export default function TimesheetForm({
 
   // Team-Nummern + Assignment-Daten laden wenn Projekt oder MA sich aendert
   useEffect(() => {
-    setDbgInfo('effect-start: projektId=' + (selectedProjectId || '(leer)') + ' | emplId=' + (selectedEmployeeId || '(leer)'));
     if (!selectedProjectId) {
-      setDbgInfo('kein selectedProjectId -> early return (Dropdown-Wert != State?)');
       setTeamNumbers(new Map());
       setTeamMemberIds(new Set());
       setAssignmentStart(null);
@@ -1031,29 +1021,11 @@ export default function TimesheetForm({
       return;
     }
     const loadTeamNumbers = async () => {
-      setDbgInfo('Abfrage startet fuer Projekt=' + selectedProjectId);
       const supabaseClient = createClient();
-      let data: any = null;
-      let errMsg = '-';
-      try {
-        const res = await supabaseClient
-          .from('v7_project_assignments')
-          .select('employee_id, employee_number, assignment_start, assignment_end')
-          .eq('project_id', selectedProjectId);
-        data = res.data;
-        if (res.error) errMsg = res.error.message || String(res.error);
-      } catch (ex: any) {
-        errMsg = 'EXCEPTION: ' + (ex?.message || String(ex));
-      }
-      // v7.4.6-39: Diagnose sichtbar im UI (Banner) statt nur Konsole.
-      const teamIds = data ? data.map((a: { employee_id: string }) => a.employee_id) : [];
-      setDbgInfo(
-        'Projekt=' + selectedProjectId +
-        ' | rows=' + (data ? data.length : 'null') +
-        ' | error=' + errMsg +
-        ' | teamIDs=[' + teamIds.join(', ') + ']' +
-        ' | empIDs=[' + safeEmployees.map(e => e.id).join(', ') + ']'
-      );
+      const { data } = await supabaseClient
+        .from('v7_project_assignments')
+        .select('employee_id, employee_number, assignment_start, assignment_end')
+        .eq('project_id', selectedProjectId);
       if (data) {
         const map = new Map<string, number>();
         data.forEach((a: { employee_id: string; employee_number: number | null; assignment_start: string | null; assignment_end: string | null }) => {
@@ -2725,14 +2697,6 @@ export default function TimesheetForm({
 
   return (
     <div className="min-h-screen bg-gray-100 print:bg-white">
-      {/* v7.4.6-40: IMMER sichtbares Diagnose-Banner (temporaer), fix oben */}
-      <div
-        className="fixed top-0 left-0 right-0 z-[9999] px-3 py-2 bg-yellow-300 text-black text-xs break-all print:hidden"
-        style={{ borderBottom: '2px solid #b45309' }}
-      >
-        DIAGNOSE Teil 2a: {dbgInfo || '(noch nichts gesetzt)'}
-      </div>
-      <div className="h-8 print:hidden" />
       {/* Header */}
       <header style={{ backgroundColor: colors.primary }} className="shadow-sm print:hidden">
         <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8">
@@ -2851,12 +2815,6 @@ export default function TimesheetForm({
       {/* Steuerung */}
       <div className="bg-white border-b shadow-sm print:hidden">
         <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8 py-3">
-          {/* v7.4.6-39: temporaerer Diagnose-Streifen (Teil 2a) */}
-          {dbgInfo && (
-            <div className="mb-2 px-3 py-2 bg-yellow-100 border border-yellow-400 rounded text-xs text-yellow-900 break-all">
-              DIAGNOSE Teil 2a: {dbgInfo}
-            </div>
-          )}
           <div className="flex flex-wrap items-center gap-4">
             {/* Mitarbeiter */}
             <div className="flex items-center gap-2">
