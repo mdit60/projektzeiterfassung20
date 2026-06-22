@@ -2,7 +2,12 @@
 
 // Route: /v7/berater/foerderung/firma/[id]/cockpit/stundennachweis
 // Eigenstaendige Seite fuer StundennachweisMatrix (ohne BerichtePage)
-// Version: 7.4.9-5
+// Version: 7.4.9-6
+// v7.4.9-6: assignment_start/end je Mitarbeiter UND Projekt zusammenfuehren
+//   (vorher nur je employee_id -> ein MA in mehreren Projekten konnte die
+//   Datumsgrenzen des falschen Projekts erben). project_id in die
+//   assignDates-Query aufgenommen, Merge matcht jetzt employee_id + project_id.
+//   Zusammenspiel mit StundennachweisMatrix v7.4.6-4 (Projektfilter der MA).
 // v7.4.9-5: FIX Cockpit-Navigation:
 //   (1) Zellen-Klick uebergab den Monat als ?monat=YYYY-MM und ?ma= - die
 //       Zeiterfassungs-Seite liest aber ?employee=, ?year=, ?month=. Dadurch
@@ -102,11 +107,13 @@ export default function CockpitStundennachweisPage() {
         const paFlat = await loadProjectAssignments(projectIds);
         const { data: assignDates } = await supabase
           .from('v7_project_assignments')
-          .select('employee_id, assignment_start, assignment_end')
+          .select('employee_id, project_id, assignment_start, assignment_end')
           .in('project_id', projectIds)
           .eq('is_active', true);
         const paWithDates = paFlat.map((pa: any) => {
-          const dates = (assignDates || []).find((d: any) => d.employee_id === pa.employee_id);
+          const dates = (assignDates || []).find(
+            (d: any) => d.employee_id === pa.employee_id && d.project_id === pa.project_id
+          );
           return {
             ...pa,
             assignment_start: dates?.assignment_start || null,
