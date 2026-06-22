@@ -3,6 +3,16 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 13. Juni 2026
+// Version: 7.4.6-37
+// v7.4.6-37: Teil 2a - MA-Auswahl aufs Projektteam beschraenken. Das Formular
+//   lud zwar das Projektteam (teamNumbers), zeigte im MA-Dropdown aber alle
+//   Firmen-MA. Bei Mehr-Projekt-Firmen konnte man so MA buchen, die dem Projekt
+//   gar nicht zugeordnet sind. Jetzt: teamMemberIds (alle dem Projekt
+//   zugeordneten MA, auch ohne employee_number); Dropdown auf diese gefiltert
+//   (teamEmployees); der aktuell gewaehlte MA bleibt sichtbar (Deep-Link); beim
+//   Projektwechsel wird automatisch auf den ersten Team-MA umgestellt, falls
+//   der aktuelle nicht zum Team gehoert. Faellt das Team leer (Ladephase/kein
+//   Team), bleibt die volle Liste -> kein Bruch. Keine sonstige Logik beruehrt.
 // Version: 7.4.6-36
 // v7.4.6-36: FIX Rahmen am Bildschirm. Unter Tailwind 4 hat "border" keine
 //   Standard-Grau-Farbe mehr (currentColor) -- in leeren Zellen wurden die
@@ -439,6 +449,9 @@ export default function TimesheetForm({
 
   // Team-Nummern fuer das aktuell gewaehlte Projekt (employee_id -> employee_number)
   const [teamNumbers, setTeamNumbers] = useState<Map<string, number>>(new Map());
+  // v7.4.6-37 (Teil 2a): alle dem Projekt zugeordneten MA-IDs (auch ohne
+  // employee_number) - Grundlage fuer den MA-Dropdown-Filter.
+  const [teamMemberIds, setTeamMemberIds] = useState<Set<string>>(new Set());
 
   // NEU v7.4.3-20: Assignment-Daten fuer Zeitraum-Einschraenkung
   const [assignmentStart, setAssignmentStart] = useState<string | null>(null);
@@ -486,6 +499,20 @@ export default function TimesheetForm({
       return (a.display_name || '').localeCompare(b.display_name || '');
     });
   }, [safeEmployees, teamNumbers]);
+
+  // v7.4.6-37 (Teil 2a): MA-Dropdown auf das Projektteam filtern.
+  // Faellt das Team leer (Ladephase oder Projekt ohne Team), volle Liste als
+  // Fallback (kein leeres Dropdown). Der aktuell gewaehlte MA bleibt immer
+  // sichtbar, damit Deep-Links/Reset-Latenz keinen leeren Select erzeugen.
+  const teamEmployees = useMemo(() => {
+    if (teamMemberIds.size === 0) return sortedEmployees;
+    const inTeam = sortedEmployees.filter(e => teamMemberIds.has(e.id));
+    if (selectedEmployeeId && !teamMemberIds.has(selectedEmployeeId)) {
+      const sel = safeEmployees.find(e => e.id === selectedEmployeeId);
+      if (sel) return [sel, ...inTeam];
+    }
+    return inTeam;
+  }, [sortedEmployees, teamMemberIds, selectedEmployeeId, safeEmployees]);
 
   // State
   const [saving, setSaving] = useState(false);
@@ -975,6 +1002,7 @@ export default function TimesheetForm({
   useEffect(() => {
     if (!selectedProjectId) {
       setTeamNumbers(new Map());
+      setTeamMemberIds(new Set());
       setAssignmentStart(null);
       setAssignmentEnd(null);
       return;
@@ -991,6 +1019,25 @@ export default function TimesheetForm({
           if (a.employee_number !== null) map.set(a.employee_id, a.employee_number);
         });
         setTeamNumbers(map);
+
+        // v7.4.6-37 (Teil 2a): Team-Mitglieder-IDs (auch ohne employee_number)
+        const ids = new Set<string>(data.map((a: { employee_id: string }) => a.employee_id));
+        setTeamMemberIds(ids);
+
+        // Gehoert der aktuell gewaehlte MA nicht zum Team des Projekts, auf den
+        // ersten Team-MA (nach employee_number) umstellen, der auch in der
+        // uebergebenen MA-Liste vorhanden ist. Sonst (z.B. Nicht-Admin = nur
+        // er selbst, nicht im Team) Auswahl unveraendert lassen.
+        if (selectedEmployeeId && ids.size > 0 && !ids.has(selectedEmployeeId)) {
+          const ordered = [...data]
+            .filter((a: { employee_id: string }) => safeEmployees.some(e => e.id === a.employee_id))
+            .sort((a: { employee_number: number | null }, b: { employee_number: number | null }) =>
+              (a.employee_number ?? 9999) - (b.employee_number ?? 9999));
+          const firstId = ordered[0]?.employee_id;
+          if (firstId && firstId !== selectedEmployeeId) {
+            setSelectedEmployeeId(firstId);
+          }
+        }
 
         // NEU v7.4.3-20: Assignment-Daten fuer den aktuellen MA setzen
         if (selectedEmployeeId) {
@@ -2765,10 +2812,10 @@ export default function TimesheetForm({
                   const newValue = e.target.value;
                   checkUnsavedChanges(() => setSelectedEmployeeId(newValue));
                 }}
-                disabled={!isAdmin && sortedEmployees.length <= 1}
+                disabled={!isAdmin && teamEmployees.length <= 1}
                 className="border rounded px-2 py-1 text-sm"
               >
-                {sortedEmployees.map(emp => (
+                {teamEmployees.map(emp => (
                   <option key={emp.id} value={emp.id}>{emp.display_name}</option>
                 ))}
               </select>
