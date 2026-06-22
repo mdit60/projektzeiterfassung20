@@ -5,7 +5,10 @@
 // PZE - Gemeinsamer Portal-Footer
 // ============================================================================
 // Datum: 9. Mai 2026
-// Version: 7.4.9-1
+// Version: 7.4.9-2
+// v7.4.9-2: TEMPORAERER Build-Marker "Build 43" im Footer-Text, um zu
+//   pruefen ob PROD ueberhaupt den neuesten Vercel-Build ausliefert.
+//   Wird nach der Klaerung wieder entfernt. Sonst unveraendert.
 //
 // v7.4.9-1: Erstversion - Permanenter Footer unten
 //   - position: fixed, bottom: 0, volle Breite
@@ -42,7 +45,7 @@ export default function PortalFooter({ portal = 'berater' }: PortalFooterProps) 
     >
       <p className="text-xs text-center" style={{ color: 'rgba(255,255,255,0.75)' }}>
         PZE &ndash; Projektzeiterfassung by Cubintec GmbH, {year}
-        &nbsp;&middot;&nbsp;
+        &nbsp;&middot;&nbsp;Build&nbsp;43&nbsp;&middot;&nbsp;
         <span
           className="cursor-default transition-colors"
           style={{ color: 'rgba(255,255,255,0.75)' }}
@@ -66,5 +69,5 @@ export default function PortalFooter({ portal = 'berater' }: PortalFooterProps) 
 }
 
 // ============================================================================
-// ENDE PortalFooter v7.4.9-1
+// ENDE PortalFooter v7.4.9-2
 // ============================================================================
