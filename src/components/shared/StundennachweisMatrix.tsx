@@ -2,8 +2,16 @@
 // ============================================================================
 // PZE V7 - Shared Component: Stundennachweis-Matrix
 // ============================================================================
-// Version: 7.4.6-3
-// Datum: 11. Juni 2026
+// Version: 7.4.6-4
+// Datum: 22. Juni 2026
+// v7.4.6-4: FIX Mehr-Projekt-Firmen. Die MA-Zeilen wurden aus ALLEN
+//   projectAssignments gebildet (ohne Projektfilter) -> bei einer Firma mit
+//   mehreren Projekten erschienen alle Teammitglieder aller Projekte, egal
+//   welches Projekt oben gewaehlt war. Jetzt werden die Assignments zuerst auf
+//   das aktive Projekt gefiltert (pa.project_id === activeProjectId); MA-Liste,
+//   Sortierung und die MA-spezifischen Start/End-Grenzen nutzen diese
+//   gefilterte Liste. project_id im ProjectAssignment-Interface ergaenzt (war
+//   zur Laufzeit vorhanden aus loadProjectAssignments, nur nicht deklariert).
 // v7.4.6-3: NEU Sammeldruck-Modus. Ein Umschalt-Knopf ("Sammeldruck") macht die
 //   Matrix zur Auswahlflaeche: Klick auf eine Monatsspalte waehlt den Monat
 //   fuer alle MA, Klick auf einen MA-Namen die ganze Zeile, Klick auf eine
@@ -122,6 +130,7 @@ interface WPAssignment {
 
 interface ProjectAssignment {
   employee_id: string;
+  project_id: string;
   employee_number: number | null;
   assignment_start: string | null;
   assignment_end: string | null;
@@ -256,16 +265,21 @@ export default function StundennachweisMatrix({
 
     const years = [...new Set(months.map(m => m.year))];
     const projectWPs = workPackages.filter(wp => wp.project_id === activeProjectId);
+    // v7.4.6-4: Assignments zuerst auf das aktive Projekt filtern, sonst
+    // erscheinen bei Mehr-Projekt-Firmen die MA aller Projekte.
+    const projectAssignmentsForActive = projectAssignments.filter(
+      pa => pa.project_id === activeProjectId
+    );
     // v7.4.6-2: Quelle ist projectAssignments (Projektteam), nicht wpAssignments
     // (Arbeitsplan). Alle MA im Team erscheinen in der Matrix.
     const assignedEmployeeIds = [...new Set(
-      projectAssignments.map(pa => pa.employee_id)
+      projectAssignmentsForActive.map(pa => pa.employee_id)
     )];
     const matrixEmployees = employees
       .filter(e => assignedEmployeeIds.includes(e.id))
       .sort((a, b) => {
-        const paA = projectAssignments.find(pa => pa.employee_id === a.id);
-        const paB = projectAssignments.find(pa => pa.employee_id === b.id);
+        const paA = projectAssignmentsForActive.find(pa => pa.employee_id === a.id);
+        const paB = projectAssignmentsForActive.find(pa => pa.employee_id === b.id);
         const nrA = paA?.employee_number ?? 9999;
         const nrB = paB?.employee_number ?? 9999;
         if (nrA !== nrB) return nrA - nrB;
@@ -282,7 +296,7 @@ export default function StundennachweisMatrix({
     const cells: MatrixCell[] = [];
     matrixEmployees.forEach(emp => {
       // NEU v7.4.4-4: Erlaubten Zeitraum pro MA berechnen
-      const myAssignment = projectAssignments.find(pa => pa.employee_id === emp.id);
+      const myAssignment = projectAssignmentsForActive.find(pa => pa.employee_id === emp.id);
       const startLimits: string[] = [];
       if (emp.employment_start) startLimits.push(emp.employment_start);
       if (myAssignment?.assignment_start) startLimits.push(myAssignment.assignment_start);
