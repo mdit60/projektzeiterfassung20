@@ -3,6 +3,12 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 13. Juni 2026
+// Version: 7.4.6-39
+// v7.4.6-39: DIAGNOSE (temporaer, sichtbar im UI). Statt Konsole zeigt das
+//   Formular oben einen gelben Streifen mit dem Ergebnis der Team-Abfrage
+//   (Projekt-ID, Zeilenzahl, error, teamIDs, empIDs). Query in try/catch, damit
+//   auch eine geworfene Exception sichtbar wird. Reine Diagnose, Filterlogik
+//   unveraendert. Wird nach Klaerung wieder entfernt.
 // Version: 7.4.6-38
 // v7.4.6-38: DIAGNOSE (temporaer) - Teil 2a filtert nicht; MA-Dropdown zeigt
 //   weiter alle MA. Code ist live, Cache ausgeschlossen -> teamMemberIds bleibt
@@ -459,6 +465,8 @@ export default function TimesheetForm({
   // v7.4.6-37 (Teil 2a): alle dem Projekt zugeordneten MA-IDs (auch ohne
   // employee_number) - Grundlage fuer den MA-Dropdown-Filter.
   const [teamMemberIds, setTeamMemberIds] = useState<Set<string>>(new Set());
+  // v7.4.6-39: temporaerer Diagnose-Text (sichtbar im UI-Banner)
+  const [dbgInfo, setDbgInfo] = useState<string>('');
 
   // NEU v7.4.3-20: Assignment-Daten fuer Zeitraum-Einschraenkung
   const [assignmentStart, setAssignmentStart] = useState<string | null>(null);
@@ -1016,16 +1024,27 @@ export default function TimesheetForm({
     }
     const loadTeamNumbers = async () => {
       const supabaseClient = createClient();
-      const { data, error } = await supabaseClient
-        .from('v7_project_assignments')
-        .select('employee_id, employee_number, assignment_start, assignment_end')
-        .eq('project_id', selectedProjectId);
-      // v7.4.6-38: Diagnose Teil 2a - warum bleibt teamMemberIds leer?
-      console.log('[TimesheetForm][Teil2a] Projekt', selectedProjectId,
-        '-> rows:', data ? data.length : 'null',
-        '| error:', error ? (error.message || error) : 'keiner',
-        '| MA-IDs aus Assignments:', data ? data.map((a: { employee_id: string }) => a.employee_id) : [],
-        '| safeEmployees-IDs:', safeEmployees.map(e => e.id));
+      let data: any = null;
+      let errMsg = '-';
+      try {
+        const res = await supabaseClient
+          .from('v7_project_assignments')
+          .select('employee_id, employee_number, assignment_start, assignment_end')
+          .eq('project_id', selectedProjectId);
+        data = res.data;
+        if (res.error) errMsg = res.error.message || String(res.error);
+      } catch (ex: any) {
+        errMsg = 'EXCEPTION: ' + (ex?.message || String(ex));
+      }
+      // v7.4.6-39: Diagnose sichtbar im UI (Banner) statt nur Konsole.
+      const teamIds = data ? data.map((a: { employee_id: string }) => a.employee_id) : [];
+      setDbgInfo(
+        'Projekt=' + selectedProjectId +
+        ' | rows=' + (data ? data.length : 'null') +
+        ' | error=' + errMsg +
+        ' | teamIDs=[' + teamIds.join(', ') + ']' +
+        ' | empIDs=[' + safeEmployees.map(e => e.id).join(', ') + ']'
+      );
       if (data) {
         const map = new Map<string, number>();
         data.forEach((a: { employee_id: string; employee_number: number | null; assignment_start: string | null; assignment_end: string | null }) => {
@@ -2815,6 +2834,12 @@ export default function TimesheetForm({
       {/* Steuerung */}
       <div className="bg-white border-b shadow-sm print:hidden">
         <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8 py-3">
+          {/* v7.4.6-39: temporaerer Diagnose-Streifen (Teil 2a) */}
+          {dbgInfo && (
+            <div className="mb-2 px-3 py-2 bg-yellow-100 border border-yellow-400 rounded text-xs text-yellow-900 break-all">
+              DIAGNOSE Teil 2a: {dbgInfo}
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-4">
             {/* Mitarbeiter */}
             <div className="flex items-center gap-2">
