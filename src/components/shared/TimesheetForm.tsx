@@ -3,6 +3,12 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 13. Juni 2026
+// Version: 7.4.6-40
+// v7.4.6-40: DIAGNOSE (temporaer) - Banner jetzt IMMER sichtbar (fix oben,
+//   z-9999), mit Startwert und Statusmarken: effect-start (zeigt projektId/
+//   emplId), early-return bei leerem selectedProjectId, "Abfrage startet",
+//   und Endergebnis (rows/error/teamIDs/empIDs). So sehen wir, wie weit der
+//   Effekt kommt. Reine Diagnose, Filterlogik unveraendert.
 // Version: 7.4.6-39
 // v7.4.6-39: DIAGNOSE (temporaer, sichtbar im UI). Statt Konsole zeigt das
 //   Formular oben einen gelben Streifen mit dem Ergebnis der Team-Abfrage
@@ -466,7 +472,7 @@ export default function TimesheetForm({
   // employee_number) - Grundlage fuer den MA-Dropdown-Filter.
   const [teamMemberIds, setTeamMemberIds] = useState<Set<string>>(new Set());
   // v7.4.6-39: temporaerer Diagnose-Text (sichtbar im UI-Banner)
-  const [dbgInfo, setDbgInfo] = useState<string>('');
+  const [dbgInfo, setDbgInfo] = useState<string>('init (Effekt noch nicht gelaufen)');
 
   // NEU v7.4.3-20: Assignment-Daten fuer Zeitraum-Einschraenkung
   const [assignmentStart, setAssignmentStart] = useState<string | null>(null);
@@ -1015,7 +1021,9 @@ export default function TimesheetForm({
 
   // Team-Nummern + Assignment-Daten laden wenn Projekt oder MA sich aendert
   useEffect(() => {
+    setDbgInfo('effect-start: projektId=' + (selectedProjectId || '(leer)') + ' | emplId=' + (selectedEmployeeId || '(leer)'));
     if (!selectedProjectId) {
+      setDbgInfo('kein selectedProjectId -> early return (Dropdown-Wert != State?)');
       setTeamNumbers(new Map());
       setTeamMemberIds(new Set());
       setAssignmentStart(null);
@@ -1023,6 +1031,7 @@ export default function TimesheetForm({
       return;
     }
     const loadTeamNumbers = async () => {
+      setDbgInfo('Abfrage startet fuer Projekt=' + selectedProjectId);
       const supabaseClient = createClient();
       let data: any = null;
       let errMsg = '-';
@@ -2716,6 +2725,14 @@ export default function TimesheetForm({
 
   return (
     <div className="min-h-screen bg-gray-100 print:bg-white">
+      {/* v7.4.6-40: IMMER sichtbares Diagnose-Banner (temporaer), fix oben */}
+      <div
+        className="fixed top-0 left-0 right-0 z-[9999] px-3 py-2 bg-yellow-300 text-black text-xs break-all print:hidden"
+        style={{ borderBottom: '2px solid #b45309' }}
+      >
+        DIAGNOSE Teil 2a: {dbgInfo || '(noch nichts gesetzt)'}
+      </div>
+      <div className="h-8 print:hidden" />
       {/* Header */}
       <header style={{ backgroundColor: colors.primary }} className="shadow-sm print:hidden">
         <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8">
