@@ -3,6 +3,13 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 13. Juni 2026
+// Version: 7.4.6-38
+// v7.4.6-38: DIAGNOSE (temporaer) - Teil 2a filtert nicht; MA-Dropdown zeigt
+//   weiter alle MA. Code ist live, Cache ausgeschlossen -> teamMemberIds bleibt
+//   leer. Diese Version liest den Query-error mit aus und loggt Projekt-ID,
+//   Zeilenzahl, error, Assignment-MA-IDs und safeEmployees-IDs in die Konsole,
+//   um die Ursache (Query-Fehler / RLS / leeres Ergebnis / ID-Mismatch) zu
+//   sehen. Wird nach der Diagnose wieder entfernt.
 // Version: 7.4.6-37
 // v7.4.6-37: Teil 2a - MA-Auswahl aufs Projektteam beschraenken. Das Formular
 //   lud zwar das Projektteam (teamNumbers), zeigte im MA-Dropdown aber alle
@@ -1009,10 +1016,16 @@ export default function TimesheetForm({
     }
     const loadTeamNumbers = async () => {
       const supabaseClient = createClient();
-      const { data } = await supabaseClient
+      const { data, error } = await supabaseClient
         .from('v7_project_assignments')
         .select('employee_id, employee_number, assignment_start, assignment_end')
         .eq('project_id', selectedProjectId);
+      // v7.4.6-38: Diagnose Teil 2a - warum bleibt teamMemberIds leer?
+      console.log('[TimesheetForm][Teil2a] Projekt', selectedProjectId,
+        '-> rows:', data ? data.length : 'null',
+        '| error:', error ? (error.message || error) : 'keiner',
+        '| MA-IDs aus Assignments:', data ? data.map((a: { employee_id: string }) => a.employee_id) : [],
+        '| safeEmployees-IDs:', safeEmployees.map(e => e.id));
       if (data) {
         const map = new Map<string, number>();
         data.forEach((a: { employee_id: string; employee_number: number | null; assignment_start: string | null; assignment_end: string | null }) => {
