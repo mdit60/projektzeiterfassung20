@@ -3,7 +3,15 @@
 // src/components/shared/MitarbeiterModal.tsx
 // ============================================================================
 // SHARED COMPONENT: MitarbeiterModal
-// Version: 1.0.2
+// Version: 1.0.3
+// v1.0.3: Login-Erstellung im Cockpit ergaenzt. Im Passwort-Modus zeigt das
+//   Modal bei MA OHNE Portal-Login (keine user_id) statt der Sackgassen-Meldung
+//   ein "Login erstellen"-Formular (E-Mail + Portal-Rolle read-only, Passwort).
+//   Ruft die bestehende atomare Route /api/v7/create-employee-login auf.
+//   Fall ALREADY_REGISTERED wird abgefangen und als Hinweis angezeigt
+//   (Verknuepfen erfolgt weiterhin ueber Firmendaten > Mitarbeiter).
+//   So macht das Schluessel-Icon im Cockpit automatisch das Richtige:
+//   kein Login -> anlegen, Login vorhanden -> Passwort zuruecksetzen.
 // v1.0.2: E-Mail-Bestaetigungsfeld bei Neuanlage (Schutz gegen Tippfehler).
 //   Zweites Feld "E-Mail bestaetigen" nur in mode='new'. Live-Hinweis bei
 //   Abweichung (kleingeschrieben+getrimmt), "Anlegen" gesperrt bis identisch,
@@ -112,6 +120,13 @@ export default function MitarbeiterModal({
   const [empUserId, setEmpUserId] = useState<string | null>(null);
   const [empName, setEmpName] = useState('');
 
+  // Login-Erstellung (v1.0.3) - Daten des MA aus loadEmployee
+  const [empEmail, setEmpEmail] = useState('');
+  const [empPortalRole, setEmpPortalRole] = useState('employee');
+  const [empFirstName, setEmpFirstName] = useState('');
+  const [empLastName, setEmpLastName] = useState('');
+  const [creatingLogin, setCreatingLogin] = useState(false);
+
   // ========================================================================
   // DATEN LADEN (Edit + Password Mode)
   // ========================================================================
@@ -137,6 +152,11 @@ export default function MitarbeiterModal({
 
     setEmpName(data.display_name || '');
     setEmpUserId(data.user_id || null);
+    // v1.0.3: Daten fuer Login-Erstellung im Passwort-Modus mitnehmen
+    setEmpEmail(data.email || '');
+    setEmpPortalRole(data.portal_role || 'employee');
+    setEmpFirstName(data.first_name || '');
+    setEmpLastName(data.last_name || '');
 
     if (mode === 'edit') {
       const isSonstige = data.position_title
@@ -327,6 +347,71 @@ export default function MitarbeiterModal({
   }
 
   // ========================================================================
+  // LOGIN ERSTELLEN (v1.0.3)
+  // ========================================================================
+  // Ruft die atomare Route /api/v7/create-employee-login auf. Diese erstellt
+  // Auth-User + Profil + Verknuepfung in einem Schritt (oder rollt zurueck).
+
+  async function handleCreateLogin() {
+    setPwError(null);
+
+    if (!empEmail) {
+      setPwError('Fuer den Login wird eine E-Mail-Adresse benoetigt. Bitte zuerst ueber "Bearbeiten" eine E-Mail eintragen.');
+      return;
+    }
+    if (!newPassword || newPassword.length < 6) {
+      setPwError('Passwort muss mindestens 6 Zeichen lang sein.');
+      return;
+    }
+    if (!employeeId) {
+      setPwError('Mitarbeiter-ID fehlt.');
+      return;
+    }
+
+    setCreatingLogin(true);
+    try {
+      const response = await fetch('/api/v7/create-employee-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          employee_id: employeeId,
+          email: empEmail,
+          password: newPassword,
+          display_name: empName,
+          first_name: empFirstName || undefined,
+          last_name: empLastName || undefined,
+          client_company_id: firmaId,
+          portal_role: empPortalRole || 'employee',
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!result.success) {
+        if (result.code === 'ALREADY_REGISTERED') {
+          setPwError(
+            'Diese E-Mail ist bereits registriert. Den bestehenden Login bitte ueber ' +
+            'Firmendaten > Mitarbeiter mit diesem Mitarbeiter verknuepfen.'
+          );
+        } else {
+          setPwError(result.error || 'Login konnte nicht erstellt werden.');
+        }
+        return;
+      }
+
+      setPwSuccess(true);
+      setTimeout(() => {
+        onSaved();
+        onClose();
+      }, 1500);
+    } catch (err: any) {
+      setPwError(err.message || 'Fehler beim Erstellen des Logins.');
+    } finally {
+      setCreatingLogin(false);
+    }
+  }
+
+  // ========================================================================
   // GF-WARNUNG
   // ========================================================================
 
@@ -340,7 +425,9 @@ export default function MitarbeiterModal({
     ? 'Neuer Mitarbeiter fuer ' + firmaName
     : mode === 'edit'
       ? 'Mitarbeiter bearbeiten'
-      : 'Passwort zuruecksetzen';
+      : empUserId
+        ? 'Passwort zuruecksetzen'
+        : 'Login erstellen';
 
   return (
     <div
@@ -371,10 +458,60 @@ export default function MitarbeiterModal({
           {mode === 'password' && (
             <>
               {!empUserId && (
-                <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
-                  <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
-                  Dieser Mitarbeiter hat noch keinen Portal-Login. Bitte zuerst ueber die Mitarbeiterverwaltung einen Login erstellen.
-                </div>
+                <>
+                  {/* v1.0.3: Kein Login vorhanden -> Login erstellen statt Sackgasse */}
+                  {!empEmail ? (
+                    <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                      <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
+                      Fuer einen Portal-Login wird eine E-Mail-Adresse benoetigt. Bitte zuerst ueber &quot;Bearbeiten&quot; eine E-Mail hinterlegen.
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+                        <KeyRound size={16} className="mt-0.5 flex-shrink-0" />
+                        Dieser Mitarbeiter hat noch keinen Portal-Login. Lege hier ein Passwort fest, um den Login zu erstellen.
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Mitarbeiter</label>
+                        <div className="px-3 py-2 bg-gray-100 rounded-lg text-sm text-gray-700">{empName}</div>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">E-Mail</label>
+                        <div className="px-3 py-2 bg-gray-100 rounded-lg text-sm text-gray-700">{empEmail}</div>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Portal-Rolle</label>
+                        <div className="px-3 py-2 bg-gray-100 rounded-lg text-sm text-gray-700">
+                          {empPortalRole === 'client_admin'
+                            ? 'Administrator'
+                            : empPortalRole === 'project_leader'
+                              ? 'Projektkoordinator'
+                              : 'Mitarbeiter'}
+                        </div>
+                        <p className="text-xs text-gray-400 mt-1">Aenderbar ueber &quot;Bearbeiten&quot;.</p>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Passwort</label>
+                        <input
+                          type="text"
+                          value={newPassword}
+                          onChange={e => setNewPassword(e.target.value)}
+                          placeholder="Mindestens 6 Zeichen"
+                          autoComplete="new-password"
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
+                        />
+                        <p className="text-xs text-gray-400 mt-1">Dieses Passwort muss dem Mitarbeiter mitgeteilt werden (kein E-Mail-Versand).</p>
+                      </div>
+
+                      {pwError && <p className="text-sm text-red-600">{pwError}</p>}
+                      {pwSuccess && <p className="text-sm text-green-600">Login erfolgreich erstellt!</p>}
+                    </>
+                  )}
+                </>
               )}
               {empUserId && (
                 <>
@@ -688,6 +825,18 @@ export default function MitarbeiterModal({
             >
               <KeyRound size={16} />
               {loading ? 'Wird gespeichert...' : 'Passwort setzen'}
+            </button>
+          )}
+
+          {mode === 'password' && !empUserId && empEmail && (
+            <button
+              onClick={handleCreateLogin}
+              disabled={creatingLogin}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 transition-colors"
+              style={{ backgroundColor: '#002451' }}
+            >
+              <KeyRound size={16} />
+              {creatingLogin ? 'Wird erstellt...' : 'Login erstellen'}
             </button>
           )}
 

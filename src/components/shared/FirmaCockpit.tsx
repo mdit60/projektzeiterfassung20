@@ -3,7 +3,13 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-35
+// Version: 7.4.9-36
+// v7.4.9-36: Schluessel-Icon in MA-Liste mit dynamischem Tooltip. Zeigt jetzt
+//   "Login erstellen" wenn der MA noch keinen Portal-Login hat (user_id NULL),
+//   sonst "Passwort zuruecksetzen". Dazu user_id in MA-Query + MitarbeiterData
+//   ergaenzt. Hover-Farbe passend: blau (anlegen) / amber (zuruecksetzen).
+//   Zusammenspiel mit MitarbeiterModal v1.0.3 (Login-Erstellung im Cockpit).
+//   ASCII-Korrektur: Mittelpunkt-Zeichen im Firmen-Zaehler durch "-" ersetzt.
 // v7.4.9-35: Cockpit-MA-Liste konsistent zur Projekt-Team-Liste.
 //   - Projektzugehoerigkeit (Kaestchen + Filter) jetzt aus v7_project_assignments
 //     statt v7_work_package_assignments -> Teammitglieder ohne AP-Zuordnung
@@ -217,6 +223,7 @@ interface MitarbeiterData {
   portal_role: string | null;
   weekly_hours: number | null;
   is_active: boolean;
+  user_id: string | null;
   projektIds: string[];
   projekte: { id: string; name: string; ausgeschieden: boolean; nummer: number | null }[];
 }
@@ -496,7 +503,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
       // 3. Mitarbeiter mit Projekt-Zuordnungen
       const { data: maDB } = await supabase
         .from('v7_employees')
-        .select('id, display_name, position_title, portal_role, weekly_hours, is_active')
+        .select('id, display_name, position_title, portal_role, weekly_hours, is_active, user_id')
         .eq('client_company_id', firmaIdLocal)
         .eq('is_active', true)
         .order('display_name');
@@ -977,7 +984,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
           </div>
           {alleFirmen.length > 0 && (
             <div className="px-6 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-400">
-              {alleFirmen.length} Firma{alleFirmen.length !== 1 ? 'en' : ''} · alphabetisch sortiert
+              {alleFirmen.length} Firma{alleFirmen.length !== 1 ? 'en' : ''} - alphabetisch sortiert
             </div>
           )}
         </div>
@@ -1200,8 +1207,12 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                         </button>
                         <button
                           onClick={() => handleMAPasswort(ma.id)}
-                          className="text-gray-300 hover:text-amber-600 transition-colors"
-                          title="Passwort zuruecksetzen"
+                          className={
+                            ma.user_id
+                              ? 'text-gray-300 hover:text-amber-600 transition-colors'
+                              : 'text-gray-300 hover:text-[#002451] transition-colors'
+                          }
+                          title={ma.user_id ? 'Passwort zuruecksetzen' : 'Login erstellen'}
                         >
                           <KeyRound className="w-3.5 h-3.5" />
                         </button>
