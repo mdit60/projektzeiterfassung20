@@ -3,6 +3,13 @@
 // PZE V7 - Arbeitsplan-Tabelle (Excel-Style mit Inline-Edit)
 // ============================================================================
 // Datum: 02. Maerz 2026
+// Datum: 23. Juni 2026
+// Version: 7.4.3-13
+// v7.4.3-13: PM->Stunden projektbasiert. Neue Prop pmBasisWeeklyHours; der
+//   Umrechnungsfaktor (vorher fest 173,33) kommt jetzt aus hoursPerPM(pmBasis).
+//   Soll-Spalten und Legende ("1 PM = X Stunden") zeigen den projektgueltigen
+//   Faktor (z.B. 160,33 bei 37h-Antragsbasis). Fallback 40h, wenn nicht gesetzt.
+//
 // Version: 7.4.3-8
 // v7.4.3-8: PM-Anzeige auf 3 Dezimalstellen (toFixed(3)) fuer alle PM-Werte
 //   Begruendung: importierte PM-Werte koennen 3-stellig sein (z.B. 0,344)
@@ -34,6 +41,7 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { Plus, Pencil, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { hoursPerPM } from '@/lib/projektfortschritt-utils';
 
 // ============================================================================
 // TYPEN
@@ -89,6 +97,7 @@ interface WorkPackageTableProps {
   onDeleteAP?: (wp: WorkPackage) => void;
   portal?: 'berater' | 'firma';
   fundingFormat?: string | null;
+  pmBasisWeeklyHours?: number;  // v7.4.3-13: WAZ-Basis fuer PM->Stunden (Default 40)
   filterDateFrom?: string | null;  // NWM: nur Timesheets ab diesem Datum
   filterDateTo?: string | null;    // NWM: nur Timesheets bis zu diesem Datum
 }
@@ -114,7 +123,8 @@ const PORTAL_COLORS = {
   },
 };
 
-const PM_TO_HOURS = 173.33;
+// v7.4.3-13: PM_TO_HOURS ist jetzt komponentenintern aus pmBasisWeeklyHours
+// abgeleitet (hoursPerPM). Die feste 173,33-Konstante entfaellt hier.
 
 // NEU v7.4.3: Ampel-Farblogik fuer Stundenstatus
 // Gruen = im Plan, Orange = Erfassung hinkt Zeitfortschritt > 25 Pp hinterher, Rot = ueberschritten/abgelaufen
@@ -333,10 +343,14 @@ export default function WorkPackageTable({
   onDeleteAP,
   portal = 'firma',
   fundingFormat,
+  pmBasisWeeklyHours,
   filterDateFrom,
   filterDateTo,
 }: WorkPackageTableProps) {
   const colors = PORTAL_COLORS[portal];
+  // v7.4.3-13: PM->Stunden-Faktor projektbasiert (Antrag/Bescheid), Fallback 40h.
+  const PM_TO_HOURS = hoursPerPM(pmBasisWeeklyHours ?? 40);
+  const pmFaktorLabel = PM_TO_HOURS.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const isZimDS = fundingFormat === 'ZIM_DS';
   const isZim = (fundingFormat || '').startsWith('ZIM');
 
@@ -904,7 +918,7 @@ export default function WorkPackageTable({
                 className="px-2 py-1.5 text-sm border-r bg-gray-100"
                 style={{ minWidth: '140px', maxWidth: '180px' }}
               >
-                Stunden (x 173,33)
+                Stunden (x {pmFaktorLabel})
               </td>
               <td colSpan={2} className="px-2 py-1.5 border-r"></td>
               {isZimDS && <td className="px-2 py-1.5 border-r"></td>}
@@ -995,7 +1009,7 @@ export default function WorkPackageTable({
       {/* Legende */}
       <div className="px-4 py-2 bg-gray-50 border-t text-xs text-gray-500 flex flex-wrap gap-4">
         <span>PM = Personenmonate</span>
-        <span>1 PM = 173,33 Stunden</span>
+        <span>1 PM = {pmFaktorLabel} Stunden</span>
         {canEdit && <span className="text-blue-600">Klicken Sie in eine Zelle zum Bearbeiten</span>}
       </div>
 

@@ -2,7 +2,9 @@
 
 // Route: /v7/berater/foerderung/firma/[id]/cockpit/fortschritt
 // Eigenstaendige Seite fuer ProjektFortschrittPanel (ohne BerichtePage)
-// Version: 7.4.9-5
+// Version: 7.4.9-6
+// v7.4.9-6: pm_basis_weekly_hours im Projekt-Select, wird an
+//   ProjektFortschrittPanel durchgereicht (Kosten/PM projektbasiert).
 // v7.4.9-5: FIX "Zurueck" fuehrt jetzt deterministisch ins Firma-Cockpit
 //   (App-Modus bzw. klassisch), statt per router.back() im alten Foerder-
 //   Portal zu landen (gleicher Bug wie auf der Stundennachweis-Matrix-Seite).
@@ -59,7 +61,7 @@ export default function CockpitFortschrittPage() {
 
       const { data: projectsData } = await supabase
         .from('v7_projects')
-        .select('id, name, short_name, funding_format, funding_reference, start_date, end_date, is_active, foerdersatz, overhead_t, bewilligte_summe')
+        .select('id, name, short_name, funding_format, funding_reference, start_date, end_date, is_active, foerdersatz, overhead_t, bewilligte_summe, pm_basis_weekly_hours')
         .eq('client_company_id', firmaId)
         .eq('is_active', true);
       setProjects(projectsData || []);

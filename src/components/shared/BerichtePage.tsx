@@ -2,7 +2,9 @@
 // ============================================================================
 // PZE V7 - Shared Component: Berichte & Controlling
 // ============================================================================
-// Version: 7.4.6-18
+// Version: 7.4.6-19
+// v7.4.6-19: pm_basis_weekly_hours in Projekt-Select + Project-Interface, wird
+//   an ProjektFortschrittPanel durchgereicht (Kosten/PM projektbasiert).
 // v7.4.6-18: FIX Projekt-Dropdown-Desync bei Mehr-Projekt-Firmen. Der obere
 //   Projekt-Dropdown setzte nur selectedReportProjectId (filtert das an die
 //   Matrix uebergebene projects-Array), nicht aber matrixProjectId (steuert das
@@ -144,6 +146,7 @@ interface Project {
   overhead_nt: number | null;
   overhead_gleich: boolean | null;
   bewilligte_summe: number | null;
+  pm_basis_weekly_hours: number | null;  // v7.4.6-19: WAZ-Basis aus Antrag/Bescheid
 }
 
 interface Employee {
@@ -362,7 +365,7 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
         // Projekte
         const { data: projectsData } = await supabase
           .from('v7_projects')
-          .select('id, name, short_name, funding_format, funding_reference, start_date, end_date, is_active, foerdersatz, overhead_t, overhead_nt, overhead_gleich, bewilligte_summe')
+          .select('id, name, short_name, funding_format, funding_reference, start_date, end_date, is_active, foerdersatz, overhead_t, overhead_nt, overhead_gleich, bewilligte_summe, pm_basis_weekly_hours')
           .eq('client_company_id', companyId)
           .eq('is_active', true);
         setProjects(projectsData || []);

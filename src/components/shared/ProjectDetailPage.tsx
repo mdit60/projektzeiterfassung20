@@ -3,6 +3,14 @@
 // PZE V7 - Shared Project Detail Page
 // ============================================================================
 // Datum: 8. Mai 2026
+// Datum: 23. Juni 2026
+// Version: 7.4.4-59
+// v7.4.4-59: Projektbezogene WAZ-Basis (pm_basis_weekly_hours).
+//   - Neues Eingabefeld im Bearbeiten-Dialog: "Wochenarbeitszeit-Basis
+//     (Antrag/Bescheid)", leer = Firmenstandard.
+//   - Wert wird an WorkPackageTable durchgereicht (Soll + Legende auf
+//     projektgueltigen Faktor, z.B. 160,33 bei 37h).
+//
 // Version: 7.4.4-58
 // v7.4.4-58: Deep-Link-Unterstuetzung fuer Cockpit-Kaestchen-Sprung.
 //   - activeTab-Initializer liest generischen ?tab-Parameter (z.B. ?tab=team).
@@ -212,6 +220,7 @@ interface Project {
   overhead_t: number | null;
   overhead_nt: number | null;
   overhead_gleich: boolean | null;
+  pm_basis_weekly_hours: number | null;  // v7.4.4-59: WAZ-Basis aus Antrag/Bescheid
   workplan_locked: boolean | null;
   // NWM-Felder
   netzwerk_typ: string | null;
@@ -250,6 +259,7 @@ interface ProjectEditData {
   overhead_t: string;
   overhead_nt: string;
   overhead_gleich: boolean;
+  pm_basis_weekly_hours: string;
   bewilligung_datum: string;
   bewilligte_summe: string;
 }
@@ -422,6 +432,7 @@ export default function ProjectDetailPage({
     overhead_t: '',
     overhead_nt: '',
     overhead_gleich: false,
+    pm_basis_weekly_hours: '',
     bewilligung_datum: '',
     bewilligte_summe: '',
   });
@@ -1182,6 +1193,7 @@ export default function ProjectDetailPage({
       overhead_t: project.overhead_t != null ? String(project.overhead_t) : '',
       overhead_nt: project.overhead_nt != null ? String(project.overhead_nt) : '',
       overhead_gleich: project.overhead_gleich || false,
+      pm_basis_weekly_hours: project.pm_basis_weekly_hours != null ? String(project.pm_basis_weekly_hours) : '',
       bewilligung_datum: project.bewilligung_datum || '',
       bewilligte_summe: project.bewilligte_summe != null ? String(project.bewilligte_summe) : '',
     });
@@ -1212,6 +1224,7 @@ export default function ProjectDetailPage({
           overhead_t: projectEditData.overhead_t !== '' ? parseFloat(projectEditData.overhead_t) : null,
           overhead_nt: overhead_nt_val,
           overhead_gleich: projectEditData.overhead_gleich,
+          pm_basis_weekly_hours: projectEditData.pm_basis_weekly_hours !== '' ? parseFloat(projectEditData.pm_basis_weekly_hours) : null,
           bewilligung_datum: projectEditData.bewilligung_datum || null,
           bewilligte_summe: projectEditData.bewilligte_summe !== '' ? parseFloat(projectEditData.bewilligte_summe) : null,
           updated_at: new Date().toISOString(),
@@ -1628,6 +1641,7 @@ export default function ProjectDetailPage({
             {/* WorkPackageTable - Props auf WPT-eigenes Interface gemappt */}
             <WorkPackageTable
               portal={portal}
+              pmBasisWeeklyHours={project?.pm_basis_weekly_hours ?? (company as { standard_weekly_hours?: number | null } | null)?.standard_weekly_hours ?? 40}
               projectId={projectId}
               workPackages={(() => {
                 const isNwm = (project?.funding_format || '').toUpperCase().trim() === 'ZIM_NETZWERK';
@@ -2335,6 +2349,24 @@ export default function ProjectDetailPage({
                   />
                 </div>
               )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Wochenarbeitszeit-Basis Antrag/Bescheid (h)
+                </label>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  value={projectEditData.pm_basis_weekly_hours}
+                  onChange={(e) => setProjectEditData(prev => ({ ...prev, pm_basis_weekly_hours: e.target.value }))}
+                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                  placeholder={`leer = Firmenstandard (${(company as { standard_weekly_hours?: number | null } | null)?.standard_weekly_hours ?? 40} h)`}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Bestimmt PM-&gt;Stunden (1 PM = WAZ x 52 / 12), Foerder-Monatsgrenze und Abrechnungs-Stundensatz. Nur setzen, wenn der Antrag von der realen Firmen-Wochenarbeitszeit abweicht.
+                </p>
+              </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
