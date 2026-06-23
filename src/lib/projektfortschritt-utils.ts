@@ -2,8 +2,21 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Berechnungslogik (Shared Utility)
 // ============================================================================
-// Version: 7.4.9-2
-// Datum: 11. Juni 2026
+// Version: 7.4.9-3
+// Datum: 23. Juni 2026
+// v7.4.9-3: Projektbezogene PM-Basis (WAZ aus Antrag/Bescheid).
+//   - Neuer Helfer hoursPerPM(weeklyHours) = weeklyHours x 52 / 12.
+//   - PFProject erhaelt pm_basis_weekly_hours (Projekt-Override) und
+//     firm_standard_weekly_hours (Firmenstandard / Fallback).
+//   - Soll-Stunden und PM-Umrechnung laufen ueber hoursPerPM(pmBasis) statt
+//     der festen 173,33.
+//   - Kosten: Stundensatz wird mit rateScale (= firmStd / pmBasis) auf die
+//     Abrechnungs-Basis gehoben, damit Plan-/Ist-Kosten = PM x Monatsgehalt
+//     ergeben (frueher Mischung 40h-Stunden x realer Stundensatz -> zu hoch).
+//   - maxProjektstundenMonat akzeptiert optional pmBasis/firmStd (Foerder-
+//     Obergrenze statt 40h-Physik). Ohne Parameter unveraendertes Verhalten.
+//   - Rueckwaertskompatibel: ohne gesetzte Felder = 40-Basis wie bisher.
+//
 // v7.4.9-2: Zwei Korrekturen an der Foerder-Prognose.
 //   1. Foerder-Maximum = min(bewilligte_summe, Plankosten x Foerdersatz). Mehr
 //      als die foerderfaehigen Plankosten ist nie abrufbar, auch wenn die
@@ -36,6 +49,11 @@ export interface PFProject {
   foerdersatz: number | null;
   overhead_t: number | null;
   bewilligte_summe?: number | null;
+  // v7.4.9-3: WAZ-Basis aus Antrag/Bescheid (Projekt-Override).
+  // NULL = erbt firm_standard_weekly_hours.
+  pm_basis_weekly_hours?: number | null;
+  // v7.4.9-3: Regelarbeitszeit der Firma (Fallback + Stundensatz-Skalierung).
+  firm_standard_weekly_hours?: number | null;
 }
 
 export interface PFWorkPackage {
@@ -178,6 +196,14 @@ export const MAX_STUNDEN_MONAT_VOLLZEIT = 173.33;
 export const GF_FAKTOR = 0.5; // 50%-Regel fuer Geschaeftsfuehrer
 export const GF_POSITIONS = ['Geschaeftsfuehrer', 'Gesellschafter-Geschaeftsfuehrer'];
 
+/**
+ * v7.4.9-3: Stunden pro Personenmonat fuer eine gegebene Wochenarbeitszeit.
+ * = weeklyHours x 52 / 12. hoursPerPM(40) = 173,33 (= HOURS_PER_PM).
+ */
+export function hoursPerPM(weeklyHours: number): number {
+  return (weeklyHours * 52) / 12;
+}
+
 export const MONTH_NAMES_SHORT = [
   'Jan', 'Feb', 'Mrz', 'Apr', 'Mai', 'Jun',
   'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez',
@@ -265,10 +291,19 @@ export function arbeitstageImMonat(year: number, month: number): number {
   return count;
 }
 
-/** Maximale Projektstunden pro Monat fuer einen MA (GF-Regel beachten) */
-export function maxProjektstundenMonat(emp: PFEmployee | undefined): number {
+/** Maximale Projektstunden pro Monat fuer einen MA (GF-Regel beachten)
+ *  v7.4.9-3: Optional projektbasiert. Ohne pmBasis/firmStd unveraendertes
+ *  40h-Verhalten. Mit Parametern: Foerder-Obergrenze = hoursPerPM(pmBasis) x
+ *  Beschaeftigungsgrad (waz / firmStd). */
+export function maxProjektstundenMonat(
+  emp: PFEmployee | undefined,
+  pmBasisWeeklyHours?: number | null,
+  firmStandardWeeklyHours?: number | null,
+): number {
   const waz = emp?.weekly_hours ?? 40;
-  const basisMax = MAX_STUNDEN_MONAT_VOLLZEIT * (waz / 40);
+  const firmStd = firmStandardWeeklyHours ?? 40;
+  const pmBasis = pmBasisWeeklyHours ?? firmStd;
+  const basisMax = hoursPerPM(pmBasis) * (waz / firmStd);
   const istGF = emp?.position_title
     ? GF_POSITIONS.includes(emp.position_title)
     : false;
@@ -330,6 +365,15 @@ export function calculateProjectAnalysis(
     t => t.project_id === project.id && t.is_billable !== false
   );
 
+  // v7.4.9-3: Projektbezogene PM-Basis und Firmenstandard.
+  // hpm steuert Soll/PM-Umrechnung; rateScale hebt den auf realer WAZ
+  // gespeicherten Stundensatz auf die Abrechnungs-Basis (Antrag/Bescheid),
+  // sodass Plan-/Ist-Kosten = PM x Monatsgehalt ergeben.
+  const firmStdWAZ = project.firm_standard_weekly_hours ?? 40;
+  const pmBasisWAZ = project.pm_basis_weekly_hours ?? firmStdWAZ;
+  const hpm = hoursPerPM(pmBasisWAZ);
+  const rateScale = pmBasisWAZ > 0 ? firmStdWAZ / pmBasisWAZ : 1;
+
   const now = new Date();
 
   // ---- Laufzeit-Fortschritt ----
@@ -357,9 +401,9 @@ export function calculateProjectAnalysis(
 
   // ---- PM-Fortschritt ----
   const gesamtPlanPM = projWPs.reduce((s, wp) => s + (wp.total_person_months || 0), 0);
-  const gesamtPlanStunden = gesamtPlanPM * HOURS_PER_PM;
+  const gesamtPlanStunden = gesamtPlanPM * hpm;
   const gesamtIstStunden = projTimesheets.reduce((s, t) => s + (t.hours || 0), 0);
-  const gesamtIstPM = gesamtIstStunden / HOURS_PER_PM;
+  const gesamtIstPM = gesamtIstStunden / hpm;
   const pmPct = gesamtPlanPM > 0 ? Math.round((gesamtIstPM / gesamtPlanPM) * 100) : 0;
 
   // ---- Kosten-Fortschritt ----
@@ -375,11 +419,11 @@ export function calculateProjectAnalysis(
       return wp && wpa.employee_id === pa.employee_id;
     });
     const planPM = maWPAs.reduce((s, wpa) => s + (wpa.planned_person_months || 0), 0);
-    gesamtPlanKosten += planPM * HOURS_PER_PM * rate * (1 + overhead);
+    gesamtPlanKosten += planPM * hpm * rate * rateScale * (1 + overhead);
     const istH = projTimesheets
       .filter(t => t.employee_id === pa.employee_id)
       .reduce((s, t) => s + (t.hours || 0), 0);
-    gesamtIstKosten += istH * rate * (1 + overhead);
+    gesamtIstKosten += istH * rate * rateScale * (1 + overhead);
   });
 
   const kostenPct =
@@ -398,10 +442,10 @@ export function calculateProjectAnalysis(
       const istH = projTimesheets
         .filter(t => t.employee_id === pa.employee_id)
         .reduce((s, t) => s + (t.hours || 0), 0);
-      const istPM = istH / HOURS_PER_PM;
+      const istPM = istH / hpm;
       const rate = pa.hourly_rate || 0;
-      const planKosten = planPM * HOURS_PER_PM * rate * (1 + overhead);
-      const istKosten = istH * rate * (1 + overhead);
+      const planKosten = planPM * hpm * rate * rateScale * (1 + overhead);
+      const istKosten = istH * rate * rateScale * (1 + overhead);
       return {
         name,
         planPM: Math.round(planPM * 10) / 10,
@@ -482,7 +526,7 @@ export function calculateProjectAnalysis(
   // ---- MA-individuelle Obergrenzen ----
   const maObergrenzen = alleMAIds.map(empId => {
     const emp = employees.find(e => e.id === empId);
-    const maxProMonat = maxProjektstundenMonat(emp);
+    const maxProMonat = maxProjektstundenMonat(emp, pmBasisWAZ, firmStdWAZ);
     const isGF = istGeschaeftsfuehrer(emp);
     return { empId, maxProMonat, isGF, emp };
   });
@@ -641,7 +685,7 @@ export function calculateProjectAnalysis(
       const apEnd = new Date(wp.end_date);
       const apWPAs = wpAssignments.filter(wpa => wpa.work_package_id === wp.id);
       const apTotalPM = apWPAs.reduce((s, wpa) => s + (wpa.planned_person_months || 0), 0);
-      const apTotalHours = apTotalPM * HOURS_PER_PM;
+      const apTotalHours = apTotalPM * hpm;
       if (apTotalHours === 0) return;
       const apDurationDays =
         (apEnd.getTime() - apStart.getTime()) / (1000 * 60 * 60 * 24) + 1;

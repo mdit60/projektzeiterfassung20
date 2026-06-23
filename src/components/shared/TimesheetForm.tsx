@@ -2,8 +2,18 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 13. Juni 2026
-// Version: 7.4.6-42
+// Datum: 23. Juni 2026
+// Version: 7.4.6-43
+// v7.4.6-43: Projektbezogene WAZ-Basis (Antrag/Bescheid).
+//   - Project erhaelt pm_basis_weekly_hours. Soll (Arbeitsplan + AP-Restzahl)
+//     rechnet ueber hoursPerPM(pmBasis) statt fester 173,33.
+//   - Foerder-Monatsgrenze projektbasiert: hoursPerPM(pmBasis) x
+//     (weekly_hours / firmStd). Ohne pm_basis = erbt Firmenstandard, unveraendert.
+//   - NEU: physischer Monatsdeckel (projektuebergreifend) auf Basis der echten
+//     Wochenarbeitszeit: dieses Projekt (foerderbar + sonstige) + alle anderen
+//     Projekte des Monats <= hoursPerPM(weekly_hours). Harte Sperre.
+//   - hoursPerPM importiert aus projektfortschritt-utils.
+//
 // v7.4.6-42: Diagnose komplett entfernt (Banner, dbgInfo-State, Statusmarken,
 //   try/catch-Logging). Der Filter funktioniert: Ursache war ein Reihenfolge-
 //   Crash (siehe -41), keine Daten-/RLS-Frage. Inhaltlich = sauberer Stand von
@@ -292,6 +302,7 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { hoursPerPM } from '@/lib/projektfortschritt-utils';
 import {
   getGermanHolidays,
   type HolidayRegion,
@@ -322,7 +333,8 @@ const HEADER_ORANGE = '#F5D9C0';
 // ARBEITSZEITGRENZEN (Phase 3, v7.4.6-11)
 // Konsistent mit v7-types.ts und KONZEPT-ARBEITSZEITGRENZEN-v1_3.md
 // ============================================================================
-const MONATSGRENZE_VOLLZEIT = 173.33;  // 2080h / 12 Monate
+// v7.4.6-43: MONATSGRENZE_VOLLZEIT entfernt -- Monatsgrenze laeuft jetzt
+// projektbasiert ueber hoursPerPM(pmBasis) (siehe projektfortschritt-utils).
 const TAGESGRENZE_HART = 9;            // PT-Richtlinie, absolut
 // GF-Positionen: exakter String-Match (wie in v7-types.ts)
 const GF_POSITIONS_LOCAL: readonly string[] = [
@@ -360,6 +372,8 @@ interface Project {
   funding_format: string | null;
   start_date: string | null;
   end_date: string | null;
+  // v7.4.6-43: WAZ-Basis aus Antrag/Bescheid. NULL = erbt standard_weekly_hours der Firma.
+  pm_basis_weekly_hours: number | null;
 }
 
 interface WorkPackage {
@@ -598,6 +612,12 @@ export default function TimesheetForm({
   const selectedEmployee = safeEmployees.find(e => e.id === selectedEmployeeId);
   const isDurchfuehrbarkeitsstudie = selectedProject?.funding_format?.includes('DS') || false;
   const isNetzwerk = selectedProject?.funding_format === 'ZIM_NETZWERK';  // A-002: Wording-Steuerung
+
+  // v7.4.6-43: WAZ-Basis fuer PM->Stunden und Foerder-Monatsgrenze.
+  // firmStdWAZ = Regelarbeitszeit der Firma; pmBasisWAZ = Projekt-Override
+  // (Antrag/Bescheid) oder Fallback auf Firmenstandard bzw. 40.
+  const firmStdWAZ = company?.standard_weekly_hours ?? 40;
+  const pmBasisWAZ = selectedProject?.pm_basis_weekly_hours ?? firmStdWAZ;
 
   // Hilfsfunktion: Prueft ob AP technisch ist (robust gegen verschiedene DB-Datentypen)
   const isTechnicalAP = (wp: WorkPackage | undefined | null): boolean => {
@@ -1186,7 +1206,7 @@ export default function TimesheetForm({
           if (projectWPIds.includes(a.work_package_id)) {
             const pm = a.planned_person_months || 0;
             if (pm > 0) {
-              planned[a.work_package_id] = pm * 173.33;
+              planned[a.work_package_id] = pm * hoursPerPM(pmBasisWAZ);
               assignedIds.push(a.work_package_id);
             }
           }
@@ -1205,7 +1225,7 @@ export default function TimesheetForm({
     };
 
     loadAssignmentData();
-  }, [selectedEmployeeId, selectedProjectId, workPackages, reloadBookedHours]);
+  }, [selectedEmployeeId, selectedProjectId, workPackages, reloadBookedHours, pmBasisWAZ]);
 
   // A-021: NWM-Sperren + Cross-Projekt-Stunden laden
   useEffect(() => {
@@ -1933,7 +1953,7 @@ export default function TimesheetForm({
     if (!wpId) return null;
     const wp = safeWorkPackages.find(w => w.id === wpId);
     if (!wp || wp.total_person_months == null) return null;
-    const plannedTotal = wp.total_person_months * MONATSGRENZE_VOLLZEIT;
+    const plannedTotal = wp.total_person_months * hoursPerPM(pmBasisWAZ);
     const booked = projectBookedPerWP[wpId] || 0;
     return Math.round(plannedTotal - booked);
   };
@@ -2022,7 +2042,7 @@ export default function TimesheetForm({
   // ARBEITSZEITGRENZEN: BERECHNUNGEN (v7.4.6-12)
   // ============================================================================
 
-  const monatsgrenze = MONATSGRENZE_VOLLZEIT * (weeklyHoursAtMonth / 40);
+  const monatsgrenze = hoursPerPM(pmBasisWAZ) * (weeklyHoursAtMonth / firmStdWAZ);
   const gfGrenze     = monatsgrenze * 0.5;
   const istGF        = positionTitle !== null && GF_POSITIONS_LOCAL.includes(positionTitle);
 
@@ -2074,9 +2094,21 @@ export default function TimesheetForm({
   // (z.B. 173.33 x 0.3 = 51.999... statt exakt 52.00)
   const monatUeberschritten  = Math.round(projektStundenMonat * 100) > Math.round(monatsgrenze * 100);
   const gfUeberschritten     = istGF && Math.round(projektStundenMonat * 100) > Math.round(gfGrenze * 100);
+  // v7.4.6-43: Physische Monatskapazitaet (projektuebergreifend) auf Basis der
+  // echten Wochenarbeitszeit. Summe aus diesem Projekt (foerderbar + sonstige
+  // Arbeiten, ohne Fehlzeiten) und allen anderen Projekten des Monats darf die
+  // reale Kapazitaet nicht ueberschreiten.
+  const physischeGrenze = hoursPerPM(weeklyHoursAtMonth);
+  const sonstStundenMonat = Object.values(nonBillableEntries).reduce((s, e) => {
+    if (!e?.value || isAbsenceCode(e.value)) return s;
+    return s + parseHours(e.value);
+  }, 0);
+  const andereProjekteMonat = Object.values(otherProjectHours).reduce((s, h) => s + (h || 0), 0);
+  const physischGesamtMonat = projektStundenMonat + sonstStundenMonat + andereProjekteMonat;
+  const physischUeberschritten = Math.round(physischGesamtMonat * 100) > Math.round(physischeGrenze * 100);
   // Harte Verletzung: Speichern UND Drucken gesperrt
   const tagUeberschritten    = findTagVerletzung() !== null;
-  const hartVerletzung       = monatUeberschritten || tagUeberschritten;
+  const hartVerletzung       = monatUeberschritten || tagUeberschritten || physischUeberschritten;
 
   // NEU v7.4.3-9: Monat abschliessen / Completion toggeln
   const handleToggleComplete = async () => {
@@ -2151,6 +2183,17 @@ export default function TimesheetForm({
       setError(
         `Max. ${monatsgrenze.toFixed(2).replace('.', ',')} h/Monat ueberschritten ` +
         `(${projektStundenMonat.toFixed(2).replace('.', ',')} h erfasst) -- nicht zulaessig. Bitte korrigieren.`
+      );
+      return;
+    }
+    // 2b. v7.4.6-43: HARTE physische Monatskapazitaet (projektuebergreifend)
+    if (physischUeberschritten) {
+      const crossInfo = andereProjekteMonat > 0
+        ? `, davon ${andereProjekteMonat.toFixed(2).replace('.', ',')} h in anderen Projekten`
+        : '';
+      setError(
+        `Physische Kapazitaet max. ${physischeGrenze.toFixed(2).replace('.', ',')} h/Monat ueberschritten ` +
+        `(${physischGesamtMonat.toFixed(2).replace('.', ',')} h ueber alle Projekte${crossInfo}) -- nicht zulaessig. Bitte korrigieren.`
       );
       return;
     }
@@ -2789,7 +2832,7 @@ export default function TimesheetForm({
       {/* ================================================================
           ARBEITSZEITGRENZEN HINWEISE (v7.4.6-12) - nur bei Verletzung
           ================================================================ */}
-      {(monatUeberschritten || gfUeberschritten) && (
+      {(monatUeberschritten || gfUeberschritten || physischUeberschritten) && (
         <div className="print:hidden">
           {monatUeberschritten && (
             <div className="bg-red-50 border-b border-red-200 px-4 py-2 flex items-center gap-2">
@@ -2797,6 +2840,15 @@ export default function TimesheetForm({
               <span className="text-red-700 text-sm font-medium">
                 Max. {monatsgrenze.toFixed(2).replace('.', ',')} h/Monat ueberschritten
                 ({projektStundenMonat.toFixed(2).replace('.', ',')} h erfasst) -- nicht zulaessig, Speichern gesperrt
+              </span>
+            </div>
+          )}
+          {physischUeberschritten && (
+            <div className="bg-red-50 border-b border-red-200 px-4 py-2 flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" />
+              <span className="text-red-700 text-sm font-medium">
+                Physische Kapazitaet max. {physischeGrenze.toFixed(2).replace('.', ',')} h/Monat ueberschritten
+                ({physischGesamtMonat.toFixed(2).replace('.', ',')} h ueber alle Projekte) -- Speichern gesperrt
               </span>
             </div>
           )}
