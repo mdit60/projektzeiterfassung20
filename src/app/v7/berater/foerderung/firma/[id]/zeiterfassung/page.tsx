@@ -2,8 +2,10 @@
 // ============================================================================
 // PZE V7 - Zeiterfassung (Berater-Portal - Firmenansicht)
 // ============================================================================
-// Version: 7.4.6-2
-// Datum: 22. April 2026
+// Version: 7.4.6-3
+// Datum: 23. Juni 2026
+// v7.4.6-3: Project-Query um pm_basis_weekly_hours erweitert (WAZ-Basis aus
+//           Antrag/Bescheid, wird an TimesheetForm durchgereicht).
 //
 // v7.4.6-2: WorkPackage-Query um total_person_months, start_date, end_date
 //           erweitert. Wird in TimesheetForm benoetigt, um AP-Ueberschriften
@@ -79,6 +81,7 @@ interface Project {
   funding_format: string | null;
   start_date: string | null;
   end_date: string | null;
+  pm_basis_weekly_hours: number | null;  // v7.4.6-3: WAZ-Basis aus Antrag/Bescheid
 }
 
 interface WorkPackage {
@@ -184,7 +187,7 @@ function BeraterZeiterfassungContent() {
         // 4. Projekte dieser Firma laden
         const { data: projs, error: projError } = await supabase
           .from('v7_projects')
-          .select('id, name, short_name, funding_reference, funding_format, start_date, end_date')
+          .select('id, name, short_name, funding_reference, funding_format, start_date, end_date, pm_basis_weekly_hours')
           .eq('client_company_id', companyId)
           .eq('is_active', true)
           .order('name');
