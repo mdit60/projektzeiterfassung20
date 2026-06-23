@@ -2,8 +2,14 @@
 // ============================================================================
 // PZE V7 - Shared Component: Stundennachweis-Matrix
 // ============================================================================
-// Version: 7.4.6-4
-// Datum: 22. Juni 2026
+// Version: 7.4.6-5
+// Datum: 23. Juni 2026
+// v7.4.6-5: FIX Desync-Schutz. activeProjectId bekommt einen Selbstheilungs-
+//   Guard: liegt matrixProjectId nicht im uebergebenen projects-Array, wird
+//   projects[0] genutzt. Verhindert faelschliches "Keine Projektdaten
+//   verfuegbar" bei Mehr-Projekt-Firmen, wenn der einbindende Dashboard-Dropdown
+//   das projects-Array filtert, der interne Auswahl-State aber veraltet ist.
+//   Reiner Lese-Guard, Matrix-Logik (Monate/Zellen/Filter) unveraendert.
 // v7.4.6-4: FIX Mehr-Projekt-Firmen. Die MA-Zeilen wurden aus ALLEN
 //   projectAssignments gebildet (ohne Projektfilter) -> bei einer Firma mit
 //   mehreren Projekten erschienen alle Teammitglieder aller Projekte, egal
@@ -235,7 +241,15 @@ export default function StundennachweisMatrix({
   const iconColor = portal === 'berater' ? 'text-blue-600' : 'text-green-600';
   const focusRing = portal === 'berater' ? 'focus:ring-blue-500' : 'focus:ring-green-500';
 
-  const activeProjectId = matrixProjectId || projects[0]?.id || null;
+  // v7.4.6-5: Selbstheilungs-Guard. Liegt die uebergebene matrixProjectId NICHT
+  // im (ggf. gefilterten) projects-Array, faellt die Auswahl auf projects[0]
+  // zurueck statt eine nicht zuordenbare ID zu fuehren (-> matrixData null ->
+  // faelschlich "Keine Projektdaten"). Tritt auf, wenn der einbindende
+  // Dashboard-Dropdown projects filtert, ein separater Auswahl-State aber
+  // veraltet bleibt. Schuetzt alle Aufrufer der Shared-Komponente.
+  const activeProjectId = (matrixProjectId && projects.some(p => p.id === matrixProjectId))
+    ? matrixProjectId
+    : (projects[0]?.id || null);
   const activeProject = projects.find(p => p.id === activeProjectId) || projects[0] || null;
 
   const matrixData = useMemo(() => {

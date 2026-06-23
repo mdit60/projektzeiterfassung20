@@ -2,7 +2,15 @@
 // ============================================================================
 // PZE V7 - Shared Component: Berichte & Controlling
 // ============================================================================
-// Version: 7.4.6-17
+// Version: 7.4.6-18
+// v7.4.6-18: FIX Projekt-Dropdown-Desync bei Mehr-Projekt-Firmen. Der obere
+//   Projekt-Dropdown setzte nur selectedReportProjectId (filtert das an die
+//   Matrix uebergebene projects-Array), nicht aber matrixProjectId (steuert das
+//   aktive Projekt in der Matrix). Beim Umschalten lief beides auseinander ->
+//   Matrix erhielt nur [neuesProjekt], suchte aber das veraltete aktive Projekt
+//   darin und meldete faelschlich "Keine Projektdaten". Jetzt setzt der onChange
+//   beide States synchron. Zusammenspiel mit StundennachweisMatrix v7.4.6-5
+//   (zusaetzlicher Selbstheilungs-Guard). Reine State-Sync, keine Logikaenderung.
 // v7.4.6-17: Diagnose-Logging entfernt (war temporaer fuer Session 46 Supabase-Limit-Analyse)
 // v7.4.6-16: DIAGNOSE: Console-Logging fuer Timesheet-Analyse
 //   (Stunden pro Monat, pro MA, is_billable-Verteilung)
@@ -798,7 +806,7 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
             </div>
             <select
               value={selectedReportProjectId || ''}
-              onChange={e => setSelectedReportProjectId(e.target.value || null)}
+              onChange={e => { const v = e.target.value || null; setSelectedReportProjectId(v); setMatrixProjectId(v); }}
               className={`w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 ${colors.ring} mt-auto`}
             >
               {projects.length > 1 && <option value="">Alle Projekte</option>}
