@@ -3,6 +3,14 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 23. Juni 2026
+// Version: 7.4.6-44
+// v7.4.6-44: BUGFIX physischer Monatsdeckel / Cross-Projekt. otherProjectHours
+//   zaehlte Fehlzeiten (Urlaub/Krankheit/Feiertag) als gearbeitete Stunden mit
+//   -> Deckel schlug faelschlich an (z.B. 144,24 gearbeitet + 37,5 Urlaub +
+//   7,5 Feiertag = 189,24). Query jetzt absence_code IS NULL: nur gearbeitete
+//   Stunden zaehlen in Monatsdeckel UND 9h-Tagesgrenze (A-021).
+//
+// Datum: 23. Juni 2026
 // Version: 7.4.6-43
 // v7.4.6-43: Projektbezogene WAZ-Basis (Antrag/Bescheid).
 //   - Project erhaelt pm_basis_weekly_hours. Soll (Arbeitsplan + AP-Restzahl)
@@ -1273,6 +1281,9 @@ export default function TimesheetForm({
       setBlockedDayReasons(reasons);
 
       // 2. Cross-Projekt-Stunden (alle Projekte des MA ausser aktuelles)
+      // v7.4.6-44: NUR gearbeitete Stunden (absence_code IS NULL). Fehlzeiten
+      // (Urlaub/Krankheit/Feiertag) sind keine Arbeitskapazitaet und duerfen
+      // weder in den physischen Monatsdeckel noch in die 9h-Tagesgrenze zaehlen.
       const { data: otherEntries } = await supabase
         .from('v7_timesheets')
         .select('work_date, hours')
@@ -1280,7 +1291,8 @@ export default function TimesheetForm({
         .neq('project_id', selectedProjectId)
         .gte('work_date', monthStart)
         .lte('work_date', monthEnd)
-        .eq('is_active', true);
+        .eq('is_active', true)
+        .is('absence_code', null);
 
       const hoursByDay: Record<number, number> = {};
       if (otherEntries) {
