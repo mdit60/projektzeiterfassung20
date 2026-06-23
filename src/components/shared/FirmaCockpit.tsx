@@ -3,7 +3,9 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-36
+// Version: 7.4.9-36-3
+// v7.4.9-36-3: pm_basis_weekly_hours in Projekt-Select + ProjektData. Kosten/PM
+//   rechnen ueber die utils projektbasiert (160,33 bei 37h-Antragsbasis).
 // v7.4.9-36: Schluessel-Icon in MA-Liste mit dynamischem Tooltip. Zeigt jetzt
 //   "Login erstellen" wenn der MA noch keinen Portal-Login hat (user_id NULL),
 //   sonst "Passwort zuruecksetzen". Dazu user_id in MA-Query + MitarbeiterData
@@ -214,6 +216,7 @@ interface ProjektData {
   foerdersatz: number | null;
   overhead_t: number | null;
   bewilligte_summe: number | null;
+  pm_basis_weekly_hours: number | null;  // v7.4.9-36-3: WAZ-Basis aus Antrag/Bescheid
 }
 
 interface MitarbeiterData {
@@ -484,7 +487,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
       // 2. Projekte
       const { data: projektDB } = await supabase
         .from('v7_projects')
-        .select('id, name, short_name, funding_reference, funding_format, start_date, end_date, is_active, foerdersatz, overhead_t, bewilligte_summe')
+        .select('id, name, short_name, funding_reference, funding_format, start_date, end_date, is_active, foerdersatz, overhead_t, bewilligte_summe, pm_basis_weekly_hours')
         .eq('client_company_id', firmaIdLocal)
         .order('is_active', { ascending: false })
         .order('start_date', { ascending: false });

@@ -2,9 +2,16 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Berechnungslogik (Shared Utility)
 // ============================================================================
-// Version: 7.4.9-3
+// Version: 7.4.9-4
 // Datum: 23. Juni 2026
-// v7.4.9-3: Projektbezogene PM-Basis (WAZ aus Antrag/Bescheid).
+// v7.4.9-4: Abrechnungs-Stundensatz pro Mitarbeiter skalieren.
+//   - rateScale jetzt = echte weekly_hours des MA / pmBasis (statt global
+//     firmStd / pmBasis). Vorteil: kein Durchreichen des Firmenstandards in die
+//     Aufrufer noetig; mathematisch korrekt auch bei Teilzeit (jeder MA mit
+//     seinem echten Gehalt/Stunden -> Kosten = PM x Monatsgehalt).
+//   - Rueckwaertskompatibel: ohne pm_basis bleibt pmBasis = firmStd bzw. 40.
+//
+// Version: 7.4.9-3: Projektbezogene PM-Basis (WAZ aus Antrag/Bescheid).
 //   - Neuer Helfer hoursPerPM(weeklyHours) = weeklyHours x 52 / 12.
 //   - PFProject erhaelt pm_basis_weekly_hours (Projekt-Override) und
 //     firm_standard_weekly_hours (Firmenstandard / Fallback).
@@ -365,14 +372,18 @@ export function calculateProjectAnalysis(
     t => t.project_id === project.id && t.is_billable !== false
   );
 
-  // v7.4.9-3: Projektbezogene PM-Basis und Firmenstandard.
-  // hpm steuert Soll/PM-Umrechnung; rateScale hebt den auf realer WAZ
-  // gespeicherten Stundensatz auf die Abrechnungs-Basis (Antrag/Bescheid),
-  // sodass Plan-/Ist-Kosten = PM x Monatsgehalt ergeben.
+  // v7.4.9-3/-4: Projektbezogene PM-Basis. hpm steuert Soll/PM-Umrechnung.
+  // rateScaleFor hebt den auf realer MA-WAZ gespeicherten Stundensatz auf die
+  // Abrechnungs-Basis (Antrag/Bescheid) -> Plan-/Ist-Kosten = PM x Monatsgehalt,
+  // korrekt auch bei Teilzeit (rateScale = echte weekly_hours des MA / pmBasis).
   const firmStdWAZ = project.firm_standard_weekly_hours ?? 40;
   const pmBasisWAZ = project.pm_basis_weekly_hours ?? firmStdWAZ;
   const hpm = hoursPerPM(pmBasisWAZ);
-  const rateScale = pmBasisWAZ > 0 ? firmStdWAZ / pmBasisWAZ : 1;
+  const rateScaleFor = (employeeId: string): number => {
+    if (pmBasisWAZ <= 0) return 1;
+    const empWaz = employees.find(e => e.id === employeeId)?.weekly_hours ?? pmBasisWAZ;
+    return empWaz / pmBasisWAZ;
+  };
 
   const now = new Date();
 
@@ -419,11 +430,12 @@ export function calculateProjectAnalysis(
       return wp && wpa.employee_id === pa.employee_id;
     });
     const planPM = maWPAs.reduce((s, wpa) => s + (wpa.planned_person_months || 0), 0);
-    gesamtPlanKosten += planPM * hpm * rate * rateScale * (1 + overhead);
+    const rs = rateScaleFor(pa.employee_id);
+    gesamtPlanKosten += planPM * hpm * rate * rs * (1 + overhead);
     const istH = projTimesheets
       .filter(t => t.employee_id === pa.employee_id)
       .reduce((s, t) => s + (t.hours || 0), 0);
-    gesamtIstKosten += istH * rate * rateScale * (1 + overhead);
+    gesamtIstKosten += istH * rate * rs * (1 + overhead);
   });
 
   const kostenPct =
@@ -444,8 +456,9 @@ export function calculateProjectAnalysis(
         .reduce((s, t) => s + (t.hours || 0), 0);
       const istPM = istH / hpm;
       const rate = pa.hourly_rate || 0;
-      const planKosten = planPM * hpm * rate * rateScale * (1 + overhead);
-      const istKosten = istH * rate * rateScale * (1 + overhead);
+      const rs = rateScaleFor(pa.employee_id);
+      const planKosten = planPM * hpm * rate * rs * (1 + overhead);
+      const istKosten = istH * rate * rs * (1 + overhead);
       return {
         name,
         planPM: Math.round(planPM * 10) / 10,

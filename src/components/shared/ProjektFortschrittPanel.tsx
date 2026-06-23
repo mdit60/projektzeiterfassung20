@@ -2,7 +2,9 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Grafische Auswertung
 // ============================================================================
-// Version: 7.4.5-24
+// Version: 7.4.5-25
+// v7.4.5-25: pm_basis_weekly_hours im Project-Interface, wird an die utils
+//   durchgereicht (Soll/PM/Kosten projektbasiert).
 //
 // v7.4.5-24: Prognose-Anzeige korrigiert. "Prognose gesamt" zeigt jetzt die auf
 //   den Plan gekappte Hochrechnung (prognoseStundenAbrechenbar) statt der
@@ -132,6 +134,7 @@ interface Project {
   foerdersatz: number | null;
   overhead_t: number | null;
   bewilligte_summe?: number | null;
+  pm_basis_weekly_hours?: number | null;  // v7.4.5-25: WAZ-Basis aus Antrag/Bescheid
 }
 
 interface WorkPackage {
