@@ -2,7 +2,11 @@
 // ============================================================================
 // PZE V7 - Shared Component: Berichte & Controlling
 // ============================================================================
-// Version: 7.4.6-19
+// Version: 7.4.6-20
+// v7.4.6-20: A-034 Dual-Read Abwesenheiten. Synthetische Abwesenheits-Zeilen aus
+//   v7_employee_absences (loadEmployeeAbsencesAsTimesheets) werden zu den
+//   v7_timesheets-Zeilen gemergt. Dedup gegen evtl. noch aktive Alt-Abwesenheits-
+//   zeilen (Uebergangsphase). TimesheetEntry um absence_code erweitert.
 // v7.4.6-19: pm_basis_weekly_hours in Projekt-Select + Project-Interface, wird
 //   an ProjektFortschrittPanel durchgereicht (Kosten/PM projektbasiert).
 // v7.4.6-18: FIX Projekt-Dropdown-Desync bei Mehr-Projekt-Firmen. Der obere
@@ -72,6 +76,7 @@ import PortalFooter from '@/components/shared/PortalFooter';
 import ProjektFortschrittPanel from '@/components/shared/ProjektFortschrittPanel';
 import StundennachweisMatrix from '@/components/shared/StundennachweisMatrix';
 import ZAPanel, { loadProjectAssignments } from '@/components/shared/ZAPanel';
+import { loadEmployeeAbsencesAsTimesheets } from '@/lib/employeeAbsences';
 import {
   getGermanHolidays,
   type HolidayRegion,
@@ -201,6 +206,7 @@ interface TimesheetEntry {
   day_type: string | null;
   is_active: boolean;
   is_billable: boolean;
+  absence_code: string | null;
 }
 
 interface ProjectStats {
@@ -420,11 +426,36 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
           // Timesheets
           const { data: timesheetData } = await supabase
             .from('v7_timesheets')
-            .select('id, project_id, employee_id, work_package_id, work_date, hours, day_type, is_active, is_billable')
+            .select('id, project_id, employee_id, work_package_id, work_date, hours, day_type, is_active, is_billable, absence_code')
             .in('project_id', projectIds)
             .eq('is_active', true)
             .limit(10000);
-          setTimesheets(timesheetData || []);
+          const tsRows = (timesheetData || []) as TimesheetEntry[];
+
+          // A-034 Dual-Read: zentrale Abwesenheiten als synthetische Zeilen
+          // ergaenzen. Dedup gegen evtl. noch aktive Alt-Abwesenheitszeilen in
+          // v7_timesheets (work_package_id IS NULL + absence_code gesetzt).
+          const existingAbsenceKeys = new Set(
+            tsRows
+              .filter(t => !t.work_package_id && t.absence_code)
+              .map(t => `${t.employee_id}|${t.project_id}|${t.work_date}`)
+          );
+          const absenceSynth = await loadEmployeeAbsencesAsTimesheets(projectIds);
+          const absenceEntries: TimesheetEntry[] = absenceSynth
+            .filter(s => !existingAbsenceKeys.has(`${s.employee_id}|${s.project_id}|${s.work_date}`))
+            .map(s => ({
+              id: s.id,
+              project_id: s.project_id,
+              employee_id: s.employee_id,
+              work_package_id: s.work_package_id,
+              work_date: s.work_date,
+              hours: s.hours,
+              day_type: s.day_type,
+              is_active: s.is_active,
+              is_billable: s.is_billable,
+              absence_code: s.absence_code,
+            }));
+          setTimesheets([...tsRows, ...absenceEntries]);
 
           // Completions
           const { data: completionsData } = await supabase

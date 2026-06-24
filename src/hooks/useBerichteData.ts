@@ -3,7 +3,12 @@
 // PZE - Shared Data-Loading Hook fuer Berichte-Komponenten
 // ============================================================================
 // Datum: 9. Mai 2026
-// Version: 1.0.1
+// Version: 1.0.2
+// v1.0.2: A-034 Dual-Read Abwesenheiten. Synthetische Abwesenheits-Zeilen aus
+//   v7_employee_absences (ueber loadEmployeeAbsencesAsTimesheets) werden zu den
+//   v7_timesheets-Zeilen gemergt. Dedup gegen evtl. noch aktive Alt-Abwesenheits-
+//   zeilen (Uebergangsphase, anhand absence_code + work_package_id IS NULL).
+//   BerichteTimesheetEntry um absence_code erweitert; Timesheet-Select ergaenzt.
 // v1.0.1: CRITICAL FIX: .limit(10000) auf v7_timesheets-Query (Supabase 1000-Zeilen-Limit)
 //
 // Zweck:
@@ -28,6 +33,7 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { loadProjectAssignments } from '@/components/shared/ZAPanel';
+import { loadEmployeeAbsencesAsTimesheets } from '@/lib/employeeAbsences';
 
 // ============================================================================
 // TYPEN (identisch mit BerichtePage-Typen)
@@ -96,6 +102,7 @@ export interface BerichteTimesheetEntry {
   day_type: string | null;
   is_active: boolean;
   is_billable: boolean | null;
+  absence_code: string | null;
 }
 
 export interface BerichteCompletion {
@@ -252,10 +259,36 @@ export function useBerichteData({ companyId: clientCompanyId, portal }: UseBeric
           // Timesheets
           const { data: timesheetData } = await supabase
             .from('v7_timesheets')
-            .select('id, project_id, employee_id, work_package_id, work_date, hours, day_type, is_active, is_billable')
+            .select('id, project_id, employee_id, work_package_id, work_date, hours, day_type, is_active, is_billable, absence_code')
             .in('project_id', projectIds)
             .eq('is_active', true);
-          setTimesheets(timesheetData || []);
+          const tsRows = (timesheetData || []) as BerichteTimesheetEntry[];
+
+          // A-034 Dual-Read: zentrale Abwesenheiten als synthetische Zeilen
+          // ergaenzen. Dedup gegen evtl. noch aktive Alt-Abwesenheitszeilen in
+          // v7_timesheets (work_package_id IS NULL + absence_code gesetzt), damit
+          // in der Uebergangsphase nichts doppelt zaehlt.
+          const existingAbsenceKeys = new Set(
+            tsRows
+              .filter(t => !t.work_package_id && t.absence_code)
+              .map(t => `${t.employee_id}|${t.project_id}|${t.work_date}`)
+          );
+          const absenceSynth = await loadEmployeeAbsencesAsTimesheets(projectIds);
+          const absenceEntries: BerichteTimesheetEntry[] = absenceSynth
+            .filter(s => !existingAbsenceKeys.has(`${s.employee_id}|${s.project_id}|${s.work_date}`))
+            .map(s => ({
+              id: s.id,
+              project_id: s.project_id,
+              employee_id: s.employee_id,
+              work_package_id: s.work_package_id,
+              work_date: s.work_date,
+              hours: s.hours,
+              day_type: s.day_type,
+              is_active: s.is_active,
+              is_billable: s.is_billable,
+              absence_code: s.absence_code,
+            }));
+          setTimesheets([...tsRows, ...absenceEntries]);
 
           // Completions
           const { data: completionsData } = await supabase
@@ -319,5 +352,5 @@ export function useBerichteData({ companyId: clientCompanyId, portal }: UseBeric
 }
 
 // ============================================================================
-// ENDE useBerichteData v1.0.0
+// ENDE useBerichteData v1.0.2
 // ============================================================================

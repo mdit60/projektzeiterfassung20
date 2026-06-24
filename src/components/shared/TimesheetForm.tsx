@@ -2,8 +2,28 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 23. Juni 2026
-// Version: 7.4.6-44
+// Datum: 24. Juni 2026
+// Version: 7.4.6-47
+// v7.4.6-47: A-034 Etappe 2c (Cross-Projekt-Abwesenheitssperre). An einem Tag
+//   mit zentraler Abwesenheit (U/K/S, projektuebergreifend via Etappe 2a) ist
+//   keine Arbeitsbuchung moeglich -- ganztaegig, ein Tag ist entweder
+//   Abwesenheit ODER Arbeit. AP- und Nicht-foerderbar-Zellen werden gesperrt
+//   dargestellt (disabled + Tooltip) und beide Eingabe-Handler blockieren
+//   Arbeitswerte hart (Backstop). Abwesenheitscodes und Leeren der Fehlzeit-
+//   Zeilen bleiben moeglich (Umklassifizieren/Loeschen). Die projektueber-
+//   greifende 9h-Tagesgrenze (A-021) bleibt unveraendert.
+// v7.4.6-46: A-034 Etappe 2b (Speichern). U/K/S werden NICHT mehr als
+//   v7_timesheets-Zeilen geschrieben, sondern projektuebergreifend in
+//   v7_employee_absences synchronisiert (Abgleich ueber Mitarbeiter+Monat:
+//   neu/geaendert/entfernt). Sonderurlaub (S an einem NICHT-Feiertag) wandert
+//   mit; S an einem berechneten Feiertag bleibt aussen vor (Feiertage werden
+//   berechnet, nicht gespeichert). Harte Konfliktpruefung: pro Tag nur EIN Code.
+//   KA, Arbeit und Sonstige bleiben unveraendert in v7_timesheets.
+// v7.4.6-45: A-034 Etappe 2a (Laden). Abwesenheiten U/K/S werden zusaetzlich
+//   projektuebergreifend aus der zentralen Tabelle v7_employee_absences geladen
+//   (Dual-Read: Vorrang vor evtl. noch aktiven Alt-Zeilen in v7_timesheets).
+//   KA, Arbeit und Sonstige bleiben unveraendert aus v7_timesheets. Reine
+//   Lade-/Anzeigeaenderung; Speichern (Etappe 2b) folgt separat.
 // v7.4.6-44: BUGFIX physischer Monatsdeckel / Cross-Projekt. otherProjectHours
 //   zaehlte Fehlzeiten (Urlaub/Krankheit/Feiertag) als gearbeitete Stunden mit
 //   -> Deckel schlug faelschlich an (z.B. 144,24 gearbeitet + 37,5 Urlaub +
@@ -1372,6 +1392,19 @@ export default function TimesheetForm({
         .lte('work_date', endDate)
         .eq('is_active', true);
 
+      // A-034 Etappe 2a: Abwesenheiten U/K/S projektuebergreifend aus der
+      // zentralen Tabelle. Kein Projektfilter (Abwesenheit gilt fuer den MA an
+      // dem Tag in allen Projekten). Dual-Read: greift nach der Migration; im
+      // Uebergang ist die Tabelle leer und die Alt-Zeilen aus v7_timesheets
+      // (entries) werden wie bisher verarbeitet.
+      const { data: centralAbsences } = await supabase
+        .from('v7_employee_absences')
+        .select('id, work_date, absence_code, hours')
+        .eq('employee_id', selectedEmployeeId)
+        .gte('work_date', startDate)
+        .lte('work_date', endDate)
+        .eq('is_active', true);
+
       if (loadError) {
         console.error('[TimesheetForm] DB-Fehler beim Laden:', loadError);
       }
@@ -1442,6 +1475,23 @@ export default function TimesheetForm({
             is_billable: entry.is_billable,
             absence_code: entry.absence_code
           });
+        }
+      });
+
+      // A-034 Etappe 2a: Zentrale Abwesenheiten (v7_employee_absences) in die
+      // Fehlzeit-Zeilen uebernehmen. Vorrang vor evtl. aus v7_timesheets bereits
+      // gesetzten Alt-Werten (neue Tabelle ist die maszgebliche Quelle). Die id
+      // ist hier die absence-id; Etappe 2b synchronisiert beim Speichern
+      // unabhaengig von der id-Herkunft ueber (Mitarbeiter, Monat).
+      (centralAbsences || []).forEach(a => {
+        const day = parseInt(a.work_date.split('-')[2]);
+        const code = (a.absence_code || '').toUpperCase();
+        if (code === 'U' || code === 'K' || code === 'S') {
+          if (!newAbsenceHours[code]) newAbsenceHours[code] = {};
+          newAbsenceHours[code][day] = {
+            id: a.id,
+            value: (typeof a.hours === 'number' && a.hours > 0) ? a.hours.toString() : '',
+          };
         }
       });
 
@@ -1661,17 +1711,16 @@ export default function TimesheetForm({
       setHasChanges(true);
       return;
     }
-    // v7.4.6-27: Halbe Tage sind erlaubt. Blockiert wird nur, wenn an diesem Tag
-    // Fehlzeit + Arbeitszeit die Tagesstunden ueberschreiten.
+    // A-034 Etappe 2c: An einem Abwesenheitstag (U/K/S, projektuebergreifend via
+    // Etappe 2a geladen) ist KEINE Arbeitsbuchung moeglich -- ein Tag ist
+    // entweder Abwesenheit ODER Arbeit (ganztaegig). Abwesenheitscodes werden
+    // oben bereits abgefangen; das Setzen/Aendern/Loeschen der Abwesenheit
+    // selbst geschieht in den Fehlzeit-Zeilen und bleibt moeglich.
     if (value && !isAbsenceCode(value)) {
-      const absH = sumAbsenceHoursForDay(day);
-      if (absH > 0) {
-        const workH = sumWorkHoursForDay(day, { excludeApRow: rowIndex }) + parseHours(value);
-        if (absH + workH > employeeDailyHours + 0.001) {
-          const abs = getAbsenceCodeForDay(day);
-          setError(`Tag ${day}: Fehlzeit (${abs ? absenceLabel(abs) : 'Abwesenheit'}, ${fmtH(absH)} h) plus Arbeitszeit (${fmtH(workH)} h) ueberschreitet die Tagesstunden (${fmtH(employeeDailyHours)} h). Bitte Fehlzeit oder Stunden anpassen.`);
-          return;
-        }
+      const abs = getAbsenceCodeForDay(day);
+      if (abs) {
+        setError(`Tag ${day}: ${absenceLabel(abs)} eingetragen -- an einem Abwesenheitstag ist keine Arbeitsbuchung moeglich. Bitte zuerst die Abwesenheit entfernen.`);
+        return;
       }
     }
     setApRows(prev => {
@@ -1689,17 +1738,14 @@ export default function TimesheetForm({
   };
 
   const handleNonBillableChange = (day: number, value: string) => {
-    // v7.4.6-27: Wie AP-Zeile - nur blockieren, wenn Fehlzeit + Arbeitszeit die
-    // Tagesstunden ueberschreiten (halbe Tage zulaessig).
+    // A-034 Etappe 2c: Auch nicht-foerderbare Stunden sind an einem
+    // Abwesenheitstag nicht buchbar (ganztaegige Sperre, ein Tag ist entweder
+    // Abwesenheit ODER Arbeit).
     if (value && !isAbsenceCode(value)) {
-      const absH = sumAbsenceHoursForDay(day);
-      if (absH > 0) {
-        const workH = sumWorkHoursForDay(day, { excludeNonBillable: true }) + parseHours(value);
-        if (absH + workH > employeeDailyHours + 0.001) {
-          const abs = getAbsenceCodeForDay(day);
-          setError(`Tag ${day}: Fehlzeit (${abs ? absenceLabel(abs) : 'Abwesenheit'}, ${fmtH(absH)} h) plus Arbeitszeit (${fmtH(workH)} h) ueberschreitet die Tagesstunden (${fmtH(employeeDailyHours)} h). Bitte Fehlzeit oder Stunden anpassen.`);
-          return;
-        }
+      const abs = getAbsenceCodeForDay(day);
+      if (abs) {
+        setError(`Tag ${day}: ${absenceLabel(abs)} eingetragen -- an einem Abwesenheitstag ist keine Arbeitsbuchung moeglich. Bitte zuerst die Abwesenheit entfernen.`);
+        return;
       }
     }
     setNonBillableEntries(prev => {
@@ -2223,6 +2269,31 @@ export default function TimesheetForm({
         return;
       }
     }
+    // 4. A-034 (Option 1): Pro Tag nur EIN Abwesenheitscode. Mehrere Codes am
+    //    selben Tag (z.B. U und K) werden hart blockiert -- kein stilles
+    //    Ueberschreiben. S an einem berechneten Feiertag bleibt aussen vor
+    //    (das ist kein Sonderurlaub, sondern der berechnete Feiertag).
+    const absCodesProTag: Record<number, string[]> = {};
+    (['U', 'K', 'S'] as const).forEach(code => {
+      Object.entries(absenceHoursInput[code]).forEach(([dayStr, entry]) => {
+        if (!entry.value || parseHours(entry.value) === 0) return;
+        const day = parseInt(dayStr);
+        if (code === 'S' && isHoliday(selectedYear, selectedMonth, day)) return;
+        if (!absCodesProTag[day]) absCodesProTag[day] = [];
+        absCodesProTag[day].push(code);
+      });
+    });
+    const konfliktTage = Object.entries(absCodesProTag)
+      .filter(([, codes]) => codes.length > 1)
+      .map(([d]) => Number(d))
+      .sort((a, b) => a - b);
+    if (konfliktTage.length > 0) {
+      setError(
+        `Tag ${konfliktTage.join(', ')}: mehrere Abwesenheiten am selben Tag eingetragen. ` +
+        `Pro Tag ist nur ein Code (Urlaub, Krankheit oder Sonstige) zulaessig -- bitte einen Wert entfernen.`
+      );
+      return;
+    }
     // (GF-Warnung ist rein informativ in der UI, kein Speichern-Block)
     setError(null);
     setSuccessMessage(null);
@@ -2304,33 +2375,9 @@ export default function TimesheetForm({
         }
       });
 
-      // v7.4.6-16: Fehlzeiten aus absenceHoursInput (direkt editierbar, keine Automatik)
-      (['U', 'K', 'S'] as const).forEach(code => {
-        Object.entries(absenceHoursInput[code]).forEach(([dayStr, entry]) => {
-          const day = parseInt(dayStr);
-          if (!entry.value || parseHours(entry.value) === 0) return;
-          const record = {
-            employee_id: selectedEmployeeId,
-            work_package_id: null,
-            project_id: selectedProjectId,
-            work_date: formatWorkDate(day),
-            hours: parseHours(entry.value),
-            is_billable: false,
-            absence_code: code,
-            data_source: 'manual',
-            entered_by: currentUserId,
-            entered_at: now,
-            is_active: true,
-            updated_at: now,
-          };
-          if (entry.id) {
-            entriesToSave.push({ id: entry.id, ...record });
-            idsToKeep.push(entry.id);
-          } else {
-            entriesToSave.push(record);
-          }
-        });
-      });
+      // A-034 Etappe 2b: U/K/S werden NICHT mehr in v7_timesheets geschrieben.
+      // Sie werden weiter unten projektuebergreifend in v7_employee_absences
+      // synchronisiert. KA (Kurzarbeit) bleibt ein v7_timesheets-Marker.
 
       // v7.4.6-31: Kurzarbeit -- reiner Tag-Marker. BEWUSST 0 Stunden, daher
       // KEIN "hours === 0"-Filter (sonst wuerde der Marker nie gespeichert).
@@ -2388,6 +2435,79 @@ export default function TimesheetForm({
           await supabase.from('v7_timesheets').update(entry).eq('id', entry.id);
         } else {
           await supabase.from('v7_timesheets').insert(entry);
+        }
+      }
+
+      // ----------------------------------------------------------------------
+      // A-034 Etappe 2b: Abwesenheiten U/K/S projektuebergreifend in
+      // v7_employee_absences synchronisieren (Abgleich ueber Mitarbeiter+Monat).
+      // Soll-Stand = absenceHoursInput; S an einem berechneten Feiertag bleibt
+      // aussen vor (Feiertage werden berechnet, nicht gespeichert). Der Konflikt
+      // "mehrere Codes je Tag" ist oben bereits hart abgefangen.
+      // ----------------------------------------------------------------------
+      const desiredAbsences: Array<{ work_date: string; absence_code: 'U' | 'K' | 'S'; hours: number }> = [];
+      (['U', 'K', 'S'] as const).forEach(code => {
+        Object.entries(absenceHoursInput[code]).forEach(([dayStr, entry]) => {
+          if (!entry.value || parseHours(entry.value) === 0) return;
+          const day = parseInt(dayStr);
+          if (code === 'S' && isHoliday(selectedYear, selectedMonth, day)) return;
+          desiredAbsences.push({ work_date: formatWorkDate(day), absence_code: code, hours: parseHours(entry.value) });
+        });
+      });
+
+      const { data: currentAbsences } = await supabase
+        .from('v7_employee_absences')
+        .select('id, work_date, absence_code, hours')
+        .eq('employee_id', selectedEmployeeId)
+        .gte('work_date', startDate)
+        .lte('work_date', endDate)
+        .eq('is_active', true);
+
+      const desiredByDate = new Map(desiredAbsences.map(d => [d.work_date, d]));
+      const currentByDate = new Map((currentAbsences || []).map(a => [a.work_date, a]));
+
+      // (a) Entfernte deaktivieren: im Ist, aber nicht mehr im Soll. Wirkt nur
+      //     auf Tage, die der Nutzer im Formular geleert hat (das Formular zeigt
+      //     ALLE Abwesenheiten des MA im Monat) -- kappt also nichts aus anderen
+      //     Projekten.
+      for (const a of (currentAbsences || [])) {
+        if (!desiredByDate.has(a.work_date)) {
+          await supabase
+            .from('v7_employee_absences')
+            .update({ is_active: false, updated_at: now })
+            .eq('id', a.id);
+        }
+      }
+
+      // (b) Neu anlegen oder geaenderte aktualisieren
+      for (const d of desiredAbsences) {
+        const existing = currentByDate.get(d.work_date);
+        if (existing) {
+          if (existing.absence_code !== d.absence_code || Number(existing.hours) !== d.hours) {
+            await supabase
+              .from('v7_employee_absences')
+              .update({
+                absence_code: d.absence_code,
+                hours: d.hours,
+                entered_by: currentUserId,
+                entered_at: now,
+                updated_at: now,
+              })
+              .eq('id', existing.id);
+          }
+        } else {
+          await supabase
+            .from('v7_employee_absences')
+            .insert({
+              employee_id: selectedEmployeeId,
+              client_company_id: companyId,
+              work_date: d.work_date,
+              absence_code: d.absence_code,
+              hours: d.hours,
+              entered_by: currentUserId,
+              entered_at: now,
+              is_active: true,
+            });
         }
       }
 
@@ -3185,11 +3305,15 @@ export default function TimesheetForm({
                       // A-021: Sperren + Cross-Projekt
                       const isBlocked = blockedDays.has(day);
                       const isKA = isKurzarbeitDay(day);  // v7.4.6-31
+                      // A-034 Etappe 2c: projektuebergreifende Abwesenheit an dem Tag
+                      const dayAbsence = getAbsenceCodeForDay(day);
                       const otherHrs = otherProjectHours[day] || 0;
                       const cellTitle = isKA
                         ? 'Kurzarbeit (Rechtsklick zum Entfernen)'
                         : isBlocked
                         ? (blockedDayReasons[day] || 'Gesperrt')
+                        : dayAbsence
+                        ? `${absenceLabel(dayAbsence)} -- an einem Abwesenheitstag ist keine Arbeitsbuchung moeglich`
                         : otherHrs > 0
                           ? `${otherHrs.toFixed(1)} h in anderen Projekten`
                           : undefined;
@@ -3212,12 +3336,13 @@ export default function TimesheetForm({
                             onChange={(e) => handleCellChange(rowIndex, day, e.target.value)}
                             onKeyDown={(e) => handleKeyDown(e, rowIndex, day, 'ap')}
                             onFocus={handleCellFocus}
-                            disabled={weekend || !!holiday || !row.workPackageId || isBlocked || isKA}
+                            disabled={weekend || !!holiday || !row.workPackageId || isBlocked || isKA || !!dayAbsence}
                             maxLength={4}
                             className={`w-full h-8 text-center text-xs border-0 ${
                               weekend || !!holiday ? 'bg-transparent cursor-not-allowed' :
                               isBlocked ? 'bg-red-100 cursor-not-allowed' :
                               isKA ? 'bg-amber-100 cursor-not-allowed pointer-events-none print:bg-transparent' :
+                              dayAbsence ? 'bg-blue-50 cursor-not-allowed text-blue-400 print:bg-transparent' :
                               !row.workPackageId ? 'bg-gray-50 cursor-not-allowed' :
                               isAbsence ? 'bg-blue-100 font-bold text-blue-700' : 'bg-white'
                             } focus:ring-1 ${colors.ring} print:bg-transparent`}
@@ -3364,10 +3489,12 @@ export default function TimesheetForm({
                   const entry = nonBillableEntries[day];
                   const isBlocked = blockedDays.has(day);  // A-021
                   const isKA = isKurzarbeitDay(day);  // v7.4.6-31
+                  // A-034 Etappe 2c: projektuebergreifende Abwesenheit an dem Tag
+                  const dayAbsence = getAbsenceCodeForDay(day);
 
                   return (
                     <td key={day} className={`border p-0 text-center ${holiday ? 'bg-orange-100' : isBlocked ? 'bg-red-100' : isKA ? 'bg-amber-100 print:bg-white' : weekend ? 'bg-gray-200' : ''}`}
-                      title={isKA ? 'Kurzarbeit' : isBlocked ? (blockedDayReasons[day] || 'Gesperrt') : weekend ? 'Wochenende -- nur fuer nicht foerderbare Zeiten (z. B. Dienstreise)' : undefined}
+                      title={isKA ? 'Kurzarbeit' : isBlocked ? (blockedDayReasons[day] || 'Gesperrt') : dayAbsence ? `${absenceLabel(dayAbsence)} -- an einem Abwesenheitstag ist keine Arbeitsbuchung moeglich` : weekend ? 'Wochenende -- nur fuer nicht foerderbare Zeiten (z. B. Dienstreise)' : undefined}
                     >
                       <input
                         type="text"
@@ -3378,12 +3505,13 @@ export default function TimesheetForm({
                         onChange={(e) => handleNonBillableChange(day, e.target.value)}
                         onKeyDown={(e) => handleKeyDown(e, 0, day, 'nonbillable')}
                         onFocus={handleCellFocus}
-                        disabled={!!holiday || isBlocked || isKA}
+                        disabled={!!holiday || isBlocked || isKA || !!dayAbsence}
                         maxLength={4}
                         className={`w-full h-6 text-center text-xs border-0 ${
                           !!holiday ? 'bg-transparent cursor-not-allowed' :
                           isBlocked ? 'bg-red-100 cursor-not-allowed' :
                           isKA ? 'bg-amber-100 cursor-not-allowed pointer-events-none print:bg-transparent' :
+                          dayAbsence ? 'bg-blue-50 cursor-not-allowed text-blue-400 print:bg-transparent' :
                           weekend ? 'bg-transparent' : 'bg-white'
                         } focus:ring-1 focus:ring-yellow-500 print:bg-transparent`}
                       />
