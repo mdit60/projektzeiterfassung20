@@ -2,8 +2,12 @@
 // ============================================================================
 // PZE V7 - Shared Component: Stundennachweis-Matrix
 // ============================================================================
-// Version: 7.4.6-5
-// Datum: 23. Juni 2026
+// Version: 7.4.6-6
+// Datum: 24. Juni 2026
+// v7.4.6-6: A-034 Dual-Read Abwesenheiten im Sammeldruck. Die synthetischen
+//   Abwesenheits-Zeilen aus v7_employee_absences (loadEmployeeAbsencesAsTimesheets)
+//   werden vor dem Bauen der Druckblaetter zu den geladenen v7_timesheets-Zeilen
+//   gemergt; Dedup gegen evtl. noch aktive Alt-Abwesenheitszeilen (Uebergangsphase).
 // v7.4.6-5: FIX Desync-Schutz. activeProjectId bekommt einen Selbstheilungs-
 //   Guard: liegt matrixProjectId nicht im uebergebenen projects-Array, wird
 //   projects[0] genutzt. Verhindert faelschliches "Keine Projektdaten
@@ -93,6 +97,7 @@ import {
   buildStundennachweisSheetData,
   type StundennachweisSheetData,
 } from '@/lib/stundennachweisSheetData';
+import { loadEmployeeAbsencesAsTimesheets } from '@/lib/employeeAbsences';
 
 // ============================================================================
 // FOERDERFORMAT-LABELS
@@ -491,6 +496,34 @@ export default function StundennachweisMatrix({
       const emps = (empRes.data || []) as Array<{ id: string; display_name: string; first_name: string | null; last_name: string | null }>;
       const tsAll = (tsRes.data || []) as Array<{ employee_id: string; work_package_id: string | null; work_date: string; hours: number | null; is_billable: boolean | null; absence_code: string | null }>;
 
+      // A-034 Dual-Read: zentrale Abwesenheiten als synthetische Zeilen ergaenzen.
+      // Dedup gegen evtl. noch aktive Alt-Abwesenheitszeilen in v7_timesheets
+      // (work_package_id IS NULL + absence_code gesetzt). Projekt ist konstant
+      // (activeProjectId), daher Schluessel ueber employee + work_date.
+      const existingAbsenceKeys = new Set(
+        tsAll
+          .filter(t => !t.work_package_id && t.absence_code)
+          .map(t => `${t.employee_id}|${t.work_date}`)
+      );
+      const absenceSynth = await loadEmployeeAbsencesAsTimesheets([activeProjectId], {
+        employeeIds: empIds,
+        fromDate: minDate,
+        toDate: maxDate,
+      });
+      const tsAllRows = [
+        ...tsAll,
+        ...absenceSynth
+          .filter(s => !existingAbsenceKeys.has(`${s.employee_id}|${s.work_date}`))
+          .map(s => ({
+            employee_id: s.employee_id,
+            work_package_id: s.work_package_id as string | null,
+            work_date: s.work_date,
+            hours: s.hours as number | null,
+            is_billable: s.is_billable as boolean | null,
+            absence_code: s.absence_code as string | null,
+          })),
+      ];
+
       // Feiertage je benoetigtem Jahr einmal berechnen
       const region = (comp?.holiday_region ?? undefined) as HolidayRegion;
       const holidaysByYear: Record<number, Map<string, string>> = {};
@@ -511,7 +544,7 @@ export default function StundennachweisMatrix({
 
       const sheets: StundennachweisSheetData[] = cells.map(c => {
         const emp = emps.find(e => e.id === c.employeeId);
-        const rows = tsAll.filter(t => {
+        const rows = tsAllRows.filter(t => {
           if (t.employee_id !== c.employeeId) return false;
           const parts = t.work_date.split('-').map(Number);
           return parts[0] === c.year && parts[1] === c.month;
