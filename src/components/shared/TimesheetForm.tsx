@@ -2,8 +2,25 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 24. Juni 2026
-// Version: 7.4.6-47
+// Datum: 25. Juni 2026
+// Version: 7.4.6-49
+// v7.4.6-49: A-038 Fokus-Weitersprung nach Abwesenheit in der AP-Zelle.
+//   Tippt man U/K/S in eine Arbeitstag-Zelle, wird der Tag sofort zum
+//   Abwesenheitstag und die Zelle durch die Cross-Projekt-Sperre (Etappe 2c,
+//   v7.4.6-47) disabled -> der Fokus ging verloren, Enter lief ins Leere
+//   (Regression aus dem Abwesenheits-Release). handleCellChange setzt den Fokus
+//   jetzt selbst auf die naechste bebuchbare AP-Zelle (gleiche Kriterien wie die
+//   Pfeil-/Enter-Navigation). Eingabeweg unveraendert, rein additiver Block.
+// v7.4.6-48: A-036 Feiertags-Sperre der Fehlzeit-Zeilen. An berechneten
+//   Feiertagen sind Urlaub/Krankheit/Sonstige nicht mehr frei editierbar:
+//   U- und K-Zelle rendern an Feiertagen kein Eingabefeld (analog Wochenende),
+//   die S-Zelle (Sonstige bezahlte Ausfallzeiten) bleibt sichtbar, aber
+//   disabled -> zeigt weiter die berechneten Feiertagsstunden, schreibgeschuetzt;
+//   an Nicht-Feiertagen (z.B. 24./31.12.) bleibt S voll editierbar. Alle drei
+//   Zeilen erhalten an Feiertagen orangen Hintergrund (vorher nur S). Schliesst
+//   zugleich die Luecke, dass U/K an einem Feiertag speicherbar waren (der
+//   Speicher-Guard galt nur fuer S). Rein chirurgischer Eingriff in den Render
+//   der drei Fehlzeit-Zeilen, keine Logikaenderung an Laden/Speichern.
 // v7.4.6-47: A-034 Etappe 2c (Cross-Projekt-Abwesenheitssperre). An einem Tag
 //   mit zentraler Abwesenheit (U/K/S, projektuebergreifend via Etappe 2a) ist
 //   keine Arbeitsbuchung moeglich -- ganztaegig, ein Tag ist entweder
@@ -1709,6 +1726,33 @@ export default function TimesheetForm({
         return n;
       });
       setHasChanges(true);
+      // v7.4.6-49 (A-038): Die AP-Zelle wird durch die soeben gesetzte
+      // Abwesenheit gesperrt (Etappe 2c) und verliert den Fokus. Damit der
+      // gewohnte Ablauf "Code tippen -> weiter" erhalten bleibt, den Fokus
+      // selbst auf die naechste bebuchbare AP-Zelle setzen (gleiche Kriterien
+      // wie die Pfeil-/Enter-Navigation in handleKeyDown).
+      {
+        const totalDays = getDaysInMonth(selectedYear, selectedMonth);
+        let target = 0;
+        for (let d = day + 1; d <= totalDays; d++) {
+          if (isWeekend(selectedYear, selectedMonth, d)) continue;
+          if (isHoliday(selectedYear, selectedMonth, d)) continue;
+          if (blockedDays.has(d)) continue;
+          if (isKurzarbeitDay(d)) continue;
+          if (getAbsenceCodeForDay(d)) continue;
+          if (!apRows[rowIndex]?.workPackageId) break;
+          target = d;
+          break;
+        }
+        if (target > 0) {
+          const selector = `input[data-row="${rowIndex}"][data-day="${target}"][data-type="ap"]`;
+          setTimeout(() => {
+            const el = document.querySelector(selector) as HTMLInputElement | null;
+            el?.focus();
+            el?.select();
+          }, 0);
+        }
+      }
       return;
     }
     // A-034 Etappe 2c: An einem Abwesenheitstag (U/K/S, projektuebergreifend via
@@ -3539,8 +3583,9 @@ export default function TimesheetForm({
                   const entry = absenceHoursInput.U[day];
                   const isKA = isKurzarbeitDay(day);  // v7.4.6-31
                   return (
-                    <td key={day} className={`border p-0 text-center text-[10px] ${weekend ? 'bg-gray-100' : isKA ? 'bg-amber-100 print:bg-white' : 'bg-white'}`}>
-                      {!weekend && !isKA && (
+                    <td key={day} className={`border p-0 text-center text-[10px] ${weekend ? 'bg-gray-100' : holiday ? 'bg-orange-100' : isKA ? 'bg-amber-100 print:bg-white' : 'bg-white'}`}>
+                      {/* v7.4.6-48 A-036: an Feiertagen kein U-Eingabefeld */}
+                      {!weekend && !isKA && !holiday && (
                         <input
                           type="text" inputMode="decimal"
                           value={entry?.value || ''}
@@ -3573,11 +3618,13 @@ export default function TimesheetForm({
                 <td className="border p-1 text-[10px]" colSpan={isDurchfuehrbarkeitsstudie ? 4 : 3}>Krankheit (nur bei Lohn- und Gehaltsfortzahlung)</td>
                 {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
                   const weekend = isWeekend(selectedYear, selectedMonth, day);
+                  const holiday = isHoliday(selectedYear, selectedMonth, day);  // v7.4.6-48 A-036
                   const entry = absenceHoursInput.K[day];
                   const isKA = isKurzarbeitDay(day);  // v7.4.6-31
                   return (
-                    <td key={day} className={`border p-0 text-center text-[10px] ${weekend ? 'bg-gray-100' : isKA ? 'bg-amber-100 print:bg-white' : 'bg-white'}`}>
-                      {!weekend && !isKA && (
+                    <td key={day} className={`border p-0 text-center text-[10px] ${weekend ? 'bg-gray-100' : holiday ? 'bg-orange-100' : isKA ? 'bg-amber-100 print:bg-white' : 'bg-white'}`}>
+                      {/* v7.4.6-48 A-036: an Feiertagen kein K-Eingabefeld */}
+                      {!weekend && !isKA && !holiday && (
                         <input
                           type="text" inputMode="decimal"
                           value={entry?.value || ''}
@@ -3630,7 +3677,8 @@ export default function TimesheetForm({
                           }}
                           onKeyDown={e => handleKeyDown(e, 0, day, 'absence-S')}
                           onFocus={handleCellFocus}
-                          className="w-full h-6 text-center text-xs border-0 bg-transparent focus:ring-1 focus:ring-purple-400 print:bg-transparent"
+                          disabled={!!holiday}
+                          className={`w-full h-6 text-center text-xs border-0 focus:ring-1 focus:ring-purple-400 print:bg-transparent ${holiday ? 'bg-transparent text-gray-600 cursor-not-allowed' : 'bg-transparent'}`}
                           maxLength={4}
                           placeholder=""
                         />
