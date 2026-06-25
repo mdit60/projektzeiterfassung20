@@ -2,8 +2,13 @@
 // ============================================================================
 // PZE - Shared Data-Loading Hook fuer Berichte-Komponenten
 // ============================================================================
-// Datum: 9. Mai 2026
-// Version: 1.0.2
+// Datum: 25. Juni 2026
+// Version: 1.0.3
+// v1.0.3: REGRESSION-FIX. Beim A-034-Umbau auf v1.0.2 ging das in v1.0.1
+//   eingefuehrte .limit(10000) auf der v7_timesheets-Query verloren. Folge:
+//   Supabases stilles 1000-Zeilen-Default schnitt die Timesheets bei Firmen mit
+//   viel Historie willkuerlich ab -> ZA-Anlage-1a (is_billable-Filter) und
+//   Berichte/Matrix zeigten "Keine Zeiterfassungsdaten". Limit wiederhergestellt.
 // v1.0.2: A-034 Dual-Read Abwesenheiten. Synthetische Abwesenheits-Zeilen aus
 //   v7_employee_absences (ueber loadEmployeeAbsencesAsTimesheets) werden zu den
 //   v7_timesheets-Zeilen gemergt. Dedup gegen evtl. noch aktive Alt-Abwesenheits-
@@ -261,7 +266,8 @@ export function useBerichteData({ companyId: clientCompanyId, portal }: UseBeric
             .from('v7_timesheets')
             .select('id, project_id, employee_id, work_package_id, work_date, hours, day_type, is_active, is_billable, absence_code')
             .in('project_id', projectIds)
-            .eq('is_active', true);
+            .eq('is_active', true)
+            .limit(10000);
           const tsRows = (timesheetData || []) as BerichteTimesheetEntry[];
 
           // A-034 Dual-Read: zentrale Abwesenheiten als synthetische Zeilen
