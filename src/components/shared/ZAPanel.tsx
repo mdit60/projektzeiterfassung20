@@ -2,10 +2,11 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-54
-// v7.4.4-54: DIAGNOSE (temporaer) - console.log('ZA-DIAG', ...) in getZAPersonenstunden,
-//   um in PROD die Laufzeitwerte zu messen (welcher Input ist leer). Wird nach Auswertung
-//   wieder entfernt. Inhaltlich identisch zu v7.4.4-53.
+// Version: 7.4.4-55
+// v7.4.4-55: A-042 Auto-Auswahl der zuletzt gespeicherten ZA beim Laden (richtiger
+//   Abrechnungszeitraum sofort gesetzt -> Anlagen zeigen direkt Daten statt "Keine Daten").
+//   Einmal-Flag (useRef) schuetzt "+ Neue ZA"/Speichern. Diagnose aus v7.4.4-54 wieder
+//   entfernt. #418-Fix (mounted-Gate) aus v7.4.4-53 bleibt erhalten.
 // Version: 7.4.4-53
 // v7.4.4-53: FIX React #418 (Hydration-Mismatch) - ZA-Anlagen blieben in PROD leer.
 //   Ursache: datums-/locale-abhaengiges Rendern (toLocaleDateString/toLocaleString 'de-DE',
@@ -101,7 +102,7 @@
 
 'use client';
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { FileText } from 'lucide-react';
 
@@ -492,6 +493,21 @@ export default function ZAPanel({
     });
   };
 
+  // v7.4.4-55 (A-042): Beim ersten Laden automatisch die zuletzt gespeicherte ZA auswaehlen,
+  // damit sofort der richtige Abrechnungszeitraum gesetzt ist und die Anlagen Daten zeigen.
+  // Ohne diese Auswahl baut openPanel einen Neu-Entwurf mit zeitraum_bis = heute -> bei
+  // abgeschlossenen Monaten "Keine Zeiterfassungsdaten". Laeuft genau EINMAL (didAutoSelectRef),
+  // damit "+ Neue ZA" und Speichern (die ebenfalls openPanel aufrufen) unberuehrt bleiben.
+  const didAutoSelectRef = useRef(false);
+  useEffect(() => {
+    if (didAutoSelectRef.current) return;
+    if (initialZaId) return;            // Cockpit-Navigation hat einen eigenen Auswahl-Effekt
+    if (zaList.length === 0) return;    // noch nichts geladen / keine gespeicherte ZA vorhanden
+    if (zaSelectedId) { didAutoSelectRef.current = true; return; }
+    didAutoSelectRef.current = true;
+    loadZAIntoForm(zaList[zaList.length - 1]); // hoechste za_nummer (Liste aufsteigend sortiert)
+  }, [zaList, initialZaId, zaSelectedId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSave = async () => {
     if (!projectId) return;
     setZASaving(true);
@@ -582,26 +598,6 @@ export default function ZAPanel({
     const technicalWPIds = isDS
       ? projectWPs.filter(wp => wp.is_technical === true).map(wp => wp.id)
       : [];
-
-    // v7.4.4-54 DIAGNOSE (temporaer): Laufzeitwerte einmal in die Konsole schreiben.
-    console.log('ZA-DIAG', JSON.stringify({
-      pid: pid,
-      vonStr: vonStr,
-      bisStr: bisStr,
-      projectsLen: projects.length,
-      projectFound: !!project,
-      fundingFormat: project ? project.funding_format : null,
-      isDS: isDS,
-      timesheetsLen: timesheets.length,
-      tsForPid: timesheets.filter(t => t.project_id === pid).length,
-      tsActiveBillablePid: timesheets.filter(t => t.project_id === pid && t.is_active && t.is_billable).length,
-      tsSampleProjectIds: Array.from(new Set(timesheets.slice(0, 50).map(t => t.project_id))),
-      paLen: projectAssignments.length,
-      paForPid: projectAssignments.filter(pa => pa.project_id === pid).length,
-      assignedCount: assignedEmployeeIds.length,
-      monthsLen: months.length,
-      monthsLabels: months.map(m => m.label),
-    }));
 
     return assignedEmployeeIds.map(empId => {
       const emp = employees.find(e => e.id === empId);
