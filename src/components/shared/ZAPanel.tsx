@@ -2,7 +2,14 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-52
+// Version: 7.4.4-53
+// v7.4.4-53: FIX React #418 (Hydration-Mismatch) - ZA-Anlagen blieben in PROD leer.
+//   Ursache: datums-/locale-abhaengiges Rendern (toLocaleDateString/toLocaleString 'de-DE',
+//   new Date()) faellt im SSR (Vercel, UTC/Node-ICU) anders aus als im Browser. React
+//   bricht das im Production-Build hart ab -> Inhalt leer ("Keine Zeiterfassungsdaten").
+//   Loesung: mounted-Gate. Server und erster Client-Render liefern denselben Platzhalter;
+//   der eigentliche Inhalt rendert erst nach dem Mount auf dem Client. Reiner Render-Zeitpunkt,
+//   keine Aenderung an Daten- oder ZA-Logik.
 // v7.4.4-52: Zeile 3 (blau): 2-Spalten-Layout 50/50 - links ZA Nr./von/bis, rechts Datum+Button
 // v7.4.4-51: "Als eingereicht markieren" Button entfernt
 //   - Datum Einreichung direkt im Datumsfeld setzen genuegt
@@ -332,6 +339,12 @@ export default function ZAPanel({
 }: ZAPanelProps) {
   const supabase = createClient();
   const colors = PORTAL_COLORS[portal];
+
+  // v7.4.4-53: Hydration-Gate gegen React #418.
+  // mounted ist im ersten (Server- wie Client-)Render false -> identischer Platzhalter,
+  // danach true -> echter Inhalt. Verhindert SSR/Client-Mismatch beim Datums-/Locale-Rendern.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
   // ZIM-relevante Projekte (robust gegen Postgres ENUM-Typ)
   const zimProjects = projects.filter(p => {
@@ -838,6 +851,18 @@ export default function ZAPanel({
   // ============================================================================
   // RENDER - NUR PANEL-INHALT (kein Button, kein show/hide)
   // ============================================================================
+
+  // v7.4.4-53: Bis der Client gemountet ist, neutralen Platzhalter rendern.
+  // Server-HTML und erster Client-Render sind dadurch identisch -> kein Hydration-Mismatch (#418).
+  if (!mounted) {
+    return (
+      <div className={`mt-4 border ${colors.border} rounded-lg overflow-hidden`}>
+        <div className={`${colors.headerBg} px-4 py-3 border-b ${colors.headerBorder}`}>
+          <span className="text-sm text-gray-500">Lade Zahlungsanforderung &hellip;</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
