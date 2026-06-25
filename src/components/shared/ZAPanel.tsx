@@ -2,6 +2,12 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
+// Version: 7.4.4-56
+// v7.4.4-56: (1) A-042 Auto-Auswahl korrigiert - konsolidierter Effekt waehlt beim Laden
+//   die per initialZaId vorgegebene ODER die zuletzt gespeicherte ZA und laedt sie wirklich
+//   ins Formular (v55 brach bei gesetztem initialZaId ab -> blieb leerer Neu-Entwurf).
+//   (2) Einreichdatum default leer (3 Stellen) -> Entwurf bleibt Entwurf, kein Auto-heute.
+//   (3) Archiv: Spalte Zahlungseingang-Betrag rechtsbuendig -> Ueberschrift ueber dem Feld.
 // Version: 7.4.4-55
 // v7.4.4-55: A-042 Auto-Auswahl der zuletzt gespeicherten ZA beim Laden (richtiger
 //   Abrechnungszeitraum sofort gesetzt -> Anlagen zeigen direkt Daten statt "Keine Daten").
@@ -369,19 +375,15 @@ export default function ZAPanel({
   const [hasChanges, setHasChanges] = useState(false);
   const [showUnsavedDialog, setShowUnsavedDialog] = useState<(() => void) | null>(null);
 
-  // Auto-Selektion wenn initialZaId gesetzt und zaList geladen (Cockpit-Navigation)
-  useEffect(() => {
-    if (!initialZaId || zaList.length === 0 || zaSelectedId) return;
-    const found = zaList.find(z => z.id === initialZaId);
-    if (found) setZASelectedId(found.id);
-  }, [zaList, initialZaId, zaSelectedId]);
+  // v7.4.4-56: Alter initialZaId-Auswahl-Effekt entfernt - die Auswahl (initialZaId ODER
+  // zuletzt gespeicherte ZA) erfolgt jetzt zentral im konsolidierten Effekt weiter unten.
   const [zaLoading, setZALoading] = useState(false);
   const [zaSaving, setZASaving] = useState(false);
   const [archivEdits, setArchivEdits] = useState<Record<string, {
     datum: string; betrag: string; kommentar: string; saving: boolean; saved: boolean;
   }>>({});
   const [eingereichtAmEdit, setEingereichtAmEdit] = useState<string>(
-    new Date().toISOString().slice(0, 10)
+    '' // v7.4.4-56: leer als Default (vorher heute) -> Entwurf bleibt Entwurf
   );
   // v7.4.4-28: Direkt aus DB geladene Projektfelder (bewilligung_datum, bewilligte_summe)
   const [zaProjectExtra, setZAProjectExtra] = useState<{
@@ -446,6 +448,7 @@ export default function ZAPanel({
       : (project?.start_date?.slice(0, 10) || new Date().toISOString().slice(0, 10));
     const bisDefault = new Date().toISOString().slice(0, 10);
 
+    setEingereichtAmEdit(''); // v7.4.4-56: Neu-Entwurf hat kein Einreichdatum
     setZAFormData({
       za_nummer: String(nextNummer),
       zeitraum_von: vonDefault,
@@ -478,7 +481,7 @@ export default function ZAPanel({
     setZASelectedId(za.id);
     setHasChanges(false);
     setEingereichtAmEdit(
-      za.eingereicht_am ? za.eingereicht_am.slice(0, 10) : new Date().toISOString().slice(0, 10)
+      za.eingereicht_am ? za.eingereicht_am.slice(0, 10) : '' // v7.4.4-56: leer statt heute
     );
     setZAFormData({
       za_nummer: String(za.za_nummer),
@@ -493,20 +496,19 @@ export default function ZAPanel({
     });
   };
 
-  // v7.4.4-55 (A-042): Beim ersten Laden automatisch die zuletzt gespeicherte ZA auswaehlen,
-  // damit sofort der richtige Abrechnungszeitraum gesetzt ist und die Anlagen Daten zeigen.
-  // Ohne diese Auswahl baut openPanel einen Neu-Entwurf mit zeitraum_bis = heute -> bei
-  // abgeschlossenen Monaten "Keine Zeiterfassungsdaten". Laeuft genau EINMAL (didAutoSelectRef),
-  // damit "+ Neue ZA" und Speichern (die ebenfalls openPanel aufrufen) unberuehrt bleiben.
+  // v7.4.4-56 (A-042): Beim ersten Laden GENAU EINMAL die richtige ZA auswaehlen UND ins
+  // Formular laden - entweder die per initialZaId vorgegebene (Cockpit) oder die zuletzt
+  // gespeicherte. Damit ist sofort der korrekte Abrechnungszeitraum gesetzt und die Anlagen
+  // zeigen Daten statt eines leeren Neu-Entwurfs (zeitraum_bis = heute). didAutoSelectRef
+  // sorgt fuer genau einen Lauf -> "+ Neue ZA"/Speichern (rufen openPanel auf) bleiben frei.
   const didAutoSelectRef = useRef(false);
   useEffect(() => {
     if (didAutoSelectRef.current) return;
-    if (initialZaId) return;            // Cockpit-Navigation hat einen eigenen Auswahl-Effekt
-    if (zaList.length === 0) return;    // noch nichts geladen / keine gespeicherte ZA vorhanden
-    if (zaSelectedId) { didAutoSelectRef.current = true; return; }
+    if (zaList.length === 0) return; // warten, bis openPanel die Liste geladen hat
     didAutoSelectRef.current = true;
-    loadZAIntoForm(zaList[zaList.length - 1]); // hoechste za_nummer (Liste aufsteigend sortiert)
-  }, [zaList, initialZaId, zaSelectedId]); // eslint-disable-line react-hooks/exhaustive-deps
+    const target = (initialZaId && zaList.find(z => z.id === initialZaId)) || zaList[zaList.length - 1];
+    if (target) loadZAIntoForm(target);
+  }, [zaList, initialZaId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSave = async () => {
     if (!projectId) return;
@@ -1649,7 +1651,7 @@ export default function ZAPanel({
                                 className="text-xs border border-gray-300 rounded px-2 py-1 w-36 focus:outline-none focus:border-blue-400"
                               />
                             </td>
-                            <td className="px-3 py-2">
+                            <td className="px-3 py-2 text-right">
                               <input
                                 type="text"
                                 inputMode="decimal"
