@@ -2,6 +2,10 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
+// Version: 7.4.4-54
+// v7.4.4-54: DIAGNOSE (temporaer) - console.log('ZA-DIAG', ...) in getZAPersonenstunden,
+//   um in PROD die Laufzeitwerte zu messen (welcher Input ist leer). Wird nach Auswertung
+//   wieder entfernt. Inhaltlich identisch zu v7.4.4-53.
 // Version: 7.4.4-53
 // v7.4.4-53: FIX React #418 (Hydration-Mismatch) - ZA-Anlagen blieben in PROD leer.
 //   Ursache: datums-/locale-abhaengiges Rendern (toLocaleDateString/toLocaleString 'de-DE',
@@ -578,6 +582,26 @@ export default function ZAPanel({
     const technicalWPIds = isDS
       ? projectWPs.filter(wp => wp.is_technical === true).map(wp => wp.id)
       : [];
+
+    // v7.4.4-54 DIAGNOSE (temporaer): Laufzeitwerte einmal in die Konsole schreiben.
+    console.log('ZA-DIAG', JSON.stringify({
+      pid: pid,
+      vonStr: vonStr,
+      bisStr: bisStr,
+      projectsLen: projects.length,
+      projectFound: !!project,
+      fundingFormat: project ? project.funding_format : null,
+      isDS: isDS,
+      timesheetsLen: timesheets.length,
+      tsForPid: timesheets.filter(t => t.project_id === pid).length,
+      tsActiveBillablePid: timesheets.filter(t => t.project_id === pid && t.is_active && t.is_billable).length,
+      tsSampleProjectIds: Array.from(new Set(timesheets.slice(0, 50).map(t => t.project_id))),
+      paLen: projectAssignments.length,
+      paForPid: projectAssignments.filter(pa => pa.project_id === pid).length,
+      assignedCount: assignedEmployeeIds.length,
+      monthsLen: months.length,
+      monthsLabels: months.map(m => m.label),
+    }));
 
     return assignedEmployeeIds.map(empId => {
       const emp = employees.find(e => e.id === empId);
