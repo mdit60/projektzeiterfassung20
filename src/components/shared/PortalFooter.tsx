@@ -4,8 +4,16 @@
 // ============================================================================
 // PZE - Gemeinsamer Portal-Footer
 // ============================================================================
-// Datum: 9. Mai 2026
-// Version: 7.4.9-2
+// Datum: 25. Juni 2026
+// Version: 7.4.9-3
+// v7.4.9-3: Build-Marker AUTOMATISCH (A-037). Statt fest verdrahtetem
+//   "Build 43" zeigt der Footer jetzt die Kurz-Commit-ID des tatsaechlich
+//   ausgelieferten Vercel-Builds: process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA
+//   (von Vercel automatisch gesetzt, von Next.js beim Bauen fest eingesetzt ->
+//   kann nicht veralten). Kurzform auf 7 Zeichen. Fallback "dev", wenn die
+//   Variable fehlt (lokaler pnpm dev oder System-Env-Vars in Vercel deaktiviert).
+//   Loest den temporaeren Marker aus -2 ab; ab jetzt kein manuelles Hochzaehlen.
+//
 // v7.4.9-2: TEMPORAERER Build-Marker "Build 43" im Footer-Text, um zu
 //   pruefen ob PROD ueberhaupt den neuesten Vercel-Build ausliefert.
 //   Wird nach der Klaerung wieder entfernt. Sonst unveraendert.
@@ -21,6 +29,13 @@
 
 import { V7PortalType } from '@/types/v7-types';
 import { PORTAL_COLORS } from '@/lib/v7-constants';
+
+// ============================================================================
+// BUILD-MARKER
+// ============================================================================
+// Vercel setzt NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA automatisch je Deployment;
+// Next.js ersetzt den Wert beim Build fest im Client-Bundle. Kurzform 7 Zeichen.
+const BUILD_ID = (process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA || 'dev').slice(0, 7);
 
 // ============================================================================
 // TYPEN
@@ -45,7 +60,7 @@ export default function PortalFooter({ portal = 'berater' }: PortalFooterProps) 
     >
       <p className="text-xs text-center" style={{ color: 'rgba(255,255,255,0.75)' }}>
         PZE &ndash; Projektzeiterfassung by Cubintec GmbH, {year}
-        &nbsp;&middot;&nbsp;Build&nbsp;43&nbsp;&middot;&nbsp;
+        &nbsp;&middot;&nbsp;Build&nbsp;{BUILD_ID}&nbsp;&middot;&nbsp;
         <span
           className="cursor-default transition-colors"
           style={{ color: 'rgba(255,255,255,0.75)' }}
@@ -69,5 +84,5 @@ export default function PortalFooter({ portal = 'berater' }: PortalFooterProps) 
 }
 
 // ============================================================================
-// ENDE PortalFooter v7.4.9-2
+// ENDE PortalFooter v7.4.9-3
 // ============================================================================
