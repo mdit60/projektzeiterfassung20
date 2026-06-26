@@ -2,8 +2,16 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 25. Juni 2026
-// Version: 7.4.6-49
+// Datum: 26. Juni 2026
+// Version: 7.4.6-50
+// v7.4.6-50: NEU "Alle AP"-Button neben "Meine Arbeitspakete". Oeffnet ein
+//   Modal mit dem projektweiten AP-Status: je echtem AP (PM > 0) geplante,
+//   gebuchte und offene Stunden ueber ALLE Mitarbeiter. "offen" = Soll
+//   (total_person_months x hoursPerPM) minus projektweit gebucht. Orange =
+//   noch zu buchen (Unterstuetzung noetig), Rot = ueberbucht, Grau = erledigt.
+//   Rein additiv: neuer State showAllAPModal, ein Button (gegated auf
+//   selectedProjectId), ein Modal. Wiederverwendung von availableWorkPackages,
+//   compareApCode, calculateWPOpenHours, projectBookedPerWP, hoursPerPM.
 // v7.4.6-49: A-038 Fokus-Weitersprung nach Abwesenheit in der AP-Zelle.
 //   Tippt man U/K/S in eine Arbeitstag-Zelle, wird der Tag sofort zum
 //   Abwesenheitstag und die Zelle durch die Cross-Projekt-Sperre (Etappe 2c,
@@ -543,6 +551,8 @@ export default function TimesheetForm({
   const [showAPModal, setShowAPModal] = useState(false);
   // NEU v7.4.6-30: "Meine Arbeitspakete"-Modal (dem MA zugeordnete APs)
   const [showMyAPModal, setShowMyAPModal] = useState(false);
+  // NEU v7.4.6-50: "Alle AP"-Modal (projektweiter AP-Status: Soll/gebucht/offen)
+  const [showAllAPModal, setShowAllAPModal] = useState(false);
 
   // NEU v7.4.6-22 (A-021): NWM-Tagessperren
   const [blockedDays, setBlockedDays] = useState<Set<number>>(new Set());
@@ -3075,6 +3085,19 @@ export default function TimesheetForm({
               Meine Arbeitspakete{assignedWPIds.length > 0 ? ` (${assignedWPIds.length})` : ''}
             </button>
 
+            {/* v7.4.6-50: Alle AP (projektweiter AP-Status) */}
+            <button
+              onClick={() => setShowAllAPModal(true)}
+              disabled={!selectedProjectId}
+              className={`flex items-center gap-1.5 text-sm px-2.5 py-1 rounded border border-gray-300 ${colors.text} hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed`}
+              title="Projektweiter AP-Status: geplante, gebuchte und offene Stunden je Arbeitspaket"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+              Alle AP
+            </button>
+
             {/* Projekt */}
             <div className="flex items-center gap-2">
               <label className="text-sm font-medium text-gray-900">Projekt:</label>
@@ -3990,6 +4013,108 @@ export default function TimesheetForm({
             <div className="flex justify-end mt-4">
               <button
                 onClick={() => setShowMyAPModal(false)}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm"
+              >
+                {'Schlie\u00dfen'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* v7.4.6-50: Alle AP - projektweiter AP-Status (Soll / gebucht / offen) */}
+      {showAllAPModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 print:hidden">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-3xl mx-4 w-full max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">
+                AP-Status {selectedProject?.short_name || selectedProject?.name || ''}
+              </h3>
+              <button onClick={() => setShowAllAPModal(false)} className="text-gray-400 hover:text-gray-600">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {(() => {
+              const realAPs = availableWorkPackages
+                .filter(wp => wp.total_person_months != null && wp.total_person_months > 0)
+                .sort(compareApCode);
+              if (realAPs.length === 0) {
+                return (
+                  <p className="text-gray-500 text-sm">Keine Arbeitspakete mit geplanten Stunden vorhanden.</p>
+                );
+              }
+              let sumPlanned = 0;
+              let sumBooked = 0;
+              return (
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 text-left">
+                      <th className="border px-2 py-1.5 font-medium text-gray-700">AP</th>
+                      <th className="border px-2 py-1.5 font-medium text-gray-700">Bezeichnung</th>
+                      {isDurchfuehrbarkeitsstudie && (
+                        <th className="border px-2 py-1.5 font-medium text-gray-700 text-center">T/NT</th>
+                      )}
+                      <th className="border px-2 py-1.5 font-medium text-gray-700 text-right">geplant (h)</th>
+                      <th className="border px-2 py-1.5 font-medium text-gray-700 text-right">gebucht (h)</th>
+                      <th className="border px-2 py-1.5 font-medium text-gray-700 text-right">offen (h)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {realAPs.map(wp => {
+                      const apDisplay = wp.ap_code
+                        ? wp.ap_code.replace(/^AP\s*/i, '')
+                        : `${wp.ap_number}${wp.ap_sub_number ? `.${wp.ap_sub_number}` : ''}`;
+                      const planned = (wp.total_person_months || 0) * hoursPerPM(pmBasisWAZ);
+                      const booked = projectBookedPerWP[wp.id] || 0;
+                      const offen = calculateWPOpenHours(wp.id);
+                      sumPlanned += planned;
+                      sumBooked += booked;
+                      return (
+                        <tr key={wp.id} className="hover:bg-gray-50">
+                          <td className="border px-2 py-1.5 whitespace-nowrap font-mono text-xs">{apDisplay}</td>
+                          <td className="border px-2 py-1.5">{wp.name}</td>
+                          {isDurchfuehrbarkeitsstudie && (
+                            <td className="border px-2 py-1.5 text-center">
+                              {isTechnicalAP(wp)
+                                ? <span className="text-green-700 font-bold text-xs">T</span>
+                                : <span className="text-blue-700 font-bold text-xs">NT</span>}
+                            </td>
+                          )}
+                          <td className="border px-2 py-1.5 text-right whitespace-nowrap">{Math.round(planned)}</td>
+                          <td className="border px-2 py-1.5 text-right whitespace-nowrap">{Math.round(booked)}</td>
+                          <td className="border px-2 py-1.5 text-right whitespace-nowrap">
+                            {offen == null
+                              ? '\u2013'
+                              : <span className={offen > 0 ? 'text-amber-600 font-bold' : offen < 0 ? 'text-red-600 font-bold' : 'text-gray-400'}>{offen}</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-gray-50 font-semibold">
+                      <td className="border px-2 py-1.5" colSpan={isDurchfuehrbarkeitsstudie ? 3 : 2}>Gesamt</td>
+                      <td className="border px-2 py-1.5 text-right">{Math.round(sumPlanned)}</td>
+                      <td className="border px-2 py-1.5 text-right">{Math.round(sumBooked)}</td>
+                      <td className="border px-2 py-1.5 text-right">
+                        <span className={Math.round(sumPlanned - sumBooked) > 0 ? 'text-amber-600 font-bold' : Math.round(sumPlanned - sumBooked) < 0 ? 'text-red-600 font-bold' : 'text-gray-400'}>{Math.round(sumPlanned - sumBooked)}</span>
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              );
+            })()}
+
+            <p className="text-xs text-gray-400 mt-3">
+              Projektweit &uuml;ber alle Mitarbeiter. &quot;offen&quot; = geplante minus gebuchte Stunden je AP. Orange = noch zu buchen, Rot = &uuml;berbucht, Grau = erledigt.
+            </p>
+
+            <div className="flex justify-end mt-4">
+              <button
+                onClick={() => setShowAllAPModal(false)}
                 className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm"
               >
                 {'Schlie\u00dfen'}
