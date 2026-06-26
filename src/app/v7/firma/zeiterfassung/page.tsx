@@ -2,6 +2,9 @@
 // ============================================================================
 // PZE V7 - Zeiterfassung Seite (Firmen-Portal)
 // ============================================================================
+// Version: 7.4.6-4
+// v7.4.6-4: Liest zusaetzlich ?projekt= aus der URL und gibt es als
+//   initialProjectId an TimesheetForm -> richtiges Projekt vorbelegt.
 // Version: 7.4.6-3
 // Datum: 23. Juni 2026
 // v7.4.6-3: Project-Query um pm_basis_weekly_hours erweitert (WAZ-Basis aus
@@ -108,6 +111,7 @@ function ZeiterfassungContent() {
   const urlYear = searchParams.get('year');
   const urlMonth = searchParams.get('month');
   const urlReturnUrl = searchParams.get('returnUrl');
+  const urlProjekt = searchParams.get('projekt');  // v7.4.6-4
   
   // State
   const [loading, setLoading] = useState(true);
@@ -294,6 +298,7 @@ function ZeiterfassungContent() {
   
   const initialYear = urlYear ? parseInt(urlYear, 10) : undefined;
   const initialMonth = urlMonth ? parseInt(urlMonth, 10) : undefined;
+  const initialProjectId = urlProjekt || undefined;  // v7.4.6-4
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -331,6 +336,7 @@ function ZeiterfassungContent() {
           initialEmployeeId={initialEmployeeId}
           initialYear={initialYear}
           initialMonth={initialMonth}
+          initialProjectId={initialProjectId}
         />
       </main>
     </div>
