@@ -4,7 +4,13 @@
 // ============================================================================
 // PZE V7 - Portal-Navigation
 // ============================================================================
-// Version: 7.4.4-24
+// Version: 7.4.4-25
+// v7.4.4-25: HYDRATION-FIX. pze_mode (localStorage) wurde beim Rendern gelesen
+//   (isAppMode), was Server- und Client-Render auseinanderlaufen liess -> die
+//   blaue Aktiv-Farbe landete am falschen Nav-Item, "Hydration failed"-Overlay
+//   im Dev. Jetzt: isAppMode als State (Start false = Server-konform), echter
+//   Wert erst im useEffect nach dem Mount. Zwei Render-Reads ersetzt (Cockpit-
+//   Button + Item-Map), handleCockpitClick (Klick-Zeitpunkt) unveraendert.
 // v7.4.4-24: App-Modus-Arbeitsfluss-Fix. Der "Unternehmen"-Tab wird im
 //            App-Modus (pze_mode='app') ausgeblendet, statt auf die alte
 //            Firmenliste (/foerderung/firma/select/cockpit) zu routen.
@@ -321,6 +327,17 @@ export default function PortalNav({
   const [cockpitBeraterEnabled, setCockpitBeraterEnabled] = useState(false);
   const [cockpitFirmaEnabled, setCockpitFirmaEnabled] = useState(false);
 
+  // v7.4.4-25: HYDRATION-FIX. pze_mode (localStorage) erst NACH dem Mount lesen.
+  // Server kennt kein localStorage -> dort waere isAppMode immer false. Wird es
+  // schon beim Render gelesen, weichen Server- und erster Client-Render ab und
+  // ein anderes Nav-Item wird als aktiv markiert -> Hydration-Mismatch (die
+  // blaue Aktiv-Farbe landet serverseitig am falschen Link). Daher Start false
+  // (= identisch zum Server) und erst im useEffect auf den echten Wert setzen.
+  const [isAppMode, setIsAppMode] = useState(false);
+  useEffect(() => {
+    setIsAppMode(localStorage.getItem('pze_mode') === 'app');
+  }, []);
+
   useEffect(() => {
     const supabase = createClient();
     supabase
@@ -345,7 +362,7 @@ export default function PortalNav({
           {/* Cockpit Button - nur im App-Modus (pze_mode='app') sichtbar */}
           {((portal === 'berater' && (userRole === 'system_admin' || cockpitBeraterEnabled)) ||
             (portal === 'firma' && cockpitFirmaEnabled)) &&
-            typeof window !== 'undefined' && localStorage.getItem('pze_mode') === 'app' && (
+            isAppMode && (
             <>
               <button
                 onClick={handleCockpitClick}
@@ -365,8 +382,6 @@ export default function PortalNav({
             </>
           )}
           {navItems.map((item) => {
-            const isAppMode = typeof window !== 'undefined' && localStorage.getItem('pze_mode') === 'app';
-
             if (portal === 'berater' && pathname) {
               if (item.key === 'foerderung') {
                 // Im App-Modus: Unternehmen-Tab komplett ausgeblendet.
