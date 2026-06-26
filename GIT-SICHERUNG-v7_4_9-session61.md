@@ -1,7 +1,7 @@
 # GIT-SICHERUNG - Session 61
 
 **Datum:** 26. Juni 2026
-**SW-Release:** V7.5.1 (Patch - drei Zeiterfassungs-Bugfixes)
+**SW-Release:** V7.5.1 (Patch - drei Zeiterfassungs-Bugfixes + eine AP-Status-Ergaenzung)
 **Pflichtenheft:** v5.12
 **Branch:** main (PROD deployed) / v7-dev
 **Deploy-Stand:** main == cubintec/main == `b1e6faf` (deckungsgleich verifiziert)
@@ -10,7 +10,7 @@
 
 ## Zusammenfassung
 
-Drei Bugs rund um die Zeiterfassung behoben und in PRODUKTION deployt (beide
+Drei Bugs rund um die Zeiterfassung behoben (plus eine AP-Status-Ergaenzung, A-047) und in PRODUKTION deployt (beide
 Remotes origin + cubintec, identischer SHA `b1e6faf`). Schwerpunkt war die
 Stundennachweis-Matrix-Navigation (richtiges Projekt vorbelegen) sowie zwei
 Detailfehler im TimesheetForm (Pfeilnavigation ueber Abwesenheiten, Tagesstunden
@@ -75,6 +75,14 @@ ankam (stummer Browser-Download-Fehler). Siehe unten.
   mit explizit gesetzten 40 h behaelt korrekt 8 h/Tag - dann ist es kein Bug,
   sondern ggf. eine Datenkorrektur der MA-WAZ (auf 37,5).
 
+### A-047 - AP-Status-Modal zeigt geplanten Bearbeitungszeitraum je AP
+- TimesheetForm v7.4.6-53.
+- Im "Alle AP"-Modal (AP-Status oben im TimesheetForm) fehlte die Angabe, von
+  wann bis wann die Bearbeitung eines AP geplant ist.
+- Ergaenzt: neue Spalte "Zeitraum (geplant)" (Monat.Jahr von-bis aus
+  wp.start_date/end_date), null -> Strich. Rein additiv, nur dieses Modal;
+  tfoot-colSpan um 1 erhoeht.
+
 ---
 
 ## Wichtige Lehre - Deploy-Verifikation vor "funktioniert nicht"
@@ -101,7 +109,7 @@ Konsequenzen / Checkliste fuer kuenftige Faelle:
 
 | Datei (downloads) | Ziel in src/ | Version |
 |-------------------|--------------|---------|
-| TimesheetForm-v7_4_6-52.tsx | src/components/shared/TimesheetForm.tsx | 7.4.6-52 |
+| TimesheetForm-v7_4_6-53.tsx | src/components/shared/TimesheetForm.tsx | 7.4.6-53 |
 | StundennachweisMatrix-v7_4_6-7.tsx | src/components/shared/StundennachweisMatrix.tsx | 7.4.6-7 |
 | BerichtePage-v7_4_6-23.tsx | src/components/shared/BerichtePage.tsx | 7.4.6-23 |
 | cockpit-stundennachweis-page-v7_4_9-7.tsx | src/app/v7/berater/foerderung/firma/[id]/cockpit/stundennachweis/page.tsx | 7.4.9-7 |
