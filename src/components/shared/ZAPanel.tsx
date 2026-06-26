@@ -2,6 +2,23 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
+// Version: 7.4.4-58
+// v7.4.4-58: ZA-Druck komplett robust gemacht. Statt eines Popup-Fensters
+//   (window.open) druckt handlePrint jetzt ueber ein unsichtbares iframe im
+//   selben Fenster. Damit entfallen Popup-Blocker, das wegblitzende Fenster
+//   (Firefox) und Fokus-/Timing-Probleme; gedruckt wird exakt der sichtbare
+//   ZA-Bereich (offsetParent-Check waehlt den sichtbaren Tab). Aufraeumen via
+//   onafterprint + Fallback. Doppeldruck-Schutz (printed-Flag). Ersetzt den
+//   Popup-Ansatz aus -57.
+// Version: 7.4.4-57
+// v7.4.4-57: FIX ZA-Druck in Firefox. handlePrint schloss das Druck-Popup
+//   unmittelbar nach print() (gleicher Tick) -> in Firefox killte das close()
+//   den Druckdialog, das Fenster blitzte auf und verschwand (Deckblatt /
+//   Anlagen / Zahlungsaufforderung nicht druckbar). Jetzt: drucken erst nach
+//   readyState 'complete' bzw. onload, schliessen erst NACH dem Druckdialog
+//   ueber onafterprint. Faellt das Schliessen aus, bleibt das Fenster offen
+//   stehen statt zu verschwinden. Robust ueber Firefox und Chrome. Reine
+//   Aenderung an handlePrint, sonst nichts.
 // Version: 7.4.4-56
 // v7.4.4-56: (1) A-042 Auto-Auswahl korrigiert - konsolidierter Effekt waehlt beim Laden
 //   die per initialZaId vorgegebene ODER die zuletzt gespeicherte ZA und laedt sie wirklich
@@ -463,7 +480,7 @@ export default function ZAPanel({
     setZALoading(false);
   }, [projects, supabase]);
 
-  // Prüft auf ungespeicherte Änderungen - identisches Muster wie TimesheetForm
+  // Prueft auf ungespeicherte Aenderungen - identisches Muster wie TimesheetForm
   const checkUnsavedChanges = (callback: () => void) => {
     if (hasChanges) {
       setShowUnsavedDialog(() => callback);
@@ -801,23 +818,68 @@ export default function ZAPanel({
   };
 
   const handlePrint = () => {
-    const el = document.getElementById('za-print-area');
+    // Sichtbaren ZA-Druckbereich holen. Je Tab existiert ein Element mit dieser
+    // id; im DOM ist immer nur der aktive Tab -> der sichtbare ist der richtige.
+    const candidates = Array.from(document.querySelectorAll('#za-print-area')) as HTMLElement[];
+    const el = candidates.find(c => c.offsetParent !== null) || candidates[0] || document.getElementById('za-print-area');
     if (!el) return;
-    const printWin = window.open('', '_blank', 'width=900,height=700');
-    if (!printWin) return;
+
     const styles = Array.from(document.styleSheets)
       .map(ss => { try { return Array.from(ss.cssRules).map(r => r.cssText).join('\n'); } catch { return ''; } })
       .join('\n');
     const tabLabel = zaTab === 'deckblatt' ? 'Deckblatt' : zaTab === 'anlage1a' ? 'Anlage 1a' : zaTab === 'anlage1b' ? 'Anlage 1b' : 'Archiv';
-    printWin.document.write(
+    const html =
       '<html><head><title>ZA ' + zaFormData.za_nummer + ' - ' + tabLabel +
       '</title><style>' + styles +
       ' @media print { body { margin: 10mm; } } @page { size: A4 portrait; margin: 15mm; }</style></head><body>' +
-      el.innerHTML + '</body></html>'
-    );
-    printWin.document.close();
-    printWin.focus();
-    setTimeout(() => { printWin.print(); printWin.close(); }, 400);
+      el.innerHTML + '</body></html>';
+
+    // v7.4.4-58: Druck ueber ein unsichtbares iframe im SELBEN Fenster statt
+    // ueber ein Popup. Robust ueber Firefox und Chrome: kein Popup-Blocker, kein
+    // wegblitzendes Fenster, kein Fokus-/Timing-Problem. Gedruckt wird exakt der
+    // sichtbare ZA-Bereich. Aufgeraeumt wird erst nach dem Druckdialog
+    // (onafterprint) bzw. per Sicherheits-Fallback.
+    const prev = document.getElementById('za-print-iframe');
+    if (prev) prev.remove();
+    const iframe = document.createElement('iframe');
+    iframe.id = 'za-print-iframe';
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+
+    const win = iframe.contentWindow;
+    const doc = win?.document;
+    if (!win || !doc) { iframe.remove(); return; }
+
+    let done = false;
+    const cleanup = () => { if (done) return; done = true; setTimeout(() => { try { iframe.remove(); } catch { /* noop */ } }, 200); };
+    win.onafterprint = cleanup;
+
+    let printed = false;
+    const doPrint = () => {
+      if (printed) return;
+      printed = true;
+      try { win.focus(); win.print(); } catch { /* noop */ }
+    };
+
+    doc.open();
+    doc.write(html);
+    doc.close();
+
+    // Drucken, sobald das iframe-Dokument bereit ist (sofort oder via onload).
+    if (doc.readyState === 'complete') {
+      setTimeout(doPrint, 250);
+    } else {
+      iframe.onload = () => setTimeout(doPrint, 250);
+    }
+    // Fallback: iframe nicht liegen lassen, falls onafterprint nie feuert
+    // (z.B. abgebrochener Druckdialog).
+    setTimeout(cleanup, 60000);
   };
 
   // Kein ZIM-Projekt -> nichts rendern
