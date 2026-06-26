@@ -4,6 +4,11 @@
 // ============================================================================
 // Datum: 8. Mai 2026
 // Datum: 23. Juni 2026
+// Version: 7.4.4-60
+// v7.4.4-60: A-043 - reicht companyName/projectName/fkz (funding_reference)
+//   an WorkPackageTable durch, fuer den Druckkopf der Arbeitsplan-Druck-/
+//   PDF-Ansicht. Rein additiv, keine Logikaenderung.
+//
 // Version: 7.4.4-59
 // v7.4.4-59: Projektbezogene WAZ-Basis (pm_basis_weekly_hours).
 //   - Neues Eingabefeld im Bearbeiten-Dialog: "Wochenarbeitszeit-Basis
@@ -1641,6 +1646,9 @@ export default function ProjectDetailPage({
             {/* WorkPackageTable - Props auf WPT-eigenes Interface gemappt */}
             <WorkPackageTable
               portal={portal}
+              companyName={company?.name || undefined}
+              projectName={project?.name || undefined}
+              fkz={project?.funding_reference || undefined}
               pmBasisWeeklyHours={project?.pm_basis_weekly_hours ?? (company as { standard_weekly_hours?: number | null } | null)?.standard_weekly_hours ?? 40}
               projectId={projectId}
               workPackages={(() => {
