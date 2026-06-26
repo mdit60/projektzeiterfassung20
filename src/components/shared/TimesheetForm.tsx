@@ -3,6 +3,11 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 26. Juni 2026
+// Version: 7.4.6-53
+// v7.4.6-53: "Alle AP"-Modal (AP-Status) zeigt jetzt zusaetzlich den geplanten
+//   Bearbeitungszeitraum je AP (Spalte "Zeitraum (geplant)", Monat.Jahr von-bis
+//   aus wp.start_date/end_date). Rein additiv, nur dieses Modal; tfoot-colSpan
+//   um 1 erhoeht.
 // Version: 7.4.6-52
 // v7.4.6-52: Zwei Zeiterfassungs-Fixes.
 //   (1) Pfeil-/Tab-Navigation: canEdit ist jetzt typ-abhaengig. Arbeitszeilen
@@ -3995,6 +4000,7 @@ export default function TimesheetForm({
                     <tr className="bg-gray-50 text-left">
                       <th className="border px-2 py-1.5 font-medium text-gray-700">AP</th>
                       <th className="border px-2 py-1.5 font-medium text-gray-700">Bezeichnung</th>
+                      <th className="border px-2 py-1.5 font-medium text-gray-700 whitespace-nowrap">Zeitraum (geplant)</th>
                       {isDurchfuehrbarkeitsstudie && (
                         <th className="border px-2 py-1.5 font-medium text-gray-700 text-center">T/NT</th>
                       )}
@@ -4013,6 +4019,9 @@ export default function TimesheetForm({
                         <tr key={wp.id} className="hover:bg-gray-50">
                           <td className="border px-2 py-1.5 whitespace-nowrap font-mono text-xs">{apDisplay}</td>
                           <td className="border px-2 py-1.5">{wp.name}</td>
+                          <td className="border px-2 py-1.5 whitespace-nowrap text-xs text-gray-600">
+                            {(wp.start_date || wp.end_date) ? `${fmtMon(wp.start_date)} \u2013 ${fmtMon(wp.end_date)}` : '\u2014'}
+                          </td>
                           {isDurchfuehrbarkeitsstudie && (
                             <td className="border px-2 py-1.5 text-center">
                               {isTechnicalAP(wp)
@@ -4078,6 +4087,12 @@ export default function TimesheetForm({
               }
               let sumPlanned = 0;
               let sumBooked = 0;
+              // v7.4.6-53: geplanter Bearbeitungszeitraum je AP (Monat.Jahr von-bis)
+              const fmtMon = (d: string | null): string => {
+                if (!d) return '?';
+                const p = d.split('-');
+                return p.length >= 2 ? `${p[1]}.${p[0]}` : d;
+              };
               return (
                 <table className="w-full text-sm border-collapse">
                   <thead>
@@ -4125,7 +4140,7 @@ export default function TimesheetForm({
                   </tbody>
                   <tfoot>
                     <tr className="bg-gray-50 font-semibold">
-                      <td className="border px-2 py-1.5" colSpan={isDurchfuehrbarkeitsstudie ? 3 : 2}>Gesamt</td>
+                      <td className="border px-2 py-1.5" colSpan={isDurchfuehrbarkeitsstudie ? 4 : 3}>Gesamt</td>
                       <td className="border px-2 py-1.5 text-right">{sumPlanned.toFixed(2)}</td>
                       <td className="border px-2 py-1.5 text-right">{sumBooked.toFixed(2)}</td>
                       <td className="border px-2 py-1.5 text-right">
