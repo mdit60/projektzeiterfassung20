@@ -3,6 +3,13 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 26. Juni 2026
+// Version: 7.4.6-55
+// v7.4.6-55: "Meine Arbeitspakete"-Modal (Zugeordnete Arbeitspakete) bekommt
+//   die Spalte "Zeitraum (geplant)" (Monat.Jahr von-bis aus wp.start_date/
+//   end_date), analog zu A-047 im "Alle AP"-Modal. Lokaler fmtMon-Helfer im
+//   Meine-AP-IIFE (der bestehende liegt im Alle-AP-Block, dort nicht in Scope).
+//   Edit ausschliesslich im showMyAPModal-Block (kein tfoot -> kein colSpan).
+//
 // Version: 7.4.6-54
 // v7.4.6-54: KORREKTUR zu -53. "Alle AP"-Modal (AP-Status) zeigt den geplanten
 //   Bearbeitungszeitraum je AP (Spalte "Zeitraum (geplant)", Monat.Jahr von-bis
@@ -3989,6 +3996,11 @@ export default function TimesheetForm({
               const myAPs = safeWorkPackages
                 .filter(wp => assignedWPIds.includes(wp.id))
                 .sort(compareApCode);
+              const fmtMon = (d: string | null): string => {
+                if (!d) return '?';
+                const p = d.split('-');
+                return p.length >= 2 ? `${p[1]}.${p[0]}` : d;
+              };
               if (myAPs.length === 0) {
                 return (
                   <p className="text-gray-500 text-sm">
@@ -4002,6 +4014,7 @@ export default function TimesheetForm({
                     <tr className="bg-gray-50 text-left">
                       <th className="border px-2 py-1.5 font-medium text-gray-700">AP</th>
                       <th className="border px-2 py-1.5 font-medium text-gray-700">Bezeichnung</th>
+                      <th className="border px-2 py-1.5 font-medium text-gray-700 whitespace-nowrap">Zeitraum (geplant)</th>
                       {isDurchfuehrbarkeitsstudie && (
                         <th className="border px-2 py-1.5 font-medium text-gray-700 text-center">T/NT</th>
                       )}
@@ -4020,6 +4033,9 @@ export default function TimesheetForm({
                         <tr key={wp.id} className="hover:bg-gray-50">
                           <td className="border px-2 py-1.5 whitespace-nowrap font-mono text-xs">{apDisplay}</td>
                           <td className="border px-2 py-1.5">{wp.name}</td>
+                          <td className="border px-2 py-1.5 whitespace-nowrap text-xs text-gray-600">
+                            {(wp.start_date || wp.end_date) ? `${fmtMon(wp.start_date)} \u2013 ${fmtMon(wp.end_date)}` : '\u2014'}
+                          </td>
                           {isDurchfuehrbarkeitsstudie && (
                             <td className="border px-2 py-1.5 text-center">
                               {isTechnicalAP(wp)
