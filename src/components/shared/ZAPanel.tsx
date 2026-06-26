@@ -2,6 +2,14 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
+// Version: 7.4.4-59
+// v7.4.4-59: ZA-Stundensatz gehaertet. getHourlyRate war approved ?? hourly_rate
+//   -> bei leerem anerkannten Satz wurde der ROHE (vertragl. 37,5h-basierte) Satz
+//   genommen. Jetzt dreistufig: (1) anerkannter/gekuerzter Traeger-Satz AS-IS
+//   (keine Skalierung), (2) sonst kalkulatorischer Satz auf Antrags-WAZ skaliert
+//   (Satz x vertragl.WAZ / pm_basis; ohne pm_basis = roh), (3) sonst kein Satz ->
+//   sichtbare Warnung in Anlage 1b statt stiller 0. pm_basis je Projekt in
+//   openPanel mitgeladen (zaProjectExtra), weekly_hours ins Assignment-Interface.
 // Version: 7.4.4-58
 // v7.4.4-58: ZA-Druck komplett robust gemacht. Statt eines Popup-Fensters
 //   (window.open) druckt handlePrint jetzt ueber ein unsichtbares iframe im
@@ -201,6 +209,7 @@ export interface ZAProjectAssignment {
   employee_id: string;
   hourly_rate: number | null;
   hourly_rate_approved: number | null;
+  weekly_hours: number | null;  // v7.4.4-59: vertragl. WAZ des MA (fuer Satz-Skalierung)
 }
 
 interface ZahlungsanforderungDB {
@@ -406,7 +415,8 @@ export default function ZAPanel({
   const [zaProjectExtra, setZAProjectExtra] = useState<{
     bewilligung_datum: string | null;
     bewilligte_summe: number | null;
-  }>({ bewilligung_datum: null, bewilligte_summe: null });
+    pm_basis_weekly_hours: number | null;  // v7.4.4-59: Antrags-WAZ fuer Satz-Skalierung
+  }>({ bewilligung_datum: null, bewilligte_summe: null, pm_basis_weekly_hours: null });
   const [zaFormData, setZAFormData] = useState<ZAFormData>({
     za_nummer: '1',
     zeitraum_von: '',
@@ -428,12 +438,13 @@ export default function ZAPanel({
     // v7.4.4-28: Fehlende Felder direkt aus DB laden
     const { data: projectDB } = await supabase
       .from('v7_projects')
-      .select('bewilligung_datum, bewilligte_summe')
+      .select('bewilligung_datum, bewilligte_summe, pm_basis_weekly_hours')
       .eq('id', pid)
       .maybeSingle();
     setZAProjectExtra({
       bewilligung_datum: projectDB?.bewilligung_datum || null,
       bewilligte_summe: projectDB?.bewilligte_summe || null,
+      pm_basis_weekly_hours: projectDB?.pm_basis_weekly_hours ?? null,
     });
 
     const { data: existingZAs } = await supabase
@@ -650,8 +661,22 @@ export default function ZAPanel({
 
   const getHourlyRate = (empId: string, pid: string): number | null => {
     const pa = projectAssignments.find(pa => pa.employee_id === empId && pa.project_id === pid);
-    // Bewilligter Stundensatz hat Vorrang, kalkulatorischer ist Fallback
-    return pa?.hourly_rate_approved ?? pa?.hourly_rate ?? null;
+    if (!pa) return null;
+    // v7.4.4-59: 1) Anerkannter/gekuerzter Traeger-Satz hat Vorrang und wird
+    //    AS-IS verwendet (absolute Vorgabe vom Zuwendungsgeber, KEINE Skalierung).
+    if (pa.hourly_rate_approved != null) return pa.hourly_rate_approved;
+    // 2) Sonst der kalkulatorische Satz (Jahresbrutto / vertragl. WAZ), auf die
+    //    Antrags-WAZ (pm_basis) gehoben: Satz x vertragl.WAZ / pmBasis. Ohne
+    //    Antrags-WAZ (NULL) bleibt es der rohe Satz (Skalierung = 1). Damit
+    //    taucht in der ZA nie der unskalierte Firmen-WAZ-Satz auf.
+    if (pa.hourly_rate != null) {
+      const pmBasis = (pid === projectId ? zaProjectExtra.pm_basis_weekly_hours : null) ?? pa.weekly_hours ?? null;
+      const realWAZ = pa.weekly_hours ?? pmBasis;
+      if (pmBasis && realWAZ && pmBasis > 0) return pa.hourly_rate * (realWAZ / pmBasis);
+      return pa.hourly_rate;
+    }
+    // 3) Gar kein Satz (keine Gehaltsdaten hinterlegt) -> null, wird sichtbar gewarnt.
+    return null;
   };
 
   const fmt = (v: number) => v.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -1547,6 +1572,18 @@ export default function ZAPanel({
                     Zentrales Innovationsprogramm Mittelstand (ZIM) &mdash; Anlage 1b
                   </div>
                   <div className="text-center text-base font-bold mb-3">Abrechnung der zuwendungsfaehigen Personalkosten</div>
+                  {/* v7.4.4-59: Sichtbare Warnung, wenn fuer MA gar kein Satz vorliegt */}
+                  {(() => {
+                    const fehlend = psData
+                      .filter(r => getHourlyRate(r.empId, projectId) == null)
+                      .map(r => r.empName);
+                    if (fehlend.length === 0) return null;
+                    return (
+                      <div className="mb-3 px-3 py-2 rounded border border-amber-300 bg-amber-50 text-amber-800 text-xs print:hidden">
+                        <strong>Achtung:</strong> Fuer folgende Personen ist kein Stundensatz hinterlegt &ndash; deren Personalkosten werden mit 0 gerechnet: {fehlend.join(', ')}. Bitte Gehaltsdaten bzw. anerkannten Satz im Projektteam pflegen.
+                      </div>
+                    );
+                  })()}
                   <div className="grid grid-cols-4 gap-3 mb-4 pb-3 border-b border-gray-300 text-xs">
                     <div><span className="text-gray-500">Foerderkennzeichen: </span><span className="font-medium">{zaProject?.funding_reference || '--'}</span></div>
                     <div><span className="text-gray-500">zu ZA-Nr.: </span><span className="font-medium">{zaFormData.za_nummer}</span></div>

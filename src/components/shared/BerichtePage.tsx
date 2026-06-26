@@ -2,7 +2,20 @@
 // ============================================================================
 // PZE V7 - Shared Component: Berichte & Controlling
 // ============================================================================
-// Version: 7.4.6-20
+// Version: 7.4.6-22
+// v7.4.6-22: FIX zur -21. Stundensatz-Skalierung nutzte bei Projekten OHNE
+//   Antrags-WAZ faelschlich firmStd als Nenner -> Teilzeit-MA-Saetze verzerrt.
+//   Jetzt: rateBasisWAZ = pm_basis ?? echte MA-WAZ (Skalierung 1 = realer Satz,
+//   wenn keine Antrags-WAZ). Selaflex (pm_basis=37) unveraendert korrekt.
+// v7.4.6-21: Personalkosten-Export auf Antrags-WAZ (pm_basis_weekly_hours) statt
+//   fester 173,33 (= 40h). PM<->Stunden ueber hoursPerPM(pm_basis) (37 -> 160,33),
+//   Stundensatz auf Antragsbasis skaliert (Variante 2: realer Satz x realeWAZ/
+//   pmBasis), pWAZ-Spalte zeigt die Antrags-WAZ (37) statt der echten 37,5. Damit
+//   ist das Pruefdokument durchgaengig konsistent zum Antrag, keine 37,5 mehr.
+//   NULL = erbt Firmen-WAZ (standard_weekly_hours; neu im Company-Fetch). Betrifft
+//   NUR den Export (ws1 + ws2). Die internen Dashboard-Fortschritts-% (stats,
+//   projectStats, employeeTimesheetStatus) nutzen weiterhin die 40h-Konstante -
+//   bewusst unveraendert, separat zu entscheiden.
 // v7.4.6-20: A-034 Dual-Read Abwesenheiten. Synthetische Abwesenheits-Zeilen aus
 //   v7_employee_absences (loadEmployeeAbsencesAsTimesheets) werden zu den
 //   v7_timesheets-Zeilen gemergt. Dedup gegen evtl. noch aktive Alt-Abwesenheits-
@@ -77,6 +90,7 @@ import ProjektFortschrittPanel from '@/components/shared/ProjektFortschrittPanel
 import StundennachweisMatrix from '@/components/shared/StundennachweisMatrix';
 import ZAPanel, { loadProjectAssignments } from '@/components/shared/ZAPanel';
 import { loadEmployeeAbsencesAsTimesheets } from '@/lib/employeeAbsences';
+import { hoursPerPM } from '@/lib/projektfortschritt-utils';
 import {
   getGermanHolidays,
   type HolidayRegion,
@@ -135,6 +149,7 @@ interface Company {
   name: string;
   federal_state: string | null;
   holiday_region: string | null;  // v7.4.6
+  standard_weekly_hours: number | null;  // v7.4.6-21: Firmen-WAZ (Fallback fuer pm_basis)
 }
 
 interface Project {
@@ -362,7 +377,7 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
         // Company
         const { data: companyData, error: companyError } = await supabase
           .from('v7_client_companies')
-          .select('id, name, federal_state, holiday_region')
+          .select('id, name, federal_state, holiday_region, standard_weekly_hours')
           .eq('id', companyId)
           .single();
         if (companyError || !companyData) { setError('Firma nicht gefunden'); return; }
@@ -615,6 +630,26 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
     if (!projectId) return;
     const project = projects.find(p => p.id === projectId);
     if (!project) return;
+
+    // v7.4.6-21: Foerderbasis auf Antrags-WAZ. Statt fester 173,33 (= 40h) wird
+    // PM<->Stunden ueber die projektspezifische pm_basis_weekly_hours gerechnet
+    // (NULL = erbt Firmen-WAZ). hoursPerPM(37) = 160,33. Der Stundensatz wird auf
+    // die Antragsbasis skaliert (Variante 2: realer Satz x realeWAZ/pmBasis), die
+    // pWAZ-Spalte zeigt die Antrags-WAZ - damit taucht im Pruefdokument nie 37,5
+    // auf, alles ist konsistent zum Antrag.
+    const firmStdWAZ = company?.standard_weekly_hours ?? 40;
+    const pmBasisWAZ = project.pm_basis_weekly_hours ?? firmStdWAZ;
+    const hpm = hoursPerPM(pmBasisWAZ);
+    const foerderStundensatz = (pa: ProjectAssignment): number => {
+      const realWAZ = pa.weekly_hours ?? firmStdWAZ;
+      // v7.4.6-22: Stundensatz-Basis = Antrags-WAZ wenn gesetzt, sonst die echte
+      // MA-WAZ (-> Skalierung 1, realer Satz unveraendert). NICHT firmStd als
+      // Fallback, sonst wuerde der Satz von Teilzeit-MA in Projekten ohne
+      // Antrags-WAZ verzerrt. PM<->Stunden (hpm) bleibt projekt-/firmenbasiert.
+      const rateBasisWAZ = project.pm_basis_weekly_hours ?? realWAZ;
+      const scale = rateBasisWAZ > 0 ? realWAZ / rateBasisWAZ : 1;
+      return (pa.hourly_rate || 0) * scale;
+    };
     const vonDate = vonStr || pkVon || project.start_date || '';
     const bisDate = bisStr || pkBis || project.end_date || '';
     if (!vonDate || !bisDate) { alert('Bitte Von- und Bis-Datum angeben.'); return; }
@@ -683,19 +718,19 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
         if (!emp) return;
         const empAssignments = projectWPAs.filter(a => a.employee_id === pa.employee_id);
         const geplantePM = empAssignments.reduce((sum, a) => sum + (a.planned_person_months || 0), 0);
-        const stundensatz = pa.hourly_rate || 0;
+        const stundensatz = foerderStundensatz(pa);
         const empTimesheets = timesheets.filter(t => {
           if (t.employee_id !== pa.employee_id || t.project_id !== projectId || !t.is_billable) return false;
           const d = new Date(t.work_date);
           return d >= von && d <= bis;
         });
         const erfassteH = empTimesheets.reduce((sum, t) => sum + (t.hours || 0), 0);
-        const erfasstePM = erfassteH / HOURS_PER_PM;
+        const erfasstePM = erfassteH / hpm;
         const kostenBisher = erfassteH * stundensatz;
-        const kostenGesamt = geplantePM * HOURS_PER_PM * stundensatz;
+        const kostenGesamt = geplantePM * hpm * stundensatz;
         sumGeplantePM += geplantePM; sumErfassteH += erfassteH;
         sumErfasstePM += erfasstePM; sumKostenBisher += kostenBisher; sumKostenGesamt += kostenGesamt;
-        ws1Data.push([lfdNr++, emp.display_name, pa.qualification || '', fmt(pa.annual_salary || 0), fmt(pa.weekly_hours || 40), fmt(stundensatz), fmt(geplantePM), fmt(erfassteH), fmt(erfasstePM), fmt(kostenBisher), fmt(kostenGesamt)]);
+        ws1Data.push([lfdNr++, emp.display_name, pa.qualification || '', fmt(pa.annual_salary || 0), fmt(pmBasisWAZ), fmt(stundensatz), fmt(geplantePM), fmt(erfassteH), fmt(erfasstePM), fmt(kostenBisher), fmt(kostenGesamt)]);
       });
       ws1Data.push(['', 'SUMME', '', '', '', '', fmt(sumGeplantePM), fmt(sumErfassteH), fmt(sumErfasstePM), fmt(sumKostenBisher), fmt(sumKostenGesamt)]);
 
@@ -709,10 +744,10 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
       sortedPAs.forEach(pa => {
         const emp = employees.find(e => e.id === pa.employee_id);
         if (!emp) return;
-        const stundensatz = pa.hourly_rate || 0;
+        const stundensatz = foerderStundensatz(pa);
         const pmByYear = projectYears.map(y => fmt(getPMForYear(pa.employee_id, y)));
         const pmGesamt = pmByYear.reduce((s, v) => s + v, 0);
-        const kostenByYear = pmByYear.map(pm => fmt(pm * HOURS_PER_PM * stundensatz));
+        const kostenByYear = pmByYear.map(pm => fmt(pm * hpm * stundensatz));
         const kostenGesamt = kostenByYear.reduce((s, v) => s + v, 0);
         ws2Data.push([lfdNr2++, emp.display_name, pa.qualification || '', fmt(stundensatz), ...pmByYear, fmt(pmGesamt), ...kostenByYear, fmt(kostenGesamt)]);
       });
