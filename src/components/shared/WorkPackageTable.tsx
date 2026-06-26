@@ -4,6 +4,14 @@
 // ============================================================================
 // Datum: 02. Maerz 2026
 // Datum: 23. Juni 2026
+// Version: 7.4.3-14
+// v7.4.3-14: A-043 Druck-/PDF-Ansicht des Arbeitsplans. Neuer Button
+//   "Arbeitsplan drucken / PDF" (print:hidden) + verstecktes Druck-Root
+//   #arbeitsplan-print-root (nur im Druck sichtbar, A4 quer): AP-Zeilen,
+//   je MA geplante Stunden (Soll), Summe, Soll/Erfasst/Frei (h) je AP,
+//   darunter Soll/Ist/verfuegbar je MA. window.print(). Neue optionale
+//   Props companyName/projectName/fkz fuer den Druckkopf. Rein additiv.
+//
 // Version: 7.4.3-13
 // v7.4.3-13: PM->Stunden projektbasiert. Neue Prop pmBasisWeeklyHours; der
 //   Umrechnungsfaktor (vorher fest 173,33) kommt jetzt aus hoursPerPM(pmBasis).
@@ -39,7 +47,7 @@
 'use client';
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { Plus, Pencil, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Plus, Pencil, Trash2, ChevronDown, ChevronRight, Printer } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { hoursPerPM } from '@/lib/projektfortschritt-utils';
 
@@ -100,6 +108,9 @@ interface WorkPackageTableProps {
   pmBasisWeeklyHours?: number;  // v7.4.3-13: WAZ-Basis fuer PM->Stunden (Default 40)
   filterDateFrom?: string | null;  // NWM: nur Timesheets ab diesem Datum
   filterDateTo?: string | null;    // NWM: nur Timesheets bis zu diesem Datum
+  companyName?: string;            // v7.4.3-14: Druckkopf (Firma)
+  projectName?: string;            // v7.4.3-14: Druckkopf (Projekt)
+  fkz?: string | null;             // v7.4.3-14: Druckkopf (Foerderkennzeichen)
 }
 
 // ============================================================================
@@ -346,6 +357,9 @@ export default function WorkPackageTable({
   pmBasisWeeklyHours,
   filterDateFrom,
   filterDateTo,
+  companyName,
+  projectName,
+  fkz,
 }: WorkPackageTableProps) {
   const colors = PORTAL_COLORS[portal];
   // v7.4.3-13: PM->Stunden-Faktor projektbasiert (Antrag/Bescheid), Fallback 40h.
@@ -637,6 +651,14 @@ export default function WorkPackageTable({
       <div className="flex justify-between items-center px-4 py-3 border-b bg-gray-50">
         <h3 className="font-semibold text-gray-900">Arbeitsplan</h3>
         <div className="flex gap-2">
+          <button
+            onClick={() => window.print()}
+            className="print:hidden inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+            title="Arbeitsplan als A4-Quer drucken oder als PDF speichern"
+          >
+            <Printer size={16} />
+            Arbeitsplan drucken / PDF
+          </button>
           {canEdit && onAddAP && (
             <button
               onClick={onAddAP}
@@ -1182,6 +1204,164 @@ export default function WorkPackageTable({
           )}
         </div>
       )}
+
+      {/* ================================================================ */}
+      {/* A-043: DRUCK-/PDF-ANSICHT DES ARBEITSPLANS (v7.4.3-14)          */}
+      {/* Nur im Druck sichtbar; CSS blendet alles ausser dem Root aus.   */}
+      {/* ================================================================ */}
+      <div id="arbeitsplan-print-root" className="hidden print:block">
+        <style>{`
+          @media print {
+            body * { visibility: hidden !important; }
+            #arbeitsplan-print-root, #arbeitsplan-print-root * { visibility: visible !important; }
+            #arbeitsplan-print-root { position: absolute; left: 0; top: 0; width: 100%; }
+            #arbeitsplan-print-root table { font-size: 8px !important; border-collapse: collapse; width: 100%; }
+            #arbeitsplan-print-root th, #arbeitsplan-print-root td { border: 0.5px solid #999 !important; padding: 2px 3px !important; vertical-align: top; }
+            @page { size: A4 landscape; margin: 5mm; }
+            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          }
+        `}</style>
+
+        <div style={{ marginBottom: '6px' }}>
+          <div style={{ fontSize: '13px', fontWeight: 700 }}>
+            Arbeitsplan{projectName ? ` - ${projectName}` : ''}
+          </div>
+          <div style={{ fontSize: '9px', color: '#333', marginTop: '2px' }}>
+            {companyName ? `Firma: ${companyName}` : ''}
+            {fkz ? `${companyName ? '   |   ' : ''}FKZ: ${fkz}` : ''}
+          </div>
+          <div style={{ fontSize: '9px', color: '#333' }}>
+            Stand: {new Date().toLocaleDateString('de-DE')}   |   1 PM = {pmFaktorLabel} h   |   MA-Spalten = geplante Stunden (Soll)
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr style={{ background: '#e5e7eb' }}>
+              <th style={{ textAlign: 'left' }}>AP</th>
+              <th style={{ textAlign: 'left' }}>Beschreibung</th>
+              <th>von</th>
+              <th>bis</th>
+              {isZimDS && <th>T/NT</th>}
+              {sortedEmployees.map((emp) => {
+                const empNumber = getEmployeeNumber(emp);
+                return (
+                  <th key={emp.id} style={{ textAlign: 'center' }}>
+                    {empNumber ? `#${empNumber} ` : ''}{getShortName(emp)}
+                  </th>
+                );
+              })}
+              <th style={{ background: '#d1d5db' }}>Soll (h)</th>
+              <th style={{ background: '#dbeafe' }}>Erfasst (h)</th>
+              <th style={{ background: '#dcfce7' }}>Frei (h)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sortedWPs.map((wp) => {
+              const wpSum = sums.perWP.get(wp.id) || 0;
+              const wpHours = wpSum * PM_TO_HOURS;
+              const wpBooked = hoursPerWP[wp.id] || 0;
+              const wpAvailable = wpHours - wpBooked;
+              const isSubAP = wp.ap_code.includes('.') && wp.ap_code.split('.').length > 1;
+              return (
+                <tr key={wp.id} style={{ background: isSubAP ? '#ffffff' : '#f3f4f6' }}>
+                  <td style={{ fontWeight: isSubAP ? 400 : 700 }}>{wp.ap_code}</td>
+                  <td style={{ textAlign: 'left' }}>{wp.name}</td>
+                  <td style={{ textAlign: 'center' }}>{formatDateShort(wp.start_date)}</td>
+                  <td style={{ textAlign: 'center' }}>{formatDateShort(wp.end_date)}</td>
+                  {isZimDS && (
+                    <td style={{ textAlign: 'center' }}>
+                      {wp.is_technical === true ? 'T' : wp.is_technical === false ? 'NT' : ''}
+                    </td>
+                  )}
+                  {sortedEmployees.map((emp) => {
+                    const pm = getPM(wp.id, emp.id);
+                    const h = pm !== null ? pm * PM_TO_HOURS : 0;
+                    return (
+                      <td key={emp.id} style={{ textAlign: 'center' }}>
+                        {h > 0 ? fmtHours(h) : ''}
+                      </td>
+                    );
+                  })}
+                  <td style={{ textAlign: 'center', fontWeight: 600, background: '#f3f4f6' }}>
+                    {wpHours > 0 ? fmtHours(wpHours) : ''}
+                  </td>
+                  <td style={{ textAlign: 'center', background: '#eff6ff' }}>
+                    {wpBooked > 0 ? fmtHours(wpBooked) : ''}
+                  </td>
+                  <td style={{ textAlign: 'center', background: '#f0fdf4' }}>
+                    {wpHours > 0 ? fmtHours(wpAvailable) : ''}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr style={{ background: '#d1d5db', fontWeight: 700 }}>
+              <td>Summe</td>
+              <td style={{ textAlign: 'left' }}>geplante Stunden (Soll)</td>
+              <td></td>
+              <td></td>
+              {isZimDS && <td></td>}
+              {sortedEmployees.map((emp) => {
+                const empSum = sums.perEmployee.get(emp.id) || 0;
+                const planned = empSum * PM_TO_HOURS;
+                return (
+                  <td key={emp.id} style={{ textAlign: 'center' }}>
+                    {planned > 0 ? fmtHours(planned) : ''}
+                  </td>
+                );
+              })}
+              <td style={{ textAlign: 'center' }}>{fmtHours(sums.total * PM_TO_HOURS)}</td>
+              <td></td>
+              <td></td>
+            </tr>
+            {hasTimesheetData && (
+              <tr style={{ background: '#dbeafe' }}>
+                <td></td>
+                <td style={{ textAlign: 'left', fontWeight: 600 }}>davon erfasst (Ist)</td>
+                <td></td>
+                <td></td>
+                {isZimDS && <td></td>}
+                {sortedEmployees.map((emp) => {
+                  const booked = hoursPerEmployee[emp.id] || 0;
+                  return (
+                    <td key={emp.id} style={{ textAlign: 'center' }}>
+                      {booked > 0 ? fmtHours(booked) : ''}
+                    </td>
+                  );
+                })}
+                <td></td>
+                <td style={{ textAlign: 'center' }}>{totalTimesheetHours > 0 ? fmtHours(totalTimesheetHours) : ''}</td>
+                <td></td>
+              </tr>
+            )}
+            {hasTimesheetData && (
+              <tr style={{ background: '#dcfce7' }}>
+                <td></td>
+                <td style={{ textAlign: 'left', fontWeight: 600 }}>noch verfuegbar</td>
+                <td></td>
+                <td></td>
+                {isZimDS && <td></td>}
+                {sortedEmployees.map((emp) => {
+                  const empSum = sums.perEmployee.get(emp.id) || 0;
+                  const planned = empSum * PM_TO_HOURS;
+                  const booked = hoursPerEmployee[emp.id] || 0;
+                  const available = planned - booked;
+                  return (
+                    <td key={emp.id} style={{ textAlign: 'center' }}>
+                      {planned > 0 ? fmtHours(available) : ''}
+                    </td>
+                  );
+                })}
+                <td></td>
+                <td></td>
+                <td style={{ textAlign: 'center' }}>{fmtHours(sums.total * PM_TO_HOURS - totalTimesheetHours)}</td>
+              </tr>
+            )}
+          </tfoot>
+        </table>
+      </div>
     </div>
   );
 }
