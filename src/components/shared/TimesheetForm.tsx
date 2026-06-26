@@ -3,7 +3,14 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 26. Juni 2026
-// Version: 7.4.6-50
+// Version: 7.4.6-51
+// v7.4.6-51: "Alle AP"-Modal zeigt geplant/gebucht/offen jetzt mit 2 Dezimal-
+//   stellen (wie in der Erfassung). "offen" wird im Modal direkt als
+//   geplant - gebucht berechnet (statt ueber das ganzzahlige
+//   calculateWPOpenHours), damit Zeilen und Gesamtsumme konsistent aufgehen.
+//   Behebt den Rundungs-Artefakt (z.B. 641 vs 642 bei offen 0, Gesamt -2 bei
+//   scheinbar leeren Zeilen). Nur Anzeige im Alle-AP-Modal betroffen;
+//   calculateWPOpenHours und das "Meine Arbeitspakete"-Modal unveraendert.
 // v7.4.6-50: NEU "Alle AP"-Button neben "Meine Arbeitspakete". Oeffnet ein
 //   Modal mit dem projektweiten AP-Status: je echtem AP (PM > 0) geplante,
 //   gebuchte und offene Stunden ueber ALLE Mitarbeiter. "offen" = Soll
@@ -4069,7 +4076,8 @@ export default function TimesheetForm({
                         : `${wp.ap_number}${wp.ap_sub_number ? `.${wp.ap_sub_number}` : ''}`;
                       const planned = (wp.total_person_months || 0) * hoursPerPM(pmBasisWAZ);
                       const booked = projectBookedPerWP[wp.id] || 0;
-                      const offen = calculateWPOpenHours(wp.id);
+                      const offen = planned - booked;
+                      const offenR = Math.round(offen * 100) / 100;
                       sumPlanned += planned;
                       sumBooked += booked;
                       return (
@@ -4083,12 +4091,10 @@ export default function TimesheetForm({
                                 : <span className="text-blue-700 font-bold text-xs">NT</span>}
                             </td>
                           )}
-                          <td className="border px-2 py-1.5 text-right whitespace-nowrap">{Math.round(planned)}</td>
-                          <td className="border px-2 py-1.5 text-right whitespace-nowrap">{Math.round(booked)}</td>
+                          <td className="border px-2 py-1.5 text-right whitespace-nowrap">{planned.toFixed(2)}</td>
+                          <td className="border px-2 py-1.5 text-right whitespace-nowrap">{booked.toFixed(2)}</td>
                           <td className="border px-2 py-1.5 text-right whitespace-nowrap">
-                            {offen == null
-                              ? '\u2013'
-                              : <span className={offen > 0 ? 'text-amber-600 font-bold' : offen < 0 ? 'text-red-600 font-bold' : 'text-gray-400'}>{offen}</span>}
+                            <span className={offenR > 0 ? 'text-amber-600 font-bold' : offenR < 0 ? 'text-red-600 font-bold' : 'text-gray-400'}>{offenR.toFixed(2)}</span>
                           </td>
                         </tr>
                       );
@@ -4097,10 +4103,10 @@ export default function TimesheetForm({
                   <tfoot>
                     <tr className="bg-gray-50 font-semibold">
                       <td className="border px-2 py-1.5" colSpan={isDurchfuehrbarkeitsstudie ? 3 : 2}>Gesamt</td>
-                      <td className="border px-2 py-1.5 text-right">{Math.round(sumPlanned)}</td>
-                      <td className="border px-2 py-1.5 text-right">{Math.round(sumBooked)}</td>
+                      <td className="border px-2 py-1.5 text-right">{sumPlanned.toFixed(2)}</td>
+                      <td className="border px-2 py-1.5 text-right">{sumBooked.toFixed(2)}</td>
                       <td className="border px-2 py-1.5 text-right">
-                        <span className={Math.round(sumPlanned - sumBooked) > 0 ? 'text-amber-600 font-bold' : Math.round(sumPlanned - sumBooked) < 0 ? 'text-red-600 font-bold' : 'text-gray-400'}>{Math.round(sumPlanned - sumBooked)}</span>
+                        {(() => { const g = Math.round((sumPlanned - sumBooked) * 100) / 100; return <span className={g > 0 ? 'text-amber-600 font-bold' : g < 0 ? 'text-red-600 font-bold' : 'text-gray-400'}>{g.toFixed(2)}</span>; })()}
                       </td>
                     </tr>
                   </tfoot>
