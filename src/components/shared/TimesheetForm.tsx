@@ -3,6 +3,17 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 26. Juni 2026
+// Version: 7.4.6-52
+// v7.4.6-52: Zwei Zeiterfassungs-Fixes.
+//   (1) Pfeil-/Tab-Navigation: canEdit ist jetzt typ-abhaengig. Arbeitszeilen
+//       (AP/nicht-foerderbar) ueberspringen Tage mit Abwesenheit (U/K/S) und
+//       PL-Sperren - vorher versuchte die Navigation diese disabled-Zellen zu
+//       fokussieren und blieb haengen (kein Weiter-/Zurueckspringen, kein
+//       Ueberspringen von Fehlzeiten). Fehlzeit-Zeilen bleiben erreichbar.
+//   (2) Tages-Sollstunden fuer Fehlzeiten: weeklyHoursAtMonth faellt bei
+//       fehlender MA-WAZ auf den FIRMENSTANDARD (standard_weekly_hours) statt
+//       hart 40 zurueck -> Fehlzeiten erhalten 7,5 h/Tag (wie Feiertage) statt
+//       8. company in die Effekt-Dependencies aufgenommen (Direkt-Navigation).
 // Version: 7.4.6-51
 // v7.4.6-51: "Alle AP"-Modal zeigt geplant/gebucht/offen jetzt mit 2 Dezimal-
 //   stellen (wie in der Erfassung). "offen" wird im Modal direkt als
@@ -1006,16 +1017,19 @@ export default function TimesheetForm({
         if (histEntry?.weekly_hours) {
           setWeeklyHoursAtMonth(Number(histEntry.weekly_hours));
         } else {
-          // Fallback: static weekly_hours aus v7_employees
-          setWeeklyHoursAtMonth(Number(empData?.weekly_hours ?? 40));
+          // v7.4.6-52: Fallback ist der FIRMENSTANDARD (standard_weekly_hours),
+          // nicht hart 40. Eine MA ohne eigene WAZ erbt damit die Firmen-WAZ
+          // (z.B. 37,5 -> 7,5 h/Tag), konsistent mit der Feiertags-Logik.
+          // Hartes 40 fuehrte sonst bei Fehlzeiten zu 8 statt 7,5 h/Tag.
+          setWeeklyHoursAtMonth(Number(empData?.weekly_hours ?? company?.standard_weekly_hours ?? 40));
         }
       } catch (err) {
         console.error('[TimesheetForm] Fehler beim Laden MA-Arbeitszeitdaten:', err);
-        setWeeklyHoursAtMonth(40);
+        setWeeklyHoursAtMonth(company?.standard_weekly_hours ?? 40);
       }
     };
     loadMaData();
-  }, [selectedEmployeeId, selectedYear, selectedMonth]);
+  }, [selectedEmployeeId, selectedYear, selectedMonth, company?.standard_weekly_hours]);
 
   // NEU v7.4.3-9: Completion-Status laden
   const loadCompletionStatus = async (empId: string, projId: string, year: number, month: number) => {
@@ -1891,8 +1905,17 @@ export default function TimesheetForm({
       // (Feiertag/Sperre) zu fokussieren, was fehlschlaegt - der Fokus bleibt
       // dann am Feiertag haengen. Ueber reine Wochenenden ging es bereits.
       if (isHoliday(selectedYear, selectedMonth, d)) return false;
-      if (blockedDays.has(d)) return false;
-      if (isKurzarbeitDay(d)) return false;  // v7.4.6-31
+      if (isKurzarbeitDay(d)) return false;  // v7.4.6-31: KA -> weder Arbeit noch Fehlzeit
+      // v7.4.6-52: typ-abhaengig. Die Fehlzeit-Zeilen (U/K/S) sind NICHT durch
+      // PL-Sperre oder eine bereits eingetragene Abwesenheit disabled (siehe
+      // Zell-Render) -> sie muessen erreichbar bleiben, damit der Cursor auf die
+      // Fehlzeit springen und ueber sie hinweg navigieren kann.
+      if (type === 'absence-U' || type === 'absence-K' || type === 'absence-S') return true;
+      // Arbeitszeilen (ap/nonbillable): exakt die Zell-disabled-Bedingung spiegeln,
+      // sonst haengt die Navigation an einer disabled Zelle (Symptom: Pfeil/Tab
+      // springt an Abwesenheitstagen nicht weiter, kein Zurueck moeglich).
+      if (blockedDays.has(d)) return false;                 // PL-Sperre (NWM)
+      if (getAbsenceCodeForDay(d)) return false;            // v7.4.6-52: Abwesenheitstag -> Arbeitszelle disabled
       if (type === 'ap' && !apRows[r]?.workPackageId) return false;
       return true;
     };
