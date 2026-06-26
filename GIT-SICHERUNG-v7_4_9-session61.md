@@ -76,12 +76,16 @@ ankam (stummer Browser-Download-Fehler). Siehe unten.
   sondern ggf. eine Datenkorrektur der MA-WAZ (auf 37,5).
 
 ### A-047 - AP-Status-Modal zeigt geplanten Bearbeitungszeitraum je AP
-- TimesheetForm v7.4.6-53.
+- TimesheetForm v7.4.6-54.
 - Im "Alle AP"-Modal (AP-Status oben im TimesheetForm) fehlte die Angabe, von
   wann bis wann die Bearbeitung eines AP geplant ist.
 - Ergaenzt: neue Spalte "Zeitraum (geplant)" (Monat.Jahr von-bis aus
   wp.start_date/end_date), null -> Strich. Rein additiv, nur dieses Modal;
   tfoot-colSpan um 1 erhoeht.
+- KORREKTUR -53 -> -54: der Vorab-Build -53 hatte mehrdeutige str-Anker - die
+  Spalte landete in der "Meine AP"-Tabelle, der fmtMon-Helfer im "Alle AP"-Block
+  -> ReferenceError "fmtMon is not defined" (PROD-Crash). -54 setzt alle
+  Aenderungen region-begrenzt nur im Alle-AP-Block.
 
 ---
 
@@ -109,7 +113,7 @@ Konsequenzen / Checkliste fuer kuenftige Faelle:
 
 | Datei (downloads) | Ziel in src/ | Version |
 |-------------------|--------------|---------|
-| TimesheetForm-v7_4_6-53.tsx | src/components/shared/TimesheetForm.tsx | 7.4.6-53 |
+| TimesheetForm-v7_4_6-54.tsx | src/components/shared/TimesheetForm.tsx | 7.4.6-54 |
 | StundennachweisMatrix-v7_4_6-7.tsx | src/components/shared/StundennachweisMatrix.tsx | 7.4.6-7 |
 | BerichtePage-v7_4_6-23.tsx | src/components/shared/BerichtePage.tsx | 7.4.6-23 |
 | cockpit-stundennachweis-page-v7_4_9-7.tsx | src/app/v7/berater/foerderung/firma/[id]/cockpit/stundennachweis/page.tsx | 7.4.9-7 |
