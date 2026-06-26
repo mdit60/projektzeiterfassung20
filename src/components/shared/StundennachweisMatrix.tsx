@@ -2,6 +2,10 @@
 // ============================================================================
 // PZE V7 - Shared Component: Stundennachweis-Matrix
 // ============================================================================
+// Version: 7.4.6-7
+// v7.4.6-7: Klick auf Monatszelle uebergibt jetzt das aktive Projekt
+//   (activeProjectId) an onNavigateToZE -> die ZE-Seite kann das richtige
+//   Projekt vorbelegen. Vorher landete man immer im ersten Projekt.
 // Version: 7.4.6-6
 // Datum: 24. Juni 2026
 // v7.4.6-6: A-034 Dual-Read Abwesenheiten im Sammeldruck. Die synthetischen
@@ -79,7 +83,7 @@
 // - company: Company | null
 // - matrixProjectId: string | null
 // - onProjectChange: (id: string) => void
-// - onNavigateToZE: (employeeId: string, year: number, month: number) => void
+// - onNavigateToZE: (employeeId: string, year: number, month: number, projectId: string) => void
 // ============================================================================
 
 'use client';
@@ -208,7 +212,7 @@ interface StundennachweisMatrixProps {
   company: Company | null;
   matrixProjectId: string | null;
   onProjectChange: (id: string) => void;
-  onNavigateToZE: (employeeId: string, year: number, month: number) => void;
+  onNavigateToZE: (employeeId: string, year: number, month: number, projectId: string) => void;
 }
 
 // ============================================================================
@@ -818,7 +822,7 @@ export default function StundennachweisMatrix({
                             className={`w-full h-full rounded flex items-center justify-center text-white font-bold transition-colors ${colorMap[status] || 'bg-gray-100'} ${druckModus && isClickable && isSelected(emp.id, year, month) ? 'ring-2 ring-offset-1 ring-blue-700' : ''}`}
                             onClick={() => {
                               if (druckModus) { if (isClickable) toggleCell(emp.id, year, month); }
-                              else if (isClickable) onNavigateToZE(emp.id, year, month);
+                              else if (isClickable) onNavigateToZE(emp.id, year, month, activeProjectId);
                             }}
                           >
                             {status === 'complete' && <CheckCircle size={14} />}

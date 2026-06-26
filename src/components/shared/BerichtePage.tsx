@@ -2,6 +2,10 @@
 // ============================================================================
 // PZE V7 - Shared Component: Berichte & Controlling
 // ============================================================================
+// Version: 7.4.6-23
+// v7.4.6-23: Stundennachweis-Matrix-Klick reicht jetzt die projectId an die
+//   ZE-Seite weiter (&projekt=) -> richtiges Projekt wird vorbelegt statt
+//   immer das erste. (Aufbauend auf -22.)
 // Version: 7.4.6-22
 // v7.4.6-22: FIX zur -21. Stundensatz-Skalierung nutzte bei Projekten OHNE
 //   Antrags-WAZ faelschlich firmStd als Nenner -> Teilzeit-MA-Saetze verzerrt.
@@ -978,9 +982,9 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
               company={company}
               matrixProjectId={matrixProjectId}
               onProjectChange={(id) => setMatrixProjectId(id)}
-              onNavigateToZE={(empId, year, month) => {
+              onNavigateToZE={(empId, year, month, projectId) => {
                 const returnUrl = encodeURIComponent(matrixReturnUrl);
-                router.push(zeiterfassungUrl(empId) + `&year=${year}&month=${month}&returnUrl=${returnUrl}`);
+                router.push(zeiterfassungUrl(empId) + `&year=${year}&month=${month}&projekt=${projectId}&returnUrl=${returnUrl}`);
               }}
             />
           </div>

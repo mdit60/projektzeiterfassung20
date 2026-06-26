@@ -2,6 +2,9 @@
 
 // Route: /v7/berater/foerderung/firma/[id]/cockpit/stundennachweis
 // Eigenstaendige Seite fuer StundennachweisMatrix (ohne BerichtePage)
+// Version: 7.4.9-7
+// v7.4.9-7: handleNavigateToZE reicht die projectId der Matrix an die ZE-Seite
+//   weiter (&projekt=) -> richtiges Projekt wird vorbelegt (vorher erstes).
 // Version: 7.4.9-6
 // v7.4.9-6: assignment_start/end je Mitarbeiter UND Projekt zusammenfuehren
 //   (vorher nur je employee_id -> ein MA in mehreren Projekten konnte die
@@ -159,12 +162,12 @@ export default function CockpitStundennachweisPage() {
     setMatrixProjectId(id);
   }
 
-  function handleNavigateToZE(employeeId: string, year: number, month: number) {
+  function handleNavigateToZE(employeeId: string, year: number, month: number, projectId: string) {
     // v7.4.9-5: Parameter an die Zeiterfassungs-Seite anpassen (employee/year/month)
     // und returnUrl zurueck auf diese Matrix mitgeben, damit "Zurueck" dorthin fuehrt.
     const returnUrl = encodeURIComponent(window.location.pathname + window.location.search);
     router.push(
-      `/v7/berater/foerderung/firma/${firmaId}/zeiterfassung?employee=${employeeId}&year=${year}&month=${month}&returnUrl=${returnUrl}`
+      `/v7/berater/foerderung/firma/${firmaId}/zeiterfassung?employee=${employeeId}&year=${year}&month=${month}&projekt=${projectId}&returnUrl=${returnUrl}`
     );
   }
 
