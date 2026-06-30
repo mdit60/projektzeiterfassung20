@@ -3,6 +3,26 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 30. Juni 2026
+// Version: 7.4.6-59
+// v7.4.6-59: PDF-Dateiname Einzeldruck auf finales Schema umgestellt -
+//   Leerzeichen statt Unterstrich, ohne Wort "Stundenerfassung":
+//   "<NN><VV> <YYMM> <FKZ> <Vorname> <Nachname>" (Bsp. "SF 2510 16DS251601
+//   Ferat Sarac"); Fallback ohne Name "<YYMM> <FKZ>". KEIN .pdf im
+//   document.title - der Browser haengt die Endung beim Speichern selbst an.
+//   Enthaelt v7.4.6-58 (Feiertag folgt MA-WAZ).
+// Datum: 30. Juni 2026
+// Version: 7.4.6-58
+// v7.4.6-58: Feiertags-Tagesstunden folgen jetzt der individuellen MA-WAZ
+//   statt dem Firmenstandard. Feiertag-Auto-Vorbelegung der S-Zeile nutzt
+//   employeeDailyHours (= weeklyHoursAtMonth/5) statt
+//   company.standard_weekly_hours/5. Der zugehoerige Lade-Effekt haengt jetzt
+//   zusaetzlich von weeklyHoursAtMonth ab, damit der Feiertag neu berechnet
+//   wird, sobald die WAZ geladen ist (sonst kurzzeitig Default 40 -> 8).
+//   Behebt: Teilzeit-MA (z.B. Walter 38h -> 7,60) bekam am Feiertag 8,00 und
+//   die Tages-Plausipruefung (7,60) blockierte das Speichern. U/K/S nutzten
+//   employeeDailyHours bereits; nur die Feiertags-Stelle (Z.1598) war betroffen.
+//   Reiner Code-Fix, keine Datenmigration (Feiertage werden live berechnet).
+// Datum: 30. Juni 2026
 // Version: 7.4.6-57
 // v7.4.6-57: Zeile "sonstige Arbeiten" bekommt bg-white auf den Normalzellen
 //   (analog Fehlzeiten-Zeilen) -> fehlender oberer Rahmen in Firefox/Chrome
@@ -1595,7 +1615,11 @@ export default function TimesheetForm({
           (company.holiday_region ?? undefined) as HolidayRegion,
         );
         console.log('[TimesheetForm] FEIERTAG-CHECK: monthHolidays.size=', monthHolidays.size, 'keys=', Array.from(monthHolidays.keys()).filter(k => k.startsWith(`${selectedYear}-${String(selectedMonth).padStart(2, '0')}`)));
-        const dailyHrs = Math.round(((company.standard_weekly_hours || 40) / 5) * 100) / 100;
+        // v7.4.6-58: Feiertag folgt der individuellen MA-WAZ (employeeDailyHours
+        // = weeklyHoursAtMonth/5), nicht mehr dem Firmenstandard. Sonst zeigt ein
+        // Teilzeit-MA (z.B. 38h -> 7,60) am Feiertag 8,00 und die Tagesgrenze
+        // (7,60) blockiert das Speichern. Effekt haengt jetzt von weeklyHoursAtMonth ab.
+        const dailyHrs = employeeDailyHours;
         let autoFilledCount = 0;
         for (let d = 1; d <= daysInMonth; d++) {
           const dow = new Date(selectedYear, selectedMonth - 1, d).getDay();
@@ -1722,7 +1746,7 @@ export default function TimesheetForm({
     loadTimeEntries();
     // NEU v7.4.3-20: Completion-Status bei jedem Wechsel laden (war vorher nie aufgerufen!)
     loadCompletionStatus(selectedEmployeeId, selectedProjectId, selectedYear, selectedMonth);
-  }, [selectedEmployeeId, selectedProjectId, selectedYear, selectedMonth, workPackages, supabase, assignedWPIds, plannedHoursPerWP, totalBookedPerWP, company?.federal_state, company?.holiday_region, company?.standard_weekly_hours]);
+  }, [selectedEmployeeId, selectedProjectId, selectedYear, selectedMonth, workPackages, supabase, assignedWPIds, plannedHoursPerWP, totalBookedPerWP, company?.federal_state, company?.holiday_region, company?.standard_weekly_hours, weeklyHoursAtMonth]);
 
   // ============================================================================
   // EVENT HANDLERS
@@ -2689,8 +2713,9 @@ export default function TimesheetForm({
   };
 
   const handlePrint = () => {
-    // v7.4.6-56: Dateiname-Schema (Einzeldruck):
-    //   <NN><VV>_<YYMM>_<FKZ>_Stundenerfassung_<Vorname>_<Nachname>
+    // v7.4.6-59: Dateiname-Schema (Einzeldruck), Leerzeichen-getrennt, ohne
+    //   "Stundenerfassung": <NN><VV> <YYMM> <FKZ> <Vorname> <Nachname>
+    //   Bsp.: SF 2510 16DS251601 Ferat Sarac (Browser haengt .pdf selbst an).
     //   NN/VV = 1. Buchstabe 1. Nachname / 1. Vorname; mehrteilige Namen -> nur
     //   erster Token; Sonderzeichen -> ASCII (Jose, Sarac, ss fuer scharfes s).
     const toAscii = (s: string): string =>
@@ -2706,8 +2731,8 @@ export default function TimesheetForm({
     const yymm = `${String(selectedYear).slice(-2)}${String(selectedMonth).padStart(2, '0')}`;
     const fkz = (selectedProject?.funding_reference || selectedProject?.short_name || 'Projekt').replace(/[\/\s]+/g, '_');
     const fileName = (initials && firstAscii && lastAscii)
-      ? `${initials}_${yymm}_${fkz}_Stundenerfassung_${firstAscii}_${lastAscii}`
-      : `Stundenerfassung_${yymm}_${fkz}`;
+      ? `${initials} ${yymm} ${fkz} ${firstAscii} ${lastAscii}`
+      : `${yymm} ${fkz}`;
     const prevTitle = document.title;
     document.title = fileName;
     const restore = replaceSelectsForPrint();

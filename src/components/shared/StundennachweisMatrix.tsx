@@ -2,6 +2,12 @@
 // ============================================================================
 // PZE V7 - Shared Component: Stundennachweis-Matrix
 // ============================================================================
+// Version: 7.4.6-9
+// v7.4.6-9: PDF-Dateiname Sammeldruck auf finales Schema umgestellt -
+//   Leerzeichen statt Unterstrich, ohne Wort "Stundenerfassung" und ohne
+//   Praefix "Stundennachweise": 1 MA "<NN><VV> <Zeitraum> <FKZ> <Vorname>
+//   <Nachname>", mehrere MA "<Zeitraum> <FKZ>". Kein .pdf im document.title
+//   (Browser haengt die Endung selbst an).
 // Version: 7.4.6-8
 // v7.4.6-8: Sammeldruck-PDF bekommt einen sprechenden Dateinamen (analog
 //   Einzeldruck in TimesheetForm v7.4.6-56). Schema:
@@ -578,10 +584,12 @@ export default function StundennachweisMatrix({
         });
       });
 
-      // v7.4.6-8: PDF-Dateiname Sammeldruck (analog Einzeldruck).
-      //   1 MA  -> <NN><VV>_<Zeitraum>_<FKZ>_Stundenerfassung_<Vorname>_<Nachname>
-      //   >1 MA -> Stundennachweise_<Zeitraum>_<FKZ>
+      // v7.4.6-9: PDF-Dateiname Sammeldruck, Leerzeichen-getrennt, ohne
+      //   "Stundenerfassung":
+      //   1 MA  -> <NN><VV> <Zeitraum> <FKZ> <Vorname> <Nachname>
+      //   >1 MA -> <Zeitraum> <FKZ>
       //   Zeitraum: YYMM (ein Monat) bzw. YYMM-YYMM (min/max der Auswahl).
+      //   Kein .pdf im document.title (Browser haengt die Endung selbst an).
       {
         const toAscii = (s: string): string =>
           (s || '')
@@ -595,14 +603,14 @@ export default function StundennachweisMatrix({
         const maxYYMM = yymmList.reduce((a, b) => (b > a ? b : a), yymmList[0]);
         const timePart = minYYMM === maxYYMM ? minYYMM : `${minYYMM}-${maxYYMM}`;
         const fkz = (proj.funding_reference || proj.short_name || 'Projekt').replace(/[\/\s]+/g, '_');
-        let fileName = `Stundennachweise_${timePart}_${fkz}`;
+        let fileName = `${timePart} ${fkz}`;
         if (empIds.length === 1) {
           const emp = emps.find(e => e.id === empIds[0]);
           const lastAscii = toAscii(firstToken(emp?.last_name || ''));
           const firstAscii = toAscii(firstToken(emp?.first_name || ''));
           const initials = `${lastAscii.charAt(0)}${firstAscii.charAt(0)}`.toUpperCase();
           if (initials && firstAscii && lastAscii) {
-            fileName = `${initials}_${timePart}_${fkz}_Stundenerfassung_${firstAscii}_${lastAscii}`;
+            fileName = `${initials} ${timePart} ${fkz} ${firstAscii} ${lastAscii}`;
           }
         }
         printTitleRef.current = fileName;
