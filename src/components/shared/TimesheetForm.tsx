@@ -2,8 +2,30 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 26. Juni 2026
-// Version: 7.4.6-55
+// Datum: 30. Juni 2026
+// Version: 7.4.6-57
+// v7.4.6-57: Zeile "sonstige Arbeiten" bekommt bg-white auf den Normalzellen
+//   (analog Fehlzeiten-Zeilen) -> fehlender oberer Rahmen in Firefox/Chrome
+//   behoben. Spalten-Schattierung unveraendert. Spiegelt Sheet v1.0.3.
+// Version: 7.4.6-56
+// v7.4.6-56: Layout-Bereinigung Stundennachweis (Vorgabe Berater) -- spiegelt
+//   StundennachweisSheet v1.0.2. Aenderungen NUR im printRef-Sheet-Bereich:
+//   (1) Farbige Zeilen-Baender (Abschnitte 1-3, Summenzeilen) und farbige
+//       Summenzellen entfernt; nur orange Monatstage-Kopf + Kopf-Boxen bleiben
+//       farbig. Spalten-Schattierung (Wochenende/Feiertag/KA/Abwesenheit) und
+//       die Warn-Faerbung bei Limit-Ueberschreitung bleiben unveraendert.
+//   (2) Alle Sheet-Schriften schwarz (text-black; T/NT-Marker entfaerbt).
+//       Bereich-begrenzt (3260-3815) -> Toolbar/Buttons/Modals unberuehrt.
+//   (3) Summenzeilen/-spalte weiterhin fett (nur ohne Hintergrundfarbe).
+//   (4) DS-Summenlabels einzeilig: "Summe foerderbare Stunden (T)" / "(NT)".
+//   (5) Fehlzeit-Label: "Urlaub (nur bezahlter Urlaub)".
+//   (6) Unterschrifts-Labels groesser (9/7px -> 11/9px).
+//   (7) printRef: translate="no" + notranslate -> keine Browser-Auto-
+//       Uebersetzung des Sheets (Bug: GRAVID -> SCHWANGER).
+//   (8) handlePrint: neues PDF-Dateinamen-Schema (Einzeldruck):
+//       <NN><VV>_<YYMM>_<FKZ>_Stundenerfassung_<Vorname>_<Nachname>,
+//       Beispiel: SF_2510_16DS251601_Stundenerfassung_Ferat_Sarac.
+//       (Sammeldruck-Dateiname liegt in StundennachweisMatrix, separat.)
 // v7.4.6-55: "Meine Arbeitspakete"-Modal (Zugeordnete Arbeitspakete) bekommt
 //   die Spalte "Zeitraum (geplant)" (Monat.Jahr von-bis aus wp.start_date/
 //   end_date), analog zu A-047 im "Alle AP"-Modal. Lokaler fmtMon-Helfer im
@@ -2667,10 +2689,25 @@ export default function TimesheetForm({
   };
 
   const handlePrint = () => {
-    const empName = selectedEmployee?.display_name?.replace(/\s+/g, '_') || 'Mitarbeiter';
-    const projectRef = selectedProject?.funding_reference?.replace(/[\/\s]+/g, '_') || selectedProject?.short_name || 'Projekt';
-    const monthYear = `${String(selectedMonth).padStart(2, '0')}_${selectedYear}`;
-    const fileName = `Stundennachweis_${empName}_${projectRef}_${monthYear}`;
+    // v7.4.6-56: Dateiname-Schema (Einzeldruck):
+    //   <NN><VV>_<YYMM>_<FKZ>_Stundenerfassung_<Vorname>_<Nachname>
+    //   NN/VV = 1. Buchstabe 1. Nachname / 1. Vorname; mehrteilige Namen -> nur
+    //   erster Token; Sonderzeichen -> ASCII (Jose, Sarac, ss fuer scharfes s).
+    const toAscii = (s: string): string =>
+      (s || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\u00df/g, 'ss')
+        .replace(/[^A-Za-z0-9]/g, '');
+    const firstToken = (s: string): string => (s || '').trim().split(/\s+/)[0] || '';
+    const lastAscii = toAscii(firstToken(selectedEmployee?.last_name || ''));
+    const firstAscii = toAscii(firstToken(selectedEmployee?.first_name || ''));
+    const initials = `${lastAscii.charAt(0)}${firstAscii.charAt(0)}`.toUpperCase();
+    const yymm = `${String(selectedYear).slice(-2)}${String(selectedMonth).padStart(2, '0')}`;
+    const fkz = (selectedProject?.funding_reference || selectedProject?.short_name || 'Projekt').replace(/[\/\s]+/g, '_');
+    const fileName = (initials && firstAscii && lastAscii)
+      ? `${initials}_${yymm}_${fkz}_Stundenerfassung_${firstAscii}_${lastAscii}`
+      : `Stundenerfassung_${yymm}_${fkz}`;
     const prevTitle = document.title;
     document.title = fileName;
     const restore = replaceSelectsForPrint();
@@ -3257,40 +3294,40 @@ export default function TimesheetForm({
       )}
 
       {/* STUNDENNACHWEIS-FORMULAR */}
-      <div ref={printRef} className="pze-ts-sheet max-w-full mx-auto p-4 print:p-0 print:m-0">
-        <div className="bg-white shadow-lg print:shadow-none overflow-x-auto text-gray-900">
+      <div ref={printRef} translate="no" className="notranslate pze-ts-sheet max-w-full mx-auto p-4 print:p-0 print:m-0">
+        <div className="bg-white shadow-lg print:shadow-none overflow-x-auto text-black">
           {/* Header-Bereich */}
           <table className="w-full border-collapse text-xs" style={{ minWidth: '1000px', tableLayout: 'fixed' }}>
             <tbody>
               <tr>
                 <td className="border p-2 print:p-1.5" style={{ width: '50%' }}>
-                  <div className="text-[10px] print:text-[8px] text-gray-900">Zuwendungsempfaenger (Firmenstempel)</div>
+                  <div className="text-[10px] print:text-[8px] text-black">Zuwendungsempfaenger (Firmenstempel)</div>
                   <div className="font-bold text-lg print:text-base text-center py-2">{company?.name}</div>
                 </td>
                 <td className="border p-2 print:p-1.5 text-center" style={{ width: '50%', backgroundColor: HEADER_ORANGE }}>
                   <div className="font-bold text-xl print:text-lg">Stundennachweis</div>
-                  <div className="text-[10px] print:text-[8px] text-gray-900 mt-1">
+                  <div className="text-[10px] print:text-[8px] text-black mt-1">
                     Der Stundennachweis verbleibt beim Zuwendungsempfaenger und ist nur nach Aufforderung vorzulegen.
                   </div>
                 </td>
               </tr>
               <tr>
                 <td className="border p-2 print:p-1">
-                  <div className="text-[10px] print:text-[8px] text-gray-900">Vorhabenthema</div>
+                  <div className="text-[10px] print:text-[8px] text-black">Vorhabenthema</div>
                   <div className="font-semibold text-base print:text-sm text-center py-1">{selectedProject?.name || '-'}</div>
                 </td>
                 <td className="border p-2 print:p-1" style={{ backgroundColor: HEADER_ORANGE }}>
-                  <div className="text-[10px] print:text-[8px] text-gray-900">Foerderkennzeichen</div>
+                  <div className="text-[10px] print:text-[8px] text-black">Foerderkennzeichen</div>
                   <div className="font-bold text-lg print:text-base text-center py-1">{selectedProject?.funding_reference || '-'}</div>
                 </td>
               </tr>
               <tr>
                 <td className="border p-2 print:p-1">
-                  <div className="text-[10px] print:text-[8px] text-gray-900">Monat</div>
+                  <div className="text-[10px] print:text-[8px] text-black">Monat</div>
                   <div className="font-semibold text-base print:text-sm text-center py-1">{formatDisplayDate()}</div>
                 </td>
                 <td className="border p-2 print:p-1">
-                  <div className="text-[10px] print:text-[8px] text-gray-900">Mitarbeiter(in): [Name, Vorname]</div>
+                  <div className="text-[10px] print:text-[8px] text-black">Mitarbeiter(in): [Name, Vorname]</div>
                   <div className="font-semibold text-base print:text-sm text-center py-1">
                     {selectedEmployee ? `${selectedEmployee.last_name || ''}, ${selectedEmployee.first_name || ''}`.trim() || selectedEmployee.display_name : '-'}
                   </div>
@@ -3300,7 +3337,7 @@ export default function TimesheetForm({
           </table>
 
           {/* Hinweistext */}
-          <div className="px-2 py-1 print:px-1 print:py-0.5 text-[8px] print:text-[6px] text-gray-900 border-x">
+          <div className="px-2 py-1 print:px-1 print:py-0.5 text-[8px] print:text-[6px] text-black border-x">
             Die zu Lasten des Vorhabens abzurechnenden Personalstunden sind taeglich eigenhaendig von der betreffenden Person zu erfassen. Nur die produktiven, fuer das Vorhaben geleisteten Stunden sind zuwendungsfaehig.
           </div>
 
@@ -3335,7 +3372,7 @@ export default function TimesheetForm({
             <tbody>
               {/* Abschnitt 1: Foerderbare Arbeiten */}
               <tr>
-                <td className="border p-1 font-semibold" colSpan={(isDurchfuehrbarkeitsstudie ? 4 : 3) + daysInMonth + 2} style={{ backgroundColor: '#FFF9E6' }}>
+                <td className="border p-1 font-semibold" colSpan={(isDurchfuehrbarkeitsstudie ? 4 : 3) + daysInMonth + 2}>
                   {isNetzwerk ? '1. f\u00f6rderbare Management-Arbeiten (1)' : '1. f\u00f6rderbare Projektarbeiten (1)'}
                 </td>
               </tr>
@@ -3399,9 +3436,9 @@ export default function TimesheetForm({
                       <td className="border p-1 text-center">
                         {selectedWP ? (
                           isTechnicalAP(selectedWP) ? (
-                            <span className="text-green-700 font-bold text-xs">T</span>
+                            <span className="text-black font-bold text-xs">T</span>
                           ) : (
-                            <span className="text-blue-700 font-bold text-xs">NT</span>
+                            <span className="text-black font-bold text-xs">NT</span>
                           )
                         ) : (
                           <span className="text-gray-300">-</span>
@@ -3455,14 +3492,14 @@ export default function TimesheetForm({
                               isKA ? 'bg-amber-100 cursor-not-allowed pointer-events-none print:bg-transparent' :
                               dayAbsence ? 'bg-blue-50 cursor-not-allowed text-blue-400 print:bg-transparent' :
                               !row.workPackageId ? 'bg-gray-50 cursor-not-allowed' :
-                              isAbsence ? 'bg-blue-100 font-bold text-blue-700' : 'bg-white'
+                              isAbsence ? 'bg-blue-100 font-bold text-black' : 'bg-white'
                             } focus:ring-1 ${colors.ring} print:bg-transparent`}
                             style={{ minWidth: '24px' }}
                           />
                         </td>
                       );
                     })}
-                    <td className="border p-1 text-center font-semibold bg-gray-50">
+                    <td className="border p-1 text-center font-semibold">
                       {calculateRowSum(row) > 0 ? calculateRowSum(row).toFixed(2) : '0,00'}
                     </td>
                     {/* NEU v7.4.3: offen-Spalte | v7.4.6-29: blaue AP-Restzahl bei nicht zugeordneten MA */}
@@ -3474,7 +3511,7 @@ export default function TimesheetForm({
                         if (istZugeordnet) {
                           const remaining = calculateRemainingHours(wpId);
                           if (remaining === null) return <span className="text-gray-300">-</span>;
-                          if (remaining > 0) return <span className="text-green-700 font-semibold">{remaining}</span>;
+                          if (remaining > 0) return <span className="text-black font-semibold">{remaining}</span>;
                           if (remaining < 0) return <span className="text-red-600 font-bold">{remaining}</span>;
                           return <span className="text-gray-500">0</span>;
                         }
@@ -3483,7 +3520,7 @@ export default function TimesheetForm({
                         const wpOpen = calculateWPOpenHours(wpId);
                         if (wpOpen !== null && wpOpen > 0) {
                           return (
-                            <span className="text-blue-700 font-semibold" title="Projektweit noch offene Stunden dieses Arbeitspakets (MA nicht zugeordnet)">
+                            <span className="text-black font-semibold" title="Projektweit noch offene Stunden dieses Arbeitspakets (MA nicht zugeordnet)">
                               {wpOpen}
                             </span>
                           );
@@ -3513,8 +3550,8 @@ export default function TimesheetForm({
               {isDurchfuehrbarkeitsstudie ? (
                 <>
                   {/* Summe technische APs */}
-                  <tr className="font-semibold" style={{ backgroundColor: '#E8F5E9' }}>
-                    <td className="border p-1 text-[10px]" colSpan={4}>Summe foerderbare Stunden - technisch (T)</td>
+                  <tr className="font-semibold">
+                    <td className="border p-1 text-[10px]" colSpan={4}>Summe foerderbare Stunden (T)</td>
                     {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
                       const daySum = calculateTechnicalDaySum(day, true);
                       return (
@@ -3523,14 +3560,14 @@ export default function TimesheetForm({
                         </td>
                       );
                     })}
-                    <td className="border p-1 text-center bg-green-200">
+                    <td className="border p-1 text-center">
                       {calculateTechnicalTotal(true).toFixed(2)}
                     </td>
                     <td className="border p-1 bg-green-50 print:hidden"></td>
                   </tr>
                   {/* Summe nicht-technische APs */}
-                  <tr className="font-semibold" style={{ backgroundColor: '#E3F2FD' }}>
-                    <td className="border p-1 text-[10px]" colSpan={4}>Summe foerderbare Stunden - nicht-technisch (NT)</td>
+                  <tr className="font-semibold">
+                    <td className="border p-1 text-[10px]" colSpan={4}>Summe foerderbare Stunden (NT)</td>
                     {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
                       const daySum = calculateTechnicalDaySum(day, false);
                       return (
@@ -3539,13 +3576,13 @@ export default function TimesheetForm({
                         </td>
                       );
                     })}
-                    <td className="border p-1 text-center bg-blue-200">
+                    <td className="border p-1 text-center">
                       {calculateTechnicalTotal(false).toFixed(2)}
                     </td>
                     <td className="border p-1 bg-blue-50 print:hidden"></td>
                   </tr>
                   {/* Gesamtsumme */}
-                  <tr className="font-bold" style={{ backgroundColor: '#C8E6C9' }}>
+                  <tr className="font-bold">
                     <td className="border p-1" colSpan={4}>Summe foerderbare Stunden gesamt (2)</td>
                     {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
                       const daySum = calculateDaySum(day);
@@ -3559,14 +3596,14 @@ export default function TimesheetForm({
                         </td>
                       );
                     })}
-                    <td className={`border p-1 text-center ${monatUeberschritten ? 'bg-red-500 text-white' : gfUeberschritten ? 'bg-red-500 text-white print:bg-green-300 print:text-gray-900' : 'bg-green-300'}`}>
+                    <td className={`border p-1 text-center ${monatUeberschritten ? 'bg-red-500 text-white' : gfUeberschritten ? 'bg-red-500 text-white print:bg-green-300 print:text-black' : ''}`}>
                       {calculateTotalBillable().toFixed(2)}
                     </td>
                     <td className="border p-1 bg-green-100 print:hidden"></td>
                   </tr>
                 </>
               ) : (
-                <tr className="font-semibold" style={{ backgroundColor: '#E8F5E9' }}>
+                <tr className="font-semibold">
                   <td className="border p-1" colSpan={3}>Summe der foerderbaren Stunden (2)</td>
                   {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
                     const daySum = calculateDaySum(day);
@@ -3579,7 +3616,7 @@ export default function TimesheetForm({
                       </td>
                     );
                   })}
-                  <td className={`border p-1 text-center ${monatUeberschritten ? 'bg-red-500 text-white' : gfUeberschritten ? 'bg-red-500 text-white print:bg-green-200 print:text-gray-900' : 'bg-green-200'}`}>
+                  <td className={`border p-1 text-center ${monatUeberschritten ? 'bg-red-500 text-white' : gfUeberschritten ? 'bg-red-500 text-white print:bg-green-200 print:text-black' : ''}`}>
                     {calculateTotalBillable().toFixed(2)}
                   </td>
                   <td className="border p-1 bg-green-50 print:hidden"></td>
@@ -3588,7 +3625,7 @@ export default function TimesheetForm({
 
               {/* Abschnitt 2: Nicht zuschussfaehig */}
               <tr>
-                <td className="border p-1 font-semibold" colSpan={(isDurchfuehrbarkeitsstudie ? 4 : 3) + daysInMonth + 2} style={{ backgroundColor: '#FFF3E0' }}>
+                <td className="border p-1 font-semibold" colSpan={(isDurchfuehrbarkeitsstudie ? 4 : 3) + daysInMonth + 2}>
                   2. Nicht zuschussfaehige Arbeiten
                 </td>
               </tr>
@@ -3604,7 +3641,7 @@ export default function TimesheetForm({
                   const dayAbsence = getAbsenceCodeForDay(day);
 
                   return (
-                    <td key={day} className={`border p-0 text-center ${holiday ? 'bg-orange-100' : isBlocked ? 'bg-red-100' : isKA ? 'bg-amber-100 print:bg-white' : weekend ? 'bg-gray-200' : ''}`}
+                    <td key={day} className={`border p-0 text-center ${holiday ? 'bg-orange-100' : isBlocked ? 'bg-red-100' : isKA ? 'bg-amber-100 print:bg-white' : weekend ? 'bg-gray-200' : 'bg-white'}`}
                       title={isKA ? 'Kurzarbeit' : isBlocked ? (blockedDayReasons[day] || 'Gesperrt') : dayAbsence ? `${absenceLabel(dayAbsence)} -- an einem Abwesenheitstag ist keine Arbeitsbuchung moeglich` : weekend ? 'Wochenende -- nur fuer nicht foerderbare Zeiten (z. B. Dienstreise)' : undefined}
                     >
                       <input
@@ -3629,7 +3666,7 @@ export default function TimesheetForm({
                     </td>
                   );
                 })}
-                <td className="border p-1 text-center font-semibold bg-yellow-50">
+                <td className="border p-1 text-center font-semibold">
                   {calculateNonBillableSum().toFixed(2)}
                 </td>
                 <td className="border p-1 bg-yellow-50 print:hidden"></td>
@@ -3637,13 +3674,13 @@ export default function TimesheetForm({
 
               {/* Abschnitt 3: Fehlzeiten */}
               <tr>
-                <td className="border p-1 font-semibold" colSpan={(isDurchfuehrbarkeitsstudie ? 4 : 3) + daysInMonth + 2} style={{ backgroundColor: '#E3F2FD' }}>
+                <td className="border p-1 font-semibold" colSpan={(isDurchfuehrbarkeitsstudie ? 4 : 3) + daysInMonth + 2}>
                   3. Fehlzeiten
                 </td>
               </tr>
               {/* Urlaub - editierbar */}
               <tr>
-                <td className="border p-1 text-[10px]" colSpan={isDurchfuehrbarkeitsstudie ? 4 : 3}>Urlaub (nur bezahlten Urlaub auffuehren)</td>
+                <td className="border p-1 text-[10px]" colSpan={isDurchfuehrbarkeitsstudie ? 4 : 3}>Urlaub (nur bezahlter Urlaub)</td>
                 {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
                   const weekend = isWeekend(selectedYear, selectedMonth, day);
                   const holiday = isHoliday(selectedYear, selectedMonth, day);
@@ -3675,7 +3712,7 @@ export default function TimesheetForm({
                     </td>
                   );
                 })}
-                <td className="border p-1 text-center font-semibold bg-blue-100">
+                <td className="border p-1 text-center font-semibold">
                   {absenceSums.U > 0 ? absenceSums.U.toFixed(2) : '0,00'}
                 </td>
                 <td className="border p-1 bg-blue-50 print:hidden"></td>
@@ -3714,7 +3751,7 @@ export default function TimesheetForm({
                     </td>
                   );
                 })}
-                <td className="border p-1 text-center font-semibold bg-red-100">
+                <td className="border p-1 text-center font-semibold">
                   {absenceSums.K > 0 ? absenceSums.K.toFixed(2) : '0,00'}
                 </td>
                 <td className="border p-1 bg-red-50 print:hidden"></td>
@@ -3753,7 +3790,7 @@ export default function TimesheetForm({
                     </td>
                   );
                 })}
-                <td className="border p-1 text-center font-semibold bg-purple-100">
+                <td className="border p-1 text-center font-semibold">
                   {absenceSums.S > 0 ? absenceSums.S.toFixed(2) : '0,00'}
                 </td>
                 <td className="border p-1 bg-purple-50 print:hidden"></td>
@@ -3771,7 +3808,7 @@ export default function TimesheetForm({
                       </td>
                     );
                   })}
-                  <td className="border p-1 text-center font-semibold bg-amber-100">
+                  <td className="border p-1 text-center font-semibold">
                     {Object.keys(kurzarbeitInput).length} Tg.
                   </td>
                   <td className="border p-1 bg-amber-50 print:hidden"></td>
@@ -3781,7 +3818,7 @@ export default function TimesheetForm({
           </table>
 
           {/* Hinweistexte */}
-          <div className="px-2 py-1 print:px-1 print:py-0.5 text-[7px] print:text-[5px] text-gray-900 border-x border-b">
+          <div className="px-2 py-1 print:px-1 print:py-0.5 text-[7px] print:text-[5px] text-black border-x border-b">
             <p>
               <strong>(1)</strong> Die geleisteten Projektbearbeitungsstunden sind fuer den gesamten Bewilligungszeitraum <strong>eigenhaendig und zeitnah</strong>, d. h. mindestens innerhalb einer Woche zu erfassen. Die Angaben sind subventionserheblich im Sinne des Paragraph 264 Strafgesetzbuch.
             </p>
@@ -3793,7 +3830,7 @@ export default function TimesheetForm({
           {/* Unterschriften */}
           <div className="border-x border-b flex">
             <div className="flex-1 p-3 print:p-2 border-r border-gray-400">
-              <div className="text-[9px] print:text-[7px] text-gray-900 mb-8 print:mb-6">Datum / Unterschrift des Mitarbeiters</div>
+              <div className="text-[11px] print:text-[9px] text-black mb-8 print:mb-6">Datum / Unterschrift des Mitarbeiters</div>
               <input
                 type="text"
                 value={signatureDate}
@@ -3802,7 +3839,7 @@ export default function TimesheetForm({
               />
             </div>
             <div className="flex-1 p-3 print:p-2">
-              <div className="text-[9px] print:text-[7px] text-gray-900 mb-8 print:mb-6">Datum / Unterschrift Geschaeftsfuehrer bzw. FuE-Verantwortlicher</div>
+              <div className="text-[11px] print:text-[9px] text-black mb-8 print:mb-6">Datum / Unterschrift Geschaeftsfuehrer bzw. FuE-Verantwortlicher</div>
               <input
                 type="text"
                 value={signatureDate}

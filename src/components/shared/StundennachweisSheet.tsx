@@ -2,8 +2,24 @@
 // ============================================================================
 // PZE V7 - Shared Component: Stundennachweis-Blatt (Anzeige/Druck)
 // ============================================================================
-// Version: 1.0.1
-// Datum: 13. Juni 2026
+// Version: 1.0.3
+// Datum: 30. Juni 2026
+// Aenderung v1.0.3: Zeile "sonstige Arbeiten" bekommt bg-white auf den
+//   Normalzellen (analog Fehlzeiten-Zeilen). Behebt fehlenden oberen Rahmen
+//   in Firefox/Chrome (1px-Collapse-Rahmen zwischen zwei hintergrundlosen
+//   Zellen wurde weggelassen). Spalten-Schattierung unveraendert.
+// Aenderung v1.0.2: Layout-Bereinigung Stundennachweis (Vorgabe Berater).
+//   (1) Farbige Zeilen-Baender (Abschnitts-Ueberschriften, Summenzeilen) und
+//       farbige Summenzellen entfernt -- nur der orange Monatstage-Kopf bleibt
+//       farbig. Spalten-Schattierung (Wochenende grau, Feiertag orange,
+//       Kurzarbeit amber) und der orange Kopf-Bereich bleiben unveraendert.
+//   (2) Alle Schriften schwarz (text-black; T/NT-Marker nicht mehr gruen/blau).
+//   (3) Summenzeilen/-spalte weiterhin fett (nur ohne Hintergrundfarbe).
+//   (4) DS-Summenlabels einzeilig: "Summe foerderbare Stunden (T)" / "(NT)".
+//   (5) Fehlzeit-Label: "Urlaub (nur bezahlter Urlaub)".
+//   (6) Schrift der Unterschrifts-Labels groesser (9/7px -> 11/9px).
+//   (7) translate="no" + Klasse notranslate -> Browser-Auto-Uebersetzung
+//       uebersetzt Projektnamen nicht mehr (Bug: GRAVID -> SCHWANGER).
 // Aenderung v1.0.1: Bedingte Kurzarbeit-Zeile in Abschnitt 3 (Fehlzeiten).
 //   Erscheint NUR, wenn der Monat mindestens einen Kurzarbeitstag hat
 //   (data.kurzarbeitDays > 0). Markiert die Tage mit "KA", Summe = Tageszahl.
@@ -75,7 +91,8 @@ export default function StundennachweisSheet({
 
   return (
     <div
-      className="bg-white text-gray-900"
+      translate="no"
+      className="notranslate bg-white text-black"
       style={{ breakAfter: pageBreakAfter ? 'page' : 'auto' }}
     >
       <div className="overflow-x-auto">
@@ -84,33 +101,33 @@ export default function StundennachweisSheet({
           <tbody>
             <tr>
               <td className="border p-2 print:p-1.5" style={{ width: '50%' }}>
-                <div className="text-[10px] print:text-[8px] text-gray-900">Zuwendungsempfaenger (Firmenstempel)</div>
+                <div className="text-[10px] print:text-[8px] text-black">Zuwendungsempfaenger (Firmenstempel)</div>
                 <div className="font-bold text-lg print:text-base text-center py-2">{companyName}</div>
               </td>
               <td className="border p-2 print:p-1.5 text-center" style={{ width: '50%', backgroundColor: HEADER_ORANGE }}>
                 <div className="font-bold text-xl print:text-lg">Stundennachweis</div>
-                <div className="text-[10px] print:text-[8px] text-gray-900 mt-1">
+                <div className="text-[10px] print:text-[8px] text-black mt-1">
                   Der Stundennachweis verbleibt beim Zuwendungsempfaenger und ist nur nach Aufforderung vorzulegen.
                 </div>
               </td>
             </tr>
             <tr>
               <td className="border p-2 print:p-1">
-                <div className="text-[10px] print:text-[8px] text-gray-900">Vorhabenthema</div>
+                <div className="text-[10px] print:text-[8px] text-black">Vorhabenthema</div>
                 <div className="font-semibold text-base print:text-sm text-center py-1">{projectName || '-'}</div>
               </td>
               <td className="border p-2 print:p-1" style={{ backgroundColor: HEADER_ORANGE }}>
-                <div className="text-[10px] print:text-[8px] text-gray-900">Foerderkennzeichen</div>
+                <div className="text-[10px] print:text-[8px] text-black">Foerderkennzeichen</div>
                 <div className="font-bold text-lg print:text-base text-center py-1">{fundingReference || '-'}</div>
               </td>
             </tr>
             <tr>
               <td className="border p-2 print:p-1">
-                <div className="text-[10px] print:text-[8px] text-gray-900">Monat</div>
+                <div className="text-[10px] print:text-[8px] text-black">Monat</div>
                 <div className="font-semibold text-base print:text-sm text-center py-1">{monthLabel}</div>
               </td>
               <td className="border p-2 print:p-1">
-                <div className="text-[10px] print:text-[8px] text-gray-900">Mitarbeiter(in): [Name, Vorname]</div>
+                <div className="text-[10px] print:text-[8px] text-black">Mitarbeiter(in): [Name, Vorname]</div>
                 <div className="font-semibold text-base print:text-sm text-center py-1">{employeeName || '-'}</div>
               </td>
             </tr>
@@ -118,7 +135,7 @@ export default function StundennachweisSheet({
         </table>
 
         {/* Hinweistext */}
-        <div className="px-2 py-1 print:px-1 print:py-0.5 text-[8px] print:text-[6px] text-gray-900 border-x">
+        <div className="px-2 py-1 print:px-1 print:py-0.5 text-[8px] print:text-[6px] text-black border-x">
           Die zu Lasten des Vorhabens abzurechnenden Personalstunden sind taeglich eigenhaendig von der betreffenden Person zu erfassen. Nur die produktiven, fuer das Vorhaben geleisteten Stunden sind zuwendungsfaehig.
         </div>
 
@@ -153,7 +170,7 @@ export default function StundennachweisSheet({
           <tbody>
             {/* Abschnitt 1: Foerderbare Arbeiten */}
             <tr>
-              <td className="border p-1 font-semibold" colSpan={sectionColSpan} style={{ backgroundColor: '#FFF9E6' }}>
+              <td className="border p-1 font-semibold" colSpan={sectionColSpan}>
                 {isNetzwerk ? '1. f\u00f6rderbare Management-Arbeiten (1)' : '1. f\u00f6rderbare Projektarbeiten (1)'}
               </td>
             </tr>
@@ -169,8 +186,8 @@ export default function StundennachweisSheet({
                 {isDurchfuehrbarkeitsstudie && (
                   <td className="border p-1 text-center">
                     {row.isTechnical
-                      ? <span className="text-green-700 font-bold text-xs">T</span>
-                      : <span className="text-blue-700 font-bold text-xs">NT</span>}
+                      ? <span className="text-black font-bold text-xs">T</span>
+                      : <span className="text-black font-bold text-xs">NT</span>}
                   </td>
                 )}
                 {dayList.map(day => {
@@ -187,7 +204,7 @@ export default function StundennachweisSheet({
                     </td>
                   );
                 })}
-                <td className="border p-1 text-center font-semibold bg-gray-50">
+                <td className="border p-1 text-center font-semibold">
                   {fmtSum0(row.rowSum)}
                 </td>
               </tr>
@@ -196,41 +213,41 @@ export default function StundennachweisSheet({
             {/* Summe foerderbare Stunden */}
             {isDurchfuehrbarkeitsstudie ? (
               <>
-                <tr className="font-semibold" style={{ backgroundColor: '#E8F5E9' }}>
-                  <td className="border p-1 text-[10px]" colSpan={4}>Summe foerderbare Stunden - technisch (T)</td>
+                <tr className="font-semibold">
+                  <td className="border p-1 text-[10px]" colSpan={4}>Summe foerderbare Stunden (T)</td>
                   {dayList.map(day => (
                     <td key={day} className="border p-1 text-center text-[10px]">{fmtSumE(techDaySum[day] || 0)}</td>
                   ))}
-                  <td className="border p-1 text-center bg-green-200">{techTotal.toFixed(2)}</td>
+                  <td className="border p-1 text-center">{techTotal.toFixed(2)}</td>
                 </tr>
-                <tr className="font-semibold" style={{ backgroundColor: '#E3F2FD' }}>
-                  <td className="border p-1 text-[10px]" colSpan={4}>Summe foerderbare Stunden - nicht-technisch (NT)</td>
+                <tr className="font-semibold">
+                  <td className="border p-1 text-[10px]" colSpan={4}>Summe foerderbare Stunden (NT)</td>
                   {dayList.map(day => (
                     <td key={day} className="border p-1 text-center text-[10px]">{fmtSumE(ntDaySum[day] || 0)}</td>
                   ))}
-                  <td className="border p-1 text-center bg-blue-200">{ntTotal.toFixed(2)}</td>
+                  <td className="border p-1 text-center">{ntTotal.toFixed(2)}</td>
                 </tr>
-                <tr className="font-bold" style={{ backgroundColor: '#C8E6C9' }}>
+                <tr className="font-bold">
                   <td className="border p-1" colSpan={4}>Summe foerderbare Stunden gesamt (2)</td>
                   {dayList.map(day => (
                     <td key={day} className="border p-1 text-center text-[10px]">{fmtSumE(daySumBillable[day] || 0)}</td>
                   ))}
-                  <td className="border p-1 text-center bg-green-300">{totalBillable.toFixed(2)}</td>
+                  <td className="border p-1 text-center">{totalBillable.toFixed(2)}</td>
                 </tr>
               </>
             ) : (
-              <tr className="font-semibold" style={{ backgroundColor: '#E8F5E9' }}>
+              <tr className="font-semibold">
                 <td className="border p-1" colSpan={3}>Summe der foerderbaren Stunden (2)</td>
                 {dayList.map(day => (
                   <td key={day} className="border p-1 text-center text-[10px]">{fmtSum0(daySumBillable[day] || 0)}</td>
                 ))}
-                <td className="border p-1 text-center bg-green-200">{totalBillable.toFixed(2)}</td>
+                <td className="border p-1 text-center">{totalBillable.toFixed(2)}</td>
               </tr>
             )}
 
             {/* Abschnitt 2: Nicht zuschussfaehig */}
             <tr>
-              <td className="border p-1 font-semibold" colSpan={sectionColSpan} style={{ backgroundColor: '#FFF3E0' }}>
+              <td className="border p-1 font-semibold" colSpan={sectionColSpan}>
                 2. Nicht zuschussfaehige Arbeiten
               </td>
             </tr>
@@ -241,23 +258,23 @@ export default function StundennachweisSheet({
                 const weekend = d?.weekend;
                 const holiday = d?.holiday;
                 return (
-                  <td key={day} className={`border p-1 text-center text-[10px] ${weekend ? 'bg-gray-200' : holiday ? 'bg-orange-100' : ''}`}>
+                  <td key={day} className={`border p-1 text-center text-[10px] ${weekend ? 'bg-gray-200' : holiday ? 'bg-orange-100' : 'bg-white'}`}>
                     {fmtCell(nonBillableByDay[day])}
                   </td>
                 );
               })}
-              <td className="border p-1 text-center font-semibold bg-yellow-50">{nonBillableSum.toFixed(2)}</td>
+              <td className="border p-1 text-center font-semibold">{nonBillableSum.toFixed(2)}</td>
             </tr>
 
             {/* Abschnitt 3: Fehlzeiten */}
             <tr>
-              <td className="border p-1 font-semibold" colSpan={sectionColSpan} style={{ backgroundColor: '#E3F2FD' }}>
+              <td className="border p-1 font-semibold" colSpan={sectionColSpan}>
                 3. Fehlzeiten
               </td>
             </tr>
             {/* Urlaub */}
             <tr>
-              <td className="border p-1 text-[10px]" colSpan={labelCols}>Urlaub (nur bezahlten Urlaub auffuehren)</td>
+              <td className="border p-1 text-[10px]" colSpan={labelCols}>Urlaub (nur bezahlter Urlaub)</td>
               {dayList.map(day => {
                 const d = days[day - 1];
                 const weekend = d?.weekend;
@@ -267,7 +284,7 @@ export default function StundennachweisSheet({
                   </td>
                 );
               })}
-              <td className="border p-1 text-center font-semibold bg-blue-100">{fmtSum0(absenceSums.U)}</td>
+              <td className="border p-1 text-center font-semibold">{fmtSum0(absenceSums.U)}</td>
             </tr>
             {/* Krankheit */}
             <tr>
@@ -281,7 +298,7 @@ export default function StundennachweisSheet({
                   </td>
                 );
               })}
-              <td className="border p-1 text-center font-semibold bg-red-100">{fmtSum0(absenceSums.K)}</td>
+              <td className="border p-1 text-center font-semibold">{fmtSum0(absenceSums.K)}</td>
             </tr>
             {/* Sonstige bezahlte Ausfallzeiten */}
             <tr>
@@ -296,7 +313,7 @@ export default function StundennachweisSheet({
                   </td>
                 );
               })}
-              <td className="border p-1 text-center font-semibold bg-purple-100">{fmtSum0(absenceSums.S)}</td>
+              <td className="border p-1 text-center font-semibold">{fmtSum0(absenceSums.S)}</td>
             </tr>
             {/* v1.0.1: Kurzarbeit -- nur wenn vorhanden. Rein informativ, keine Stunden. */}
             {kurzarbeitDays > 0 && (
@@ -312,14 +329,14 @@ export default function StundennachweisSheet({
                     </td>
                   );
                 })}
-                <td className="border p-1 text-center font-semibold bg-amber-100">{kurzarbeitDays} Tg.</td>
+                <td className="border p-1 text-center font-semibold">{kurzarbeitDays} Tg.</td>
               </tr>
             )}
           </tbody>
         </table>
 
         {/* Hinweistexte / Fussnoten */}
-        <div className="px-2 py-1 print:px-1 print:py-0.5 text-[7px] print:text-[5px] text-gray-900 border-x border-b">
+        <div className="px-2 py-1 print:px-1 print:py-0.5 text-[7px] print:text-[5px] text-black border-x border-b">
           <p>
             <strong>(1)</strong> Die geleisteten Projektbearbeitungsstunden sind fuer den gesamten Bewilligungszeitraum <strong>eigenhaendig und zeitnah</strong>, d. h. mindestens innerhalb einer Woche zu erfassen. Die Angaben sind subventionserheblich im Sinne des Paragraph 264 Strafgesetzbuch.
           </p>
@@ -331,11 +348,11 @@ export default function StundennachweisSheet({
         {/* Unterschriften */}
         <div className="border-x border-b flex">
           <div className="flex-1 p-3 print:p-2 border-r border-gray-400">
-            <div className="text-[9px] print:text-[7px] text-gray-900 mb-8 print:mb-6">Datum / Unterschrift des Mitarbeiters</div>
+            <div className="text-[11px] print:text-[9px] text-black mb-8 print:mb-6">Datum / Unterschrift des Mitarbeiters</div>
             <div className="text-sm print:text-xs border-b border-gray-300 print:border-gray-400 w-28 pb-0.5">{signatureDate}</div>
           </div>
           <div className="flex-1 p-3 print:p-2">
-            <div className="text-[9px] print:text-[7px] text-gray-900 mb-8 print:mb-6">Datum / Unterschrift Geschaeftsfuehrer bzw. FuE-Verantwortlicher</div>
+            <div className="text-[11px] print:text-[9px] text-black mb-8 print:mb-6">Datum / Unterschrift Geschaeftsfuehrer bzw. FuE-Verantwortlicher</div>
             <div className="text-sm print:text-xs border-b border-gray-300 print:border-gray-400 w-28 pb-0.5">{signatureDate}</div>
           </div>
         </div>
