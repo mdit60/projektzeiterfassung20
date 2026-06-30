@@ -2,6 +2,14 @@
 // ============================================================================
 // PZE V7 - Shared Component: Stundennachweis-Matrix
 // ============================================================================
+// Version: 7.4.6-8
+// v7.4.6-8: Sammeldruck-PDF bekommt einen sprechenden Dateinamen (analog
+//   Einzeldruck in TimesheetForm v7.4.6-56). Schema:
+//     1 MA  -> <NN><VV>_<Zeitraum>_<FKZ>_Stundenerfassung_<Vorname>_<Nachname>
+//     >1 MA -> Stundennachweise_<Zeitraum>_<FKZ>
+//   Zeitraum = YYMM (ein Monat) bzw. YYMM-YYMM (Spanne; min/max der Auswahl).
+//   Name -> erster Vor-/Nachname, ASCII-gewandelt. document.title wird vor
+//   window.print gesetzt und nach afterprint zurueckgestellt.
 // Version: 7.4.6-7
 // v7.4.6-7: Klick auf Monatszelle uebergibt jetzt das aktive Projekt
 //   (activeProjectId) an onNavigateToZE -> die ZE-Seite kann das richtige
@@ -88,7 +96,7 @@
 
 'use client';
 
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { Grid3x3, CheckCircle, AlertTriangle, XCircle, Printer, X, CheckSquare, Square } from 'lucide-react';
 import {
   getGermanHolidays,
@@ -386,6 +394,9 @@ export default function StundennachweisMatrix({
   const [druckModus, setDruckModus] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [printSheets, setPrintSheets] = useState<StundennachweisSheetData[] | null>(null);
+  // v7.4.6-8: Titel-Swap fuer sprechenden Sammeldruck-Dateinamen.
+  const printTitleRef = useRef<string>('');
+  const prevTitleRef = useRef<string>('');
   const [printing, setPrinting] = useState(false);
 
   // Auswahl bei Projektwechsel zuruecksetzen (Keys sind projektbezogen).
@@ -567,6 +578,36 @@ export default function StundennachweisMatrix({
         });
       });
 
+      // v7.4.6-8: PDF-Dateiname Sammeldruck (analog Einzeldruck).
+      //   1 MA  -> <NN><VV>_<Zeitraum>_<FKZ>_Stundenerfassung_<Vorname>_<Nachname>
+      //   >1 MA -> Stundennachweise_<Zeitraum>_<FKZ>
+      //   Zeitraum: YYMM (ein Monat) bzw. YYMM-YYMM (min/max der Auswahl).
+      {
+        const toAscii = (s: string): string =>
+          (s || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/\u00df/g, 'ss')
+            .replace(/[^A-Za-z0-9]/g, '');
+        const firstToken = (s: string): string => (s || '').trim().split(/\s+/)[0] || '';
+        const yymmList = cells.map(c => `${String(c.year).slice(-2)}${String(c.month).padStart(2, '0')}`);
+        const minYYMM = yymmList.reduce((a, b) => (b < a ? b : a), yymmList[0]);
+        const maxYYMM = yymmList.reduce((a, b) => (b > a ? b : a), yymmList[0]);
+        const timePart = minYYMM === maxYYMM ? minYYMM : `${minYYMM}-${maxYYMM}`;
+        const fkz = (proj.funding_reference || proj.short_name || 'Projekt').replace(/[\/\s]+/g, '_');
+        let fileName = `Stundennachweise_${timePart}_${fkz}`;
+        if (empIds.length === 1) {
+          const emp = emps.find(e => e.id === empIds[0]);
+          const lastAscii = toAscii(firstToken(emp?.last_name || ''));
+          const firstAscii = toAscii(firstToken(emp?.first_name || ''));
+          const initials = `${lastAscii.charAt(0)}${firstAscii.charAt(0)}`.toUpperCase();
+          if (initials && firstAscii && lastAscii) {
+            fileName = `${initials}_${timePart}_${fkz}_Stundenerfassung_${firstAscii}_${lastAscii}`;
+          }
+        }
+        printTitleRef.current = fileName;
+      }
+
       setPrintSheets(sheets);
     } catch (err) {
       console.error('[StundennachweisMatrix] Sammeldruck-Fehler:', err);
@@ -579,6 +620,10 @@ export default function StundennachweisMatrix({
   // Wenn die Blaetter im DOM sind: Druckdialog oeffnen.
   useEffect(() => {
     if (printSheets && printSheets.length > 0) {
+      // v7.4.6-8: sprechenden Dateinamen setzen (Browser nutzt document.title
+      // als PDF-Vorschlag); Rueckstellung im afterprint-Handler.
+      prevTitleRef.current = document.title;
+      if (printTitleRef.current) document.title = printTitleRef.current;
       const id = window.setTimeout(() => window.print(), 120);
       return () => window.clearTimeout(id);
     }
@@ -586,7 +631,11 @@ export default function StundennachweisMatrix({
 
   // Nach dem Drucken Blaetter wieder aus dem DOM nehmen.
   useEffect(() => {
-    const after = () => setPrintSheets(null);
+    const after = () => {
+      setPrintSheets(null);
+      // v7.4.6-8: urspruenglichen Seitentitel wiederherstellen.
+      if (prevTitleRef.current) { document.title = prevTitleRef.current; prevTitleRef.current = ''; }
+    };
     window.addEventListener('afterprint', after);
     return () => window.removeEventListener('afterprint', after);
   }, []);
