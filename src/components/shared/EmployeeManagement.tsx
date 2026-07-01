@@ -2,7 +2,19 @@
 // ============================================================================
 // PZE V7 - Shared Employee Management Component
 // ============================================================================
-// Version: 7.3.95-18
+// Version: 7.3.95-19
+// v7.3.95-19: pWAZ-Historie robust gemacht (Ursache Kwekkeboom-Fall).
+//   KERN-FIX: Der automatische "Initialeintrag beim Anlegen" in
+//   v7_employee_hours_history wird NICHT mehr geschrieben. Er fror den
+//   Anlege-Wert als Historien-Anker ein; da die Zeitberechnung die Historie
+//   dem Stammsatz vorzieht, uebersteuerte er jede spaetere Stammsatz-Korrektur
+//   unbemerkt -> falsche Tagesstunden. Neu angelegte MA haben jetzt keine
+//   Historie und rechnen mit v7_employees.weekly_hours; echte Teilzeit-Wechsel
+//   nur noch bewusst ueber "Neuen Eintrag hinzufuegen".
+//   HAERTUNG: Beim Speichern im Edit-Modus weiche Warnung, wenn der
+//   Stammsatz-Wert von der aktuell gueltigen Historie abweicht (macht
+//   bestehende Alt-Divergenzen sichtbar). Muster wie historyWarning:
+//   erster Klick warnt, "Trotzdem speichern" uebersteuert.
 // v7.3.95-18: E-Mail-Bestaetigungsfeld bei Neuanlage (Schutz gegen Tippfehler).
 //   Zweites Feld "E-Mail bestaetigen" nur bei modalMode='create'. Live-Hinweis
 //   bei Abweichung (kleingeschrieben+getrimmt), "Anlegen" gesperrt bis identisch,
@@ -279,6 +291,10 @@ export default function EmployeeManagement({
   const [formData, setFormData] = useState<EmployeeFormData>(EMPTY_FORM);
   const [emailConfirm, setEmailConfirm] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
+  // v7.3.95-19: Weiche Warnung, wenn der Stammsatz-Wert von der aktuell
+  // gueltigen pWAZ-Historie abweicht (Historie hat bei der Zeitberechnung
+  // Vorrang). Wie historyWarning: erster Klick warnt, zweiter Klick speichert.
+  const [saveWarnung, setSaveWarnung] = useState<string | null>(null);
   // v7.3.95-9: Merkt sich ob User im Position-Dropdown "Sonstige" gewaehlt hat.
   // Brauchen wir, weil position_title dann '' wird und sonst nicht zu
   // unterscheiden waere von "noch nicht gewaehlt".
@@ -487,6 +503,7 @@ export default function EmployeeManagement({
    */
   const loadHoursHistory = async (employeeId: string) => {
     setHistoryLoading(true);
+    setSaveWarnung(null); // v7.3.95-19: nach Historie-Aenderung neu bewerten
     try {
       const { data, error } = await supabase
         .from('v7_employee_hours_history')
@@ -792,6 +809,7 @@ export default function EmployeeManagement({
     setFormData(EMPTY_FORM);
     setEmailConfirm('');
     setFormError(null);
+    setSaveWarnung(null); // v7.3.95-19
     setSonstigeAktiv(false);  // v7.3.95-8
     // v7.3.95-9: Phase 2 - History-State zuruecksetzen
     setHoursHistory([]);
@@ -830,7 +848,7 @@ export default function EmployeeManagement({
     return true;
   };
 
-  const handleSave = async () => {
+  const handleSave = async (force: boolean = false) => {
     if (!validateForm()) return;
 
     // v7.3.95-18: Bei Neuanlage E-Mail-Bestaetigung pruefen (Tippfehler-Schutz)
@@ -841,8 +859,38 @@ export default function EmployeeManagement({
       }
     }
 
+    // v7.3.95-19: Weiche Warnung bei Divergenz Stammsatz <-> aktuell gueltige
+    // Historie. Die Zeitberechnung (Zeiterfassung/Stundennachweis) zieht den
+    // Historien-Eintrag dem Stammsatz vor; laufen beide auseinander, wird
+    // unbemerkt mit dem Historienwert gerechnet (Ursache des Kwekkeboom-Falls).
+    // Nur im Edit-Modus relevant (im Create existiert noch keine Historie).
+    if (!force && modalMode === 'edit') {
+      const current = getCurrentHistoryEntry();
+      const stammInput = formData.weekly_hours
+        ? parseFloat(formData.weekly_hours.replace(',', '.'))
+        : null;
+      if (
+        current &&
+        stammInput !== null &&
+        Math.round(Number(current.weekly_hours) * 100) !== Math.round(stammInput * 100)
+      ) {
+        setSaveWarnung(
+          'Achtung: Die aktuell gueltige Wochenarbeitszeit aus der Historie '
+          + `betraegt ${current.weekly_hours} h (gueltig ab `
+          + `${formatDateDE(current.gueltig_ab)}) und weicht vom Stammsatz-Wert `
+          + `(${stammInput} h) ab. Bei der Zeitberechnung hat die Historie `
+          + 'Vorrang - es wird also mit dem Historienwert gerechnet, nicht mit '
+          + 'dem Stammsatz. Bitte pruefen Sie die Historie unten (falscher '
+          + 'Eintrag? echter Teilzeit-Wechsel?). Zum Speichern erneut auf '
+          + '"Trotzdem speichern" klicken.'
+        );
+        return;
+      }
+    }
+
     setSaving(true);
     setFormError(null);
+    setSaveWarnung(null); // v7.3.95-19
 
     try {
       const saveData = {
@@ -874,26 +922,17 @@ export default function EmployeeManagement({
 
         if (error) throw error;
 
-        // Initialen History-Eintrag anlegen (Anker-Wert).
-        // gueltig_ab = employment_start wenn gesetzt, sonst heute.
-        // Fehler werden nur geloggt, nicht als Save-Fehler gewertet,
-        // damit der MA nicht ohne Anker bleibt, aber Create trotzdem
-        // als erfolgreich gilt.
-        if (inserted?.id && saveData.weekly_hours) {
-          const gueltigAb = saveData.employment_start
-            || new Date().toISOString().split('T')[0];
-          const { error: histErr } = await supabase
-            .from('v7_employee_hours_history')
-            .insert({
-              employee_id: inserted.id,
-              weekly_hours: saveData.weekly_hours,
-              gueltig_ab: gueltigAb,
-              notiz: 'Initialeintrag beim Anlegen',
-            });
-          if (histErr) {
-            console.warn('History-Initialeintrag konnte nicht angelegt werden:', histErr);
-          }
-        }
+        // v7.3.95-19: KERN-FIX - die frueher hier automatisch angelegte
+        // pWAZ-Historie ("Initialeintrag beim Anlegen") wurde ENTFERNT.
+        // Sie fror den Anlege-Wert als Historien-Anker ein; weil die
+        // Zeitberechnung (Zeiterfassung/Stundennachweis) die Historie dem
+        // Stammsatz vorzieht, uebersteuerte dieser Anker jede spaetere
+        // Stammsatz-Korrektur unbemerkt -> falsche Tagesstunden (Kwekkeboom:
+        // Anker 40h liess trotz Stammsatz 37h mit 8h statt 7,4h/Tag rechnen).
+        // Ein frisch angelegter MA hat jetzt KEINE Historie und rechnet
+        // sauber mit v7_employees.weekly_hours (wie die uebrigen Kollegen).
+        // Echte Teilzeit-Wechsel legt der Admin bewusst und datiert ueber
+        // "Neuen Eintrag hinzufuegen" an.
       } else if (editingEmployee) {
         const { error } = await supabase
           .from('v7_employees')
@@ -1451,6 +1490,13 @@ export default function EmployeeManagement({
                 </div>
               )}
 
+              {/* v7.3.95-19: Weiche Warnung bei Stammsatz/Historie-Divergenz */}
+              {saveWarnung && (
+                <div className="bg-amber-50 border border-amber-300 text-amber-800 px-4 py-3 rounded-lg text-sm">
+                  {saveWarnung}
+                </div>
+              )}
+
               {/* Name */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -1822,7 +1868,7 @@ export default function EmployeeManagement({
                 Abbrechen
               </button>
               <button
-                onClick={handleSave}
+                onClick={() => handleSave(!!saveWarnung)}
                 disabled={
                   saving ||
                   (modalMode === 'create' && !!formData.email.trim() &&
@@ -1832,7 +1878,9 @@ export default function EmployeeManagement({
               >
                 {saving && <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>}
                 <Save size={18} />
-                {modalMode === 'create' ? 'Anlegen' : 'Speichern'}
+                {modalMode === 'create'
+                  ? 'Anlegen'
+                  : (saveWarnung ? 'Trotzdem speichern' : 'Speichern')}
               </button>
             </div>
           </div>
