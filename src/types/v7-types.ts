@@ -2,8 +2,19 @@
 // ============================================================================
 // PZE V7 - TypeScript Interfaces
 // ============================================================================
-// Datum: 7. Mai 2026
-// Version: 7.4.9-1
+// Datum: 3. Juli 2026
+// Version: 7.4.9-2
+//
+// v7.4.9-2: GF-Erkennung (50%-Regel) toleranter gemacht + echte Umlaute im UI.
+//           - POSITION_OPTIONS: GF-Rollen jetzt mit echten Umlauten
+//             (Gesch\u00e4ftsf\u00fchrer / Gesellschafter-Gesch\u00e4ftsf\u00fchrer),
+//             als \\u-Escapes geschrieben -> Quelle bleibt ASCII, UI zeigt Umlaut.
+//           - Neu: normalizePositionTitle(), GF_POSITIONS_NORMALIZED,
+//             istGeschaeftsfuehrerTitle(), canonicalPositionTitle().
+//           - istGeschaeftsfuehrer() erkennt jetzt beide Schreibweisen
+//             (Umlaut + ae/ue) UND die weibliche Form ("...in"). Bestehende
+//             DB-Werte muessen NICHT korrigiert werden.
+//           - GF_POSITIONS (ASCII) bleibt als Export erhalten (Abwaertskompat.).
 //
 // v7.4.9-1: Teilzeit-Erfassung erweitert:
 //           - V7EmployeeHoursHistory: days_per_week + hours_per_day
@@ -1040,10 +1051,16 @@ export const VOLLZEIT_WOCHENSTUNDEN = 40;
 /**
  * Standardrollen fuer das Feld position_title in der Mitarbeiter-Verwaltung.
  * Dropdown-Werte. "Sonstige" triggert ein zusaetzliches Freitext-Feld.
+ *
+ * v7.4.9-2: Deutsche Software -> echte Umlaute im UI. Die Umlaute stehen als
+ * \u-Escapes im Quellcode, damit die Datei ASCII-rein bleibt (grep-Pruefung).
+ * Zur Laufzeit rendert das Dropdown dann korrekt "Geschaeftsfuehrer" mit
+ * echten Umlauten. Zuordnung: \u00e4 = a-Umlaut, \u00f6 = o-Umlaut,
+ * \u00fc = u-Umlaut.
  */
 export const POSITION_OPTIONS = [
-  'Geschaeftsfuehrer',
-  'Gesellschafter-Geschaeftsfuehrer',
+  'Gesch\u00e4ftsf\u00fchrer',
+  'Gesellschafter-Gesch\u00e4ftsf\u00fchrer',
   'Prokurist',
   'Abteilungsleiter',
   'Projektleiter',
@@ -1054,8 +1071,10 @@ export const POSITION_OPTIONS = [
 export type PositionOption = typeof POSITION_OPTIONS[number];
 
 /**
- * Position-Werte, die die 50%-GF-Regel ausloesen.
- * Exakter String-Match (inkl. Umlaute).
+ * ALT (v7.4.7): Position-Werte in ASCII-Schreibweise. NICHT mehr fuer den
+ * GF-Vergleich verwenden -- exakter Match scheiterte an Umlaut-/ASCII-Mischung
+ * in der DB. Bleibt nur aus Abwaertskompatibilitaet exportiert.
+ * Fuer die GF-Pruefung ausschliesslich istGeschaeftsfuehrerTitle() benutzen.
  */
 export const GF_POSITIONS: readonly string[] = [
   'Geschaeftsfuehrer',
@@ -1063,17 +1082,74 @@ export const GF_POSITIONS: readonly string[] = [
 ] as const;
 
 /**
- * Prueft, ob ein Mitarbeiter als Geschaeftsfuehrer gilt (50%-Regel).
+ * Normalisiert einen position_title fuer robusten Vergleich:
+ * trimmen, klein schreiben, Umlaute/ss vereinheitlichen (ae/oe/ue/ss).
+ * Damit sind "Gesch\u00e4ftsf\u00fchrer" und "Geschaeftsfuehrer" gleichwertig.
+ */
+export function normalizePositionTitle(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/\u00e4/g, 'ae')
+    .replace(/\u00f6/g, 'oe')
+    .replace(/\u00fc/g, 'ue')
+    .replace(/\u00df/g, 'ss');
+}
+
+/**
+ * GF-ausloesende Positionen in normalisierter Form. Deckt beide Schreibweisen
+ * (Umlaut + ASCII) sowie die weibliche Form ("...in") ab.
+ * Bewusst NICHT enthalten: "GF", "Geschaeftsfuehrung" (siehe Konzept v1.3, 3.1).
+ */
+export const GF_POSITIONS_NORMALIZED: readonly string[] = [
+  'geschaeftsfuehrer',
+  'geschaeftsfuehrerin',
+  'gesellschafter-geschaeftsfuehrer',
+  'gesellschafter-geschaeftsfuehrerin',
+];
+
+/**
+ * Prueft anhand eines rohen position_title-Strings, ob die 50%-GF-Regel greift.
+ * Toleriert Umlaut-/ASCII-Schreibweise, Gross-/Kleinschreibung und die
+ * weibliche Form. Zentrale Funktion -- ueberall statt eigenem String-Match
+ * verwenden.
+ *
+ * @param positionTitle roher Wert aus v7_employees.position_title
+ * @returns true, wenn der Wert als Geschaeftsfuehrer(in) gilt
+ */
+export function istGeschaeftsfuehrerTitle(
+  positionTitle: string | null | undefined
+): boolean {
+  if (!positionTitle) return false;
+  return GF_POSITIONS_NORMALIZED.includes(normalizePositionTitle(positionTitle));
+}
+
+/**
+ * Bildet einen gespeicherten position_title auf den kanonischen Dropdown-Wert
+ * (mit echten Umlauten) ab, sofern er normalisiert einer POSITION_OPTIONS-Rolle
+ * entspricht. Andernfalls wird der Rohwert unveraendert zurueckgegeben (z.B.
+ * "Gesch\u00e4ftsf\u00fchrerin" -> bleibt Freitext, wird aber weiter als GF erkannt).
+ * So wandern Alt-Werte beim naechsten Speichern sanft auf die Umlaut-Schreibweise,
+ * ohne dass Bestandsdaten manuell korrigiert werden muessen.
+ */
+export function canonicalPositionTitle(raw: string | null | undefined): string {
+  if (!raw) return '';
+  const norm = normalizePositionTitle(raw);
+  const match = POSITION_OPTIONS.find(opt => normalizePositionTitle(opt) === norm);
+  return match ?? raw;
+}
+
+/**
+ * Prueft, ob ein Mitarbeiter als Geschaeftsfuehrer(in) gilt (50%-Regel).
  * Abgeleitet aus position_title, nicht separat gespeichert.
- * 
+ *
  * @param employee Mitarbeiter-Datensatz
- * @returns true wenn position_title exakt einem GF_POSITIONS-Wert entspricht
+ * @returns true wenn position_title (tolerant) einer GF-Rolle entspricht
  */
 export function istGeschaeftsfuehrer(
   employee: Pick<V7Employee, 'position_title'>
 ): boolean {
-  if (!employee.position_title) return false;
-  return GF_POSITIONS.includes(employee.position_title);
+  return istGeschaeftsfuehrerTitle(employee.position_title);
 }
 
 /**

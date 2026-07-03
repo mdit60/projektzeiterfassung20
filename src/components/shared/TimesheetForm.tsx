@@ -2,6 +2,15 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
+// Datum: 3. Juli 2026
+// Version: 7.4.6-60
+// v7.4.6-60: GF-50%-Regel wieder aktiv. Die GF-Erkennung nutzte einen exakten
+//   String-Match gegen ASCII-Werte ('Geschaeftsfuehrer'), die DB enthaelt aber
+//   ueberwiegend echte Umlaute ('Geschaeftsfuehrer' mit ae-Umlaut) sowie die
+//   weibliche Form. Folge: istGF war faelschlich immer false, GF-Ampel/Warnung
+//   erschienen nie. Lokale Konstante GF_POSITIONS_LOCAL entfernt; istGF laeuft
+//   jetzt ueber den toleranten Helfer istGeschaeftsfuehrerTitle() aus v7-types
+//   (deckt Umlaut+ASCII und die weibliche Form ab). Enthaelt v7.4.6-59.
 // Datum: 30. Juni 2026
 // Version: 7.4.6-59
 // v7.4.6-59: PDF-Dateiname Einzeldruck auf finales Schema umgestellt -
@@ -430,6 +439,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { hoursPerPM } from '@/lib/projektfortschritt-utils';
+import { istGeschaeftsfuehrerTitle } from '@/types/v7-types';
 import {
   getGermanHolidays,
   type HolidayRegion,
@@ -463,11 +473,11 @@ const HEADER_ORANGE = '#F5D9C0';
 // v7.4.6-43: MONATSGRENZE_VOLLZEIT entfernt -- Monatsgrenze laeuft jetzt
 // projektbasiert ueber hoursPerPM(pmBasis) (siehe projektfortschritt-utils).
 const TAGESGRENZE_HART = 9;            // PT-Richtlinie, absolut
-// GF-Positionen: exakter String-Match (wie in v7-types.ts)
-const GF_POSITIONS_LOCAL: readonly string[] = [
-  'Geschaeftsfuehrer',
-  'Gesellschafter-Geschaeftsfuehrer',
-];
+// v7.4.6-60: GF-Erkennung zentralisiert in istGeschaeftsfuehrerTitle()
+// (v7-types.ts). Toleriert Umlaut-/ASCII-Schreibweise und die weibliche Form.
+// Die fruehere lokale Konstante GF_POSITIONS_LOCAL (exakter ASCII-Match) ist
+// entfernt -- sie war die Ursache, dass die 50%-Regel bei DB-Werten mit echten
+// Umlauten nicht mehr griff.
 
 const MONTH_NAMES = [
   'Januar', 'Februar', 'Maerz', 'April', 'Mai', 'Juni',
@@ -2246,7 +2256,8 @@ export default function TimesheetForm({
 
   const monatsgrenze = hoursPerPM(pmBasisWAZ) * (weeklyHoursAtMonth / firmStdWAZ);
   const gfGrenze     = monatsgrenze * 0.5;
-  const istGF        = positionTitle !== null && GF_POSITIONS_LOCAL.includes(positionTitle);
+  // v7.4.6-60: tolerante GF-Erkennung (Umlaut/ASCII + weibliche Form)
+  const istGF        = istGeschaeftsfuehrerTitle(positionTitle);
 
   // Monats-Projektstunden aus aktuellem Form-State (billable, keine Fehlzeiten)
   const calcFormProjektStunden = (): number => {
