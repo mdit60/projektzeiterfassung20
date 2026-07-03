@@ -2,6 +2,11 @@
 // ============================================================================
 // PZE V7 - Shared Component: Stundennachweis-Matrix
 // ============================================================================
+// Version: 7.4.6-10
+// v7.4.6-10: ZA-Direktlink im Karten-Header (oben, neben Projektname/FKZ/Typ).
+//   Springt in die Zahlungsanforderung des aktiven Projekts (gleiche Seite,
+//   returnTo = aktuelle URL). Portal-abhaengige Route (Berater/Firma). Nur am
+//   Bildschirm (Header ist print:hidden), erscheint nicht im PDF/Sammeldruck.
 // Version: 7.4.6-9
 // v7.4.6-9: PDF-Dateiname Sammeldruck auf finales Schema umgestellt -
 //   Leerzeichen statt Unterstrich, ohne Wort "Stundenerfassung" und ohne
@@ -103,6 +108,7 @@
 'use client';
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { Grid3x3, CheckCircle, AlertTriangle, XCircle, Printer, X, CheckSquare, Square } from 'lucide-react';
 import {
   getGermanHolidays,
@@ -263,6 +269,7 @@ export default function StundennachweisMatrix({
   const accentColor = portal === 'berater' ? 'text-blue-600' : 'text-green-600';
   const iconColor = portal === 'berater' ? 'text-blue-600' : 'text-green-600';
   const focusRing = portal === 'berater' ? 'focus:ring-blue-500' : 'focus:ring-green-500';
+  const router = useRouter();  // v7.4.6-10: fuer ZA-Sprung
 
   // v7.4.6-5: Selbstheilungs-Guard. Liegt die uebergebene matrixProjectId NICHT
   // im (ggf. gefilterten) projects-Array, faellt die Auswahl auf projects[0]
@@ -274,6 +281,18 @@ export default function StundennachweisMatrix({
     ? matrixProjectId
     : (projects[0]?.id || null);
   const activeProject = projects.find(p => p.id === activeProjectId) || projects[0] || null;
+
+  // v7.4.6-10: Sprung zur Zahlungsanforderung (ZA) des aktiven Projekts.
+  // Gleiche Seite; returnTo = aktuelle URL fuer den Zurueck-Button in der ZA.
+  // Portal-abhaengige Route (Berater vs. Firma).
+  const goToZA = () => {
+    if (!activeProjectId) return;
+    const rt = encodeURIComponent(window.location.pathname + window.location.search);
+    const base = portal === 'berater'
+      ? `/v7/berater/foerderung/firma/${companyId}/za`
+      : `/v7/firma/za`;
+    router.push(`${base}?projektId=${activeProjectId}&returnTo=${rt}`);
+  };
 
   const matrixData = useMemo(() => {
     if (!activeProjectId) return null;
@@ -693,6 +712,20 @@ export default function StundennachweisMatrix({
                 </span>
               )}
             </div>
+          )}
+
+          {/* v7.4.6-10: Direktlink zur Zahlungsanforderung (ZA) des Projekts */}
+          {activeProjectId && (
+            <button
+              onClick={goToZA}
+              className={`flex items-center gap-1 text-sm ${accentColor} hover:underline`}
+              title="Zur Zahlungsanforderung (ZA) dieses Projekts springen"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+              ZA
+            </button>
           )}
         </div>
 
