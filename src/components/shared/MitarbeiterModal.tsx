@@ -3,7 +3,16 @@
 // src/components/shared/MitarbeiterModal.tsx
 // ============================================================================
 // SHARED COMPONENT: MitarbeiterModal
-// Version: 1.0.3
+// Version: 1.0.3-2
+// v1.0.3-2: GF-Erkennung + Position-Dropdown an v7-types 7.4.9-2 angeglichen.
+//   - Dropdown zeigt GF-Rollen jetzt mit echten Umlauten (POSITION_OPTIONS).
+//   - GF-Warnhinweis erscheint jetzt tolerant (Umlaut/ASCII + weibliche Form)
+//     via istGeschaeftsfuehrerTitle().
+//   - Beim Bearbeiten wird ein gespeicherter position_title ueber
+//     canonicalPositionTitle() auf den Umlaut-Dropdown-Wert abgebildet; nicht
+//     abbildbare Werte (z.B. "Geschaeftsfuehrerin") bleiben als Freitext
+//     erhalten. Bestandsdaten muessen NICHT korrigiert werden.
+//   - Hinweistext der GF-Warnung in korrektem Deutsch (echte Umlaute).
 // v1.0.3: Login-Erstellung im Cockpit ergaenzt. Im Passwort-Modus zeigt das
 //   Modal bei MA OHNE Portal-Login (keine user_id) statt der Sackgassen-Meldung
 //   ein "Login erstellen"-Formular (E-Mail + Portal-Rolle read-only, Passwort).
@@ -27,7 +36,11 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { X, Save, KeyRound, AlertCircle } from 'lucide-react';
-import { POSITION_OPTIONS, GF_POSITIONS } from '@/types/v7-types';
+import {
+  POSITION_OPTIONS,
+  canonicalPositionTitle,
+  istGeschaeftsfuehrerTitle,
+} from '@/types/v7-types';
 
 // ============================================================================
 // KONSTANTEN
@@ -159,9 +172,13 @@ export default function MitarbeiterModal({
     setEmpLastName(data.last_name || '');
 
     if (mode === 'edit') {
-      const isSonstige = data.position_title
-        && !POSITION_OPTIONS.includes(data.position_title as any);
-      setSonstigeAktiv(isSonstige || false);
+      // v1.0.3-2: gespeicherten Wert auf kanonischen Umlaut-Dropdown-Wert
+      // abbilden (Umlaut/ASCII toleriert). Passt er zu keiner Standardrolle
+      // (z.B. weibliche Form), bleibt er als Freitext ("Sonstige").
+      const kanonisch = canonicalPositionTitle(data.position_title);
+      const isSonstige = !!data.position_title
+        && !POSITION_OPTIONS.includes(kanonisch as any);
+      setSonstigeAktiv(isSonstige);
 
       setForm({
         first_name: data.first_name || '',
@@ -169,7 +186,7 @@ export default function MitarbeiterModal({
         display_name: data.display_name || '',
         email: data.email || '',
         portal_role: data.portal_role || 'employee',
-        position_title: isSonstige ? data.position_title : (data.position_title || ''),
+        position_title: kanonisch,
         qualification: data.qualification || '',
         weekly_hours: data.weekly_hours != null ? String(data.weekly_hours) : '40',
         company_weekly_hours: data.company_weekly_hours != null ? String(data.company_weekly_hours) : '40',
@@ -415,7 +432,8 @@ export default function MitarbeiterModal({
   // GF-WARNUNG
   // ========================================================================
 
-  const isGF = GF_POSITIONS.includes(form.position_title);
+  // v1.0.3-2: tolerant (Umlaut/ASCII + weibliche Form)
+  const isGF = istGeschaeftsfuehrerTitle(form.position_title);
 
   // ========================================================================
   // RENDER
@@ -772,7 +790,7 @@ export default function MitarbeiterModal({
               {isGF && (
                 <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
                   <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
-                  Geschaeftsfuehrer unterliegen der 50%-Regel: Maximal 50% der Wochenarbeitszeit darf als foerderbare Projektzeit angerechnet werden.
+                  Gesch&auml;ftsf&uuml;hrer unterliegen der 50%-Regel: Maximal 50% der Wochenarbeitszeit darf als f&ouml;rderbare Projektzeit angerechnet werden.
                 </div>
               )}
 
