@@ -5,6 +5,12 @@
 // PZE V8-C - Standalone Zahlungsanforderungs-Seite
 // ============================================================================
 // Datum: 9. Mai 2026
+// Datum: 3. Juli 2026
+// Version: 1.0.10
+// v1.0.10: zurueckUrl honoriert jetzt einen konkreten Zielpfad in returnTo
+//   (beginnt mit "/"). Damit fuehrt der Zurueck-Button aus der ZA wieder auf
+//   die Ausgangsseite (Stundenerfassung bzw. Stundennachweis-Matrix) statt
+//   aufs Standard-Dashboard. Alt-Sentinel 'cockpit' + Portal-Defaults bleiben.
 // Version: 1.0.9
 // v1.0.9: zurueckUrl App-Mode-aware (pze_mode -> /v7/berater/app/firma/[id])
 // v1.0.8: "Zurueck zum Cockpit" -> "Zurueck" (kein Cockpit-Begriff mehr in UI)
@@ -81,13 +87,19 @@ export default function ZASeite({
 
   // Zurueck-URL bestimmen
   const isAppMode = typeof window !== 'undefined' && localStorage.getItem('pze_mode') === 'app';
-  const zurueckUrl = portal === 'berater'
-    ? returnTo === 'cockpit'
-      ? (isAppMode
-          ? `/v7/berater/app/firma/${clientCompanyId}`
-          : `/v7/berater/foerderung/firma/${clientCompanyId}/cockpit`)
-      : `/v7/berater/foerderung/firma/${clientCompanyId}`
-    : '/v7/firma/dashboard';
+  // v1.0.10: Ist returnTo ein konkreter Zielpfad (beginnt mit "/"), direkt
+  // dorthin zurueck -- z.B. aus der Stundenerfassung oder der Stundennachweis-
+  // Matrix. Der Alt-Sentinel 'cockpit' und die Portal-Defaults bleiben
+  // unveraendert. startsWith('/') schuetzt vor externen Zielen.
+  const zurueckUrl = (returnTo && returnTo.startsWith('/'))
+    ? returnTo
+    : portal === 'berater'
+      ? returnTo === 'cockpit'
+        ? (isAppMode
+            ? `/v7/berater/app/firma/${clientCompanyId}`
+            : `/v7/berater/foerderung/firma/${clientCompanyId}/cockpit`)
+        : `/v7/berater/foerderung/firma/${clientCompanyId}`
+      : '/v7/firma/dashboard';
 
   const zurueckLabel = '\u2190 Zurueck';
 

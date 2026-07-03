@@ -3,6 +3,56 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 3. Juli 2026
+// Version: 7.4.6-64
+// v7.4.6-64: "Sonstige Arbeiten" zaehlen NICHT mehr in Grenzbetrachtungen
+//   (nicht foerderbar). ZWEI Stellen bereinigt:
+//   1) 9h-Tagesgrenze: calcTagSumme rechnet nur noch foerderbare Projekt-
+//      stunden (frueher Projekt + sonstige). Cross-Projekt-Tagessumme =
+//      foerderbar dieses Projekt + andere Projekte.
+//   2) Physische Monatskapazitaet: sonstStundenMonat entfernt; jetzt nur
+//      foerderbare Projektstunden + andere Projekte. So sprengt ein langer
+//      Monat mit vielen Arbeitstagen die Grenze nicht mehr allein durch die
+//      Auto-Vorbelegung der sonstigen Arbeiten.
+//   Die monatliche FOERDER-Obergrenze (173,33 x Faktor) rechnete ohnehin nur
+//   mit foerderbaren Projektstunden -- unveraendert.
+// Datum: 3. Juli 2026
+// Version: 7.4.6-63
+// v7.4.6-63: Paket C -- Auto-Vorbelegung "sonstige Arbeiten" (sichere Variante)
+//   + weicher Save-Hinweis.
+//   AUTO: An reinen Arbeitstagen wird "sonstige" automatisch auf
+//   max(0, pWAZ/5 - dieses Projekt - andere Projekte) gesetzt. Anderes-Projekt
+//   wird mit abgezogen, damit die projektuebergreifende Tagesgrenze nicht
+//   verletzt wird (kein harter Kapazitaets-Block). Neuer Monat: leere Tage
+//   werden aufgefuellt + live nachgefuehrt. Gespeicherter Monat: nur bereits
+//   gefuellte Tage werden nachgefuehrt, leere Tage bleiben in Ruhe (schuetzt
+//   bewusste Loeschungen). Manuell angefasste Tage (Tippen/Loeschen) werden nie
+//   mehr automatisch veraendert. Abgeschlossene Monate bleiben unangetastet.
+//   HINWEIS: Nach dem Speichern erscheint eine gelbe Info, wenn es reine
+//   Arbeitstage mit Projektstunden, aber leerer "sonstige"-Zeile und nicht
+//   voller Tagesarbeitszeit gibt (die o.g. Einzelfaelle). Blockiert nicht.
+// Datum: 3. Juli 2026
+// Version: 7.4.6-62
+// v7.4.6-62: Paket B (Kopf-Infos). ZWEI Ergaenzungen in der Steuerleiste:
+//   1) WAZ-Anzeige direkt rechts neben dem MA-Feld: persoenliche
+//      Wochenarbeitszeit des MA (weeklyHoursAtMonth, aus Teilzeit-Historie),
+//      z.B. "37,5 h/Woche".
+//   2) ZA-Direktlink rechts in der Steuerleiste (ml-auto). Springt in die
+//      Zahlungsanforderung des aktuellen Projekts (gleiche Seite, returnTo =
+//      aktuelle URL fuer den Zurueck-Button dort). Portal-abhaengige Route
+//      (Berater: /v7/berater/foerderung/firma/<id>/za, Firma: /v7/firma/za).
+//      Sprung laeuft ueber checkUnsavedChanges (Warnung bei offenen Aenderungen).
+// Datum: 3. Juli 2026
+// Version: 7.4.6-61
+// v7.4.6-61: Paket A (rechte "offen"-Spalte). ZWEI Aenderungen:
+//   1) LIVE: Die offenen/ueberbuchten Stunden zaehlen jetzt bereits waehrend
+//      der Eingabe mit, nicht erst nach dem Speichern. Neuer Live-Schnappschuss
+//      savedMonthHoursPerWP (beim Laden + nach Speichern gesetzt);
+//      calculateRemainingHours/calculateWPOpenHours rechnen gebucht_gesamt plus
+//      Live-Delta (aktueller Formstand - Schnappschuss).
+//   2) FARBEN zurueck: offene MA-Stunden GRUEN, ueberbuchte ROT (bleibt),
+//      projektweit offene AP-Stunden bei NICHT zugeordnetem MA BLAU. Vorher
+//      war alles ausser Ueberbuchung schwarz.
+// Datum: 3. Juli 2026
 // Version: 7.4.6-60
 // v7.4.6-60: GF-50%-Regel wieder aktiv. Die GF-Erkennung nutzte einen exakten
 //   String-Match gegen ASCII-Werte ('Geschaeftsfuehrer'), die DB enthaelt aber
@@ -437,6 +487,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { hoursPerPM } from '@/lib/projektfortschritt-utils';
 import { istGeschaeftsfuehrerTitle } from '@/types/v7-types';
@@ -602,6 +653,7 @@ export default function TimesheetForm({
   const supabase = createClient();
   const printRef = useRef<HTMLDivElement>(null);
   const colors = PORTAL_COLORS[portal];
+  const router = useRouter();  // v7.4.6-62: fuer ZA-Sprung
 
   // SAFETY: Props mit Default-Werten absichern (verhindert Vercel Production Crash)
   const safeEmployees = employees || [];
@@ -712,6 +764,14 @@ export default function TimesheetForm({
     { workPackageId: null, entries: {} },
   ]);
   const [nonBillableEntries, setNonBillableEntries] = useState<Record<number, CalendarEntry>>({});
+  // v7.4.6-63: Auto-Vorbelegung "sonstige Arbeiten"
+  // nonBillableManual: Tage, die der Nutzer manuell gesetzt/geloescht hat ->
+  //   werden nie automatisch veraendert.
+  // monthHadData: hatte der Monat beim Laden bereits gespeicherte Daten? ->
+  //   steuert, ob leere Tage automatisch aufgefuellt werden (nur neuer Monat).
+  const [nonBillableManual, setNonBillableManual] = useState<Record<number, boolean>>({});
+  const [monthHadData, setMonthHadData] = useState<boolean>(false);
+  const [saveHint, setSaveHint] = useState<string>('');
   // v7.4.6-16: Fehlzeiten-Stunden direkt editierbar (keine Automatik mehr)
   const [absenceHoursInput, setAbsenceHoursInput] = useState<{
     U: Record<number, CalendarEntry>;
@@ -733,6 +793,10 @@ export default function TimesheetForm({
   // Grundlage fuer die blau angezeigte projektweite Restzahl bei nicht
   // zugeordneten Mitarbeitern.
   const [projectBookedPerWP, setProjectBookedPerWP] = useState<Record<string, number>>({});
+  // v7.4.6-61: Beim Laden gespeicherter Monatsstand je AP (Basis fuer die
+  // Live-Berechnung der rechten "offen"-Spalte). Live-Rest = geplant minus
+  // (gebucht_gesamt + (aktueller Formstand - dieser Schnappschuss)).
+  const [savedMonthHoursPerWP, setSavedMonthHoursPerWP] = useState<Record<string, number>>({});
   // IDs der APs, die dem MA laut Arbeitsplan zugeordnet sind
   const [assignedWPIds, setAssignedWPIds] = useState<string[]>([]);
 
@@ -923,6 +987,18 @@ export default function TimesheetForm({
     }
   };
 
+  // v7.4.6-62: Sprung zur Zahlungsanforderung (ZA) des aktuellen Projekts.
+  // Gleiche Seite; returnTo = aktuelle URL, damit der Zurueck-Button in der ZA
+  // wieder hierher fuehrt. Portal-abhaengige Route (Berater vs. Firma).
+  const goToZA = () => {
+    if (!selectedProjectId) return;
+    const rt = encodeURIComponent(window.location.pathname + window.location.search);
+    const base = portal === 'berater'
+      ? `/v7/berater/foerderung/firma/${companyId}/za`
+      : `/v7/firma/za`;
+    router.push(`${base}?projektId=${selectedProjectId}&returnTo=${rt}`);
+  };
+
   const getDaysInMonth = (year: number, month: number): number => {
     return new Date(year, month, 0).getDate();
   };
@@ -1011,6 +1087,17 @@ export default function TimesheetForm({
 
   // v7.4.6-27: Stundenformat mit Komma fuer Meldungen.
   const fmtH = (h: number): string => h.toFixed(2).replace('.', ',');
+
+  // v7.4.6-63: Reiner Arbeitstag? (kein Wochenende/Feiertag/Abwesenheit/
+  // Kurzarbeit/gesperrter Tag) -- Grundlage fuer Auto-Vorbelegung + Save-Hinweis.
+  const isPlainWorkday = (day: number): boolean => {
+    if (isWeekend(selectedYear, selectedMonth, day)) return false;
+    if (isHoliday(selectedYear, selectedMonth, day)) return false;
+    if (blockedDays.has(day)) return false;
+    if (isKurzarbeitDay(day)) return false;
+    if (getAbsenceCodeForDay(day)) return false;
+    return true;
+  };
 
   const formatWorkDate = (day: number): string => {
     return `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -1493,6 +1580,9 @@ export default function TimesheetForm({
           { workPackageId: null, entries: {} },
         ]);
         setNonBillableEntries({});
+        setNonBillableManual({});
+        setMonthHadData(false);
+        setSaveHint('');
         setHasChanges(false);
         return;
       }
@@ -1750,6 +1840,39 @@ export default function TimesheetForm({
       console.log('[TimesheetForm] Finale apRows:', newRows.map(r => ({ wpId: r.workPackageId, entries: Object.keys(r.entries).length })));
       setApRows(newRows);
       setNonBillableEntries(newNonBillable);
+      // v7.4.6-63: Auto-Vorbelegung "sonstige Arbeiten" initialisieren.
+      // monthHadData: hatte der Monat/das Projekt bereits gespeicherte Zeilen?
+      const hadData = (entries?.length || 0) > 0;
+      setMonthHadData(hadData);
+      setSaveHint('');
+      // Manuelle Overrides aus gespeicherten Werten ableiten: eine gespeicherte
+      // "sonstige"-Zahl, die nicht der Auto-Differenz entspricht (z.B. bewusst
+      // reduziert), gilt als manuell und wird spaeter nicht ueberschrieben.
+      const manualInit: Record<number, boolean> = {};
+      Object.entries(newNonBillable).forEach(([dStr, e]) => {
+        const d = parseInt(dStr);
+        const v = e?.value ? parseHours(e.value) : 0;
+        if (v <= 0) return;
+        let projD = 0;
+        newRows.forEach(r => {
+          const en = r.entries[d];
+          if (en?.value && !isAbsenceCode(en.value)) projD += parseHours(en.value);
+        });
+        const auto = Math.max(0, employeeDailyHours - projD - (otherProjectHours[d] || 0));
+        if (Math.abs(v - auto) >= 0.005) manualInit[d] = true;
+      });
+      setNonBillableManual(manualInit);
+      // v7.4.6-61: gespeicherten Monatsstand je AP als Live-Basis schnappschussen
+      const snapMonth: Record<string, number> = {};
+      newRows.forEach(r => {
+        if (!r.workPackageId) return;
+        let s = 0;
+        Object.values(r.entries).forEach((e: any) => {
+          if (e?.value && !isAbsenceCode(e.value)) s += parseHours(e.value);
+        });
+        snapMonth[r.workPackageId] = (snapMonth[r.workPackageId] || 0) + s;
+      });
+      setSavedMonthHoursPerWP(snapMonth);
       setHasChanges(false);
     };
 
@@ -1902,6 +2025,8 @@ export default function TimesheetForm({
       }
       return newEntries;
     });
+    // v7.4.6-63: Zelle ist jetzt manuell -> Auto-Vorbelegung laesst sie in Ruhe
+    setNonBillableManual(prev => ({ ...prev, [day]: true }));
     setHasChanges(true);
   };
 
@@ -2145,10 +2270,24 @@ export default function TimesheetForm({
   // = geplante Stunden (Arbeitsplan) minus kumulierte Ist-Stunden (alle Monate)
   // v7.4.6-9: Wenn MA nicht im Arbeitsplan (planned undefined), aber trotzdem
   // Stunden gebucht (Vertretungsfall) -> negative Zahl anzeigen statt "-"
+  // v7.4.6-61: LIVE. Die rechte Spalte zaehlt jetzt bereits waehrend der
+  // Eingabe mit, nicht erst nach dem Speichern. Grundlage: aktueller Formstand
+  // je AP minus dem beim Laden gespeicherten Monatsstand (savedMonthHoursPerWP).
+  const currentMonthFormSumForWP = (wpId: string): number => {
+    return apRows.reduce((sum, row) => {
+      if (row.workPackageId !== wpId) return sum;
+      return sum + calculateRowSum(row);
+    }, 0);
+  };
+  const liveDeltaForWP = (wpId: string): number => {
+    return currentMonthFormSumForWP(wpId) - (savedMonthHoursPerWP[wpId] || 0);
+  };
+
   const calculateRemainingHours = (wpId: string | null): number | null => {
     if (!wpId) return null;
     const planned = plannedHoursPerWP[wpId];
-    const booked = totalBookedPerWP[wpId] || 0;
+    // v7.4.6-61: gebucht_gesamt + Live-Delta des aktuellen Monats
+    const booked = (totalBookedPerWP[wpId] || 0) + liveDeltaForWP(wpId);
     if (planned === undefined) {
       // MA nicht im Arbeitsplan: nur anzeigen wenn tatsaechlich Stunden gebucht
       if (booked > 0) return -Math.round(booked); // Ueberziehung als negative Zahl
@@ -2161,12 +2300,13 @@ export default function TimesheetForm({
   // x 173,33) minus projektweit gebuchte Stunden aller MA. Wird bei nicht
   // zugeordneten Mitarbeitern in Blau angezeigt (Variante A: nur als freie
   // Stunden, kein Alarm). null wenn kein Gesamt-Soll bekannt.
+  // v7.4.6-61: ebenfalls live (Live-Delta des aktuellen MA beruecksichtigt).
   const calculateWPOpenHours = (wpId: string | null): number | null => {
     if (!wpId) return null;
     const wp = safeWorkPackages.find(w => w.id === wpId);
     if (!wp || wp.total_person_months == null) return null;
     const plannedTotal = wp.total_person_months * hoursPerPM(pmBasisWAZ);
-    const booked = projectBookedPerWP[wpId] || 0;
+    const booked = (projectBookedPerWP[wpId] || 0) + liveDeltaForWP(wpId);
     return Math.round(plannedTotal - booked);
   };
 
@@ -2179,6 +2319,55 @@ export default function TimesheetForm({
       return sum;
     }, 0);
   };
+
+  // ==========================================================================
+  // v7.4.6-63: Auto-Vorbelegung "sonstige Arbeiten" (sichere Variante)
+  // Auto-Wert je Arbeitstag = max(0, pWAZ/5 - dieses Projekt - andere Projekte).
+  // Das Subtrahieren der anderen Projekte haelt die projektuebergreifende
+  // Tagesgrenze exakt eingehalten (kein harter Kapazitaets-Block).
+  // - Neuer Monat (monthHadData=false): leere Arbeitstage auffuellen + Auto-
+  //   Werte live nachfuehren.
+  // - Gespeicherter Monat: nur bereits gefuellte Tage nachfuehren, leere Tage
+  //   in Ruhe lassen (schuetzt bewusste Loeschungen vor Re-Fill).
+  // - Manuell angefasste Tage (nonBillableManual) werden nie veraendert.
+  // - Abgeschlossene Monate bleiben unangetastet.
+  // ==========================================================================
+  useEffect(() => {
+    if (isCompleted) return;
+    setNonBillableEntries(prev => {
+      let changed = false;
+      const next = { ...prev };
+      const daysInMon = getDaysInMonth(selectedYear, selectedMonth);
+      for (let d = 1; d <= daysInMon; d++) {
+        if (nonBillableManual[d]) continue;
+        if (!isPlainWorkday(d)) continue;
+        const proj = calculateDaySum(d);
+        const other = otherProjectHours[d] || 0;
+        const auto = Math.max(0, Math.round((employeeDailyHours - proj - other) * 100) / 100);
+        const cur = prev[d]?.value || '';
+        const curVal = cur ? parseHours(cur) : 0;
+        const same = Math.abs(curVal - auto) < 0.005;
+        if (!monthHadData) {
+          // Neuer Monat: leere Tage auffuellen, Auto-Werte nachfuehren
+          if (auto > 0) {
+            if (!same) { next[d] = { ...(next[d] || { id: '' }), value: fmtH(auto) }; changed = true; }
+          } else if (cur !== '') {
+            delete next[d]; changed = true;
+          }
+        } else {
+          // Gespeicherter Monat: nur bereits gefuellte Tage nachfuehren
+          if (cur !== '') {
+            if (auto > 0) {
+              if (!same) { next[d] = { ...next[d], value: fmtH(auto) }; changed = true; }
+            } else {
+              delete next[d]; changed = true;
+            }
+          }
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [apRows, nonBillableManual, employeeDailyHours, otherProjectHours, selectedYear, selectedMonth, blockedDays, kurzarbeitInput, absenceHoursInput, monthHadData, isCompleted]);
 
   const calculateTotalBillable = (): number => {
     return apRows.reduce((sum, row) => sum + calculateRowSum(row), 0);
@@ -2277,8 +2466,8 @@ export default function TimesheetForm({
       const e = row.entries[day];
       if (e?.value && !isAbsenceCode(e.value)) sum += parseHours(e.value);
     });
-    const nb = nonBillableEntries[day];
-    if (nb?.value && !isAbsenceCode(nb.value)) sum += parseHours(nb.value);
+    // v7.4.6-64: "sonstige Arbeiten" zaehlen NICHT mehr in die 9h-Tagesgrenze.
+    // Nicht foerderbar -> keine Grenzbetrachtung. Nur foerderbare Projektstunden.
     return sum;
   };
 
@@ -2307,17 +2496,14 @@ export default function TimesheetForm({
   // (z.B. 173.33 x 0.3 = 51.999... statt exakt 52.00)
   const monatUeberschritten  = Math.round(projektStundenMonat * 100) > Math.round(monatsgrenze * 100);
   const gfUeberschritten     = istGF && Math.round(projektStundenMonat * 100) > Math.round(gfGrenze * 100);
-  // v7.4.6-43: Physische Monatskapazitaet (projektuebergreifend) auf Basis der
-  // echten Wochenarbeitszeit. Summe aus diesem Projekt (foerderbar + sonstige
-  // Arbeiten, ohne Fehlzeiten) und allen anderen Projekten des Monats darf die
-  // reale Kapazitaet nicht ueberschreiten.
+  // v7.4.6-64: Physische Monatskapazitaet (projektuebergreifend) auf Basis der
+  // echten Wochenarbeitszeit. Nur FOERDERBARE Stunden dieses Projekts + andere
+  // Projekte. "Sonstige Arbeiten" zaehlen NICHT mehr mit (nicht foerderbar ->
+  // keine Grenzbetrachtung; sonst wuerde ein langer Monat mit vielen
+  // Arbeitstagen die Grenze allein durch die Auto-Vorbelegung sprengen).
   const physischeGrenze = hoursPerPM(weeklyHoursAtMonth);
-  const sonstStundenMonat = Object.values(nonBillableEntries).reduce((s, e) => {
-    if (!e?.value || isAbsenceCode(e.value)) return s;
-    return s + parseHours(e.value);
-  }, 0);
   const andereProjekteMonat = Object.values(otherProjectHours).reduce((s, h) => s + (h || 0), 0);
-  const physischGesamtMonat = projektStundenMonat + sonstStundenMonat + andereProjekteMonat;
+  const physischGesamtMonat = projektStundenMonat + andereProjekteMonat;
   const physischUeberschritten = Math.round(physischGesamtMonat * 100) > Math.round(physischeGrenze * 100);
   // Harte Verletzung: Speichern UND Drucken gesperrt
   const tagUeberschritten    = findTagVerletzung() !== null;
@@ -2372,6 +2558,7 @@ export default function TimesheetForm({
 
   const handleSave = async () => {
     if (!selectedEmployeeId) return;
+    setSaveHint('');  // v7.4.6-63: alten Hinweis zuruecksetzen
 
     // ============================================================================
     // ARBEITSZEITGRENZEN-VALIDIERUNG (v7.4.6-12)
@@ -2685,6 +2872,39 @@ export default function TimesheetForm({
 
       // NEU v7.4.3-2: offen-Spalte sofort aktualisieren nach Speichern
       await reloadBookedHours();
+      // v7.4.6-61: Live-Basis auf den soeben gespeicherten Stand setzen -> Delta 0
+      const snapAfterSave: Record<string, number> = {};
+      apRows.forEach(r => {
+        if (!r.workPackageId) return;
+        snapAfterSave[r.workPackageId] = (snapAfterSave[r.workPackageId] || 0) + calculateRowSum(r);
+      });
+      setSavedMonthHoursPerWP(snapAfterSave);
+
+      // v7.4.6-63: Weicher Hinweis auf "Luecken"-Tage. Reine Arbeitstage mit
+      // Projektstunden > 0, aber leerer "sonstige"-Zeile UND nicht voller
+      // Tagesarbeitszeit (dieses Projekt + andere Projekte < pWAZ/5). Genau die
+      // Faelle, in denen die Auto-Vorbelegung bewusst nicht griff bzw. geloescht
+      // wurde. Blockiert NICHT -- gespeichert wurde bereits.
+      const luecken: number[] = [];
+      const daysInMon2 = getDaysInMonth(selectedYear, selectedMonth);
+      for (let d = 1; d <= daysInMon2; d++) {
+        if (!isPlainWorkday(d)) continue;
+        const proj = calculateDaySum(d);
+        if (proj <= 0) continue;
+        const other = otherProjectHours[d] || 0;
+        if (proj + other >= employeeDailyHours - 0.005) continue; // Tag ist voll
+        const nb = nonBillableEntries[d]?.value;
+        if (nb && parseHours(nb) > 0) continue; // sonstige vorhanden -> keine Luecke
+        luecken.push(d);
+      }
+      if (luecken.length > 0) {
+        setSaveHint(
+          `Hinweis: An ${luecken.length} Arbeitstag(en) (${luecken.join(', ')}) sind ` +
+          `Projektstunden erfasst, aber die Tagesarbeitszeit ist nicht voll und ` +
+          `"sonstige Arbeiten" ist leer. Falls dort noch nicht-foerderbare ` +
+          `Arbeitszeit fehlt, bitte ergaenzen. Gespeichert wurde bereits.`
+        );
+      }
 
     } catch (err: any) {
       console.error('Speichern fehlgeschlagen:', err);
@@ -3187,6 +3407,13 @@ export default function TimesheetForm({
                   <option key={emp.id} value={emp.id}>{emp.display_name}</option>
                 ))}
               </select>
+              {/* v7.4.6-62: persoenliche Wochenarbeitszeit des MA (aus Teilzeit-Historie) */}
+              <span
+                className="text-sm text-gray-600 whitespace-nowrap"
+                title="Persoenliche Wochenarbeitszeit des Mitarbeiters (aus der Teilzeit-Historie)"
+              >
+                {weeklyHoursAtMonth.toLocaleString('de-DE', { maximumFractionDigits: 2 })} h/Woche
+              </span>
             </div>
 
             {/* v7.4.6-30: Meine Arbeitspakete (zugeordnete APs des MA) */}
@@ -3313,6 +3540,19 @@ export default function TimesheetForm({
                 )}
               </button>
             )}
+
+            {/* v7.4.6-62: Direktlink zur Zahlungsanforderung (ZA) des Projekts */}
+            <button
+              onClick={() => checkUnsavedChanges(goToZA)}
+              disabled={!selectedProjectId}
+              className={`ml-auto flex items-center gap-1.5 text-sm px-2.5 py-1 rounded border border-gray-300 ${colors.text} hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed`}
+              title="Zur Zahlungsanforderung (ZA) dieses Projekts springen"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+              ZA
+            </button>
           </div>
         </div>
       </div>
@@ -3326,6 +3566,12 @@ export default function TimesheetForm({
       {successMessage && (
         <div className="max-w-full mx-auto px-4 mt-2 print:hidden">
           <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded text-sm">{successMessage}</div>
+        </div>
+      )}
+      {/* v7.4.6-63: weicher Hinweis auf Luecken-Tage (sonstige Arbeiten fehlen) */}
+      {saveHint && (
+        <div className="max-w-full mx-auto px-4 mt-2 print:hidden">
+          <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-3 py-2 rounded text-sm">{saveHint}</div>
         </div>
       )}
 
@@ -3547,7 +3793,8 @@ export default function TimesheetForm({
                         if (istZugeordnet) {
                           const remaining = calculateRemainingHours(wpId);
                           if (remaining === null) return <span className="text-gray-300">-</span>;
-                          if (remaining > 0) return <span className="text-black font-semibold">{remaining}</span>;
+                          // v7.4.6-61: offene MA-Stunden gruen, ueberbuchte rot
+                          if (remaining > 0) return <span className="text-green-600 font-semibold">{remaining}</span>;
                           if (remaining < 0) return <span className="text-red-600 font-bold">{remaining}</span>;
                           return <span className="text-gray-500">0</span>;
                         }
@@ -3556,7 +3803,7 @@ export default function TimesheetForm({
                         const wpOpen = calculateWPOpenHours(wpId);
                         if (wpOpen !== null && wpOpen > 0) {
                           return (
-                            <span className="text-black font-semibold" title="Projektweit noch offene Stunden dieses Arbeitspakets (MA nicht zugeordnet)">
+                            <span className="text-blue-600 font-semibold" title="Projektweit noch offene Stunden dieses Arbeitspakets (MA nicht zugeordnet)">
                               {wpOpen}
                             </span>
                           );
