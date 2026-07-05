@@ -2,8 +2,17 @@
 // ============================================================================
 // PZE V7 - Atomare API-Route: MA-Login erstellen
 // ============================================================================
-// Version: v7.3.95-2
-// Datum: 17. April 2026
+// Version: v7.3.95-3
+// Datum: 05. Juli 2026
+//
+// AENDERUNG v7.3.95-3:
+//   NEU: Optionales Feld "username" (Benutzername als Alternative zur E-Mail
+//   beim Login). Wird kleingeschrieben gespeichert, Format a-z0-9._- (3-20
+//   Zeichen), global eindeutig. Wird VOR dem Anlegen auf Eindeutigkeit
+//   geprueft; zusaetzlich Absicherung gegen Race-Conditions ueber den
+//   DB-Unique-Index (Fehlercode 23505 -> USERNAME_TAKEN).
+//   Voraussetzung: Spalte "username" in v7_user_profiles
+//   (SQL-MIGRATION-username-login-v1.sql).
 //
 // AENDERUNG v7.3.95-2:
 //   BUG FIX: "duplicate key value violates unique constraint v7_user_profiles_pkey"
@@ -37,6 +46,7 @@
 //     last_name?: string        // Nachname (optional)
 //     client_company_id: string // UUID der Firma
 //     portal_role: string       // 'client_admin' | 'project_leader' | 'employee'
+//     username?: string         // Optionaler Benutzername (v7.3.95-3)
 //   }
 //
 // Response (Erfolg):
@@ -49,6 +59,8 @@
 //   ALREADY_REGISTERED  - E-Mail existiert bereits in auth.users
 //   EMPLOYEE_NOT_FOUND  - employee_id existiert nicht
 //   ALREADY_LINKED      - Employee hat bereits einen user_id
+//   USERNAME_TAKEN      - Benutzername bereits vergeben (v7.3.95-3)
+//   USERNAME_FORMAT     - Benutzername entspricht nicht dem erlaubten Format (v7.3.95-3)
 //   VALIDATION_ERROR    - Pflichtfelder fehlen oder ungueltig
 //   AUTH_ERROR          - Supabase Auth Fehler
 //   PROFILE_ERROR       - v7_user_profiles Upsert fehlgeschlagen
@@ -74,7 +86,11 @@ interface CreateEmployeeLoginRequest {
   last_name?: string;
   client_company_id: string;
   portal_role: 'client_admin' | 'project_leader' | 'employee';
+  username?: string; // v7.3.95-3: optionaler Benutzername
 }
+
+// v7.3.95-3: Format fuer Benutzernamen - 3-20 Zeichen, Kleinbuchstaben/Ziffern/._-
+const USERNAME_REGEX = /^[a-z0-9._-]{3,20}$/;
 
 interface CreateEmployeeLoginResponse {
   success: boolean;
@@ -180,6 +196,15 @@ export async function POST(
     return errorResponse('Ungueltige E-Mail-Adresse', 'VALIDATION_ERROR');
   }
 
+  // v7.3.95-3: Benutzername optional - normalisieren (kleingeschrieben) und Format pruefen
+  const username = body.username?.trim().toLowerCase() || undefined;
+  if (username && !USERNAME_REGEX.test(username)) {
+    return errorResponse(
+      'Benutzername ungueltig: 3-20 Zeichen, nur Kleinbuchstaben, Ziffern, Punkt, Unterstrich, Bindestrich erlaubt',
+      'USERNAME_FORMAT'
+    );
+  }
+
   // client_user darf nur MA in der eigenen Firma anlegen
   if (callerProfile.role === 'client_user') {
     if (callerProfile.client_company_id !== client_company_id) {
@@ -246,6 +271,19 @@ export async function POST(
     );
   }
 
+  // 4d. Benutzername bereits vergeben? (v7.3.95-3)
+  if (username) {
+    const { data: existingUsername } = await supabaseAdmin
+      .from('v7_user_profiles')
+      .select('id')
+      .eq('username', username)
+      .maybeSingle();
+
+    if (existingUsername) {
+      return errorResponse(`Benutzername "${username}" ist bereits vergeben`, 'USERNAME_TAKEN');
+    }
+  }
+
   // --------------------------------------------------------------------------
   // 5. Atomare Ausfuehrung: Auth + Profil + Employee-Verknuepfung
   //    Bei jedem Fehler: Rollback der bereits ausgefuehrten Schritte
@@ -292,6 +330,7 @@ export async function POST(
           role: 'client_user',             // IMMER client_user - Portal-Rolle kommt aus v7_employees
           client_company_id,
           is_active: true,
+          username: username || null,      // v7.3.95-3
         },
         {
           onConflict: 'id',   // Bei vorhandenem Profil: updaten statt Fehler
@@ -301,6 +340,12 @@ export async function POST(
     if (profileError) {
       // Rollback: Auth-User loeschen
       await supabaseAdmin.auth.admin.deleteUser(newUserId);
+      // v7.3.95-3: Race-Condition-Absicherung - falls der Benutzername zwischen
+      // Vorpruefung (4d) und diesem Insert von einem parallelen Request belegt wurde,
+      // schlaegt der DB-Unique-Index zu (Fehlercode 23505).
+      if ((profileError as any).code === '23505' && profileError.message?.includes('username')) {
+        return errorResponse(`Benutzername "${username}" ist bereits vergeben`, 'USERNAME_TAKEN');
+      }
       return errorResponse(
         `Profil konnte nicht erstellt werden: ${profileError.message}`,
         'PROFILE_ERROR'

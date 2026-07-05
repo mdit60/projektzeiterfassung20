@@ -1,6 +1,12 @@
 // src/app/login/page.tsx
-// VERSION: v7.3.90-7 - Login-Redirect: Cockpit-Modus aus DB-Config statt localStorage
-// DATUM: 1. Juni 2026
+// VERSION: v7.3.90-8 - Login akzeptiert E-Mail ODER Benutzername
+// DATUM: 05. Juli 2026
+// v7.3.90-8: NEU: Eingabefeld akzeptiert zusaetzlich zur E-Mail auch einen
+//   Benutzernamen. Enthaelt die Eingabe kein "@", wird sie ueber
+//   /api/v7/resolve-username in die hinterlegte E-Mail aufgeloest, bevor
+//   signInWithPassword aufgerufen wird. Bei nicht gefundenem Benutzernamen
+//   erscheint dieselbe generische Fehlermeldung wie bei falschem Passwort
+//   (kein Hinweis, ob der Benutzername existiert).
 // v7.3.90-7: FIX: Fuer Nicht-system_admin wird pze_mode aus v7_system_config
 //   (cockpit_berater_enabled) gelesen und in localStorage gesetzt.
 //   Berater landen automatisch im Cockpit wenn Admin es freigibt.
@@ -33,8 +39,24 @@ export default function LoginPage() {
     setError('');
 
     try {
+      // v7.3.90-8: Enthaelt die Eingabe kein "@", wird sie als Benutzername
+      // behandelt und zuerst in die hinterlegte E-Mail aufgeloest.
+      let loginEmail = email.trim();
+      if (!loginEmail.includes('@')) {
+        const resolveResponse = await fetch('/api/v7/resolve-username', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: loginEmail }),
+        });
+        const resolveResult = await resolveResponse.json();
+        if (!resolveResult.success || !resolveResult.email) {
+          throw new Error('Login fehlgeschlagen. Bitte Zugangsdaten pruefen.');
+        }
+        loginEmail = resolveResult.email;
+      }
+
       const { data, error: signInError } = await supabase.auth.signInWithPassword({
-        email,
+        email: loginEmail,
         password,
       });
 
@@ -115,18 +137,18 @@ export default function LoginPage() {
 
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
-                E-Mail
+                E-Mail oder Benutzername
               </label>
               <input
                 id="email"
                 name="email"
-                type="email"
-                autoComplete="email"
+                type="text"
+                autoComplete="username"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="name@firma.de"
+                placeholder="name@firma.de oder Benutzername"
               />
             </div>
 
