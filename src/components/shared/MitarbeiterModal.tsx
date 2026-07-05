@@ -3,7 +3,12 @@
 // src/components/shared/MitarbeiterModal.tsx
 // ============================================================================
 // SHARED COMPONENT: MitarbeiterModal
-// Version: 1.0.3-2
+// Version: 1.0.3-3
+// v1.0.3-3: NEU: Optionales Feld "Benutzername" im "Login erstellen"-Bereich
+//   (nur wenn noch kein Login vorhanden ist). Wird an
+//   /api/v7/create-employee-login uebergeben. HINWEIS: Analoge Ergaenzung
+//   gehoert auch in EmployeeManagement (siehe REGEL zu parallelen
+//   Login-Dialog-Aenderungen) - dort ebenfalls nachgezogen.
 // v1.0.3-2: GF-Erkennung + Position-Dropdown an v7-types 7.4.9-2 angeglichen.
 //   - Dropdown zeigt GF-Rollen jetzt mit echten Umlauten (POSITION_OPTIONS).
 //   - GF-Warnhinweis erscheint jetzt tolerant (Umlaut/ASCII + weibliche Form)
@@ -128,6 +133,7 @@ export default function MitarbeiterModal({
 
   // Passwort-Reset State
   const [newPassword, setNewPassword] = useState('');
+  const [newUsername, setNewUsername] = useState(''); // v1.0.3-3
   const [pwError, setPwError] = useState<string | null>(null);
   const [pwSuccess, setPwSuccess] = useState(false);
   const [empUserId, setEmpUserId] = useState<string | null>(null);
@@ -399,6 +405,7 @@ export default function MitarbeiterModal({
           last_name: empLastName || undefined,
           client_company_id: firmaId,
           portal_role: empPortalRole || 'employee',
+          username: newUsername.trim() || undefined, // v1.0.3-3
         }),
       });
 
@@ -523,6 +530,20 @@ export default function MitarbeiterModal({
                           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
                         />
                         <p className="text-xs text-gray-400 mt-1">Dieses Passwort muss dem Mitarbeiter mitgeteilt werden (kein E-Mail-Versand).</p>
+                      </div>
+
+                      {/* v1.0.3-3: Optionaler Benutzername als Alternative zur E-Mail beim Login */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Benutzername (optional)</label>
+                        <input
+                          type="text"
+                          value={newUsername}
+                          onChange={e => setNewUsername(e.target.value)}
+                          placeholder="z.B. m.mustermann"
+                          autoComplete="username"
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
+                        />
+                        <p className="text-xs text-gray-400 mt-1">3-20 Zeichen, Kleinbuchstaben/Ziffern/._-. Alternative zur E-Mail beim Anmelden.</p>
                       </div>
 
                       {pwError && <p className="text-sm text-red-600">{pwError}</p>}

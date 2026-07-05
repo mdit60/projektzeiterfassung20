@@ -4,7 +4,11 @@
 // ============================================================================
 // PZE - Gemeinsamer Portal-Header
 // ============================================================================
-// Version: 7.3.95-14
+// Version: 7.3.95-15
+// v7.3.95-15: NEU: "Benutzername aendern" im User-Menue (analog "Passwort
+//   aendern"). Ruft /api/v7/set-username auf. Aktueller Benutzername wird
+//   beim Laden mit abgefragt (v7_user_profiles.username) und im Modal als
+//   aktueller Stand angezeigt.
 // v7.3.95-14: FIX: Header-Klick (Firmenname) im Berater-Portal beruecksichtigt
 //   jetzt den Modus. App-Struktur -> /v7/berater/app/cockpit, klassische
 //   Ansicht -> /v7/berater/dashboard. Vorher fest auf das alte Dashboard, daher
@@ -45,6 +49,7 @@ import {
   AlertCircle,
   Monitor,
   Layers,
+  AtSign,
 } from 'lucide-react';
 
 import { V7PortalType, V7UserRole, V7EmployeePortalRole } from '@/types/v7-types';
@@ -118,6 +123,14 @@ export default function PortalHeader({
   const [passwordSuccess, setPasswordSuccess]       = useState(false);
   const [changingPassword, setChangingPassword]     = useState(false);
 
+  // Benutzername-aendern State (v7.3.95-15)
+  const [currentUsername, setCurrentUsername]       = useState<string | null>(null);
+  const [showUsernameChange, setShowUsernameChange] = useState(false);
+  const [newUsername, setNewUsername]               = useState('');
+  const [usernameError, setUsernameError]           = useState<string | null>(null);
+  const [usernameSuccess, setUsernameSuccess]       = useState(false);
+  const [changingUsername, setChangingUsername]     = useState(false);
+
   const colors = PORTAL_COLORS[portal];
 
   // ------------------------------------------------------------------
@@ -150,7 +163,7 @@ export default function PortalHeader({
         if (user) {
           const { data: profile } = await supabase
             .from('v7_user_profiles')
-            .select('role, consultant_company_id')
+            .select('role, consultant_company_id, username')
             .eq('id', user.id)
             .single();
 
@@ -158,6 +171,9 @@ export default function PortalHeader({
           if (profile?.role) {
             setUserRoleFromDB(profile.role);
           }
+
+          // v7.3.95-15: Aktuellen Benutzernamen (falls vorhanden) merken
+          setCurrentUsername(profile?.username || null);
 
           // v7.3.95-13: Firmen-Portal: portal_role aus v7_employees hat Vorrang
           // (v7_user_profiles.role ist nur der generische Typ 'client_user',
@@ -284,6 +300,54 @@ export default function PortalHeader({
     setPasswordError(null);
     setPasswordSuccess(false);
     setShowPasswordChange(true);
+  };
+
+  // v7.3.95-15: Benutzername aendern
+  const openUsernameChange = () => {
+    setUserMenuOpen(false);
+    setNewUsername(currentUsername || '');
+    setUsernameError(null);
+    setUsernameSuccess(false);
+    setShowUsernameChange(true);
+  };
+
+  const handleUsernameChange = async () => {
+    setUsernameError(null);
+    setUsernameSuccess(false);
+
+    const trimmed = newUsername.trim().toLowerCase();
+    if (!/^[a-z0-9._-]{3,20}$/.test(trimmed)) {
+      setUsernameError('Benutzername ungueltig: 3-20 Zeichen, nur Kleinbuchstaben, Ziffern, Punkt, Unterstrich, Bindestrich erlaubt.');
+      return;
+    }
+
+    setChangingUsername(true);
+    try {
+      // Route liest die Session aus dem Cookie (wie /api/v7/create-employee-login),
+      // daher genuegt ein einfacher same-origin fetch ohne zusaetzlichen Header.
+      const response = await fetch('/api/v7/set-username', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: trimmed }),
+      });
+      const result = await response.json();
+
+      if (!result.success) {
+        setUsernameError(result.error || 'Benutzername konnte nicht gespeichert werden.');
+        return;
+      }
+
+      setCurrentUsername(trimmed);
+      setUsernameSuccess(true);
+      setTimeout(() => {
+        setShowUsernameChange(false);
+        setUsernameSuccess(false);
+      }, 3000);
+    } catch (err: any) {
+      setUsernameError(err.message || 'Ein Fehler ist aufgetreten.');
+    } finally {
+      setChangingUsername(false);
+    }
   };
 
   // ============================================================================
@@ -433,6 +497,15 @@ export default function PortalHeader({
                         </>
                       )}
 
+                      {/* Benutzername aendern (v7.3.95-15) */}
+                      <button
+                        onClick={openUsernameChange}
+                        className="w-full flex items-center space-x-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+                      >
+                        <AtSign size={16} />
+                        <span>Benutzername {currentUsername ? 'aendern' : 'festlegen'}</span>
+                      </button>
+
                       {/* Passwort aendern */}
                       <button
                         onClick={openPasswordChange}
@@ -552,10 +625,93 @@ export default function PortalHeader({
           </div>
         </div>
       )}
+
+      {/* ================================================================ */}
+      {/* MODAL: Benutzername aendern (v7.3.95-15)                          */}
+      {/* ================================================================ */}
+      {showUsernameChange && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+
+            <div className="flex justify-between items-center px-6 py-4 border-b">
+              <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <AtSign size={20} />
+                Benutzername {currentUsername ? 'aendern' : 'festlegen'}
+              </h3>
+              <button
+                onClick={() => setShowUsernameChange(false)}
+                className="text-gray-400 hover:text-gray-600 text-xl"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="px-6 py-4 space-y-4">
+
+              <p className="text-sm text-gray-500">
+                Mit dem Benutzernamen koennen Sie sich alternativ zur E-Mail-Adresse anmelden.
+              </p>
+
+              {usernameError && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm flex items-start gap-2">
+                  <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
+                  <span>{usernameError}</span>
+                </div>
+              )}
+
+              {usernameSuccess && (
+                <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm flex items-start gap-2">
+                  <Check size={16} className="mt-0.5 flex-shrink-0" />
+                  <span>Benutzername erfolgreich gespeichert!</span>
+                </div>
+              )}
+
+              {!usernameSuccess && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Benutzername <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={newUsername}
+                    onChange={(e) => setNewUsername(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="z.B. m.mustermann"
+                    autoComplete="username"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">
+                    3-20 Zeichen: Kleinbuchstaben, Ziffern, Punkt, Unterstrich, Bindestrich.
+                  </p>
+                </div>
+              )}
+
+            </div>
+
+            <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50">
+              <button
+                onClick={() => setShowUsernameChange(false)}
+                className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                {usernameSuccess ? 'Schliessen' : 'Abbrechen'}
+              </button>
+              {!usernameSuccess && (
+                <button
+                  onClick={handleUsernameChange}
+                  disabled={changingUsername || !newUsername}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {changingUsername ? 'Wird gespeichert...' : 'Speichern'}
+                </button>
+              )}
+            </div>
+
+          </div>
+        </div>
+      )}
     </>
   );
 }
 
 // ============================================================================
-// ENDE PortalHeader v7.3.95-8
+// ENDE PortalHeader v7.3.95-15
 // ============================================================================

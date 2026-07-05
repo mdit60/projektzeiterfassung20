@@ -2,7 +2,12 @@
 // ============================================================================
 // PZE V7 - Shared Employee Management Component
 // ============================================================================
-// Version: 7.3.95-19
+// Version: 7.3.95-20
+// v7.3.95-20: NEU: Optionales Feld "Benutzername" im "Login erstellen"-Dialog
+//   (nur im Neuanlage-Modus, nicht im Verknuepfen-Modus). Wird an
+//   /api/v7/create-employee-login uebergeben. HINWEIS: Analoge Ergaenzung
+//   gehoert auch in MitarbeiterModal (siehe REGEL zu parallelen
+//   Login-Dialog-Aenderungen) - dort ebenfalls nachgezogen.
 // v7.3.95-19: pWAZ-Historie robust gemacht (Ursache Kwekkeboom-Fall).
 //   KERN-FIX: Der automatische "Initialeintrag beim Anlegen" in
 //   v7_employee_hours_history wird NICHT mehr geschrieben. Er fror den
@@ -325,6 +330,7 @@ export default function EmployeeManagement({
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [loginEmployee, setLoginEmployee] = useState<Employee | null>(null);
   const [loginPassword, setLoginPassword] = useState('');
+  const [loginUsername, setLoginUsername] = useState(''); // v7.3.95-20
   const [loginError, setLoginError] = useState<string | null>(null);
   const [creatingLogin, setCreatingLogin] = useState(false);
   
@@ -1051,6 +1057,7 @@ export default function EmployeeManagement({
     
     setLoginEmployee(emp);
     setLoginPassword('');
+    setLoginUsername(''); // v7.3.95-20
     setLoginError(null);
     setShowLoginModal(true);
   };
@@ -1059,6 +1066,7 @@ export default function EmployeeManagement({
     setShowLoginModal(false);
     setLoginEmployee(null);
     setLoginPassword('');
+    setLoginUsername(''); // v7.3.95-20
     setLoginError(null);
     setLoginMode('create');
     setExistingUserId(null);
@@ -1163,6 +1171,7 @@ export default function EmployeeManagement({
           last_name: loginEmployee.last_name || undefined,
           client_company_id: companyId,
           portal_role: loginEmployee.portal_role || 'employee',
+          username: loginUsername.trim() || undefined, // v7.3.95-20
         }),
       });
 
@@ -2051,6 +2060,24 @@ export default function EmployeeManagement({
                     />
                     <p className="text-xs text-gray-500 mt-1">
                       Dieses Passwort muss dem Mitarbeiter mitgeteilt werden.
+                    </p>
+                  </div>
+
+                  {/* v7.3.95-20: Optionaler Benutzername als Alternative zur E-Mail beim Login */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Benutzername (optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={loginUsername}
+                      onChange={(e) => setLoginUsername(e.target.value)}
+                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${colors.focus}`}
+                      placeholder="z.B. m.mustermann"
+                      autoComplete="username"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      3-20 Zeichen, Kleinbuchstaben/Ziffern/._-. Alternative zur E-Mail beim Anmelden.
                     </p>
                   </div>
                 </>
