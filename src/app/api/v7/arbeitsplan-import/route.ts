@@ -3,7 +3,13 @@
 // PZE V7 - Arbeitsplan Excel-Import
 // ============================================================================
 // Datum: 06. Februar 2026
-// Version: 7.3.89
+// Version: 7.3.90
+//
+// v7.3.90 NEU: JSON-Eingang (Content-Type application/json) mit bereits geparsten
+//              Arbeitspaketen (packages) fuer den PDF-Antragsimport. Der Excel-Pfad
+//              (formData) bleibt unveraendert. Gemeinsames Backend fuer beide Frontends.
+//              JSON-Pakete werden durch dieselbe parseAPNumber() normalisiert, damit die
+//              AP-Nummerierung identisch zum Excel-Import ist.
 //
 // v7.3.89 NEU: is_technical Spalte fuer ZIM-Durchfuehrbarkeitsstudien
 //              Spalte E = "T" (Technisch: X oder leer)
@@ -635,22 +641,67 @@ async function executeImport(
 
 export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData();
-    const file = formData.get('file') as File;
-    const projectId = formData.get('projectId') as string;
-    const mode = (formData.get('mode') as string) || 'preview';
-    
-    if (!file) {
-      return NextResponse.json({ error: 'Keine Datei hochgeladen' }, { status: 400 });
+    const contentType = request.headers.get('content-type') || '';
+    const isJson = contentType.includes('application/json');
+
+    let projectId = '';
+    let mode = 'preview';
+    let file: File | null = null;
+    let packages: ParsedWorkPackage[] | null = null;
+    let warnings: string[] = [];
+
+    if (isJson) {
+      // NEU v7.3.90: Bereits geparste Arbeitspakete (z.B. aus dem PDF-Antragsimport).
+      const body = await request.json();
+      projectId = body.projectId;
+      mode = body.mode || 'preview';
+      if (!projectId) {
+        return NextResponse.json({ error: 'projectId fehlt' }, { status: 400 });
+      }
+      if (!Array.isArray(body.packages)) {
+        return NextResponse.json({ error: 'Keine Arbeitspakete (packages) uebergeben' }, { status: 400 });
+      }
+      // Normalisierung ueber dieselbe parseAPNumber() wie beim Excel-Import,
+      // damit ap_number/ap_sub_number/ap_code identisch erzeugt werden.
+      packages = (body.packages as any[]).map((p) => {
+        const parsed = parseAPNumber(p.ap_code ?? p.ap_number);
+        const assignments = Array.isArray(p.assignments)
+          ? p.assignments
+              .filter((a: any) => a && a.employee_number != null && a.planned_pm != null)
+              .map((a: any) => ({ employee_number: Number(a.employee_number), planned_pm: Number(a.planned_pm) }))
+          : [];
+        const total_pm = typeof p.total_pm === 'number'
+          ? p.total_pm
+          : assignments.reduce((sum: number, a: any) => sum + (Number(a.planned_pm) || 0), 0);
+        return {
+          ap_number: parsed ? parsed.ap_number : Number(p.ap_number),
+          ap_sub_number: parsed ? parsed.ap_sub_number : (p.ap_sub_number ?? null),
+          ap_code: parsed ? parsed.ap_code : String(p.ap_code ?? ''),
+          name: String(p.name ?? ''),
+          start_date: p.start_date ?? null,
+          end_date: p.end_date ?? null,
+          is_technical: !!p.is_technical,
+          assignments,
+          total_pm,
+        } as ParsedWorkPackage;
+      });
+    } else {
+      const formData = await request.formData();
+      file = formData.get('file') as File;
+      projectId = formData.get('projectId') as string;
+      mode = (formData.get('mode') as string) || 'preview';
+
+      if (!file) {
+        return NextResponse.json({ error: 'Keine Datei hochgeladen' }, { status: 400 });
+      }
+      if (!projectId) {
+        return NextResponse.json({ error: 'projectId fehlt' }, { status: 400 });
+      }
     }
-    
-    if (!projectId) {
-      return NextResponse.json({ error: 'projectId fehlt' }, { status: 400 });
-    }
-    
+
     // Supabase Client
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    
+
     // Team laden
     const { data: teamData, error: teamError } = await supabase
       .from('v7_project_assignments')
@@ -658,36 +709,40 @@ export async function POST(request: NextRequest) {
       .eq('project_id', projectId)
       .eq('is_active', true)
       .not('employee_number', 'is', null);
-    
+
     if (teamError || !teamData || teamData.length === 0) {
       return NextResponse.json(
         { error: 'Kein Team definiert. Bitte zuerst Mitarbeiter zum Projektteam hinzufuegen.' },
         { status: 400 }
       );
     }
-    
+
     const teamMembers: TeamMember[] = teamData;
-    
-    // Excel parsen
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const { packages, errors: parseErrors, warnings } = await parseExcel(buffer, teamMembers);
-    
-    if (parseErrors.length > 0) {
-      return NextResponse.json({ 
-        success: false, 
-        errors: parseErrors, 
-        warnings 
+
+    // Arbeitspakete beschaffen: aus Excel parsen ODER (JSON) direkt uebernehmen
+    if (!isJson) {
+      const buffer = Buffer.from(await file!.arrayBuffer());
+      const parsedExcel = await parseExcel(buffer, teamMembers);
+      packages = parsedExcel.packages;
+      warnings = parsedExcel.warnings;
+
+      if (parsedExcel.errors.length > 0) {
+        return NextResponse.json({
+          success: false,
+          errors: parsedExcel.errors,
+          warnings,
+        }, { status: 400 });
+      }
+    }
+
+    if (!packages || packages.length === 0) {
+      return NextResponse.json({
+        success: false,
+        errors: ['Keine Arbeitspakete gefunden'],
+        warnings,
       }, { status: 400 });
     }
-    
-    if (packages.length === 0) {
-      return NextResponse.json({ 
-        success: false, 
-        errors: ['Keine Arbeitspakete in der Datei gefunden'], 
-        warnings 
-      }, { status: 400 });
-    }
-    
+
     if (mode === 'preview') {
       // Vorschau generieren
       const preview = await generatePreview(projectId, packages, supabase);
@@ -698,7 +753,7 @@ export async function POST(request: NextRequest) {
       const result = await executeImport(projectId, packages, teamMembers, supabase);
       return NextResponse.json(result);
     }
-    
+
   } catch (error: any) {
     console.error('Import-Fehler:', error);
     return NextResponse.json(
