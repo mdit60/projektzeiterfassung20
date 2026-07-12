@@ -1,5 +1,6 @@
 // src/app/v7/berater/fzul/page.tsx
-// VERSION: v7.4.9-2 (SW-Release V7.4.9)
+// VERSION: v7.4.9-3 (SW-Release V7.4.9)
+// v7.4.9-3: ASCII-Konformitaet - Umlaute als \u-Escapes (Literale) bzw. HTML-Entities (JSX)
 // ============================================
 // v7.4.9-2: A-006 Header-Vereinheitlichung der FZul-Seite - finale, korrekte Fassung.
 //           Versionsnummer bewusst auf v7.4.9-2 gezogen: in downloads/ lag bereits eine
@@ -51,11 +52,11 @@ interface ClientCompany {
 }
 
 // ============================================
-// BUNDESLÄNDER MAPPING
+// BUNDESLAENDER MAPPING
 // ============================================
 
 const BUNDESLAND_NAMES: Record<string, string> = {
-  'DE-BW': 'Baden-Württemberg',
+  'DE-BW': 'Baden-W\u00fcrttemberg',
   'DE-BY': 'Bayern',
   'DE-BE': 'Berlin',
   'DE-BB': 'Brandenburg',
@@ -70,7 +71,7 @@ const BUNDESLAND_NAMES: Record<string, string> = {
   'DE-SN': 'Sachsen',
   'DE-ST': 'Sachsen-Anhalt',
   'DE-SH': 'Schleswig-Holstein',
-  'DE-TH': 'Thüringen',
+  'DE-TH': 'Th\u00fcringen',
 }
 
 // ============================================
@@ -185,7 +186,7 @@ export default function FzulBeratungPage() {
             </svg>
             <div>
               <p className="text-blue-800 text-sm">
-                Wählen Sie eine Firma aus, um deren Stundennachweise zu analysieren und die verfügbaren FuE-Stunden für die Forschungszulage zu ermitteln.
+                W&auml;hlen Sie eine Firma aus, um deren Stundennachweise zu analysieren und die verf&uuml;gbaren FuE-Stunden f&uuml;r die Forschungszulage zu ermitteln.
               </p>
             </div>
           </div>
@@ -194,8 +195,8 @@ export default function FzulBeratungPage() {
         {/* Titel & Suche */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">Firma auswählen</h2>
-            <p className="text-gray-500">{companies.length} Firmen verfügbar</p>
+            <h2 className="text-2xl font-bold text-gray-900">Firma ausw&auml;hlen</h2>
+            <p className="text-gray-500">{companies.length} Firmen verf&uuml;gbar</p>
           </div>
 
           {/* Suche */}
@@ -227,7 +228,7 @@ export default function FzulBeratungPage() {
             <p className="text-gray-500 mb-6 text-sm">
               {searchTerm 
                 ? 'Versuchen Sie einen anderen Suchbegriff'
-                : 'Legen Sie zuerst Firmen in der Förderberatung an.'
+                : 'Legen Sie zuerst Firmen in der F\u00f6rderberatung an.'
               }
             </p>
             {!searchTerm && (
@@ -235,7 +236,7 @@ export default function FzulBeratungPage() {
                 onClick={() => router.push('/v7/berater/foerderung')}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
               >
-                Zur Förderberatung
+                Zur F&ouml;rderberatung
               </button>
             )}
           </div>

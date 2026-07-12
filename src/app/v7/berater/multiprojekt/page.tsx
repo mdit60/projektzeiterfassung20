@@ -4,7 +4,8 @@
 // ============================================================================
 // PZE V7 - Kapazitaetsplanungs-Tool (Berater-Portal)
 // ============================================================================
-// Version: 7.4.8-17
+// Version: 7.4.8-18
+// v7.4.8-18: ASCII-Konformitaet - Sonderzeichen als \u-Escapes (Literale) bzw. HTML-Entities (JSX)
 // v7.4.8-17: returnTo-Parameter bei MA-Klick: nach Modal-Schliessung
 //   zurueck zur Kapazitaetsplanung (nicht im FirmaCockpit bleiben).
 // v7.4.8-16: Klick auf MA-Name navigiert mit ?editMA=[id] -> oeffnet
@@ -214,10 +215,10 @@ function Jahresmatrix({ jahr, maListe, loading, companyId }: JahresmatrixProps) 
               <tr key={ma.employee_id}
                   className={`border-b border-gray-200 ${rowBg} hover:bg-blue-50`}>
 
-                {/* Name schmal mit Tooltip bei Truncate — klickbar -> MA-Verwaltung */}
+                {/* Name schmal mit Tooltip bei Truncate - klickbar -> MA-Verwaltung */}
                 <td className={`px-2 py-2 font-semibold text-gray-800 text-center sticky left-0 z-10 border-r border-gray-300 ${rowBg} hover:bg-blue-50 cursor-pointer`}
                     style={{ minWidth: '80px', width: '80px', fontSize: '12px' }}
-                    title={`${ma.display_name} — Klick: Mitarbeiterdaten bearbeiten`}
+                    title={`${ma.display_name} \u2014 Klick: Mitarbeiterdaten bearbeiten`}
                     onClick={() => {
                       const isAppMode = typeof window !== 'undefined' && localStorage.getItem('pze_mode') === 'app';
                       const base = isAppMode
@@ -289,7 +290,7 @@ function Jahresmatrix({ jahr, maListe, loading, companyId }: JahresmatrixProps) 
         <div className="fixed z-50 bg-white border border-gray-200 rounded-xl shadow-xl p-3 text-xs"
              style={{ left: tooltip.x + 12, top: tooltip.y - 120, minWidth: '240px', maxWidth: '300px', pointerEvents: 'none' }}>
           <div className="font-bold text-gray-800 mb-2 border-b border-gray-100 pb-1.5">
-            {tooltip.ma.display_name} — {MONAT_KURZ[tooltip.monat.monat - 1]} {tooltip.monat.jahr}
+            {tooltip.ma.display_name} &mdash; {MONAT_KURZ[tooltip.monat.monat - 1]} {tooltip.monat.jahr}
           </div>
           <div className="flex justify-between text-gray-600 mb-2">
             <span className="text-gray-400">Monatskapazitaet:</span>
@@ -913,7 +914,7 @@ export default function MultiprojektPage() {
                 <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 rounded-lg border border-gray-200">
                   {dreiJahre.map((j, i) => (
                     <span key={j} className={`text-sm font-semibold ${i === 0 ? 'text-[#002451]' : 'text-gray-400'}`}>
-                      {j}{i < 2 ? <span className="text-gray-300 mx-1">·</span> : ''}
+                      {j}{i < 2 ? <span className="text-gray-300 mx-1">&middot;</span> : ''}
                     </span>
                   ))}
                 </div>
@@ -943,11 +944,11 @@ export default function MultiprojektPage() {
           {/* Print-only: Titel + Firma + Zeitraum als Kopfzeile */}
           <div className="hidden print:block kpt-print-header mb-4 pb-2 border-b border-gray-300">
             <div className="flex items-center justify-between">
-              <h1 className="text-lg font-bold text-gray-900">Kapazitaetsplanung — {selectedCompanyName}</h1>
+              <h1 className="text-lg font-bold text-gray-900">Kapazitaetsplanung &mdash; {selectedCompanyName}</h1>
               <p className="text-sm text-gray-600 font-medium">
-                Zeitraum: {dreiJahre[0]} – {dreiJahre[2]}
+                Zeitraum: {dreiJahre[0]} &ndash; {dreiJahre[2]}
               </p>
-              <p className="text-xs text-gray-400">PZE V7 · {new Date().toLocaleDateString('de-DE')}</p>
+              <p className="text-xs text-gray-400">PZE V7 &middot; {new Date().toLocaleDateString('de-DE')}</p>
             </div>
           </div>
 
@@ -1024,7 +1025,7 @@ export default function MultiprojektPage() {
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 min-w-0">
                             <p className="text-xs font-semibold text-gray-800 truncate">{v.title}</p>
-                            <p className="text-xs text-gray-400 mt-0.5 truncate">{v.company_name} · Gj. {v.wirtschaftsjahr}</p>
+                            <p className="text-xs text-gray-400 mt-0.5 truncate">{v.company_name} &middot; Gj. {v.wirtschaftsjahr}</p>
                           </div>
                           <span className={`flex-shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs ${
                             v.status === 'abgeschlossen' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
@@ -1046,7 +1047,7 @@ export default function MultiprojektPage() {
               {/* Platzhalter fuer kuenftige Erweiterungen */}
               <div className="bg-white rounded-xl border border-dashed border-gray-200 p-4 text-center text-gray-300">
                 <p className="text-xs">Weitere Tools</p>
-                <p className="text-xs">demnächst hier</p>
+                <p className="text-xs">demn&auml;chst hier</p>
               </div>
 
             </div>
