@@ -2,11 +2,12 @@
 // ============================================================================
 // PZE V7 - Mein Status (Firmen-Portal)
 // ============================================================================
-// Version: 7.4.4-16
+// Version: 7.4.4-17
+// v7.4.4-17: ASCII-Konformitaet - Umlaute in Kommentaren als ae/oe/ue
 // v7.4.4-16: CRITICAL FIX: .limit(10000) auf v7_timesheets-Query (Supabase 1000-Zeilen-Limit)
 // v7.4.4-15: ZA und Legende naher zusammen, Legende einzeilig kompakt
-// v7.4.4-14: Abstände weiter reduziert fuer bessere ZA-Sichtbarkeit
-// v7.4.4-13: Kennzahlen neben ZE-Header, Warnbalken weg, Kontrast Buttons, Abstände kompakter
+// v7.4.4-14: Abstaende weiter reduziert fuer bessere ZA-Sichtbarkeit
+// v7.4.4-13: Kennzahlen neben ZE-Header, Warnbalken weg, Kontrast Buttons, Abstaende kompakter
 // v7.4.4-12: Navigation MA vereinfacht, Kennzahlen in Projektzeile
 //   - Download-Buttons entfernt (jetzt im Hilfe-Dropdown der PortalNav)
 //   - 4 Kennzahl-Kacheln entfernt
