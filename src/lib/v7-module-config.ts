@@ -3,7 +3,14 @@
 // PZE V7 - Modul-Konfiguration
 // ============================================================================
 // Datum: 23. April 2026
-// Version: 7.3.90-7
+// Version: 7.3.90-8
+// v7.3.90-8: FZul-Kachel nur noch fuer system_admin (roles: ['system_admin']).
+//            Ein eigenstaendiges Forschungszulage-Modul entfaellt: laut
+//            KONZEPT-KAPAZITAETSPLANUNG v1.1 ist die FZul-Auswertung eine
+//            Spezialisierung der Kapazitaetsplanung und dort umgesetzt (Ermittlung
+//            der fuer die FZul freien Kapazitaet + BSFZ-Excel je MA). Die Kachel
+//            bleibt fuer den SysAdmin als Platzhalter zur Vorbereitung eines neuen
+//            FZul-Moduls (BSFZ-Bescheinigungsbeantragung) erhalten.
 // v7.3.90-7: Multiprojekt-Tool aktiviert (coming_soon -> active, Route gesetzt)
 //
 // v7.3.90-6: NEU: NWM-Kachel aktiv mit Link zur Firmenuebersicht (filter=nwm)
@@ -310,9 +317,9 @@ export const V7_MODULES: V7ModuleDefinition[] = [
       visible: true,
       status: 'coming_soon',
       href: '',
-      roles: ['system_admin', 'consultant'],
-      description: 'Verfuegbare FuE-Kapazitaeten fuer FZul-Antraege ermitteln',
-      plannedRelease: 'Q2/2026',
+      roles: ['system_admin'],
+      description: 'In Vorbereitung: BSFZ-Bescheinigungen. Die Ermittlung der fuer die FZul freien Kapazitaet liegt in der Kapazitaetsplanung.',
+      plannedRelease: 'offen',
     },
     firma: {
       visible: false,

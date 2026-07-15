@@ -4,7 +4,14 @@
 // ============================================================================
 // PZE V7 - App-Navigation (neue Struktur)
 // ============================================================================
-// Version: 1.0.1
+// Version: 1.0.2
+// v1.0.2: FZul-Nav-Item nur noch fuer system_admin. Ein eigenstaendiges
+//         Forschungszulage-Modul entfaellt - die FZul-Auswertung ist laut
+//         KONZEPT-KAPAZITAETSPLANUNG v1.1 eine Spezialisierung der
+//         Kapazitaetsplanung und dort umgesetzt. Der Eintrag bleibt fuer den
+//         SysAdmin als Vorbereitung eines neuen FZul-Moduls (BSFZ-
+//         Bescheinigungsbeantragung); Berater sehen ihn nicht mehr - auch nicht
+//         im App-/Cockpit-Modus (Gegenstueck zu PortalNav v7.4.4-26).
 // v1.0.1: Home-Button nur noch Icon (Haeuschen) ohne Label "Cockpit"
 //         Icon etwas groesser (20px) fuer eigenstaendige visuelle Praesenz
 // v1.0.0: Neue saubere Nav fuer App-Modus (pze_mode='app')
@@ -31,7 +38,10 @@ export default function AppNav({ userRole }: AppNavProps) {
   const navItems = [
     { key: 'netzwerk',    label: 'Netzwerk',            href: '/v7/berater/netzwerk',        icon: <Network size={18} /> },
     { key: 'kapazitaet',  label: 'Kapazitaetsplanung',  href: '/v7/berater/multiprojekt',    icon: <BarChart3 size={18} /> },
-    { key: 'fzul',        label: 'Forschungszulage',    href: '/v7/berater/fzul',            icon: <FlaskConical size={18} /> },
+    // v1.0.2: FZul nur fuer system_admin (Vorbereitung neues FZul-Modul)
+    ...(userRole === 'system_admin'
+      ? [{ key: 'fzul',   label: 'Forschungszulage',    href: '/v7/berater/fzul',            icon: <FlaskConical size={18} /> }]
+      : []),
   ];
 
   return (
