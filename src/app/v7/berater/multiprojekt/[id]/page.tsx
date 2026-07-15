@@ -4,7 +4,28 @@
 // ============================================================================
 // PZE V7 - Multiprojekt-Tool: Vorhaben-Detailseite
 // ============================================================================
-// Version: 7.4.8-13
+// Version: 7.4.8-16
+// v7.4.8-16: Export-Tab implementiert (Phase 3, pro MA eine Datei). Erzeugt je MA
+//            die amtliche BSFZ-Excel fuer das gewaehlte Jahr ueber die bestehende
+//            /api/export/fzul und laedt sie herunter. Uebergeben werden die je Tag
+//            in Foerderprojekten gebuchten Stunden; die Vorlage/API schreibt daraus
+//            die maximal fuer FZul verfuegbaren Stunden je Tag (Tagesarbeitszeit -
+//            gebucht). Jahresarbeitszeit/FuE-Anteil/Hoechstgrenze berechnet die
+//            Vorlage selbst. Alle-MA-in-einer-Datei: spaetere Ausbaustufe.
+// v7.4.8-15: Jahres-Navigation im Kalender: gefoerderte Stunden werden jetzt je
+//            ANGEZEIGTEM Jahr live aus v7_timesheets berechnet (statt nur aus den
+//            gespeicherten FZul-Zeilen des Vorhaben-Jahres). Dadurch zeigt der
+//            Kalender beim Jahreswechsel die tatsaechlich gebuchten Foerderstunden
+//            und die reduzierte FZul-Verfuegbarkeit fuer JEDES Jahr - nicht mehr
+//            faelschlich volle 8h. gefoerdert/verfuegbar damit immer aktuell.
+//            (Erfassung/Export pro Jahr: spaetere Entscheidung.)
+// v7.4.8-14: CRITICAL FIX: day_type-Filter nutzte deutsche Werte
+//            ("urlaub","krank","sonderurlaub","feiertag"), die Enum v7_day_type
+//            ist aber ENGLISCH (vacation, sick, special_leave, holiday). Dadurch
+//            warf die v7_timesheets-Query einen Enum-Cast-Fehler -> tsData=null ->
+//            gefoerderte Stunden=0 -> alle MA faelschlich in Gruppe B, Kalender
+//            zeigte volle Verfuegbarkeit. Betrifft Klassifizierung (loadVorhaben)
+//            und Import (handleImport). Filter auf englische Enum-Werte korrigiert.
 // v7.4.8-13: CRITICAL FIX: .limit(10000) auf v7_timesheets-Queries (Supabase 1000-Zeilen-Limit)
 // Datum: 23. April 2026
 //
@@ -536,6 +557,7 @@ export default function MultiprojektDetailPage() {
   const [kalenderDaten, setKalenderDaten] = useState<MonatDaten[]>([]);
   const [kalenderLoading, setKalenderLoading] = useState(false);
   const [savingMonat, setSavingMonat] = useState<number | null>(null);
+  const [exportingMA, setExportingMA] = useState<string | null>(null);
 
   // ============================================================================
   // DATEN LADEN
@@ -636,7 +658,7 @@ export default function MultiprojektDetailPage() {
           .gte('work_date', startDatum)
           .lte('work_date', endeDatum)
           .eq('is_active', true)
-          .not('day_type', 'in', '("urlaub","krank","sonderurlaub","feiertag")')
+          .not('day_type', 'in', '("vacation","sick","special_leave","holiday")')
           .limit(10000);
 
         if (tsData) {
@@ -754,7 +776,7 @@ export default function MultiprojektDetailPage() {
           .gte('work_date', startDatum)
           .lte('work_date', endeDatum)
           .eq('is_active', true)
-          .not('day_type', 'in', '("urlaub","krank","sonderurlaub","feiertag")')
+          .not('day_type', 'in', '("vacation","sick","special_leave","holiday")')
           .limit(10000);
 
         if (tsData) {
@@ -859,6 +881,42 @@ export default function MultiprojektDetailPage() {
         tsMap[ts.work_date] = ts;
       });
 
+      // Gefoerderte Stunden dieses MA fuer das ANGEZEIGTE Jahr live aus
+      // v7_timesheets berechnen (damit die Jahres-Navigation fuer jedes Jahr
+      // die tatsaechlich gebuchten Foerderstunden zeigt, nicht nur das
+      // Vorhaben-Jahr). Gleiche Logik wie der Import, nur lesend.
+      const jahrStart = `${vh.wirtschaftsjahr}-01-01`;
+      const jahrEnde = `${vh.wirtschaftsjahr}-12-31`;
+
+      const { data: projekteRaw } = await supabase
+        .from('v7_projects')
+        .select('id, funding_format')
+        .eq('client_company_id', vh.client_company_id)
+        .eq('is_active', true);
+
+      const gefoerderteProjektIds = (projekteRaw || [])
+        .filter((p: { id: string; funding_format: string | null }) =>
+          p.funding_format && (V7_PUBLIC_FUNDING_FORMATS as string[]).includes(p.funding_format)
+        )
+        .map((p: { id: string }) => p.id);
+
+      const gefoerdertProTag: Record<string, number> = {};
+      if (gefoerderteProjektIds.length > 0) {
+        const { data: tsGef } = await supabase
+          .from('v7_timesheets')
+          .select('work_date, hours')
+          .eq('employee_id', ma.id)
+          .in('project_id', gefoerderteProjektIds)
+          .gte('work_date', jahrStart)
+          .lte('work_date', jahrEnde)
+          .eq('is_active', true)
+          .not('day_type', 'in', '("vacation","sick","special_leave","holiday")')
+          .limit(10000);
+        (tsGef || []).forEach((r: { work_date: string; hours: number }) => {
+          gefoerdertProTag[r.work_date] = (gefoerdertProTag[r.work_date] || 0) + (r.hours || 0);
+        });
+      }
+
       // Monatsweise aufbauen
       const monatsListe: MonatDaten[] = [];
       for (let m = vh.start_monat; m <= vh.ende_monat; m++) {
@@ -875,10 +933,10 @@ export default function MultiprojektDetailPage() {
           const istFeiertag = feiertagLabel !== null;
 
           const ts = tsMap[datumStr];
-          const gefoerdert = ts ? ts.gefoerdert_hours : 0;
+          const gefoerdert = gefoerdertProTag[datumStr] || 0;
           const verfuegbar = istWE || istFeiertag
             ? 0
-            : ts ? ts.verfuegbar_hours : Math.max(0, tagesArbeitszeit - gefoerdert);
+            : Math.max(0, tagesArbeitszeit - gefoerdert);
           const fue = ts ? ts.fue_hours : 0;
 
           tage.push({
@@ -1006,6 +1064,105 @@ export default function MultiprojektDetailPage() {
       setSavingMonat(null);
     }
   }, [ausgewaehlterMA, kalenderDaten, supabase, vorhabenId]);
+
+  // ============================================================================
+  // EXPORT: BSFZ-Excel je MA fuer das gewaehlte Jahr
+  // ============================================================================
+
+  const handleExportMA = useCallback(async (ma: EmployeeWithStats) => {
+    if (!vorhaben || !company) return;
+    setExportingMA(ma.id);
+    try {
+      const jahr = anzeigeJahr;
+      const jahrStart = `${jahr}-01-01`;
+      const jahrEnde = `${jahr}-12-31`;
+
+      // Gefoerderte Stunden dieses MA je Tag live aus v7_timesheets ermitteln.
+      // Die API rechnet daraus verfuegbar = Tagesarbeitszeit - gebucht und
+      // schreibt die maximal fuer FZul verfuegbaren Stunden je Tag in die Vorlage.
+      const { data: projekteRaw } = await supabase
+        .from('v7_projects')
+        .select('id, funding_format')
+        .eq('client_company_id', vorhaben.client_company_id)
+        .eq('is_active', true);
+
+      const gefoerderteProjektIds = (projekteRaw || [])
+        .filter((p: { id: string; funding_format: string | null }) =>
+          p.funding_format && (V7_PUBLIC_FUNDING_FORMATS as string[]).includes(p.funding_format)
+        )
+        .map((p: { id: string }) => p.id);
+
+      const dayData: Record<number, Record<number, { hours: number }>> = {};
+      if (gefoerderteProjektIds.length > 0) {
+        const { data: tsGef } = await supabase
+          .from('v7_timesheets')
+          .select('work_date, hours')
+          .eq('employee_id', ma.id)
+          .in('project_id', gefoerderteProjektIds)
+          .gte('work_date', jahrStart)
+          .lte('work_date', jahrEnde)
+          .eq('is_active', true)
+          .not('day_type', 'in', '("vacation","sick","special_leave","holiday")')
+          .limit(10000);
+        (tsGef || []).forEach((r: { work_date: string; hours: number }) => {
+          const parts = r.work_date.split('-');
+          const mm = Number(parts[1]);
+          const dd = Number(parts[2]);
+          if (!dayData[mm]) dayData[mm] = {};
+          const prev = dayData[mm][dd]?.hours || 0;
+          dayData[mm][dd] = { hours: prev + (r.hours || 0) };
+        });
+      }
+
+      // Urlaubstage fuer die Jahresarbeitszeit-Berechnung in der Vorlage
+      const { data: emp } = await supabase
+        .from('v7_employees')
+        .select('annual_leave_days')
+        .eq('id', ma.id)
+        .single();
+
+      const stateCode = normalizeStateCode(company.federal_state);
+
+      const res = await fetch('/api/export/fzul', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          empName: ma.display_name,
+          year: jahr,
+          dayData,
+          settings: {
+            weekly_hours: ma.effective_weekly_hours,
+            annual_leave_days: emp?.annual_leave_days ?? 0,
+          },
+          stateCode,
+          projectTitle: vorhaben.title,
+          projectFkz: vorhaben.vorhaben_id || '',
+          positionTitle: ma.taetigkeitsbezeichnung || ma.position_title || '',
+        }),
+      });
+
+      if (!res.ok) {
+        let msg = 'Export fehlgeschlagen (HTTP ' + res.status + ')';
+        try { const j = await res.json(); if (j?.error) msg = j.error; } catch { /* ignore */ }
+        throw new Error(msg);
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const nachname = (ma.display_name.split(',')[0] || ma.display_name).trim();
+      a.download = `FZul_${nachname}_${jahr}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: unknown) {
+      window.alert(err instanceof Error ? err.message : 'Export fehlgeschlagen.');
+    } finally {
+      setExportingMA(null);
+    }
+  }, [vorhaben, company, supabase, anzeigeJahr]);
 
   // ============================================================================
   // RENDER
@@ -1420,20 +1577,45 @@ export default function MultiprojektDetailPage() {
         {/* ================================================================ */}
 
         {aktuellerTab === 'export' && (
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="p-4 bg-gray-100 rounded-2xl mb-4">
-              <Download className="w-10 h-10 text-gray-400" />
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+              <p className="text-sm text-blue-800">
+                Pro Mitarbeiter wird die amtliche BSFZ-Excel fuer das Jahr{' '}
+                <span className="font-semibold">{anzeigeJahr}</span> erzeugt. Eingetragen
+                werden die je Tag maximal fuer die FZul verfuegbaren Stunden
+                (Tagesarbeitszeit minus an dem Tag in Foerderprojekten gebuchte Stunden).
+                Jahresarbeitszeit, FuE-Anteil und Hoechstgrenze berechnet die Vorlage selbst.
+              </p>
             </div>
-            <h3 className="text-lg font-semibold text-gray-700 mb-2">
-              Excel-Export
-            </h3>
-            <p className="text-sm text-gray-500 max-w-md">
-              Der Excel-Export mit dem amtlichen BSFZ-Formular wird in Phase 3 implementiert.
-              Alle Berechnungen (Jahresarbeitszeit, FuE-Anteil, Hoechstgrenze) werden
-              automatisch eingetragen.
-            </p>
-          </div>
+
+            <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
+              {alleMA.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-10">
+                  Keine Mitarbeiter gefunden.
+                </p>
+              ) : (
+                alleMA.map((ma) => (
+                  <div key={ma.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-800 truncate">{ma.display_name}</p>
+                      <p className="text-xs text-gray-400 truncate">
+                        {ma.taetigkeitsbezeichnung || ma.position_title || '\u2014'}
+                        {' \u00b7 '}{ma.effective_weekly_hours} h/Woche
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleExportMA(ma)}
+                      disabled={exportingMA === ma.id}
+                      className="flex-shrink-0 flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-[#002451] rounded-lg hover:bg-[#001a3a] disabled:opacity-50">
+                      {exportingMA === ma.id
+                        ? <><Loader2 className="w-4 h-4 animate-spin" /> Erzeuge...</>
+                        : <><Download className="w-4 h-4" /> Excel exportieren</>}
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         )}
 
