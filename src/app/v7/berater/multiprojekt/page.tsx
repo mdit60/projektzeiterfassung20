@@ -4,7 +4,10 @@
 // ============================================================================
 // PZE V7 - Kapazitaetsplanungs-Tool (Berater-Portal)
 // ============================================================================
-// Version: 7.4.8-24
+// Version: 7.4.8-25
+// v7.4.8-25: title-Attribut auf der Ersteller-Zeile - die Spalte ist schmal, der
+//            Name wird zwangslaeufig gekuerzt ("angelegt von Ditscherlein, ...").
+//            Beim Hovern erscheint jetzt der vollstaendige Name. Reine Ergaenzung.
 // v7.4.8-24: Ersteller-Anzeige in der FZul-Vorhabenliste ("angelegt von X") -
 //            damit sofort klar ist, wer Eigentuemer ist und wer loeschen kann.
 //            Tooltip des gesperrten Papierkorbs und die Meldung nennen den Namen
@@ -1169,7 +1172,8 @@ export default function MultiprojektPage() {
                             <p className="text-xs font-semibold text-gray-800 truncate">{v.title}</p>
                             <p className="text-xs text-gray-400 mt-0.5 truncate">{v.company_name} &middot; Gj. {v.wirtschaftsjahr}</p>
                             {v.ersteller_name && (
-                              <p className="text-gray-400 mt-0.5 truncate" style={{ fontSize: '10px' }}>
+                              <p className="text-gray-400 mt-0.5 truncate" style={{ fontSize: '10px' }}
+                                 title={'angelegt von ' + v.ersteller_name}>
                                 angelegt von {v.ersteller_name}
                               </p>
                             )}
