@@ -2,9 +2,15 @@
 // ============================================================================
 // PZE V7 - TypeScript Interfaces
 // ============================================================================
-// Datum: 3. Juli 2026
-// Version: 7.4.9-2
+// Datum: 14. Juli 2026
+// Version: 7.4.9-3
 //
+// v7.4.9-3: FZul-Fix - DB-Enum-Werte 'ZIM' und 'ZIM_DS' ergaenzt (Typ-Union,
+//           Label-/Short-Maps, V7_PUBLIC_FUNDING_FORMATS). Ursache: Alt-Projekte
+//           mit generischem funding_format 'ZIM' (z.B. HEATS/AS System) wurden
+//           im Multiprojekt-/FZul-Import nicht als gefoerdert erkannt, weil
+//           V7_PUBLIC_FUNDING_FORMATS 'ZIM' nicht enthielt -> alle MA fielen in
+//           Gruppe B, gefoerdert_hours=0, voller FZul-Vorschlag. Rein additiv.
 // v7.4.9-2: GF-Erkennung (50%-Regel) toleranter gemacht + echte Umlaute im UI.
 //           - POSITION_OPTIONS: GF-Rollen jetzt mit echten Umlauten
 //             (Gesch\u00e4ftsf\u00fchrer / Gesellschafter-Gesch\u00e4ftsf\u00fchrer),
@@ -148,6 +154,8 @@ export type V7FundingFormat =
   | 'ZIM_KOOP'             // ZIM Kooperationsprojekt
   | 'ZIM_NETZWERK'         // ZIM Netzwerkprojekt
   | 'ZIM_DURCHFUEHRBARKEIT' // ZIM Durchfuehrbarkeitsstudie
+  | 'ZIM'                  // ZIM (allgemein / Alt-Projekte vor Differenzierung)
+  | 'ZIM_DS'               // ZIM Durchfuehrbarkeitsstudie (DB-Kurzform)
   // BMBF-Programme
   | 'BMBF_KMU'             // BMBF KMU-innovativ
   | 'BMBF_VERBUND'         // BMBF Verbundprojekt
@@ -166,6 +174,8 @@ export const V7_FUNDING_FORMAT_LABELS: Record<V7FundingFormat, string> = {
   ZIM_KOOP: 'ZIM Kooperationsprojekt',
   ZIM_NETZWERK: 'ZIM Netzwerkprojekt',
   ZIM_DURCHFUEHRBARKEIT: 'ZIM Durchfuehrbarkeitsstudie',
+  ZIM: 'ZIM (allgemein)',
+  ZIM_DS: 'ZIM Durchfuehrbarkeitsstudie',
   BMBF_KMU: 'BMBF KMU-innovativ',
   BMBF_VERBUND: 'BMBF Verbundprojekt',
   FZUL: 'Forschungszulage',
@@ -182,6 +192,8 @@ export const V7_PUBLIC_FUNDING_FORMATS: V7FundingFormat[] = [
   'ZIM_KOOP',
   'ZIM_NETZWERK',
   'ZIM_DURCHFUEHRBARKEIT',
+  'ZIM',
+  'ZIM_DS',
   'BMBF_KMU',
   'BMBF_VERBUND',
   'LANDES_FOERDERUNG',
@@ -196,6 +208,8 @@ export const V7_FUNDING_FORMAT_SHORT: Record<V7FundingFormat, string> = {
   ZIM_KOOP: 'ZIM Koop',
   ZIM_NETZWERK: 'ZIM Netzwerk',
   ZIM_DURCHFUEHRBARKEIT: 'ZIM DFS',
+  ZIM: 'ZIM',
+  ZIM_DS: 'ZIM DFS',
   BMBF_KMU: 'BMBF KMU',
   BMBF_VERBUND: 'BMBF Verbund',
   FZUL: 'FZul',

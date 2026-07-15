@@ -4,7 +4,12 @@
 // ============================================================================
 // PZE V7 - Kapazitaetsplanungs-Tool (Berater-Portal)
 // ============================================================================
-// Version: 7.4.8-18
+// Version: 7.4.8-19
+// v7.4.8-19: FZul-Vorhaben loeschen: Papierkorb-Button je Vorhaben in der Liste
+//            (mit Sicherheitsabfrage). Loescht zuerst v7_fzul_timesheets, dann
+//            das Vorhaben (funktioniert unabhaengig vom ON-DELETE-CASCADE).
+//            Vorhaben-Zeile von <button> auf <div> umgestellt, damit der
+//            Loeschen-Button nicht verschachtelt in einem Button steht.
 // v7.4.8-18: ASCII-Konformitaet - Sonderzeichen als \u-Escapes (Literale) bzw. HTML-Entities (JSX)
 // v7.4.8-17: returnTo-Parameter bei MA-Klick: nach Modal-Schliessung
 //   zurueck zur Kapazitaetsplanung (nicht im FirmaCockpit bleiben).
@@ -46,6 +51,7 @@ import {
   ChevronLeft,
   ChevronDown,
   Printer,
+  Trash2,
 } from 'lucide-react';
 import {
   V7UserRole,
@@ -814,6 +820,31 @@ export default function MultiprojektPage() {
   };
 
   // ============================================================================
+  // VORHABEN LOESCHEN
+  // ============================================================================
+
+  const handleDeleteVorhaben = async (id: string, title: string) => {
+    const frage = 'Vorhaben "' + title + '" und alle zugeh\u00f6rigen Stundenerfassungen '
+      + 'wirklich l\u00f6schen? Das kann nicht r\u00fcckg\u00e4ngig gemacht werden.';
+    if (!window.confirm(frage)) return;
+    try {
+      const { error: tErr } = await supabase
+        .from('v7_fzul_timesheets')
+        .delete()
+        .eq('vorhaben_id', id);
+      if (tErr) throw tErr;
+      const { error: vErr } = await supabase
+        .from('v7_fzul_vorhaben')
+        .delete()
+        .eq('id', id);
+      if (vErr) throw vErr;
+      await loadData();
+    } catch (err: unknown) {
+      window.alert(err instanceof Error ? err.message : 'Fehler beim L\u00f6schen.');
+    }
+  };
+
+  // ============================================================================
   // RENDER
   // ============================================================================
 
@@ -1019,23 +1050,32 @@ export default function MultiprojektPage() {
                 ) : (
                   <div className="space-y-2">
                     {vorhaben.slice(0, 10).map(v => (
-                      <button key={v.id}
+                      <div key={v.id}
                         onClick={() => router.push(`/v7/berater/multiprojekt/${v.id}`)}
-                        className="w-full text-left bg-gray-50 border border-gray-200 rounded-lg p-2.5 hover:border-[#002451] hover:bg-blue-50 transition-all group">
+                        className="w-full text-left bg-gray-50 border border-gray-200 rounded-lg p-2.5 hover:border-[#002451] hover:bg-blue-50 transition-all group cursor-pointer">
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 min-w-0">
                             <p className="text-xs font-semibold text-gray-800 truncate">{v.title}</p>
                             <p className="text-xs text-gray-400 mt-0.5 truncate">{v.company_name} &middot; Gj. {v.wirtschaftsjahr}</p>
                           </div>
-                          <span className={`flex-shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs ${
-                            v.status === 'abgeschlossen' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
-                          }`}>
-                            {v.status === 'abgeschlossen'
-                              ? <><CheckCircle className="w-2.5 h-2.5" /> OK</>
-                              : <><Clock className="w-2.5 h-2.5" /> Entwurf</>}
-                          </span>
+                          <div className="flex-shrink-0 flex items-center gap-1.5">
+                            <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs ${
+                              v.status === 'abgeschlossen' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                            }`}>
+                              {v.status === 'abgeschlossen'
+                                ? <><CheckCircle className="w-2.5 h-2.5" /> OK</>
+                                : <><Clock className="w-2.5 h-2.5" /> Entwurf</>}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); handleDeleteVorhaben(v.id, v.title); }}
+                              title="Vorhaben loeschen"
+                              className="p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
-                      </button>
+                      </div>
                     ))}
                     {vorhaben.length > 10 && (
                       <p className="text-xs text-gray-400 text-center pt-1">+ {vorhaben.length - 10} weitere</p>
