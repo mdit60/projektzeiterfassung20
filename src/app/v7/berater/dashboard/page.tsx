@@ -4,7 +4,14 @@
 // ============================================================================
 // PZE V7 - Berater-Dashboard
 // ============================================================================
-// Version: 7.4.4-13
+// Version: 7.4.4-14
+// v7.4.4-14: FZul-Kachel nur noch fuer system_admin. Ein eigenstaendiges
+//            Forschungszulage-Modul entfaellt - die FZul-Auswertung ist laut
+//            KONZEPT-KAPAZITAETSPLANUNG v1.1 eine Spezialisierung der
+//            Kapazitaetsplanung und dort umgesetzt. Kachel bleibt fuer den
+//            SysAdmin als Vorbereitung eines neuen FZul-Moduls (BSFZ-
+//            Bescheinigungen). Gegenstueck zu PortalNav v7.4.4-26,
+//            AppNav v1.0.2, app-cockpit v1.0.8, v7-module-config v7.3.90-8.
 // Datum: 23. April 2026
 //
 // v7.4.4-11: Multiprojekt-Tool-Kachel aktiviert (active, Route gesetzt)
@@ -333,7 +340,8 @@ export default function BeraterDashboardPage() {
       href: '/v7/berater/multiprojekt',
       stats: [],
     },
-    {
+    // v7.4.4-14: FZul-Kachel nur fuer system_admin (Vorbereitung neues FZul-Modul)
+    ...(userRole === 'system_admin' ? [{
       id: 'fzul',
       titel: 'Forschungszulage',
       beschreibung: '',
@@ -344,7 +352,7 @@ export default function BeraterDashboardPage() {
       status: 'coming_soon' as const,
       href: null,
       stats: [],
-    },
+    }] : []),
   ];
 
   return (

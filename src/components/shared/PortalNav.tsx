@@ -4,7 +4,14 @@
 // ============================================================================
 // PZE V7 - Portal-Navigation
 // ============================================================================
-// Version: 7.4.4-25
+// Version: 7.4.4-26
+// v7.4.4-26: FZul-Nav-Item nur noch fuer system_admin sichtbar (isAdmin: true).
+//            Ein eigenstaendiges Forschungszulage-Modul entfaellt: laut
+//            KONZEPT-KAPAZITAETSPLANUNG v1.1 ist die FZul-Auswertung eine
+//            Spezialisierung der Kapazitaetsplanung ("Exportweg, nicht mehr der
+//            primaere Einstieg") und dort umgesetzt. Der Eintrag bleibt fuer den
+//            SysAdmin als Vorbereitung eines neuen FZul-Moduls (BSFZ-
+//            Bescheinigungsbeantragung) sichtbar; Berater sehen ihn nicht mehr.
 // v7.4.4-25: HYDRATION-FIX. pze_mode (localStorage) wurde beim Rendern gelesen
 //   (isAppMode), was Server- und Client-Render auseinanderlaufen liess -> die
 //   blaue Aktiv-Farbe landete am falschen Nav-Item, "Hydration failed"-Overlay
@@ -109,7 +116,7 @@ const NAV_BERATER: NavItem[] = [
   { key: 'foerderung',    label: 'Unternehmen',       href: '/v7/berater/foerderung',    icon: <Building2 size={18} /> },
   { key: 'netzwerk',      label: 'Netzwerk',           href: '/v7/berater/netzwerk',      icon: <Network size={18} /> },
   { key: 'multiprojekt',  label: 'Kapazitaetsplanung', href: '/v7/berater/multiprojekt',  icon: <BarChart3 size={18} /> },
-  { key: 'fzul',          label: 'Forschungszulage',   href: '/v7/berater/fzul',          icon: <FlaskConical size={18} /> },
+  { key: 'fzul',          label: 'Forschungszulage',   href: '/v7/berater/fzul',          icon: <FlaskConical size={18} />, isAdmin: true },
   { key: 'admin',         label: 'Administration',     href: '/v7/berater/admin',         icon: <Settings size={18} />, isAdmin: true },
 ];
 

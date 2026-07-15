@@ -4,7 +4,14 @@
 // ============================================================================
 // PZE V7 - Kapazitaetsplanungs-Tool (Berater-Portal)
 // ============================================================================
-// Version: 7.4.8-19
+// Version: 7.4.8-20
+// v7.4.8-20: "Neues FZul-Vorhaben"-Modal uebernimmt die oben gewaehlte Firma.
+//            Vorher stand dort immer companies[0] (alphabetisch erste Firma),
+//            unabhaengig von der Auswahl im FIRMA-Dropdown -> Vorhaben konnten
+//            unbemerkt auf der falschen Firma angelegt werden. Neu: Prop
+//            defaultCompanyId (= selectedCompanyId der Seite); das Formular wird
+//            beim OEFFNEN zurueckgesetzt und mit dieser Firma vorbelegt (noetig,
+//            weil das Modal montiert bleibt und der State sonst ueberlebt).
 // v7.4.8-19: FZul-Vorhaben loeschen: Papierkorb-Button je Vorhaben in der Liste
 //            (mit Sicherheitsabfrage). Loescht zuerst v7_fzul_timesheets, dann
 //            das Vorhaben (funktioniert unabhaengig vom ON-DELETE-CASCADE).
@@ -339,12 +346,14 @@ interface NeuesVorhabenModalProps {
   companies: ClientCompany[];
   saving: boolean;
   error: string | null;
+  /** v7.4.8-20: oben gewaehlte Firma (selectedCompanyId) als Vorauswahl */
+  defaultCompanyId?: string;
 }
 
-function NeuesVorhabenModal({ isOpen, onClose, onSave, companies, saving, error }: NeuesVorhabenModalProps) {
+function NeuesVorhabenModal({ isOpen, onClose, onSave, companies, saving, error, defaultCompanyId }: NeuesVorhabenModalProps) {
   const aktuellesJahr = new Date().getFullYear();
   const [form, setForm] = useState({
-    client_company_id: companies[0]?.id ?? '',
+    client_company_id: defaultCompanyId || companies[0]?.id || '',
     title: '',
     vorhaben_id: '',
     wirtschaftsjahr: aktuellesJahr,
@@ -354,11 +363,25 @@ function NeuesVorhabenModal({ isOpen, onClose, onSave, companies, saving, error 
     notes: '',
   });
 
+  // v7.4.8-20: Beim OEFFNEN das Formular zuruecksetzen und die aktuell oben
+  // gewaehlte Firma uebernehmen. Bewusst nur von isOpen abhaengig: das Modal
+  // bleibt montiert (if (!isOpen) return null steht nach dem useState), der
+  // State ueberlebt also Oeffnen/Schliessen. Weitere Dependencies wuerden das
+  // Formular u.U. mitten in der Eingabe zuruecksetzen.
   useEffect(() => {
-    if (companies.length > 0 && !form.client_company_id) {
-      setForm(f => ({ ...f, client_company_id: companies[0].id }));
-    }
-  }, [companies, form.client_company_id]);
+    if (!isOpen) return;
+    setForm({
+      client_company_id: defaultCompanyId || companies[0]?.id || '',
+      title: '',
+      vorhaben_id: '',
+      wirtschaftsjahr: new Date().getFullYear(),
+      start_monat: 1,
+      ende_monat: 12,
+      bundesland: '',
+      notes: '',
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -1103,6 +1126,7 @@ export default function MultiprojektPage() {
         companies={companies}
         saving={savingModal}
         error={modalError}
+        defaultCompanyId={selectedCompanyId}
       />
     </div>
     </>

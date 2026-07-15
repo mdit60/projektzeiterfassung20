@@ -2,7 +2,14 @@
 
 // src/app/v7/berater/app/cockpit/page.tsx
 // ============================================================================
-// Version: 1.0.7
+// Version: 1.0.8
+//   - v1.0.8: Kachel "Forschungszulage" nur noch fuer system_admin sichtbar.
+//             Ein eigenstaendiges FZul-Modul entfaellt - die FZul-Auswertung ist
+//             laut KONZEPT-KAPAZITAETSPLANUNG v1.1 eine Spezialisierung der
+//             Kapazitaetsplanung und dort umgesetzt. Kachel bleibt fuer den
+//             SysAdmin als Platzhalter zur Vorbereitung eines neuen FZul-Moduls
+//             (BSFZ-Bescheinigungen). Gegenstueck zu AppNav v1.0.2,
+//             PortalNav v7.4.4-26 und v7-module-config v7.3.90-8.
 // Berater-App-Cockpit (neue Struktur)
 //   - v1.0.7: A-023 - Firmen-Reaktivierung im Cockpit. Aufklappbarer Bereich
 //             "Inaktive Firmen (N)" unter dem Firma-Dropdown (nur sichtbar wenn
@@ -423,20 +430,22 @@ function BeraterAppCockpitInner() {
             <ChevronRight size={16} className="absolute bottom-6 right-6 text-gray-300" />
           </button>
 
-          {/* KACHEL 4: Forschungszulage */}
-          <div className="bg-white rounded-xl border border-gray-200 p-6 relative opacity-60">
-            <div className="absolute top-4 right-4">
-              <span className="flex items-center gap-1 text-xs font-medium text-yellow-600 bg-yellow-50 px-2 py-1 rounded-full">
-                <Clock size={12} />
-                In Vorbereitung
-              </span>
+          {/* KACHEL 4: Forschungszulage - v1.0.8: nur system_admin */}
+          {userRole === 'system_admin' && (
+            <div className="bg-white rounded-xl border border-gray-200 p-6 relative opacity-60">
+              <div className="absolute top-4 right-4">
+                <span className="flex items-center gap-1 text-xs font-medium text-yellow-600 bg-yellow-50 px-2 py-1 rounded-full">
+                  <Clock size={12} />
+                  In Vorbereitung
+                </span>
+              </div>
+              <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center mb-4">
+                <FlaskConical size={24} className="text-gray-400" />
+              </div>
+              <h2 className="text-lg font-bold text-gray-400 mb-1">Forschungszulage</h2>
+              <p className="text-sm text-gray-400">Kommt bald</p>
             </div>
-            <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center mb-4">
-              <FlaskConical size={24} className="text-gray-400" />
-            </div>
-            <h2 className="text-lg font-bold text-gray-400 mb-1">Forschungszulage</h2>
-            <p className="text-sm text-gray-400">Kommt bald</p>
-          </div>
+          )}
 
         </div>
       </main>
