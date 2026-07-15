@@ -4,7 +4,45 @@
 // ============================================================================
 // PZE V7 - Kapazitaetsplanungs-Tool (Berater-Portal)
 // ============================================================================
-// Version: 7.4.8-20
+// Version: 7.4.8-24
+// v7.4.8-24: Ersteller-Anzeige in der FZul-Vorhabenliste ("angelegt von X") -
+//            damit sofort klar ist, wer Eigentuemer ist und wer loeschen kann.
+//            Tooltip des gesperrten Papierkorbs und die Meldung nennen den Namen
+//            ebenfalls. Datenquelle: SECURITY DEFINER-Funktion
+//            v7_beraterfirma_namen() (SQL-MIGRATION-beraterfirma-namen-v1.sql),
+//            die NUR id + Anzeigename der Kollegen der eigenen Beraterfirma
+//            liefert - keine E-Mail/Rolle. Noetig, weil die SELECT-Policy auf
+//            v7_user_profiles eng ist (id = auth.uid()) und sich nicht ohne
+//            Endlosrekursion erweitern laesst. Faellt die Funktion aus, bleibt
+//            die Liste ohne Namen nutzbar (Fallback "einem anderen Berater").
+// v7.4.8-23: Papierkorb signalisiert die Berechtigung jetzt VORAB: bei fremden
+//            Vorhaben ausgegraut (text-gray-200, cursor-not-allowed) mit Tooltip
+//            "Loeschen nicht zulaessig - von einem anderen Berater angelegt".
+//            Bewusst KEIN rot/gruener Papierkorb: Rot bedeutet konventionell
+//            "destruktive Aktion" (deshalb sind Loeschen-Buttons rot), nicht
+//            "verboten" - das wuerde gegen die Nutzererwartung arbeiten; zudem
+//            waere Farbe als einzige Information nicht barrierefrei. Der Button
+//            bleibt klickbar, damit die erklaerende Meldung weiterhin erscheint.
+//            Berechtigung zentral in darfVorhabenLoeschen() (auch von
+//            handleDeleteVorhaben genutzt - keine doppelte Logik).
+// v7.4.8-22: SPRACHKONVENTION: Meldungstext auf durchgaengig generisches
+//            Maskulinum umgestellt ("von einem anderen Berater ... Nur der
+//            Ersteller oder ein System-Administrator"). Vorher war der Text
+//            inkonsistent halb gegendert ("Beraterin bzw. Berater", aber
+//            "Ersteller"/"System-Administrator"). Vorgabe Martin: in ALLEN
+//            Texten, Beschreibungen und Anleitungen nur EIN Genus verwenden
+//            (der User, Administrator, Berater, Anwender). Reine Textaenderung.
+// v7.4.8-21: Loeschen: Ersteller-Pruefung + echte Rueckmeldung.
+//            (a) Vorab-Pruefung: nur der Ersteller (created_by) oder ein
+//                system_admin darf loeschen. Andernfalls sofort der Hinweis
+//                "Loeschen nicht zulaessig" - OHNE vorherige Sicherheitsabfrage.
+//            (b) Der eigentliche DELETE nutzt jetzt .select('id'): PostgREST
+//                liefert bei 0 betroffenen Zeilen (z.B. RLS greift) KEINEN
+//                Fehler - das Loeschen verpuffte bisher lautlos (Katrin klickte,
+//                Warnung kam, nichts passierte). Jetzt wird das gemeldet.
+//            Passend dazu SQL-MIGRATION-fzul-rls-bearbeiten-beraterfirma-v1.sql:
+//            BEARBEITEN wird auf die Beraterfirma ausgeweitet, LOESCHEN bleibt
+//            ersteller-gebunden.
 // v7.4.8-20: "Neues FZul-Vorhaben"-Modal uebernimmt die oben gewaehlte Firma.
 //            Vorher stand dort immer companies[0] (alphabetisch erste Firma),
 //            unabhaengig von der Auswahl im FIRMA-Dropdown -> Vorhaben konnten
@@ -93,6 +131,8 @@ interface VorhabenMitFirma extends V7FzulVorhaben {
   company_name: string;
   company_short_name: string | null;
   ma_count: number;
+  /** v7.4.8-24: Anzeigename des Erstellers (aus v7_beraterfirma_namen()) */
+  ersteller_name: string | null;
 }
 
 interface ProjektBeitrag {
@@ -554,11 +594,24 @@ export default function MultiprojektPage() {
       }
 
       const compMap = Object.fromEntries(comps.map((c: ClientCompany) => [c.id, c]));
+
+      // v7.4.8-24: Ersteller-Namen holen. Die SELECT-Policy auf v7_user_profiles
+      // ist eng (id = auth.uid()), deshalb liefert die SECURITY DEFINER-Funktion
+      // v7_beraterfirma_namen() nur id + Name der Kollegen der eigenen
+      // Beraterfirma. Schlaegt sie fehl (z.B. Funktion noch nicht eingespielt),
+      // bleibt die Liste ohne Namen nutzbar.
+      const namenMap: Record<string, string> = {};
+      const { data: namenRaw } = await supabase.rpc('v7_beraterfirma_namen');
+      (namenRaw || []).forEach((n: { user_id: string; anzeige_name: string | null }) => {
+        if (n.user_id && n.anzeige_name) namenMap[n.user_id] = n.anzeige_name;
+      });
+
       setVorhaben((vorhabenRaw || []).map((v: V7FzulVorhaben) => ({
         ...v,
         company_name: compMap[v.client_company_id]?.name ?? '-',
         company_short_name: compMap[v.client_company_id]?.short_name ?? null,
         ma_count: maCounts[v.id] ?? 0,
+        ersteller_name: v.created_by ? (namenMap[v.created_by] ?? null) : null,
       })));
 
       if (comps.length > 0 && !selectedCompanyId) {
@@ -846,21 +899,56 @@ export default function MultiprojektPage() {
   // VORHABEN LOESCHEN
   // ============================================================================
 
-  const handleDeleteVorhaben = async (id: string, title: string) => {
-    const frage = 'Vorhaben "' + title + '" und alle zugeh\u00f6rigen Stundenerfassungen '
+  // v7.4.8-23: Zentrale Berechtigungspruefung - genutzt vom Papierkorb (Optik +
+  // Tooltip) UND von handleDeleteVorhaben. Nur der Ersteller oder ein
+  // system_admin darf loeschen (Gegenstueck zur RLS-Policy
+  // fzul_vorhaben_berater_delete: created_by = auth.uid()).
+  const darfVorhabenLoeschen = (v: VorhabenMitFirma): boolean => {
+    if (userProfile?.role === 'system_admin') return true;
+    return !!userProfile?.id && v.created_by === userProfile.id;
+  };
+
+  const handleDeleteVorhaben = async (v: VorhabenMitFirma) => {
+    // v7.4.8-21: Vorab pruefen, damit der Nutzer die Meldung SOFORT bekommt -
+    // ohne erst die Sicherheitsabfrage zu bestaetigen und dann ins Leere zu laufen.
+    if (!darfVorhabenLoeschen(v)) {
+      window.alert(
+        'L\u00f6schen nicht zul\u00e4ssig.\n\n'
+        + 'Das Vorhaben "' + v.title + '" wurde von '
+        + (v.ersteller_name ? v.ersteller_name : 'einem anderen Berater') + ' angelegt. '
+        + 'Nur der Ersteller oder ein System-Administrator kann es l\u00f6schen. '
+        + 'Bearbeiten ist weiterhin m\u00f6glich.'
+      );
+      return;
+    }
+
+    const frage = 'Vorhaben "' + v.title + '" und alle zugeh\u00f6rigen Stundenerfassungen '
       + 'wirklich l\u00f6schen? Das kann nicht r\u00fcckg\u00e4ngig gemacht werden.';
     if (!window.confirm(frage)) return;
+
     try {
       const { error: tErr } = await supabase
         .from('v7_fzul_timesheets')
         .delete()
-        .eq('vorhaben_id', id);
+        .eq('vorhaben_id', v.id);
       if (tErr) throw tErr;
-      const { error: vErr } = await supabase
+
+      // v7.4.8-21: .select() erzwingt eine Rueckmeldung, WELCHE Zeilen geloescht
+      // wurden. Ohne das liefert PostgREST bei 0 betroffenen Zeilen (z.B. weil RLS
+      // greift) KEINEN Fehler - das Loeschen verpuffte dann lautlos.
+      const { data: geloescht, error: vErr } = await supabase
         .from('v7_fzul_vorhaben')
         .delete()
-        .eq('id', id);
+        .eq('id', v.id)
+        .select('id');
       if (vErr) throw vErr;
+      if (!geloescht || geloescht.length === 0) {
+        throw new Error(
+          'L\u00f6schen nicht zul\u00e4ssig: Es wurde nichts gel\u00f6scht '
+          + '(fehlende Berechtigung).'
+        );
+      }
+
       await loadData();
     } catch (err: unknown) {
       window.alert(err instanceof Error ? err.message : 'Fehler beim L\u00f6schen.');
@@ -1080,6 +1168,11 @@ export default function MultiprojektPage() {
                           <div className="flex-1 min-w-0">
                             <p className="text-xs font-semibold text-gray-800 truncate">{v.title}</p>
                             <p className="text-xs text-gray-400 mt-0.5 truncate">{v.company_name} &middot; Gj. {v.wirtschaftsjahr}</p>
+                            {v.ersteller_name && (
+                              <p className="text-gray-400 mt-0.5 truncate" style={{ fontSize: '10px' }}>
+                                angelegt von {v.ersteller_name}
+                              </p>
+                            )}
                           </div>
                           <div className="flex-shrink-0 flex items-center gap-1.5">
                             <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs ${
@@ -1091,9 +1184,14 @@ export default function MultiprojektPage() {
                             </span>
                             <button
                               type="button"
-                              onClick={(e) => { e.stopPropagation(); handleDeleteVorhaben(v.id, v.title); }}
-                              title="Vorhaben loeschen"
-                              className="p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50">
+                              onClick={(e) => { e.stopPropagation(); handleDeleteVorhaben(v); }}
+                              title={darfVorhabenLoeschen(v)
+                                ? 'Vorhaben l\u00f6schen'
+                                : 'L\u00f6schen nicht zul\u00e4ssig \u2013 angelegt von '
+                                  + (v.ersteller_name || 'einem anderen Berater')}
+                              className={darfVorhabenLoeschen(v)
+                                ? 'p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50'
+                                : 'p-1 rounded text-gray-200 cursor-not-allowed'}>
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
