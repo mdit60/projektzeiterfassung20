@@ -4,7 +4,19 @@
 // ============================================================================
 // PZE V7 - Kapazitaetsplanungs-Tool (Berater-Portal)
 // ============================================================================
-// Version: 7.4.8-25
+// Version: 7.4.8-27
+// v7.4.8-27: Panel-Titel "FuE-Vorhaben" -> "FZul-Vorhaben". Da an dieser Stelle nur
+//            noch FZul-Vorhaben angelegt/gelistet werden (siehe -26), ist der Titel
+//            "FZul-Vorhaben" eindeutiger als der Oberbegriff "FuE-Vorhaben".
+// v7.4.8-26: "Neu"-Auswahlliste im FuE-Vorhaben-Panel entfernt. Zuvor bot das
+//            Dropdown sieben Typen (ZIM Einzel/Koop/Netzwerk, BMBF/KMU, EU, FZul,
+//            Sonstiges) an, aber nur "Forschungszulage (FZul)" war funktional -
+//            die uebrigen sechs waren anklickbar und wirkungslos (Eindruck: kaputt).
+//            ZIM/BMBF/EU sind echte Foerderprojekte und entstehen ohnehin ueber die
+//            regulaere Projektanlage; "Sonstiges" (funding_format OTHER) ebenso. FZul
+//            ist der Sonderfall (Abgrenzung Doppelfoerderung) und gehoert hierher.
+//            Neu: einzelner "+ Neu"-Button, der direkt das FZul-Anlage-Modal oeffnet.
+//            State neuesVorhabenDropdownOpen und Import ChevronDown entfernt.
 // v7.4.8-25: title-Attribut auf der Ersteller-Zeile - die Spalte ist schmal, der
 //            Name wird zwangslaeufig gekuerzt ("angelegt von Ditscherlein, ...").
 //            Beim Hovern erscheint jetzt der vollstaendige Name. Reine Ergaenzung.
@@ -97,7 +109,6 @@ import {
   Loader2,
   BarChart3,
   ChevronLeft,
-  ChevronDown,
   Printer,
   Trash2,
 } from 'lucide-react';
@@ -528,7 +539,6 @@ export default function MultiprojektPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [savingModal, setSavingModal] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
-  const [neuesVorhabenDropdownOpen, setNeuesVorhabenDropdownOpen] = useState(false);
 
   // Kapazitaetsmatrix State
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
@@ -1124,39 +1134,14 @@ export default function MultiprojektPage() {
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
                     <Layers className="w-4 h-4 text-gray-500" />
-                    <span className="text-sm font-bold text-gray-700">FuE-Vorhaben</span>
+                    <span className="text-sm font-bold text-gray-700">FZul-Vorhaben</span>
                   </div>
-                  <div className="relative">
-                    <button
-                      onClick={() => setNeuesVorhabenDropdownOpen(o => !o)}
-                      className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-white bg-[#002451] rounded-lg hover:bg-[#001a3a]">
-                      <Plus className="w-3 h-3" /> Neu
-                      <ChevronDown className="w-3 h-3" />
-                    </button>
-                    {neuesVorhabenDropdownOpen && (
-                      <div className="absolute right-0 top-9 z-30 bg-white border border-gray-200 rounded-xl shadow-xl py-1 w-52">
-                        {[
-                          { label: 'ZIM Einzelprojekt', id: 'zim_einzel' },
-                          { label: 'ZIM Kooperation', id: 'zim_koop' },
-                          { label: 'ZIM Netzwerk', id: 'zim_netzwerk' },
-                          { label: 'BMBF / KMU Innovativ', id: 'bmbf' },
-                          { label: 'EU-Projekt', id: 'eu' },
-                          { label: 'Forschungszulage (FZul)', id: 'fzul' },
-                          { label: 'Sonstiges', id: 'sonstiges' },
-                        ].map(typ => (
-                          <button key={typ.id}
-                            onClick={() => {
-                              setNeuesVorhabenDropdownOpen(false);
-                              if (typ.id === 'fzul') { setModalError(null); setModalOpen(true); }
-                            }}
-                            className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 flex items-center justify-between gap-2">
-                            <span>{typ.label}</span>
-                            <span className="text-gray-300 italic">iV</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  <button
+                    onClick={() => { setModalError(null); setModalOpen(true); }}
+                    title="Neues FZul-Vorhaben anlegen"
+                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-white bg-[#002451] rounded-lg hover:bg-[#001a3a]">
+                    <Plus className="w-3 h-3" /> Neu
+                  </button>
                 </div>
 
                 {vorhaben.length === 0 ? (

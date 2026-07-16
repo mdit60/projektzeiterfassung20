@@ -4,7 +4,12 @@
 // ============================================================================
 // PZE V7 - Multiprojekt-Tool: Vorhaben-Detailseite
 // ============================================================================
-// Version: 7.4.8-16
+// Version: 7.4.8-17
+// v7.4.8-17: Zurueck-Button korrigiert. Der Breadcrumb hiess "Multiprojekt-Tool"
+//            (veralteter Begriff, laengst durch "Kapazitaetsplanung" ersetzt) und
+//            sprang fest auf die Uebersicht. Neu: einheitlicher "Zurueck"-Button, der
+//            per router.back() zur zuvor besuchten Seite zurueckkehrt (Fallback auf
+//            die Multiprojekt-Uebersicht, falls keine Browser-Historie vorhanden ist).
 // v7.4.8-16: Export-Tab implementiert (Phase 3, pro MA eine Datei). Erzeugt je MA
 //            die amtliche BSFZ-Excel fuer das gewaehlte Jahr ueber die bestehende
 //            /api/export/fzul und laedt sie herunter. Uebergeben werden die je Tag
@@ -1226,11 +1231,17 @@ export default function MultiprojektDetailPage() {
         {/* Breadcrumb + Titel */}
         <div className="mb-6">
           <button
-            onClick={() => router.push('/v7/berater/multiprojekt')}
+            onClick={() => {
+              if (typeof window !== 'undefined' && window.history.length > 1) {
+                router.back();
+              } else {
+                router.push('/v7/berater/multiprojekt');
+              }
+            }}
             className="flex items-center gap-1 text-sm text-gray-500 hover:text-[#002451] mb-3"
           >
             <ArrowLeft className="w-4 h-4" />
-            Multiprojekt-Tool
+            Zur&uuml;ck
           </button>
           <div className="flex items-start justify-between gap-4">
             <div>
