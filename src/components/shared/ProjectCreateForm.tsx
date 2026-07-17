@@ -2,8 +2,8 @@
 // ============================================================================
 // PZE V7 - Shared Project Create Form Component
 // ============================================================================
-// Datum: 11. Juli 2026
-// Version: 7.4.2-7
+// Datum: 16. Juli 2026
+// Version: 7.4.2-9
 //
 // Wird von beiden Portalen genutzt:
 // - Firmen-Portal: /v7/firma/projekte/neu
@@ -14,6 +14,15 @@
 // - PDF-Import (ZIM-Antrag): Upload -> /api/v7/parse-zim -> Vorschau
 //   (Projektkopf editierbar, Mitarbeiter mit Dublettenabgleich + pWAZ/Stundensatz,
 //    Arbeitsplan, Kontrollsummen-Warnung)
+// - v7.4.2-9: Lint-Konsolidierung (suggestCanonicalClasses): 6x die Tailwind-Klasse
+//   in kanonische Kurzform ueberfuehrt (flex-shrink-0 -> shrink-0; rein kosmetisch,
+//   identisches Verhalten).
+//   Enthaelt weiterhin den Map<string,string>-Typfix aus -8. Damit ist die Datei
+//   frei von roten UND gelben Hinweisen; loest die manuelle src-Aenderung sauber ab.
+// - v7.4.2-8: TS-Typkorrektur (rein statisch, KEIN Laufzeiteffekt): projName explizit
+//   als Map<string, string> typisiert -> .get() liefert string|undefined statt {},
+//   behebt ts(2322) "Type {} is not assignable to type string" an der projectName-
+//   Zuweisung. Verhalten unveraendert (Fallback 'anderes Projekt' greift wie bisher).
 // - v7.4.2-7: Reine Info-Anzeige beim Verknuepfen: frueherer Stundensatz eines bereits
 //   vorhandenen MA aus einem anderen Projekt (ohne jede Auswirkung auf die Daten).
 // - v7.4.2-6: Uebernahme laeuft jetzt serverseitig ueber /api/v7/import-antrag-neu
@@ -294,7 +303,7 @@ export default function ProjectCreateForm({
             .in('employee_id', matchedIds).eq('is_active', true);
           const projIds = Array.from(new Set((prior || []).map((x: any) => x.project_id)));
           const { data: projs2 } = await supabase.from('v7_projects').select('id, name').in('id', projIds);
-          const projName = new Map((projs2 || []).map((p: any) => [p.id, p.name] as [string, string]));
+          const projName = new Map<string, string>((projs2 || []).map((p: any) => [p.id, p.name] as [string, string]));
           const info: Record<string, { projectName: string; hourly_rate: number }> = {};
           for (const a of (prior || []) as any[]) {
             if (!info[a.employee_id] && a.hourly_rate != null) {
@@ -439,13 +448,13 @@ export default function ProjectCreateForm({
     <div className="space-y-6">
       {error && (
         <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+          <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
           <span className="text-red-800">{error}</span>
         </div>
       )}
       {success && (
         <div className={`p-4 ${colors.bg} border ${colors.border} rounded-lg flex items-start gap-3`}>
-          <CheckCircle className={`w-5 h-5 ${colors.text} flex-shrink-0 mt-0.5`} />
+          <CheckCircle className={`w-5 h-5 ${colors.text} shrink-0 mt-0.5`} />
           <span className="text-gray-800">{success}</span>
         </div>
       )}
@@ -540,7 +549,7 @@ export default function ProjectCreateForm({
             </div>
             {pdfError && (
               <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
                 <span className="text-red-800 text-sm">{pdfError}</span>
               </div>
             )}
@@ -551,12 +560,12 @@ export default function ProjectCreateForm({
             <div className="space-y-6">
               {warnung ? (
                 <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
-                  <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                   <span className="text-amber-800 text-sm">{warnung}</span>
                 </div>
               ) : (
                 <div className="p-3 bg-green-50 border border-green-200 rounded-lg flex items-start gap-3">
-                  <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+                  <CheckCircle className="w-5 h-5 text-green-600 shrink-0 mt-0.5" />
                   <span className="text-green-800 text-sm">Kontrollsummen der Anlage 5 stimmen mit den extrahierten Werten ueberein.</span>
                 </div>
               )}
@@ -679,7 +688,7 @@ export default function ProjectCreateForm({
               {/* Uebernahme-Fehler */}
               {uebernahmeError && (
                 <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                  <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
                   <span className="text-red-800 text-sm">{uebernahmeError}</span>
                 </div>
               )}
