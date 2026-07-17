@@ -2,8 +2,24 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 3. Juli 2026
-// Version: 7.4.6-64
+// Datum: 17. Juli 2026
+// Version: 7.4.6-65
+// v7.4.6-65: FIX Fehlzeit + auto-vorbelegte "sonstige Arbeiten" am selben Tag.
+//   Beim Setzen einer Abwesenheit (U/K/S) in der AP-Tageszelle wurde bisher nur
+//   die AP-Zelle geleert, die zuvor auto-vorbelegte "sonstige"-Zelle desselben
+//   Tages blieb jedoch stehen. Folge: Fehlzeit (z.B. 8 h) + sonstige (8 h) = 16 h
+//   -> Tagesstunden-Ueberschreitung ("Tag X: Fehlzeit ... plus Arbeitszeit ...
+//   ueberschreitet die Tagesstunden"). Ein Abwesenheitstag ist ausschliesslich
+//   Abwesenheit -- daher wird die "sonstige"-Zelle jetzt symmetrisch zur AP-Zelle
+//   geraeumt. ZWEI Stellen:
+//   1) handleCellChange: beim Setzen von U/K/S wird nonBillableEntries[day] und
+//      der zugehoerige nonBillableManual-Marker entfernt (sofortige Raeumung,
+//      deckt AP-Zelle + Rechtsklick-Menue ab).
+//   2) Auto-Vorbelegung-Effect: Sicherheitsnetz -- an einem Abwesenheitstag wird
+//      eine nicht-manuelle "sonstige"-Vorbelegung entfernt (deckt zusaetzlich die
+//      direkte Eingabe in den unteren Fehlzeit-Zeilen ab). Beim Entfernen der
+//      Abwesenheit wird der Tag wieder reiner Arbeitstag und die Auto-Vorbelegung
+//      fuellt automatisch neu.
 // v7.4.6-64: "Sonstige Arbeiten" zaehlen NICHT mehr in Grenzbetrachtungen
 //   (nicht foerderbar). ZWEI Stellen bereinigt:
 //   1) 9h-Tagesgrenze: calcTagSumme rechnet nur noch foerderbare Projekt-
@@ -1949,6 +1965,25 @@ export default function TimesheetForm({
         delete n[day];
         return n;
       });
+      // v7.4.6-65: Auch die "sonstige Arbeiten"-Zelle dieses Tages raeumen --
+      // symmetrisch zum Leeren der AP-Zelle oben. Ein Abwesenheitstag ist
+      // ausschliesslich Abwesenheit; ohne dieses Raeumen blieb die zuvor
+      // auto-vorbelegte "sonstige"-Zelle stehen und ergab zusammen mit der
+      // Fehlzeit eine Tagesstunden-Ueberschreitung. Den Manuell-Marker mit
+      // entfernen, damit die Auto-Vorbelegung den Tag nach Entfernen der
+      // Abwesenheit wieder korrekt fuellt.
+      setNonBillableEntries(prev => {
+        if (!prev[day]) return prev;
+        const n = { ...prev };
+        delete n[day];
+        return n;
+      });
+      setNonBillableManual(prev => {
+        if (!prev[day]) return prev;
+        const n = { ...prev };
+        delete n[day];
+        return n;
+      });
       setHasChanges(true);
       // v7.4.6-49 (A-038): Die AP-Zelle wird durch die soeben gesetzte
       // Abwesenheit gesperrt (Etappe 2c) und verliert den Fokus. Damit der
@@ -2339,6 +2374,18 @@ export default function TimesheetForm({
       const next = { ...prev };
       const daysInMon = getDaysInMonth(selectedYear, selectedMonth);
       for (let d = 1; d <= daysInMon; d++) {
+        // v7.4.6-65: Sicherheitsnetz. Wird ein Tag nachtraeglich zum
+        // Abwesenheitstag (U/K/S) -- z.B. durch direkte Eingabe in den unteren
+        // Fehlzeit-Zeilen -- so muss eine nicht-manuell gesetzte "sonstige"-
+        // Vorbelegung entfernt werden, sonst ergaeben Fehlzeit + sonstige eine
+        // Tagesstunden-Ueberschreitung. Reine Weekend-/Feiertags-/Blocked-Tage
+        // erhalten ohnehin keine Auto-Vorbelegung; nur Abwesenheitstage muessen
+        // hier aktiv geraeumt werden.
+        if (!nonBillableManual[d] && getAbsenceCodeForDay(d) && next[d]) {
+          delete next[d];
+          changed = true;
+          continue;
+        }
         if (nonBillableManual[d]) continue;
         if (!isPlainWorkday(d)) continue;
         const proj = calculateDaySum(d);
