@@ -2,7 +2,13 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-59
+// Version: 7.4.4-61
+// v7.4.4-61: FIX zu -60. In JSX-Textknoten wirken \u-Escapes NICHT (dort sind
+//   sie woertlicher Text) - nur in JS-String-Literalen. Deshalb Anzeige-Umlaute
+//   in JSX-Text jetzt als HTML-Entities (&auml; &ouml; &uuml; &Auml; &Ouml;
+//   &Uuml; &szlig;); \u-Escapes bleiben nur in JS-Strings (Format-Map, Alerts,
+//   Titel-Ausdruck). Weiterhin NUR Anzeige-Texte; Bezeichner, DB-Felder und
+//   Kommentare unveraendert; keine Logikaenderung, ZA-01..ZA-11 intakt.
 // v7.4.4-59: ZA-Stundensatz gehaertet. getHourlyRate war approved ?? hourly_rate
 //   -> bei leerem anerkannten Satz wurde der ROHE (vertragl. 37,5h-basierte) Satz
 //   genommen. Jetzt dreistufig: (1) anerkannter/gekuerzter Traeger-Satz AS-IS
@@ -143,9 +149,9 @@ const FUNDING_FORMAT_LABELS: Record<string, string> = {
   'ZIM':           'ZIM Einzelprojekt',
   'ZIM_KOOP':      'ZIM Kooperationsprojekt',
   'ZIM_NETZWERK':  'ZIM Netzwerk-Management',
-  'ZIM_DS':        'ZIM Durchfuehrbarkeitsstudie',
-  'BMBF':          'BMBF Foerderung',
-  'BMBF_DS':       'BMBF Durchfuehrbarkeitsstudie',
+  'ZIM_DS':        'ZIM Durchf\u00fchrbarkeitsstudie',
+  'BMBF':          'BMBF F\u00f6rderung',
+  'BMBF_DS':       'BMBF Durchf\u00fchrbarkeitsstudie',
 };
 const getFundingLabel = (format: string | null | undefined): string =>
   format ? (FUNDING_FORMAT_LABELS[format] || format) : '';
@@ -745,8 +751,8 @@ export default function ZAPanel({
     const isOfficial = za.status === 'eingereicht' || za.status === 'volle_zahlung' || za.status === 'gekuerzte_zahlung';
     const sc = getStatusConfig(za.status);
     const msg = isOfficial
-      ? 'ACHTUNG: Diese ZA hat Status "' + sc.label + '".\nWirklich unwiderruflich loeschen?'
-      : 'ZA ' + za.za_nummer + ' wirklich loeschen?\nDieser Vorgang kann nicht rueckgaengig gemacht werden.';
+      ? 'ACHTUNG: Diese ZA hat Status "' + sc.label + '".\nWirklich unwiderruflich l\u00f6schen?'
+      : 'ZA ' + za.za_nummer + ' wirklich l\u00f6schen?\nDieser Vorgang kann nicht r\u00fcckg\u00e4ngig gemacht werden.';
     if (!window.confirm(msg)) return;
     try {
       await supabase.from('v7_zahlungsanforderungen').delete().eq('id', za.id);
@@ -757,7 +763,7 @@ export default function ZAPanel({
         setZAFormData({ za_nummer: '1', zeitraum_von: '', zeitraum_bis: '', auftraege_dritte_t: '', auftraege_dritte_nt: '', fue_unterauftrag: '', zeitw_personalaufnahme: '', notizen: '', nwm_kosten_dritte: '' });
       }
     } catch (err: any) {
-      alert('Fehler beim Loeschen: ' + err.message);
+      alert('Fehler beim L\u00f6schen: ' + err.message);
     }
   };
 
@@ -1074,13 +1080,13 @@ export default function ZAPanel({
               <div id="za-print-area" className="border-2 border-gray-400 rounded bg-white p-4">
                 <div className="text-center text-xs text-gray-500 mb-3 font-medium uppercase tracking-wide">
                   Zentrales Innovationsprogramm Mittelstand (ZIM) &mdash; Zahlungsanforderung
-                  {isDS ? ' fuer Durchfuehrbarkeitsstudien' : ''}
+                  {isDS ? ' f\u00fcr Durchf\u00fchrbarkeitsstudien' : ''}
                 </div>
 
                 {/* Kopfdaten - Zeile 1 (gelb): Foerderkennzeichen | Datum Zuwendungsbescheid */}
                 <div className="grid grid-cols-2 gap-3 mb-2">
                   <div>
-                    <div className="text-xs text-gray-500 mb-1">Foerderkennzeichen</div>
+                    <div className="text-xs text-gray-500 mb-1">F&ouml;rderkennzeichen</div>
                     <div className="font-medium text-sm bg-yellow-50 border border-gray-300 rounded px-2 py-1 min-h-[28px]">
                       {zaProject?.funding_reference || <span className="text-gray-400 italic">nicht hinterlegt</span>}
                     </div>
@@ -1106,7 +1112,7 @@ export default function ZAPanel({
                     </div>
                   </div>
                   <div>
-                    <div className="text-xs text-gray-500 mb-1">Bewilligte Foerdersumme</div>
+                    <div className="text-xs text-gray-500 mb-1">Bewilligte F&ouml;rdersumme</div>
                     <div className="font-medium text-sm bg-green-50 border border-gray-300 rounded px-2 py-1 min-h-[28px] text-green-800">
                       {zaProjectExtra.bewilligte_summe != null
                         ? new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(zaProjectExtra.bewilligte_summe)
@@ -1157,14 +1163,14 @@ export default function ZAPanel({
                 {/* Warnung fehlende Foerderparameter */}
                 {!isNetzwerk && (!zaProject?.foerdersatz || !zaProject?.overhead_t) && (
                   <div className="bg-amber-50 border border-amber-300 rounded p-2 text-xs text-amber-700 mb-3">
-                    Foerderparameter (Foerdersatz, GKZ) sind noch nicht am Projekt hinterlegt.
-                    Bitte im Projekt bearbeiten (Tab Uebersicht &rsaquo; Bearbeiten).
+                    F&ouml;rderparameter (F&ouml;rdersatz, GKZ) sind noch nicht am Projekt hinterlegt.
+                    Bitte im Projekt bearbeiten (Tab &Uuml;bersicht &rsaquo; Bearbeiten).
                   </div>
                 )}
                 {isNetzwerk && !zaProjectExtra.bewilligung_datum && !zaProject?.bewilligung_datum && (
                   <div className="bg-amber-50 border border-amber-300 rounded p-2 text-xs text-amber-700 mb-3">
                     Bewilligungsdatum fehlt. Bitte im Tab Netzwerk &rsaquo; Einstellungen hinterlegen,
-                    damit Laufzeitjahr und Foerdersatz automatisch berechnet werden.
+                    damit Laufzeitjahr und F&ouml;rdersatz automatisch berechnet werden.
                   </div>
                 )}
 
@@ -1178,7 +1184,7 @@ export default function ZAPanel({
                       <div className="flex items-center gap-2 ml-auto">
                         <span className="text-xs text-gray-500">Laufzeitjahr:</span>
                         <span className="text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded">{nwmLaufzeitjahr}</span>
-                        <span className="text-xs text-gray-500 ml-2">Foerdersatz:</span>
+                        <span className="text-xs text-gray-500 ml-2">F&ouml;rdersatz:</span>
                         <span className="text-xs font-bold text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded">{nwmFoerdersatz}%</span>
                         <span className="text-xs text-gray-500 ml-2">Eigenanteil:</span>
                         <span className="text-xs font-bold text-orange-700 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded">{nwmEigenanteilsquote}%</span>
@@ -1194,12 +1200,12 @@ export default function ZAPanel({
                       </thead>
                       <tbody>
                         <tr>
-                          <td className="px-2 py-1.5 border border-gray-300">(1) Personalkosten (foerderfaehig)</td>
+                          <td className="px-2 py-1.5 border border-gray-300">(1) Personalkosten (f&ouml;rderf&auml;hig)</td>
                           <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-blue-50">{fmt(nwmPersonalkosten)}</td>
                           <td className="px-2 py-1.5 border border-gray-300 text-center text-gray-400 text-[10px]">aus Zeiterfassung</td>
                         </tr>
                         <tr>
-                          <td className="px-2 py-1.5 border border-gray-300">(2) Auftraege an Dritte</td>
+                          <td className="px-2 py-1.5 border border-gray-300">(2) Auftr&auml;ge an Dritte</td>
                           <td className="px-2 py-1.5 border border-gray-300 p-0">
                             <input type="number" step="0.01" min="0"
                               value={zaFormData.nwm_kosten_dritte}
@@ -1210,7 +1216,7 @@ export default function ZAPanel({
                           <td className="px-2 py-1.5 border border-gray-300 text-center text-gray-400 text-[10px]">manuell (max. 25%)</td>
                         </tr>
                         <tr>
-                          <td className="px-2 py-1.5 border border-gray-300">(3) Uebrige Kosten (pauschal 100% Personalkosten)</td>
+                          <td className="px-2 py-1.5 border border-gray-300">(3) &Uuml;brige Kosten (pauschal 100% Personalkosten)</td>
                           <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-gray-50 text-gray-500">{fmt(nwmKostenUebrige)}</td>
                           <td className="px-2 py-1.5 border border-gray-300 text-center text-gray-400 text-[10px]">automatisch</td>
                         </tr>
@@ -1220,7 +1226,7 @@ export default function ZAPanel({
                           <td className="px-2 py-1.5 border border-gray-300"></td>
                         </tr>
                         <tr className="bg-blue-50">
-                          <td className="px-2 py-1.5 border border-gray-300 text-blue-700">Foerderbetrag PT ({nwmFoerdersatz}%)</td>
+                          <td className="px-2 py-1.5 border border-gray-300 text-blue-700">F&ouml;rderbetrag PT ({nwmFoerdersatz}%)</td>
                           <td className="px-2 py-1.5 border border-gray-300 text-right font-mono text-blue-700">{fmt(nwmFoerderbetrag)}</td>
                           <td className="px-2 py-1.5 border border-gray-300"></td>
                         </tr>
@@ -1232,8 +1238,8 @@ export default function ZAPanel({
                       </tbody>
                     </table>
                     <p className="text-[10px] text-gray-400 mt-1">
-                      Uebrige Kosten = 100% der Personalkosten (pauschal lt. ZIM-Richtlinie 2024 Abschnitt 5.3.1c).
-                      Auftraege an Dritte max. 25% der Gesamtkosten (national) bzw. 35% (international).
+                      &Uuml;brige Kosten = 100% der Personalkosten (pauschal lt. ZIM-Richtlinie 2024 Abschnitt 5.3.1c).
+                      Auftr&auml;ge an Dritte max. 25% der Gesamtkosten (national) bzw. 35% (international).
                     </p>
                   </div>
                 )}
@@ -1241,7 +1247,7 @@ export default function ZAPanel({
                 {/* Kostentabelle (nur NICHT-NWM) */}
                 {!isNetzwerk && (
                 <div className="text-xs font-medium text-gray-700 mb-1">
-                  Zuwendungsfaehige Kosten im Abrechnungszeitraum und anteilige Zuwendung
+                  Zuwendungsf&auml;hige Kosten im Abrechnungszeitraum und anteilige Zuwendung
                 </div>
                 )}
                 {!isNetzwerk && (
@@ -1257,8 +1263,8 @@ export default function ZAPanel({
                         </>
                       ) : (
                         <>
-                          <th className="text-right px-2 py-1.5 border border-gray-300 font-medium w-40">entstandene zuwendungs-<br />faehige Kosten [EUR, Cent]</th>
-                          <th className="text-center px-2 py-1.5 border border-gray-300 font-medium w-24">Foerdersatz<br />[%]</th>
+                          <th className="text-right px-2 py-1.5 border border-gray-300 font-medium w-40">entstandene zuwendungs-<br />f&auml;hige Kosten [EUR, Cent]</th>
+                          <th className="text-center px-2 py-1.5 border border-gray-300 font-medium w-24">F&ouml;rdersatz<br />[%]</th>
                           <th className="text-right px-2 py-1.5 border border-gray-300 font-medium w-40">anteilige Zuwendung<br />(Summe gerundet) [EUR, Cent]</th>
                         </>
                       )}
@@ -1286,7 +1292,7 @@ export default function ZAPanel({
                     <tr>
                       <td className="px-2 py-1.5 border border-gray-300 text-center text-gray-500">(2)</td>
                       <td className="px-2 py-1.5 border border-gray-300">
-                        Zuschlag fuer uebrige Kosten{isDS ? ' technisch' : ''}&nbsp;
+                        Zuschlag f&uuml;r &uuml;brige Kosten{isDS ? ' technisch' : ''}&nbsp;
                         <span className="font-medium">{overheadT}%</span>
                       </td>
                       {isDS ? (
@@ -1316,7 +1322,7 @@ export default function ZAPanel({
                       <tr>
                         <td className="px-2 py-1.5 border border-gray-300 text-center text-gray-500">(4)</td>
                         <td className="px-2 py-1.5 border border-gray-300">
-                          Zuschlag fuer uebrige Kosten nichttechnisch&nbsp;
+                          Zuschlag f&uuml;r &uuml;brige Kosten nichttechnisch&nbsp;
                           <span className="font-medium">{overheadNT}%</span>
                         </td>
                         <td className="px-2 py-1.5 border border-gray-300 text-right font-mono bg-gray-50 text-gray-400">--</td>
@@ -1326,7 +1332,7 @@ export default function ZAPanel({
                     {/* Auftraege Dritte T */}
                     <tr>
                       <td className="px-2 py-1.5 border border-gray-300 text-center text-gray-500">{isDS ? '(5)' : '(3)'}</td>
-                      <td className="px-2 py-1.5 border border-gray-300">Kosten der Auftraege an wiss. qual. Dritte{isDS ? ', technisch' : ''}</td>
+                      <td className="px-2 py-1.5 border border-gray-300">Kosten der Auftr&auml;ge an wiss. qual. Dritte{isDS ? ', technisch' : ''}</td>
                       {isDS ? (
                         <>
                           <td className="px-2 py-1.5 border border-gray-300">
@@ -1352,7 +1358,7 @@ export default function ZAPanel({
                     {isDS && (
                       <tr>
                         <td className="px-2 py-1.5 border border-gray-300 text-center text-gray-500">(6)</td>
-                        <td className="px-2 py-1.5 border border-gray-300">Kosten der Auftraege an wiss. qual. Dritte, nichttechnisch</td>
+                        <td className="px-2 py-1.5 border border-gray-300">Kosten der Auftr&auml;ge an wiss. qual. Dritte, nichttechnisch</td>
                         <td className="px-2 py-1.5 border border-gray-300 bg-gray-50 text-gray-400 text-right">--</td>
                         <td className="px-2 py-1.5 border border-gray-300">
                           <input type="number" step="0.01" min="0" value={zaFormData.auftraege_dritte_nt}
@@ -1416,7 +1422,7 @@ export default function ZAPanel({
                         </tr>
                         <tr className="bg-green-50 font-semibold">
                           <td className="px-2 py-1.5 border border-gray-300"></td>
-                          <td className="px-2 py-1.5 border border-gray-300 text-green-800">Anteilige Zuwendung ({foerdersatz}% Foerdersatz)</td>
+                          <td className="px-2 py-1.5 border border-gray-300 text-green-800">Anteilige Zuwendung ({foerdersatz}% F&ouml;rdersatz)</td>
                           <td colSpan={2} className="px-2 py-1.5 border border-gray-300 text-right font-mono text-green-800">{fmt(antZuwendung)}</td>
                         </tr>
                       </>
@@ -1443,8 +1449,8 @@ export default function ZAPanel({
                 </svg>
                 <div>
                   <div className="font-semibold mb-1">
-                    Hinweis: Fuer die Zahlungsanforderungen sind die vorgegebenen Formulare zu verwenden.
-                    Diese Daten sind deshalb in das offizielle ZIM-Formular zu uebertragen.
+                    Hinweis: F&uuml;r die Zahlungsanforderungen sind die vorgegebenen Formulare zu verwenden.
+                    Diese Daten sind deshalb in das offizielle ZIM-Formular zu &uuml;bertragen.
                     Alle weiteren Informationen entnehmen Sie bitte den Hinweisen des ZIM-Formulars.
                   </div>
                 </div>
@@ -1458,17 +1464,17 @@ export default function ZAPanel({
           {zaTab === 'anlage1a' && (
             <div>
               {(!zaFormData.zeitraum_von || !zaFormData.zeitraum_bis) ? (
-                <div className="p-4 text-sm text-gray-500 text-center">Bitte zunaechst im Tab "Deckblatt" den Abrechnungszeitraum festlegen.</div>
+                <div className="p-4 text-sm text-gray-500 text-center">Bitte zun&auml;chst im Tab "Deckblatt" den Abrechnungszeitraum festlegen.</div>
               ) : psData.length === 0 ? (
-                <div className="p-4 text-sm text-gray-500 text-center">Keine Zeiterfassungsdaten im gewaehlten Zeitraum gefunden.</div>
+                <div className="p-4 text-sm text-gray-500 text-center">Keine Zeiterfassungsdaten im gew&auml;hlten Zeitraum gefunden.</div>
               ) : (
                 <div id="za-print-area" className="border-2 border-gray-400 rounded bg-white p-4">
                   <div className="text-center text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">
                     Zentrales Innovationsprogramm Mittelstand (ZIM) &mdash; Anlage 1a
                   </div>
-                  <div className="text-center text-base font-bold mb-3">Abrechnung der foerderbaren Personenstunden</div>
+                  <div className="text-center text-base font-bold mb-3">Abrechnung der f&ouml;rderbaren Personenstunden</div>
                   <div className="grid grid-cols-4 gap-3 mb-4 pb-3 border-b border-gray-300 text-xs">
-                    <div><span className="text-gray-500">Foerderkennzeichen: </span><span className="font-medium">{zaProject?.funding_reference || '--'}</span></div>
+                    <div><span className="text-gray-500">F&ouml;rderkennzeichen: </span><span className="font-medium">{zaProject?.funding_reference || '--'}</span></div>
                     <div><span className="text-gray-500">zu ZA-Nr.: </span><span className="font-medium">{zaFormData.za_nummer}</span></div>
                     <div><span className="text-gray-500">Zeitraum von: </span><span className="font-medium">{fmtDate(zaFormData.zeitraum_von)}</span></div>
                     <div><span className="text-gray-500">bis: </span><span className="font-medium">{fmtDate(zaFormData.zeitraum_bis)}</span></div>
@@ -1482,14 +1488,14 @@ export default function ZAPanel({
                           <th className="px-2 py-1.5 border border-gray-300 text-center w-24">Monat</th>
                           {isDS ? (
                             <>
-                              <th className="px-2 py-1.5 border border-gray-300 text-center">foerderbare<br />Std. je Monat<br />[h] techn.</th>
-                              <th className="px-2 py-1.5 border border-gray-300 text-center">foerderbare<br />Std. je Monat<br />[h] nichttechn.</th>
+                              <th className="px-2 py-1.5 border border-gray-300 text-center">f&ouml;rderbare<br />Std. je Monat<br />[h] techn.</th>
+                              <th className="px-2 py-1.5 border border-gray-300 text-center">f&ouml;rderbare<br />Std. je Monat<br />[h] nichttechn.</th>
                               <th className="px-2 py-1.5 border border-gray-300 text-center">Summe<br />[h] techn.</th>
                               <th className="px-2 py-1.5 border border-gray-300 text-center">Summe<br />[h] nichttechn.</th>
                             </>
                           ) : (
                             <>
-                              <th className="px-2 py-1.5 border border-gray-300 text-center">foerderbare Personenstunden<br />je Monat [h]</th>
+                              <th className="px-2 py-1.5 border border-gray-300 text-center">f&ouml;rderbare Personenstunden<br />je Monat [h]</th>
                               <th className="px-2 py-1.5 border border-gray-300 text-center">Summe<br />[h]</th>
                             </>
                           )}
@@ -1535,9 +1541,9 @@ export default function ZAPanel({
                     </table>
                   </div>
                   <p className="text-xs text-gray-400 mt-2">
-                    Foerderbare Personenstunden: geleistete Projektbearbeitungsstunden gemaess Stundennachweisen,
+                    F&ouml;rderbare Personenstunden: geleistete Projektbearbeitungsstunden gem&auml;&szlig; Stundennachweisen,
                     jedoch nicht mehr als arbeitsvertraglich vereinbart.
-                    Max. foerderbare Std. je Monat = Wochenarbeitszeit x 52 (Wochen) : 12 (Monate).
+                    Max. f&ouml;rderbare Std. je Monat = Wochenarbeitszeit x 52 (Wochen) : 12 (Monate).
                   </p>
                 </div>
               )}
@@ -1549,8 +1555,8 @@ export default function ZAPanel({
                   </svg>
                   <div>
                     <div className="font-semibold mb-1">
-                      Hinweis: Fuer die Zahlungsanforderungen sind die vorgegebenen Formulare zu verwenden.
-                      Diese Daten sind deshalb in das offizielle ZIM-Formular zu uebertragen.
+                      Hinweis: F&uuml;r die Zahlungsanforderungen sind die vorgegebenen Formulare zu verwenden.
+                      Diese Daten sind deshalb in das offizielle ZIM-Formular zu &uuml;bertragen.
                       Alle weiteren Informationen entnehmen Sie bitte den Hinweisen des ZIM-Formulars.
                     </div>
                   </div>
@@ -1563,15 +1569,15 @@ export default function ZAPanel({
           {zaTab === 'anlage1b' && (
             <div>
               {(!zaFormData.zeitraum_von || !zaFormData.zeitraum_bis) ? (
-                <div className="p-4 text-sm text-gray-500 text-center">Bitte zunaechst im Tab "Deckblatt" den Abrechnungszeitraum festlegen.</div>
+                <div className="p-4 text-sm text-gray-500 text-center">Bitte zun&auml;chst im Tab "Deckblatt" den Abrechnungszeitraum festlegen.</div>
               ) : psData.length === 0 ? (
-                <div className="p-4 text-sm text-gray-500 text-center">Keine Zeiterfassungsdaten im gewaehlten Zeitraum gefunden.</div>
+                <div className="p-4 text-sm text-gray-500 text-center">Keine Zeiterfassungsdaten im gew&auml;hlten Zeitraum gefunden.</div>
               ) : (
                 <div id="za-print-area" className="border-2 border-gray-400 rounded bg-white p-4">
                   <div className="text-center text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">
                     Zentrales Innovationsprogramm Mittelstand (ZIM) &mdash; Anlage 1b
                   </div>
-                  <div className="text-center text-base font-bold mb-3">Abrechnung der zuwendungsfaehigen Personalkosten</div>
+                  <div className="text-center text-base font-bold mb-3">Abrechnung der zuwendungsf&auml;higen Personalkosten</div>
                   {/* v7.4.4-59: Sichtbare Warnung, wenn fuer MA gar kein Satz vorliegt */}
                   {(() => {
                     const fehlend = psData
@@ -1580,12 +1586,12 @@ export default function ZAPanel({
                     if (fehlend.length === 0) return null;
                     return (
                       <div className="mb-3 px-3 py-2 rounded border border-amber-300 bg-amber-50 text-amber-800 text-xs print:hidden">
-                        <strong>Achtung:</strong> Fuer folgende Personen ist kein Stundensatz hinterlegt &ndash; deren Personalkosten werden mit 0 gerechnet: {fehlend.join(', ')}. Bitte Gehaltsdaten bzw. anerkannten Satz im Projektteam pflegen.
+                        <strong>Achtung:</strong> F&uuml;r folgende Personen ist kein Stundensatz hinterlegt &ndash; deren Personalkosten werden mit 0 gerechnet: {fehlend.join(', ')}. Bitte Gehaltsdaten bzw. anerkannten Satz im Projektteam pflegen.
                       </div>
                     );
                   })()}
                   <div className="grid grid-cols-4 gap-3 mb-4 pb-3 border-b border-gray-300 text-xs">
-                    <div><span className="text-gray-500">Foerderkennzeichen: </span><span className="font-medium">{zaProject?.funding_reference || '--'}</span></div>
+                    <div><span className="text-gray-500">F&ouml;rderkennzeichen: </span><span className="font-medium">{zaProject?.funding_reference || '--'}</span></div>
                     <div><span className="text-gray-500">zu ZA-Nr.: </span><span className="font-medium">{zaFormData.za_nummer}</span></div>
                     <div><span className="text-gray-500">Zeitraum von: </span><span className="font-medium">{fmtDate(zaFormData.zeitraum_von)}</span></div>
                     <div><span className="text-gray-500">bis: </span><span className="font-medium">{fmtDate(zaFormData.zeitraum_bis)}</span></div>
@@ -1598,11 +1604,11 @@ export default function ZAPanel({
                           <th className="px-2 py-1.5 border border-gray-300 text-left">Projektmitarbeiter(in)</th>
                           {isDS ? (
                             <>
-                              <th className="px-2 py-1.5 border border-gray-300 text-right">foerderbare<br />Std. techn.<br />entspr. 1a (1)<br />[h]</th>
-                              <th className="px-2 py-1.5 border border-gray-300 text-right">foerderbare<br />Std. nichttechn.<br />entspr. 1a (2)<br />[h]</th>
+                              <th className="px-2 py-1.5 border border-gray-300 text-right">f&ouml;rderbare<br />Std. techn.<br />entspr. 1a (1)<br />[h]</th>
+                              <th className="px-2 py-1.5 border border-gray-300 text-right">f&ouml;rderbare<br />Std. nichttechn.<br />entspr. 1a (2)<br />[h]</th>
                             </>
                           ) : (
-                            <th className="px-2 py-1.5 border border-gray-300 text-right">foerderbare<br />Personenstunden<br />entspr. Anlage 1a<br />[h]</th>
+                            <th className="px-2 py-1.5 border border-gray-300 text-right">f&ouml;rderbare<br />Personenstunden<br />entspr. Anlage 1a<br />[h]</th>
                           )}
                           <th className="px-2 py-1.5 border border-gray-300 text-right">Stundensatz<br />[EUR, Cent/h]</th>
                           {isDS ? (
@@ -1648,7 +1654,7 @@ export default function ZAPanel({
                           );
                         })}
                         <tr className="bg-gray-100 font-semibold border-t-2 border-gray-400">
-                          <td colSpan={2} className="px-2 py-2 border border-gray-300 text-right">Summe/Uebertrag:</td>
+                          <td colSpan={2} className="px-2 py-2 border border-gray-300 text-right">Summe/&Uuml;bertrag:</td>
                           {isDS ? (
                             <>
                               <td className="px-2 py-2 border border-gray-300 text-right font-mono">{psData.reduce((s, r) => s + r.totalT, 0).toFixed(2)}</td>
@@ -1681,8 +1687,8 @@ export default function ZAPanel({
                   </svg>
                   <div>
                     <div className="font-semibold mb-1">
-                      Hinweis: Fuer die Zahlungsanforderungen sind die vorgegebenen Formulare zu verwenden.
-                      Diese Daten sind deshalb in das offizielle ZIM-Formular zu uebertragen.
+                      Hinweis: F&uuml;r die Zahlungsanforderungen sind die vorgegebenen Formulare zu verwenden.
+                      Diese Daten sind deshalb in das offizielle ZIM-Formular zu &uuml;bertragen.
                       Alle weiteren Informationen entnehmen Sie bitte den Hinweisen des ZIM-Formulars.
                     </div>
                   </div>
@@ -1785,12 +1791,12 @@ export default function ZAPanel({
                                 <button
                                   onClick={() => checkUnsavedChanges(() => { loadZAIntoForm(za); setZATab('deckblatt'); })}
                                   className={`text-xs px-2.5 py-1 rounded border transition-colors ${colors.btnZaHover} bg-white text-gray-600 border-gray-300`}>
-                                  Oeffnen
+                                  &Ouml;ffnen
                                 </button>
                                 <button
                                   onClick={() => handleDeleteZA(za)}
                                   className="text-xs px-2.5 py-1 rounded border border-red-200 bg-white text-red-500 hover:bg-red-50 hover:border-red-400 transition-colors">
-                                  Loeschen
+                                  L&ouml;schen
                                 </button>
                               </div>
                             </td>
@@ -1824,9 +1830,9 @@ export default function ZAPanel({
       {showUnsavedDialog && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 print:hidden">
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full mx-4">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Ungespeicherte Aenderungen</h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Ungespeicherte &Auml;nderungen</h3>
             <p className="text-gray-600 mb-6">
-              Sie haben ungespeicherte Aenderungen an der ZA. Was moechten Sie tun?
+              Sie haben ungespeicherte &Auml;nderungen an der ZA. Was m&ouml;chten Sie tun?
             </p>
             <div className="flex flex-col gap-2">
               <button
@@ -1848,7 +1854,7 @@ export default function ZAPanel({
                   callback();
                 }}
                 className="w-full px-4 py-2 text-red-700 bg-red-100 rounded-lg hover:bg-red-200">
-                Aenderungen verwerfen
+                &Auml;nderungen verwerfen
               </button>
               <button
                 onClick={() => setShowUnsavedDialog(null)}
