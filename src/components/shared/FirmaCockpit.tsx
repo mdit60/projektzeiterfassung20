@@ -3,7 +3,16 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-36-3
+// Version: 7.4.9-36-4
+// v7.4.9-36-4: Projekt-Kaestchen in der MA-Liste umgewidmet: statt Sprung in die
+//   Team-Liste zum Bearbeiten des Mitglieds fuehrt der Klick jetzt direkt in die
+//   Stundenerfassung (Zeiterfassung), vorgefiltert nach genau diesem MA in genau
+//   diesem Projekt (?employee=&projekt=&returnUrl=). Darstellung je Projekt:
+//   Projektname als Text + Uhr-Symbol. Bei mehreren Projekten je MA stehen die
+//   Kaestchen weiterhin untereinander/nebeneinander, jedes mit eigenem Link. Die
+//   MA-Datenpflege laeuft ohnehin ueber die Projektdaten. handleTeamMemberClick
+//   durch handleStundenerfassungClick ersetzt (Route analog handleNavigateToZE der
+//   Stundennachweis-Matrix, cockpit-stundennachweis v7.4.9-7). Reine UI/Navigation.
 // v7.4.9-36-3: pm_basis_weekly_hours in Projekt-Select + ProjektData. Kosten/PM
 //   rechnen ueber die utils projektbasiert (160,33 bei 37h-Antragsbasis).
 // v7.4.9-36: Schluessel-Icon in MA-Liste mit dynamischem Tooltip. Zeigt jetzt
@@ -720,19 +729,24 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
     }
   }
 
-  function handleTeamMemberClick(projektId: string, employeeId: string) {
-    const returnTo = encodeURIComponent(
+  // v7.4.9-36-4: Projekt-Kaestchen fuehrt in die Stundenerfassung (Zeiterfassung),
+  // vorgefiltert nach MA + Projekt. Route/Parameter analog handleNavigateToZE der
+  // Stundennachweis-Matrix (cockpit-stundennachweis v7.4.9-7): ?employee=&projekt=.
+  // year/month bewusst weggelassen -> TimesheetForm belegt den aktuellen Monat vor.
+  // returnUrl fuehrt "Zurueck" zuverlaessig ins Firma-Cockpit.
+  function handleStundenerfassungClick(projektId: string, employeeId: string) {
+    const returnUrl = encodeURIComponent(
       portal === 'berater'
         ? (isAppMode
             ? '/v7/berater/app/firma/' + firmaIdLocal
             : '/v7/berater/foerderung/firma/' + firmaIdLocal + '/cockpit')
         : '/v7/firma/cockpit'
     );
-    const suffix = '?tab=team&editMember=' + employeeId + '&returnTo=' + returnTo;
+    const suffix = '?employee=' + employeeId + '&projekt=' + projektId + '&returnUrl=' + returnUrl;
     if (portal === 'berater') {
-      router.push('/v7/berater/foerderung/firma/' + firmaIdLocal + '/projekt/' + projektId + suffix);
+      router.push('/v7/berater/foerderung/firma/' + firmaIdLocal + '/zeiterfassung' + suffix);
     } else {
-      router.push('/v7/firma/projekte/' + projektId + suffix);
+      router.push('/v7/firma/zeiterfassung' + suffix);
     }
   }
 
@@ -1232,18 +1246,19 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                             <button
                               key={proj.id}
                               type="button"
-                              onClick={(e) => { e.stopPropagation(); handleTeamMemberClick(proj.id, ma.id); }}
-                              className="inline-block text-xs px-2 py-0.5 rounded-full border cursor-pointer hover:opacity-80 transition-opacity"
+                              onClick={(e) => { e.stopPropagation(); handleStundenerfassungClick(proj.id, ma.id); }}
+                              className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border cursor-pointer hover:opacity-80 transition-opacity"
                               style={{
                                 color: farbe,
                                 borderColor: farbe + '40',
                                 backgroundColor: farbe + '10',
                               }}
                               title={proj.ausgeschieden
-                                ? ('Aus Projekt ' + proj.name + ' ausgeschieden - Team-Liste oeffnen')
-                                : ('Im Projekt ' + proj.name + ' bearbeiten (Team-Liste)')}
+                                ? ('Stundenerfassung ' + proj.name + ' oeffnen (aus Projekt ausgeschieden)')
+                                : ('Stundenerfassung ' + proj.name + ' oeffnen')}
                             >
-                              {proj.name}
+                              <span>{proj.name}</span>
+                              <Clock className="w-3 h-3 flex-shrink-0" />
                             </button>
                           );
                         })}
