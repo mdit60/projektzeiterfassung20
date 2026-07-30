@@ -3,7 +3,29 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-36-4
+// Version: 7.4.9-36-10
+// v7.4.9-36-10: VN-Freigabe je Firma. Im FIRMEN-Portal erscheinen die VN-Kacheln
+//   (aktive + abgeschlossene Projekte) nur, wenn die Firma freigeschaltet ist
+//   (v7_client_companies.vn_firma_freigeschaltet). Die BERATER-Seite bleibt immer
+//   frei. Gesteuert wird die Freigabe zentral in der Administration (nur
+//   system_admin). Reine Sichtbarkeits-Steuerung.
+// v7.4.9-36-9: VN-Kachel jetzt auch fuer ZIM_NETZWERK (NWM Phase 1/2). Die
+//   Format-Liste fuer die VN-Kachel (aktive UND abgeschlossene Projekte) um
+//   'ZIM_NETZWERK' erweitert. Reine UI/Navigation.
+// v7.4.9-36-8: VN-Button jetzt AUCH bei abgeschlossenen (inaktiven) Projekten.
+//   Grund: der Verwendungsnachweis wird nach Projektende geschrieben; bisher
+//   erschien die VN-Kachel nur bei aktiven Projekten (selectedProjekt.is_active),
+//   sodass ein echt beendetes Projekt keinen VN-Einstieg hatte. Die aufklappbare
+//   Liste "abgeschlossene Projekte" bekommt je Kaertchen einen VN-Button
+//   (portal-aware via handleVerwendungsnachweisClick), bei ZIM_EINZEL/ZIM_KOOP/
+//   ZIM/ZIM_DS. Aktive Kachel unveraendert. Reine UI/Navigation, keine Logik/DB.
+// v7.4.9-36-7: FIX Foerderformat-Werte fuer die VN-Kachel: Einzel = ZIM_EINZEL,
+//   Koop = ZIM_KOOP (nicht 'ZIM'). Kachel jetzt bei ZIM_EINZEL/ZIM_KOOP/ZIM/ZIM_DS.
+// v7.4.9-36-6: VN-Kachel fuer De-minimis-Varianten (vorher nur ZIM_DS). NWM folgt.
+// v7.4.9-36-5: NEU Kachel "Verwendungsnachweis" in der Direktlink-Zeile aktiver
+//   Projekte - nur bei ZIM_DS (VN-MVP DS De-minimis). handleVerwendungsnachweisClick
+//   navigiert nach /firma/[id]/verwendungsnachweis?projekt= (Muster
+//   handleStundennachweisClick). Reine UI/Navigation, keine Logik/DB.
 // v7.4.9-36-4: Projekt-Kaestchen in der MA-Liste umgewidmet: statt Sprung in die
 //   Team-Liste zum Bearbeiten des Mitglieds fuehrt der Klick jetzt direkt in die
 //   Stundenerfassung (Zeiterfassung), vorgefiltert nach genau diesem MA in genau
@@ -211,6 +233,7 @@ interface FirmaData {
   federal_state: string | null;
   holiday_region: string | null;
   standard_weekly_hours: number | null;
+  vn_firma_freigeschaltet: boolean;
 }
 
 interface ProjektData {
@@ -483,7 +506,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
       // 1. Firmendaten
       const { data: firmaDB, error: firmaErr } = await supabase
         .from('v7_client_companies')
-        .select('id, name, contact_person, contact_phone, contact_email, federal_state, holiday_region, standard_weekly_hours')
+        .select('id, name, contact_person, contact_phone, contact_email, federal_state, holiday_region, standard_weekly_hours, vn_firma_freigeschaltet')
         .eq('id', firmaIdLocal)
         .single();
 
@@ -766,6 +789,16 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
     }
   }
 
+  // v7.4.9-36-5: VN-Kachel -> Verwendungsnachweis-Seite (VN-MVP DS De-minimis),
+  // Muster handleStundennachweisClick. Die Seite laedt die DS-Projekte selbst.
+  function handleVerwendungsnachweisClick(projektId: string) {
+    if (portal === 'berater') {
+      router.push('/v7/berater/foerderung/firma/' + firmaIdLocal + '/verwendungsnachweis?projekt=' + projektId);
+    } else {
+      router.push('/v7/firma/verwendungsnachweis?projekt=' + projektId);
+    }
+  }
+
   // --- Action-Buttons ---
 
   const cockpitReturnTo = encodeURIComponent(
@@ -880,6 +913,9 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
 
   const aktiveProjekte = projekte.filter(p => p.is_active);
   const inaktiveProjekte = projekte.filter(p => !p.is_active);
+  // v7.4.9-36-10: VN-Kacheln im Firmen-Portal nur bei freigeschalteter Firma;
+  // Berater-Seite immer sichtbar.
+  const vnSichtbar = portal === 'berater' || !!firma?.vn_firma_freigeschaltet;
   const selectedProjekt = projekte.find(p => p.id === selectedProjektId);
 
   // MA gefiltert nach ausgewaehltem Projekt
@@ -1404,6 +1440,15 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                         <BarChart3 className="w-3 h-3" />
                         Stundennachweis
                       </button>
+                      {vnSichtbar && ['ZIM_EINZEL', 'ZIM_KOOP', 'ZIM', 'ZIM_DS', 'ZIM_NETZWERK'].includes(String(selectedProjekt.funding_format || '').toUpperCase().trim()) && (
+                        <button
+                          onClick={() => handleVerwendungsnachweisClick(selectedProjektId)}
+                          className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-md bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors"
+                        >
+                          <Banknote className="w-3 h-3" />
+                          Verwendungsnachweis
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
@@ -1442,6 +1487,19 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                         <div className="text-xs text-gray-400 mt-1">
                           {formatLaufzeit(projekt.start_date, projekt.end_date)}
                         </div>
+                        {/* v7.4.9-36-8: VN-Einstieg auch fuer abgeschlossene
+                            Projekte (VN erfolgt nach Projektende). */}
+                        {vnSichtbar && ['ZIM_EINZEL', 'ZIM_KOOP', 'ZIM', 'ZIM_DS', 'ZIM_NETZWERK'].includes(String(projekt.funding_format || '').toUpperCase().trim()) && (
+                          <div className="mt-2 pt-2 border-t border-gray-200">
+                            <button
+                              onClick={() => handleVerwendungsnachweisClick(projekt.id)}
+                              className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-md bg-white text-gray-600 hover:bg-gray-100 border border-gray-200 transition-colors"
+                            >
+                              <Banknote className="w-3 h-3" />
+                              Verwendungsnachweis
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
