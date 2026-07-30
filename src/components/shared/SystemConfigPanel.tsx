@@ -4,7 +4,13 @@
 // ============================================================================
 // PZE V7 - System-Konfiguration (nur system_admin)
 // ============================================================================
-// Version: 7.4.4-2
+// Version: 7.4.4-3
+// v7.4.4-3: NEU Abschnitt "Verwendungsnachweis - Freigabe je Firma". Pro Firma
+//   (v7_client_companies.vn_firma_freigeschaltet) steuerbar, ob der VN im
+//   FIRMEN-Portal sichtbar ist. Berater-Seite bleibt immer frei. Nur system_admin
+//   (dieser Panel-Bereich ist ohnehin system_admin-only). Speichern je Zeile
+//   sofort (eigene Tabelle, nicht ueber den globalen "Alle speichern"-Button).
+//   Voraussetzung: SQL-MIGRATION-vn-firma-freigabe-v1.sql (Spalte angelegt).
 // Datum: 8. Mai 2026
 //
 // v7.4.4-2: Cockpit-Freischaltung
@@ -18,7 +24,17 @@
 
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { BookOpen, LayoutDashboard, CheckCircle, AlertCircle, Loader2, Save } from 'lucide-react';
+import { BookOpen, LayoutDashboard, CheckCircle, AlertCircle, Loader2, Save, FileText, Search } from 'lucide-react';
+
+// ============================================================================
+// TYPEN
+// ============================================================================
+
+interface FirmaVN {
+  id: string;
+  name: string;
+  vn: boolean;
+}
 
 // ============================================================================
 // TOGGLE-KOMPONENTE (wiederverwendbar)
@@ -97,6 +113,12 @@ export default function SystemConfigPanel() {
   const [cockpitBeraterEnabled, setCockpitBeraterEnabled] = useState(false);
   const [cockpitFirmaEnabled, setCockpitFirmaEnabled] = useState(false);
 
+  // VN-Freigabe je Firma (eigene Tabelle v7_client_companies)
+  const [firmen, setFirmen] = useState<FirmaVN[]>([]);
+  const [firmaSuche, setFirmaSuche] = useState('');
+  const [firmaSaving, setFirmaSaving] = useState<Record<string, boolean>>({});
+  const [firmaSaved, setFirmaSaved] = useState<Record<string, boolean>>({});
+
   // -- Daten laden --
   useEffect(() => {
     const supabase = createClient();
@@ -135,6 +157,18 @@ export default function SystemConfigPanel() {
       }
       setLastUpdated(newestUpdate);
       setLastUpdatedBy(newestUpdatedBy);
+
+      // VN-Freigabe je Firma laden
+      const { data: firmenData } = await supabase
+        .from('v7_client_companies')
+        .select('id, name, vn_firma_freigeschaltet')
+        .order('name', { ascending: true });
+      if (firmenData) {
+        setFirmen(firmenData.map((f: any) => ({
+          id: f.id, name: f.name, vn: !!f.vn_firma_freigeschaltet,
+        })));
+      }
+
       setLoading(false);
     }
 
@@ -181,6 +215,25 @@ export default function SystemConfigPanel() {
     }
   }
 
+  // VN-Freigabe je Firma sofort speichern (optimistisch, mit Rollback)
+  async function toggleFirmaVN(id: string, next: boolean) {
+    const supabase = createClient();
+    setFirmaSaving(prev => ({ ...prev, [id]: true }));
+    setFirmen(prev => prev.map(f => f.id === id ? { ...f, vn: next } : f));
+    const { error } = await supabase
+      .from('v7_client_companies')
+      .update({ vn_firma_freigeschaltet: next })
+      .eq('id', id);
+    setFirmaSaving(prev => ({ ...prev, [id]: false }));
+    if (error) {
+      setFirmen(prev => prev.map(f => f.id === id ? { ...f, vn: !next } : f));
+      console.error('VN-Freigabe speichern fehlgeschlagen fuer ' + id + ':', error);
+    } else {
+      setFirmaSaved(prev => ({ ...prev, [id]: true }));
+      setTimeout(() => setFirmaSaved(prev => ({ ...prev, [id]: false })), 2000);
+    }
+  }
+
   function resetSaveStatus() { setSaveStatus('idle'); }
 
   function formatDate(iso: string | null) {
@@ -201,8 +254,90 @@ export default function SystemConfigPanel() {
     );
   }
 
+  const firmenGefiltert = firmen.filter(f =>
+    f.name.toLowerCase().includes(firmaSuche.trim().toLowerCase()));
+  const anzahlFrei = firmen.filter(f => f.vn).length;
+
   return (
     <div className="space-y-6">
+
+      {/* ================================================================ */}
+      {/* VERWENDUNGSNACHWEIS - FREIGABE JE FIRMA                         */}
+      {/* ================================================================ */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+          <FileText size={20} className="text-gray-500" />
+          <div className="flex-1">
+            <h3 className="text-base font-semibold text-gray-900">Verwendungsnachweis &ndash; Freigabe je Firma</h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Steuert pro Firma, ob der Verwendungsnachweis im <span className="font-medium">Firmen-Portal</span> sichtbar ist.
+              Die Berater-Seite ist immer frei (zum Testen). Standard: gesperrt.
+            </p>
+          </div>
+          <span className="text-xs text-gray-500 whitespace-nowrap">
+            {anzahlFrei} / {firmen.length} freigeschaltet
+          </span>
+        </div>
+
+        <div className="px-6 py-4">
+          {/* Suche */}
+          <div className="relative mb-3">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              value={firmaSuche}
+              onChange={e => setFirmaSuche(e.target.value)}
+              placeholder="Firma suchen ..."
+              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+
+          {firmen.length === 0 ? (
+            <p className="text-sm text-gray-400 py-4 text-center">Keine Firmen gefunden.</p>
+          ) : (
+            <div className="divide-y divide-gray-50 max-h-96 overflow-y-auto">
+              {firmenGefiltert.map(f => (
+                <div key={f.id} className="flex items-center justify-between py-2.5">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <button
+                      onClick={() => toggleFirmaVN(f.id, !f.vn)}
+                      disabled={!!firmaSaving[f.id]}
+                      className={[
+                        'relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none flex-shrink-0 disabled:opacity-50',
+                        f.vn ? 'bg-green-500' : 'bg-gray-300',
+                      ].join(' ')}
+                      aria-label={'VN-Freigabe ' + f.name}
+                    >
+                      <span className={[
+                        'inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-200',
+                        f.vn ? 'translate-x-6' : 'translate-x-1',
+                      ].join(' ')} />
+                    </button>
+                    <span className="text-sm text-gray-800 truncate">{f.name}</span>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {firmaSaving[f.id] ? (
+                      <Loader2 size={13} className="animate-spin text-gray-400" />
+                    ) : firmaSaved[f.id] ? (
+                      <span className="flex items-center gap-1 text-green-700 text-xs"><CheckCircle size={12} /> gespeichert</span>
+                    ) : (
+                      <span className={[
+                        'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
+                        f.vn ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700',
+                      ].join(' ')}>
+                        {f.vn ? 'Freigeschaltet' : 'Gesperrt'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {firmenGefiltert.length === 0 && (
+                <p className="text-sm text-gray-400 py-4 text-center">Keine Treffer.</p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* ================================================================ */}
       {/* COCKPIT-FREISCHALTUNG                                           */}

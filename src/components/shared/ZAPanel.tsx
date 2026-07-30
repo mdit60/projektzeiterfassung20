@@ -2,7 +2,15 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-61
+// Version: 7.4.4-63
+// v7.4.4-63: LAYOUT - Deckblatt zusaetzlich horizontal zentriert (mx-auto).
+//   Breite unveraendert (max-w-5xl), steht jetzt aber mittig. Reines Layout.
+// v7.4.4-62: LAYOUT - Deckblatt-Tab auf dokumentaehnliche Breite begrenzt
+//   (max-w-5xl), analog VerwendungsnachweisPanel v1.1-2. Zuvor lief das
+//   Deckblatt-Formular ueber die volle Breite -> Wertespalte weit rechts,
+//   schlecht lesbar (Berater- und Firmen-Portal sowie Dashboard-Einbau).
+//   NUR der Deckblatt-Container; Anlage 1a/1b (Matrizen mit overflow-x-auto)
+//   bleiben unveraendert voll breit. Reines Layout, keine Logik-/Datenaenderung.
 // v7.4.4-61: FIX zu -60. In JSX-Textknoten wirken \u-Escapes NICHT (dort sind
 //   sie woertlicher Text) - nur in JS-String-Literalen. Deshalb Anzeige-Umlaute
 //   in JSX-Text jetzt als HTML-Entities (&auml; &ouml; &uuml; &Auml; &Ouml;
@@ -1076,7 +1084,7 @@ export default function ZAPanel({
 
           {/* ====== TAB: DECKBLATT ====== */}
           {zaTab === 'deckblatt' && (
-            <div className="space-y-4">
+            <div className="space-y-4 max-w-5xl mx-auto">
               <div id="za-print-area" className="border-2 border-gray-400 rounded bg-white p-4">
                 <div className="text-center text-xs text-gray-500 mb-3 font-medium uppercase tracking-wide">
                   Zentrales Innovationsprogramm Mittelstand (ZIM) &mdash; Zahlungsanforderung

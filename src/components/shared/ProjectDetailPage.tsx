@@ -4,7 +4,19 @@
 // ============================================================================
 // Datum: 8. Mai 2026
 // Datum: 23. Juni 2026
-// Version: 7.4.4-60
+// Version: 7.4.4-63
+// v7.4.4-63: VN-Freigabe je Firma. Der VN-Button erscheint im FIRMEN-Portal nur,
+//   wenn die Firma freigeschaltet ist (v7_client_companies.vn_firma_freigeschaltet).
+//   Berater-Portal bleibt immer frei. Steuerung zentral in der Administration.
+// v7.4.4-62: VN-Button jetzt auch fuer ZIM_NETZWERK (NWM Phase 1/2) - Format-
+//   Pruefung isDeMinimisVN um 'ZIM_NETZWERK' erweitert. Reine UI/Navigation.
+// v7.4.4-61: NEU VN-Einstieg in der klassischen Projektdetail-Ansicht. Fuer
+//   De-minimis-Formate (ZIM_EINZEL/ZIM_KOOP/ZIM/ZIM_DS) erscheint rechts in der
+//   Tab-Leiste ein Button "Verwendungsnachweis", der portal-aware auf die
+//   Standalone-VN-Seite navigiert (Berater: /v7/berater/foerderung/firma/[id]/
+//   verwendungsnachweis, Firma: /v7/firma/verwendungsnachweis), mit projekt=
+//   vorselektiert und returnUrl zurueck auf diese Seite. Der VN wird nach
+//   Projektende geschrieben -> kein is_active-Filter. Reine UI/Navigation.
 // v7.4.4-60: A-043 - reicht companyName/projectName/fkz (funding_reference)
 //   an WorkPackageTable durch, fuer den Druckkopf der Arbeitsplan-Druck-/
 //   PDF-Ansicht. Rein additiv, keine Logikaenderung.
@@ -94,6 +106,7 @@ import {
   Building2,
   CreditCard,
   ChevronLeft,
+  Banknote,
 } from 'lucide-react';
 
 import PortalHeader from '@/components/shared/PortalHeader';
@@ -828,6 +841,25 @@ export default function ProjectDetailPage({
     return (project?.funding_format || '').toUpperCase().trim() === 'ZIM_NETZWERK';
   };
 
+  // v7.4.4-61: VN-Einstieg nur fuer die De-minimis-Varianten (Einzel/Koop/DS).
+  // NWM/AGVO bleiben aussen vor (AGVO direkt im PDF).
+  const isDeMinimisVN = (): boolean => {
+    const f = (project?.funding_format || '').toUpperCase().trim();
+    return f === 'ZIM_EINZEL' || f === 'ZIM_KOOP' || f === 'ZIM' || f === 'ZIM_DS' || f === 'ZIM_NETZWERK';
+  };
+
+  // v7.4.4-61: Navigiert portal-aware auf die Standalone-VN-Seite; returnUrl
+  // fuehrt zurueck auf genau diese Projektdetail-Seite.
+  const handleVerwendungsnachweisOeffnen = () => {
+    const backHere = portal === 'berater'
+      ? `/v7/berater/foerderung/firma/${companyId || project?.client_company_id}/projekt/${projectId}`
+      : `/v7/firma/projekte/${projectId}`;
+    const ziel = portal === 'berater'
+      ? `/v7/berater/foerderung/firma/${companyId || project?.client_company_id}/verwendungsnachweis`
+      : `/v7/firma/verwendungsnachweis`;
+    router.push(`${ziel}?projekt=${projectId}&returnUrl=${encodeURIComponent(backHere)}`);
+  };
+
   const formatZeitraum = (von: string, bis: string): string => {
     const vd = new Date(von);
     const bd = new Date(bis);
@@ -1482,6 +1514,23 @@ export default function ProjectDetailPage({
                   )}
                 </button>
               ))}
+
+              {/* v7.4.4-61: VN-Einstieg (kein Tab, sondern Sprung auf die
+                  Standalone-VN-Seite). Nur De-minimis-Formate. */}
+              {isDeMinimisVN() && (portal === 'berater' || (company as any)?.vn_firma_freigeschaltet) && (
+                <button
+                  onClick={handleVerwendungsnachweisOeffnen}
+                  className={[
+                    'flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2',
+                    'transition-colors whitespace-nowrap ml-auto',
+                    'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300',
+                  ].join(' ')}
+                  title="Verwendungsnachweis dieses Projekts oeffnen"
+                >
+                  <Banknote size={18} />
+                  <span>Verwendungsnachweis</span>
+                </button>
+              )}
             </div>
           )}
 
