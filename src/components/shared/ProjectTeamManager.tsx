@@ -3,7 +3,20 @@
 // PZE V7 - Projekt-Team Management
 // ============================================================================
 // Datum: 6. Mai 2026
-// Version: 7.4.4-18
+// Version: 7.4.4-19
+// AENDERUNGEN v7.4.4-19:
+// - AddMemberDialog: Beim Auswaehlen eines Mitarbeiters werden dessen in den
+//   Stammdaten (v7_employees) hinterlegte Anlage-6.1-Vorgabewerte automatisch
+//   ins Formular uebernommen: Fix-Monatsbruttolohn, weitere Fixbestandteile,
+//   pWAZ, bWAZ und der kalkulatorische Stundensatz. Kein doppeltes Eintippen.
+// - Alle Felder bleiben editierbar; abweichende Projektwerte werden weiterhin
+//   ausschliesslich projektbezogen auf v7_project_assignments gespeichert
+//   (fix pro Projekt). Foerderrechtliches Modell unveraendert.
+// - Bewilligter Stundensatz lt. Bescheid bleibt bewusst leer (projekt-/
+//   bescheidspezifisch).
+// - FIX Employee-Interface: totes Feld annual_salary durch die real
+//   existierenden Spalten monthly_salary + annual_bonus ersetzt.
+//
 // AENDERUNGEN v7.4.4-18:
 // - Neue optionale Prop initialEditEmployeeId: oeffnet nach dem Laden einmalig
 //   den Bearbeiten-Dialog des passenden Team-Mitglieds (Deep-Link aus dem
@@ -96,7 +109,8 @@ interface Employee {
   last_name: string | null;
   qualification: string | null;
   weekly_hours: number | null;
-  annual_salary: number | null;
+  monthly_salary: number | null;
+  annual_bonus: number | null;
   company_weekly_hours: number | null;
   hourly_rate: number | null;
   is_active: boolean;
@@ -306,10 +320,32 @@ function AddMemberDialog({
 
   const maxAssignmentEnd = selectedEmployee?.employment_end || undefined;
 
-  // Wenn MA ausgewaehlt wird: assignment_end auf employment_end vorbelegen
+  // Wenn MA ausgewaehlt wird: Anlage-6.1-Vorgabewerte aus den Stammdaten
+  // (v7_employees) als Startwerte ins Formular uebernehmen und assignment_end
+  // auf employment_end vorbelegen. Alle Felder bleiben editierbar; gespeichert
+  // wird weiterhin projektbezogen auf v7_project_assignments (fix pro Projekt).
   const handleEmployeeSelect = (empId: string) => {
     setSelectedEmployeeId(empId);
     const emp = availableEmployees.find(e => e.id === empId);
+
+    // Vorgabewerte uebernehmen. Die EUR-/Stundenfelder sind type=number und
+    // erwarten Punkt-Dezimaltrennung; der Stundensatz ist ein Textfeld im
+    // deutschen Komma-Format (calcHourlyRate liefert bereits Komma).
+    setHourlyRateManual(false);
+    const mg = emp?.monthly_salary != null ? String(emp.monthly_salary) : '';
+    const ab = emp?.annual_bonus != null ? String(emp.annual_bonus) : '0';
+    const pw = emp?.weekly_hours != null ? String(emp.weekly_hours) : '40';
+    const cw = emp?.company_weekly_hours != null ? String(emp.company_weekly_hours) : '40';
+    setMonthlyGrossSalary(mg);
+    setAdditionalSalaryComponents(ab);
+    setPersonalWeeklyHours(pw);
+    setCompanyWeeklyHours(cw);
+    // Stundensatz kalkulatorisch aus den Vorgabewerten; Fallback: gespeicherter Satz.
+    const calc = calcHourlyRate(mg, ab, pw);
+    setHourlyRate(calc || (emp?.hourly_rate != null ? String(emp.hourly_rate).replace('.', ',') : ''));
+    // Bewilligter Satz lt. Bescheid bleibt leer (projekt-/bescheidspezifisch).
+    setHourlyRateApproved('');
+
     if (emp?.employment_end) {
       setAssignmentEnd(emp.employment_end);
     } else {
