@@ -3,8 +3,10 @@
 // PZE V7 - TypeScript Interfaces
 // ============================================================================
 // Datum: 14. Juli 2026
-// Version: 7.4.9-3
+// Version: 7.4.9-4
 //
+// v7.4.9-4: Foerderformat-Label BMBF_KMU -> 'KMU-innovativ' (Label + Short),
+//   ministeriums-neutral (vorher 'BMBF KMU-innovativ').
 // v7.4.9-3: FZul-Fix - DB-Enum-Werte 'ZIM' und 'ZIM_DS' ergaenzt (Typ-Union,
 //           Label-/Short-Maps, V7_PUBLIC_FUNDING_FORMATS). Ursache: Alt-Projekte
 //           mit generischem funding_format 'ZIM' (z.B. HEATS/AS System) wurden
@@ -176,7 +178,7 @@ export const V7_FUNDING_FORMAT_LABELS: Record<V7FundingFormat, string> = {
   ZIM_DURCHFUEHRBARKEIT: 'ZIM Durchfuehrbarkeitsstudie',
   ZIM: 'ZIM (allgemein)',
   ZIM_DS: 'ZIM Durchfuehrbarkeitsstudie',
-  BMBF_KMU: 'BMBF KMU-innovativ',
+  BMBF_KMU: 'KMU-innovativ',
   BMBF_VERBUND: 'BMBF Verbundprojekt',
   FZUL: 'Forschungszulage',
   LANDES_FOERDERUNG: 'Landesfoerderung',
@@ -210,7 +212,7 @@ export const V7_FUNDING_FORMAT_SHORT: Record<V7FundingFormat, string> = {
   ZIM_DURCHFUEHRBARKEIT: 'ZIM DFS',
   ZIM: 'ZIM',
   ZIM_DS: 'ZIM DFS',
-  BMBF_KMU: 'BMBF KMU',
+  BMBF_KMU: 'KMU-innov.',
   BMBF_VERBUND: 'BMBF Verbund',
   FZUL: 'FZul',
   LANDES_FOERDERUNG: 'Land',
