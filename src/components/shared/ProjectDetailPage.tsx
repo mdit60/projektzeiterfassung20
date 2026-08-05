@@ -4,7 +4,10 @@
 // ============================================================================
 // Datum: 8. Mai 2026
 // Datum: 23. Juni 2026
-// Version: 7.4.4-63
+// Version: 7.4.4-64
+// v7.4.4-64: Foerderformat-Auswahl an ProjectCreateForm angeglichen: KMU-innovativ
+//   + Sonstige (Freitext funding_format_other), BMBF/BMBF_DS/Verbund entfernt.
+//   Anzeige nutzt Klartext-Label (fundingLabel) statt Rohwert.
 // v7.4.4-63: VN-Freigabe je Firma. Der VN-Button erscheint im FIRMEN-Portal nur,
 //   wenn die Firma freigeschaltet ist (v7_client_companies.vn_firma_freigeschaltet).
 //   Berater-Portal bleibt immer frei. Steuerung zentral in der Administration.
@@ -228,6 +231,7 @@ interface Project {
   name: string;
   short_name: string | null;
   funding_format: string | null;
+  funding_format_other: string | null;
   funding_reference: string | null;
   start_date: string | null;
   end_date: string | null;
@@ -269,6 +273,7 @@ interface ProjectEditData {
   name: string;
   short_name: string;
   funding_format: string;
+  funding_format_other: string;
   funding_reference: string;
   start_date: string;
   end_date: string;
@@ -308,9 +313,16 @@ const FUNDING_FORMATS = [
   { value: 'ZIM_KOOP', label: 'ZIM Kooperationsprojekt' },
   { value: 'ZIM_NETZWERK', label: 'ZIM Netzwerk-Management' },
   { value: 'ZIM_DS', label: 'ZIM Durchfuehrbarkeitsstudie' },
-  { value: 'BMBF', label: 'BMBF Foerderung' },
-  { value: 'BMBF_DS', label: 'BMBF Durchfuehrbarkeitsstudie' },
+  { value: 'BMBF_KMU', label: 'KMU-innovativ' },
+  { value: 'OTHER', label: 'Sonstige (anderes Foerderprogramm)' },
 ];
+
+const fundingLabel = (fmt: string | null, other?: string | null): string => {
+  if (!fmt) return '-';
+  if (fmt === 'OTHER') return (other && other.trim()) ? other.trim() : 'Sonstige';
+  const hit = FUNDING_FORMATS.find(f => f.value === fmt);
+  return hit ? hit.label : fmt;
+};
 
 const ZA_STATUS_OPTIONS = [
   { value: 'entwurf', label: 'Entwurf' },
@@ -442,6 +454,7 @@ export default function ProjectDetailPage({
     name: '',
     short_name: '',
     funding_format: '',
+    funding_format_other: '',
     funding_reference: '',
     start_date: '',
     end_date: '',
@@ -1222,6 +1235,7 @@ export default function ProjectDetailPage({
       name: project.name || '',
       short_name: project.short_name || '',
       funding_format: project.funding_format || '',
+      funding_format_other: project.funding_format_other || '',
       funding_reference: project.funding_reference || '',
       start_date: project.start_date || '',
       end_date: project.end_date || '',
@@ -1253,6 +1267,7 @@ export default function ProjectDetailPage({
           name: projectEditData.name.trim() || null,
           short_name: projectEditData.short_name.trim() || null,
           funding_format: projectEditData.funding_format || null,
+          funding_format_other: projectEditData.funding_format === 'OTHER' ? (projectEditData.funding_format_other.trim() || null) : null,
           funding_reference: projectEditData.funding_reference.trim() || null,
           start_date: projectEditData.start_date || null,
           end_date: projectEditData.end_date || null,
@@ -1414,7 +1429,7 @@ export default function ProjectDetailPage({
                 <div className="flex items-center gap-3 text-sm text-gray-500">
                   {project.funding_format && (
                     <span className={`px-2 py-0.5 ${buttonBgLight} rounded text-xs font-medium`}>
-                      {project.funding_format}
+                      {fundingLabel(project.funding_format, project.funding_format_other)}
                     </span>
                   )}
                   {project.funding_reference && (
@@ -1563,7 +1578,7 @@ export default function ProjectDetailPage({
                     <label className="text-sm font-medium text-gray-500">Foerderprogramm</label>
                     <p className="mt-1">
                       <span className={`px-2 py-1 ${buttonBgLight} rounded text-sm font-medium`}>
-                        {project.funding_format || '-'}
+                        {fundingLabel(project.funding_format, project.funding_format_other)}
                       </span>
                     </p>
                   </div>
@@ -2253,6 +2268,20 @@ export default function ProjectDetailPage({
                   ))}
                 </select>
               </div>
+              {projectEditData.funding_format === 'OTHER' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Welches Foerderprogramm? *
+                  </label>
+                  <input
+                    type="text"
+                    value={projectEditData.funding_format_other}
+                    onChange={(e) => setProjectEditData(prev => ({ ...prev, funding_format_other: e.target.value }))}
+                    placeholder="z.B. Landesprogramm, EU-Foerderung, ..."
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 ${focusRing}`}
+                  />
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">

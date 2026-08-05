@@ -2,8 +2,9 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Berechnungslogik (Shared Utility)
 // ============================================================================
-// Version: 7.4.9-4
+// Version: 7.4.9-5
 // Datum: 23. Juni 2026
+// v7.4.9-5: Foerderformat-Labels: BMBF_KMU -> 'KMU-innovativ'; 'OTHER' ergaenzt.
 // v7.4.9-4: Abrechnungs-Stundensatz pro Mitarbeiter skalieren.
 //   - rateScale jetzt = echte weekly_hours des MA / pmBasis (statt global
 //     firmStd / pmBasis). Vorteil: kein Durchreichen des Firmenstandards in die
@@ -224,8 +225,9 @@ export const FUNDING_FORMAT_LABELS: Record<string, string> = {
   'ZIM_NETZWERK':  'ZIM Netzwerk-Management',
   'ZIM_DS':        'ZIM Durchfuehrbarkeitsstudie',
   'BMBF':          'BMBF Foerderung',
-  'BMBF_KMU':      'BMBF/KMU-innovativ',
+  'BMBF_KMU':      'KMU-innovativ',
   'BMBF_DS':       'BMBF Durchfuehrbarkeitsstudie',
+  'OTHER':         'Sonstige',
   'FORSCHUNGSZULAGE': 'Forschungszulage',
 };
 
@@ -238,8 +240,9 @@ export const FUNDING_FORMAT_SHORT: Record<string, string> = {
   'ZIM':           'ZIM',
   'ZIM_KOOP':      'ZIM Koop.',
   'BMBF':          'BMBF',
-  'BMBF_KMU':      'BMBF/KMU-innov.',
+  'BMBF_KMU':      'KMU-innov.',
   'BMBF_DS':       'BMBF DS',
+  'OTHER':         'Sonst.',
   'FORSCHUNGSZULAGE': 'FZul',
 };
 

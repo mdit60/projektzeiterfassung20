@@ -2,7 +2,8 @@
 // ============================================================================
 // PZE V7 - Mein Status (Firmen-Portal)
 // ============================================================================
-// Version: 7.4.4-17
+// Version: 7.4.4-18
+// v7.4.4-18: Foerder-Badge BMBF_KMU -> 'KMU-innovativ'; Fall 'OTHER' -> 'Sonstige'.
 // v7.4.4-17: ASCII-Konformitaet - Umlaute in Kommentaren als ae/oe/ue
 // v7.4.4-16: CRITICAL FIX: .limit(10000) auf v7_timesheets-Query (Supabase 1000-Zeilen-Limit)
 // v7.4.4-15: ZA und Legende naher zusammen, Legende einzeilig kompakt
@@ -276,7 +277,8 @@ const getFundingBadge = (format: string | null): { label: string; color: string 
     case 'ZIM_KOOP':        return { label: 'ZIM Kooperation',   color: 'bg-blue-100 text-blue-700' };
     case 'ZIM_NETZWERK':    return { label: 'ZIM Netzwerk',      color: 'bg-purple-100 text-purple-700' };
     case 'ZIM_DURCHFUEHRBARKEIT': return { label: 'ZIM Durchf.studie', color: 'bg-indigo-100 text-indigo-700' };
-    case 'BMBF_KMU':        return { label: 'BMBF/KMU-innovativ', color: 'bg-teal-100 text-teal-700' };
+    case 'BMBF_KMU':        return { label: 'KMU-innovativ', color: 'bg-teal-100 text-teal-700' };
+    case 'OTHER':           return { label: 'Sonstige', color: 'bg-gray-100 text-gray-700' };
     default:                return { label: format || 'Sonstiges', color: 'bg-gray-100 text-gray-700' };
   }
 };
