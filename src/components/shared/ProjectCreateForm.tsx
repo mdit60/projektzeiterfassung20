@@ -3,7 +3,7 @@
 // PZE V7 - Shared Project Create Form Component
 // ============================================================================
 // Datum: 16. Juli 2026
-// Version: 7.4.2-9
+// Version: 7.4.2-11
 //
 // Wird von beiden Portalen genutzt:
 // - Firmen-Portal: /v7/firma/projekte/neu
@@ -14,6 +14,20 @@
 // - PDF-Import (ZIM-Antrag): Upload -> /api/v7/parse-zim -> Vorschau
 //   (Projektkopf editierbar, Mitarbeiter mit Dublettenabgleich + pWAZ/Stundensatz,
 //    Arbeitsplan, Kontrollsummen-Warnung)
+// - v7.4.2-11: Reiter jetzt "PDF-Import (Antrag)" (nicht mehr ZIM-spezifisch).
+//   Foerderformat-Liste: ZIM-Familie + "KMU-innovativ" (BMBF_KMU) + "Sonstige";
+//   generische BMBF-/BMBF_DS-/Verbund-Eintraege entfernt. "Sonstige" blendet ein
+//   Freitextfeld ein (-> v7_projects.funding_format_other). PDF-Reiter mit
+//   Programm-Auswahl: ZIM -> Upload; KMU-innovativ -> Hinweis 'Import in
+//   Vorbereitung'; Sonstige -> Hinweis 'kein Import vorgesehen'; beide mit
+//   Sprung zur manuellen Anlage. Fehlermeldung beim Parsen um 'Manuell anlegen'
+//   erweitert. Enum-Werte BMBF_KMU + OTHER und Spalte funding_format_other
+//   vorausgesetzt (SQL-Migration).
+// - v7.4.2-10: Reiter-Reihenfolge im Anlegen-Formular gedreht - der Reiter
+//   "PDF-Import (ZIM-Antrag)" steht jetzt zuerst UND ist der Standard-Reiter;
+//   "Manuell" folgt dahinter. PDF-Reiter zusaetzlich mit "Empfohlen"-Badge
+//   hervorgehoben. Betrifft beide Portale (Berater + Firma). Reine UI-
+//   Aenderung, keine Logik-/Datenaenderung.
 // - v7.4.2-9: Lint-Konsolidierung (suggestCanonicalClasses): 6x die Tailwind-Klasse
 //   in kanonische Kurzform ueberfuehrt (flex-shrink-0 -> shrink-0; rein kosmetisch,
 //   identisches Verhalten).
@@ -68,8 +82,8 @@ const FUNDING_FORMATS = [
   { value: 'ZIM_KOOP', label: 'ZIM Kooperationsprojekt' },
   { value: 'ZIM_NETZWERK', label: 'ZIM Netzwerk-Management' },
   { value: 'ZIM_DS', label: 'ZIM Durchfuehrbarkeitsstudie' },
-  { value: 'BMBF', label: 'BMBF Foerderung' },
-  { value: 'BMBF_DS', label: 'BMBF Durchfuehrbarkeitsstudie' },
+  { value: 'BMBF_KMU', label: 'KMU-innovativ' },
+  { value: 'OTHER', label: 'Sonstige (anderes Foerderprogramm)' },
 ];
 
 // ============================================================================
@@ -80,6 +94,7 @@ interface ProjectFormData {
   name: string;
   short_name: string;
   funding_format: string;
+  funding_format_other: string;
   funding_reference: string;
   start_date: string;
   end_date: string;
@@ -87,7 +102,7 @@ interface ProjectFormData {
 }
 
 const EMPTY_FORM: ProjectFormData = {
-  name: '', short_name: '', funding_format: '', funding_reference: '',
+  name: '', short_name: '', funding_format: '', funding_format_other: '', funding_reference: '',
   start_date: '', end_date: '', notes: '',
 };
 
@@ -188,7 +203,8 @@ export default function ProjectCreateForm({
   const supabase = createClient();
   const colors = PORTAL_COLORS[portal];
 
-  const [tab, setTab] = useState<'manuell' | 'pdf'>('manuell');
+  const [tab, setTab] = useState<'manuell' | 'pdf'>('pdf');
+  const [pdfProgramm, setPdfProgramm] = useState<'ZIM' | 'KMU' | 'OTHER'>('ZIM');
 
   // Manuelles Formular
   const [formData, setFormData] = useState<ProjectFormData>(EMPTY_FORM);
@@ -226,6 +242,7 @@ export default function ProjectCreateForm({
           name: formData.name.trim(),
           short_name: formData.short_name.trim() || null,
           funding_format: formData.funding_format || null,
+          funding_format_other: formData.funding_format === 'OTHER' ? (formData.funding_format_other.trim() || null) : null,
           funding_reference: formData.funding_reference.trim() || null,
           start_date: formData.start_date || null,
           end_date: formData.end_date || null,
@@ -459,15 +476,16 @@ export default function ProjectCreateForm({
         </div>
       )}
 
-      {/* Tab-Leiste */}
+      {/* Tab-Leiste (v7.4.2-10: PDF-Import zuerst + Standard, dann Manuell) */}
       <div className={`inline-flex gap-1 p-1 rounded-lg ${colors.tabBg}`}>
+        <button onClick={() => setTab('pdf')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === 'pdf' ? colors.activeTab : 'text-gray-600 hover:text-gray-800'}`}>
+          <FileText size={16} /> PDF-Import (Antrag)
+          <span className="ml-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold">Empfohlen</span>
+        </button>
         <button onClick={() => setTab('manuell')}
           className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === 'manuell' ? colors.activeTab : 'text-gray-600 hover:text-gray-800'}`}>
           <Save size={16} /> Manuell
-        </button>
-        <button onClick={() => setTab('pdf')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === 'pdf' ? colors.activeTab : 'text-gray-600 hover:text-gray-800'}`}>
-          <FileText size={16} /> PDF-Import (ZIM-Antrag)
         </button>
       </div>
 
@@ -494,6 +512,15 @@ export default function ProjectCreateForm({
                 {FUNDING_FORMATS.map((f) => (<option key={f.value} value={f.value}>{f.label}</option>))}
               </select>
             </div>
+            {formData.funding_format === 'OTHER' && (
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Welches Foerderprogramm? *</label>
+                <input type="text" value={formData.funding_format_other} onChange={(e) => setFormData({ ...formData, funding_format_other: e.target.value })}
+                  placeholder="z.B. Landesprogramm, EU-Foerderung, ..."
+                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 ${colors.focus}`} />
+                <p className="text-xs text-gray-500 mt-1">Bitte eintragen, da &quot;Sonstige&quot; gewaehlt wurde.</p>
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Foerderkennzeichen (FKZ)</label>
               <input type="text" value={formData.funding_reference} onChange={(e) => setFormData({ ...formData, funding_reference: e.target.value })}
@@ -519,7 +546,7 @@ export default function ProjectCreateForm({
           </div>
           <div className="flex justify-end gap-3 mt-6 pt-6 border-t border-gray-200">
             <button onClick={onCancel} className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">Abbrechen</button>
-            <button onClick={handleSaveManual} disabled={saving || !formData.name.trim()}
+            <button onClick={handleSaveManual} disabled={saving || !formData.name.trim() || (formData.funding_format === 'OTHER' && !formData.funding_format_other.trim())}
               className={`flex items-center gap-2 px-4 py-2 text-white rounded-lg transition-colors disabled:opacity-50 ${colors.button}`}>
               {saving ? (<><Loader2 size={18} className="animate-spin" /> Speichere...</>) : (<><Save size={18} /> Projekt anlegen</>)}
             </button>
@@ -530,7 +557,57 @@ export default function ProjectCreateForm({
       {/* TAB: PDF-IMPORT */}
       {tab === 'pdf' && (
         <div className="space-y-6">
-          {/* Upload */}
+          {/* Programm-Auswahl (v7.4.2-11): entscheidet, ob PDF-Import moeglich ist */}
+          <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">Fuer welches Foerderprogramm ist der Antrag?</label>
+            <select value={pdfProgramm} onChange={(e) => setPdfProgramm(e.target.value as 'ZIM' | 'KMU' | 'OTHER')}
+              className={`w-full md:w-96 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 ${colors.focus}`}>
+              <option value="ZIM">ZIM-Antrag</option>
+              <option value="KMU">KMU-innovativ</option>
+              <option value="OTHER">Sonstiges Foerderprogramm</option>
+            </select>
+          </div>
+
+          {/* KMU-innovativ: PDF-Import in Vorbereitung */}
+          {pdfProgramm === 'KMU' && (
+            <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="text-sm text-amber-800">
+                  <p className="font-medium mb-1">PDF-Import fuer KMU-innovativ-Antraege ist derzeit noch in Vorbereitung.</p>
+                  <p>Bitte legen Sie das Projekt vorerst manuell an. Der automatische Import folgt in einer spaeteren Version.</p>
+                </div>
+              </div>
+              <div className="mt-4">
+                <button onClick={() => { setFormData({ ...formData, funding_format: 'BMBF_KMU' }); setTab('manuell'); }}
+                  className={`flex items-center gap-2 px-4 py-2 text-white rounded-lg transition-colors ${colors.button}`}>
+                  <Save size={18} /> Manuell anlegen
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Sonstiges Programm: kein PDF-Import vorgesehen */}
+          {pdfProgramm === 'OTHER' && (
+            <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="text-sm text-amber-800">
+                  <p className="font-medium mb-1">Fuer sonstige Foerderprogramme ist kein PDF-Import vorgesehen.</p>
+                  <p>Bitte legen Sie das Projekt manuell an und tragen dort das konkrete Foerderprogramm ein.</p>
+                </div>
+              </div>
+              <div className="mt-4">
+                <button onClick={() => { setFormData({ ...formData, funding_format: 'OTHER' }); setTab('manuell'); }}
+                  className={`flex items-center gap-2 px-4 py-2 text-white rounded-lg transition-colors ${colors.button}`}>
+                  <Save size={18} /> Manuell anlegen
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Upload (nur fuer ZIM) */}
+          {pdfProgramm === 'ZIM' && (
           <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
             <p className="text-sm text-gray-600 mb-4">
               Laden Sie den originalen, ausfuellbaren ZIM-Foerderantrag als PDF hoch. Bitte den
@@ -548,12 +625,22 @@ export default function ProjectCreateForm({
               </button>
             </div>
             {pdfError && (
-              <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-                <span className="text-red-800 text-sm">{pdfError}</span>
+              <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                  <span className="text-red-800 text-sm">{pdfError}</span>
+                </div>
+                <div className="mt-3 pl-8">
+                  <p className="text-red-800 text-sm mb-2">Falls es sich nicht um einen ZIM-Antrag handelt, legen Sie das Projekt bitte manuell an.</p>
+                  <button onClick={() => setTab('manuell')}
+                    className="flex items-center gap-2 px-3 py-1.5 border border-red-300 text-red-800 rounded-lg hover:bg-red-100 transition-colors text-sm">
+                    <Save size={16} /> Manuell anlegen
+                  </button>
+                </div>
               </div>
             )}
           </div>
+          )}
 
           {/* Vorschau */}
           {contract && (
