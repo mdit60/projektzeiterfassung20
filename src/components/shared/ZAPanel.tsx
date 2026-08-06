@@ -2,7 +2,19 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-63
+// Version: 7.4.4-64
+// v7.4.4-64: FIX Monatsdarstellung Anlage 1a nutzerabhaengig verdreht ("25 Dez"
+//   statt "Dez. 25" bei einzelnen Anwendern). Ursache NICHT der Code: die Labels
+//   werden bereits fest mit toLocaleString('de-DE', {month:'short', year:'2-digit'})
+//   erzeugt (Monat zuerst) und sind fuer alle Nutzer identisch. Das Umdrehen
+//   entsteht durch eine Uebersetzungsschicht IM Browser (Chrome-Seitenuebersetzung
+//   "immer uebersetzen" bzw. Extensions wie Immersive Translate), die den fertig
+//   gerenderten DOM-Text nachtraeglich umbaut. Loesung: die drei amtlichen ZA-
+//   Dokumentcontainer (Deckblatt, Anlage 1a, Anlage 1b, je #za-print-area) mit
+//   translate="no" + class "notranslate" von der Browser-Uebersetzung ausnehmen.
+//   Amtliche Foerderformulare duerfen ohnehin nicht maschinenuebersetzt angezeigt
+//   werden. Reine Anzeige-/Robustheitsaenderung; keine Daten-/Logikaenderung, das
+//   erzeugte Format bleibt fuer bestehende Nutzer byte-identisch.
 // v7.4.4-63: LAYOUT - Deckblatt zusaetzlich horizontal zentriert (mx-auto).
 //   Breite unveraendert (max-w-5xl), steht jetzt aber mittig. Reines Layout.
 // v7.4.4-62: LAYOUT - Deckblatt-Tab auf dokumentaehnliche Breite begrenzt
@@ -1085,7 +1097,7 @@ export default function ZAPanel({
           {/* ====== TAB: DECKBLATT ====== */}
           {zaTab === 'deckblatt' && (
             <div className="space-y-4 max-w-5xl mx-auto">
-              <div id="za-print-area" className="border-2 border-gray-400 rounded bg-white p-4">
+              <div id="za-print-area" translate="no" className="notranslate border-2 border-gray-400 rounded bg-white p-4">
                 <div className="text-center text-xs text-gray-500 mb-3 font-medium uppercase tracking-wide">
                   Zentrales Innovationsprogramm Mittelstand (ZIM) &mdash; Zahlungsanforderung
                   {isDS ? ' f\u00fcr Durchf\u00fchrbarkeitsstudien' : ''}
@@ -1476,7 +1488,7 @@ export default function ZAPanel({
               ) : psData.length === 0 ? (
                 <div className="p-4 text-sm text-gray-500 text-center">Keine Zeiterfassungsdaten im gew&auml;hlten Zeitraum gefunden.</div>
               ) : (
-                <div id="za-print-area" className="border-2 border-gray-400 rounded bg-white p-4">
+                <div id="za-print-area" translate="no" className="notranslate border-2 border-gray-400 rounded bg-white p-4">
                   <div className="text-center text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">
                     Zentrales Innovationsprogramm Mittelstand (ZIM) &mdash; Anlage 1a
                   </div>
@@ -1581,7 +1593,7 @@ export default function ZAPanel({
               ) : psData.length === 0 ? (
                 <div className="p-4 text-sm text-gray-500 text-center">Keine Zeiterfassungsdaten im gew&auml;hlten Zeitraum gefunden.</div>
               ) : (
-                <div id="za-print-area" className="border-2 border-gray-400 rounded bg-white p-4">
+                <div id="za-print-area" translate="no" className="notranslate border-2 border-gray-400 rounded bg-white p-4">
                   <div className="text-center text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">
                     Zentrales Innovationsprogramm Mittelstand (ZIM) &mdash; Anlage 1b
                   </div>
