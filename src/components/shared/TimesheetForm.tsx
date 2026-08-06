@@ -2,8 +2,21 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 17. Juli 2026
-// Version: 7.4.6-65
+// Datum: 6. August 2026
+// Version: 7.4.6-66
+// v7.4.6-66: "Alle AP"-Modal (AP-Status) um MA-Aufschluesselung erweitert, damit
+//   der Berater fehlerhafte Buchungen je Mitarbeiter erkennen und korrigieren kann.
+//   Je Gruppe (geplant / gebucht / offen) jetzt eine Spalte pro Projekt-Team-MA
+//   (Kopf "V.Nachname") plus "gesamt". ALLE Werte in STUNDEN (keine PM).
+//   - geplant je MA: v7_work_package_assignments.planned_person_months x hoursPerPM,
+//     ueber das GANZE Team geladen (neuer Effekt loadTeamPlanned, State
+//     plannedHoursPerWpPerMa); "gesamt" bleibt das AP-Soll (total_person_months).
+//   - gebucht je MA: projektweite Timesheet-Abfrage um employee_id erweitert
+//     (State projectBookedPerWpPerMa); "gesamt" = projectBookedPerWP (unveraendert).
+//   - offen je MA = geplant(MA) - gebucht(MA); Farblogik (amber/rot/grau) je Zelle.
+//   Spalten = ganzes Projekt-Team (aus teamNumbers, nach Team-Nr. sortiert). Modal
+//   verbreitert (max-w-[96vw]) + horizontales Scrollen. Reine Anzeige-Erweiterung;
+//   keine Aenderung an Erfassung, Speicherung oder bestehender AP-/Buchungslogik.
 // v7.4.6-65: FIX Fehlzeit + auto-vorbelegte "sonstige Arbeiten" am selben Tag.
 //   Beim Setzen einer Abwesenheit (U/K/S) in der AP-Tageszelle wurde bisher nur
 //   die AP-Zelle geleert, die zuvor auto-vorbelegte "sonstige"-Zelle desselben
@@ -731,6 +744,43 @@ export default function TimesheetForm({
     });
   }, [safeEmployees, teamNumbers]);
 
+  // v7.4.6-66: Projekt-Team als Spalten fuer das "Alle AP"-Modal.
+  //   Quelle: teamNumbers (dem Projekt zugeordnete MA), sortiert nach Team-Nr.
+  //   Fallback: MA, die im Projekt geplante oder gebuchte Stunden haben.
+  const allApTeam = useMemo(() => {
+    const ids = new Set<string>();
+    teamNumbers.forEach((_n, id) => ids.add(id));
+    if (ids.size === 0) {
+      Object.values(plannedHoursPerWpPerMa).forEach(m => Object.keys(m).forEach(id => ids.add(id)));
+      Object.values(projectBookedPerWpPerMa).forEach(m => Object.keys(m).forEach(id => ids.add(id)));
+    }
+    const list = safeEmployees.filter(e => ids.has(e.id));
+    list.sort((a, b) => {
+      const nA = teamNumbers.get(a.id) ?? 9999;
+      const nB = teamNumbers.get(b.id) ?? 9999;
+      if (nA !== nB) return nA - nB;
+      return (a.display_name || '').localeCompare(b.display_name || '');
+    });
+    return list;
+  }, [safeEmployees, teamNumbers, plannedHoursPerWpPerMa, projectBookedPerWpPerMa]);
+
+  // v7.4.6-66: Kurzlabel "V.Nachname" (Vorname-Initial . Nachname) fuer MA-Spalten.
+  const maShortLabel = (emp: { first_name?: string | null; last_name?: string | null; display_name?: string | null } | undefined): string => {
+    if (!emp) return '?';
+    const ln = (emp.last_name || '').trim();
+    const fn = (emp.first_name || '').trim();
+    if (ln && fn) return `${fn.charAt(0)}.${ln}`;
+    if (ln) return ln;
+    const dn = (emp.display_name || '').trim();
+    if (dn.includes(',')) {
+      const parts = dn.split(',');
+      const l = (parts[0] || '').trim();
+      const f = (parts[1] || '').trim();
+      return f ? `${f.charAt(0)}.${l}` : l;
+    }
+    return dn || '?';
+  };
+
   // State
   const [saving, setSaving] = useState(false);
   // v7.4.6-26: Synchroner Wiedereintritts-Riegel gegen Doppel-Speichern.
@@ -809,6 +859,12 @@ export default function TimesheetForm({
   // Grundlage fuer die blau angezeigte projektweite Restzahl bei nicht
   // zugeordneten Mitarbeitern.
   const [projectBookedPerWP, setProjectBookedPerWP] = useState<Record<string, number>>({});
+  // v7.4.6-66: "Alle AP"-Modal MA-Aufschluesselung. Je AP eine Map employee_id -> Stunden.
+  //   projectBookedPerWpPerMa: projektweit gebuchte Stunden je (AP, MA) aus v7_timesheets.
+  //   plannedHoursPerWpPerMa: geplante Stunden je (AP, MA) aus v7_work_package_assignments
+  //   (planned_person_months x hoursPerPM), ueber das GANZE Team (nicht nur den gewaehlten MA).
+  const [projectBookedPerWpPerMa, setProjectBookedPerWpPerMa] = useState<Record<string, Record<string, number>>>({});
+  const [plannedHoursPerWpPerMa, setPlannedHoursPerWpPerMa] = useState<Record<string, Record<string, number>>>({});
   // v7.4.6-61: Beim Laden gespeicherter Monatsstand je AP (Basis fuer die
   // Live-Berechnung der rechten "offen"-Spalte). Live-Rest = geplant minus
   // (gebucht_gesamt + (aktueller Formstand - dieser Schnappschuss)).
@@ -1255,7 +1311,7 @@ export default function TimesheetForm({
       // bei nicht zugeordneten Mitarbeitern.
       const { data: projEntries, error: projErr } = await supabaseClient
         .from('v7_timesheets')
-        .select('work_package_id, hours')
+        .select('work_package_id, employee_id, hours')
         .eq('project_id', selectedProjectId)
         .eq('is_active', true)
         .eq('is_billable', true);
@@ -1263,13 +1319,23 @@ export default function TimesheetForm({
         console.error('[TimesheetForm] Fehler beim Laden der projektweiten Stunden:', projErr);
       } else {
         const projBooked: Record<string, number> = {};
+        // v7.4.6-66: Buchungen zusaetzlich je (AP, MA) fuer die MA-Spalten im "Alle AP"-Modal.
+        const projBookedPerMa: Record<string, Record<string, number>> = {};
         (projEntries || []).forEach((e: any) => {
           if (e.work_package_id) {
             const h = parseFloat(e.hours) || 0;
-            if (h > 0) projBooked[e.work_package_id] = (projBooked[e.work_package_id] || 0) + h;
+            if (h > 0) {
+              projBooked[e.work_package_id] = (projBooked[e.work_package_id] || 0) + h;
+              if (e.employee_id) {
+                if (!projBookedPerMa[e.work_package_id]) projBookedPerMa[e.work_package_id] = {};
+                projBookedPerMa[e.work_package_id][e.employee_id] =
+                  (projBookedPerMa[e.work_package_id][e.employee_id] || 0) + h;
+              }
+            }
           }
         });
         setProjectBookedPerWP(projBooked);
+        setProjectBookedPerWpPerMa(projBookedPerMa);
       }
     } catch (err) {
       console.error('[TimesheetForm] Fehler beim Reload der Stunden:', err);
@@ -1471,6 +1537,44 @@ export default function TimesheetForm({
 
     loadAssignmentData();
   }, [selectedEmployeeId, selectedProjectId, workPackages, reloadBookedHours, pmBasisWAZ]);
+
+  // v7.4.6-66: Geplante Stunden je (AP, MA) fuer das GANZE Projekt-Team laden
+  //   (Grundlage der MA-Spalten im "Alle AP"-Modal). Unabhaengig vom gewaehlten MA.
+  useEffect(() => {
+    if (!selectedProjectId) { setPlannedHoursPerWpPerMa({}); return; }
+    const loadTeamPlanned = async () => {
+      try {
+        const supabaseClient = createClient();
+        const projectWPIds = safeWorkPackages
+          .filter(wp => wp.project_id === selectedProjectId)
+          .map(wp => wp.id);
+        if (projectWPIds.length === 0) { setPlannedHoursPerWpPerMa({}); return; }
+        const { data: rows, error } = await supabaseClient
+          .from('v7_work_package_assignments')
+          .select('work_package_id, employee_id, planned_person_months')
+          .in('work_package_id', projectWPIds)
+          .eq('is_active', true);
+        if (error) {
+          console.error('[TimesheetForm] Fehler beim Laden der Team-Planstunden:', error);
+          return;
+        }
+        const factor = hoursPerPM(pmBasisWAZ);
+        const map: Record<string, Record<string, number>> = {};
+        (rows || []).forEach((a: any) => {
+          const pm = a.planned_person_months || 0;
+          if (a.work_package_id && a.employee_id && pm > 0) {
+            if (!map[a.work_package_id]) map[a.work_package_id] = {};
+            map[a.work_package_id][a.employee_id] =
+              (map[a.work_package_id][a.employee_id] || 0) + pm * factor;
+          }
+        });
+        setPlannedHoursPerWpPerMa(map);
+      } catch (err) {
+        console.error('[TimesheetForm] Fehler beim Laden der Team-Planstunden:', err);
+      }
+    };
+    loadTeamPlanned();
+  }, [selectedProjectId, workPackages, pmBasisWAZ]);
 
   // A-021: NWM-Sperren + Cross-Projekt-Stunden laden
   useEffect(() => {
@@ -4445,7 +4549,7 @@ export default function TimesheetForm({
       {/* v7.4.6-50: Alle AP - projektweiter AP-Status (Soll / gebucht / offen) */}
       {showAllAPModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 print:hidden">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-3xl mx-4 w-full max-h-[80vh] overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-[96vw] mx-4 w-full max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-gray-900">
                 AP-Status {selectedProject?.short_name || selectedProject?.name || ''}
@@ -4473,19 +4577,48 @@ export default function TimesheetForm({
                 const p = d.split('-');
                 return p.length >= 2 ? `${p[1]}.${p[0]}` : d;
               };
+              // v7.4.6-66: MA-Spalten (ganzes Projekt-Team). Alle Werte in STUNDEN.
+              const team = allApTeam;
+              const grpStart = 'border-l-4 border-gray-300';
+              const numCell = 'border px-2 py-1.5 text-right whitespace-nowrap';
+              const totCell = 'border px-2 py-1.5 text-right whitespace-nowrap bg-gray-50 font-semibold';
+              const offenColor = (v: number) => v > 0 ? 'text-amber-600 font-bold' : v < 0 ? 'text-red-600 font-bold' : 'text-gray-400';
+              const r2 = (v: number) => Math.round(v * 100) / 100;
+              // Spaltensummen je MA (fuer die Fusszeile)
+              const colPlanned: Record<string, number> = {};
+              const colBooked: Record<string, number> = {};
+              team.forEach(e => {
+                colPlanned[e.id] = realAPs.reduce((a, wp) => a + ((plannedHoursPerWpPerMa[wp.id] || {})[e.id] || 0), 0);
+                colBooked[e.id] = realAPs.reduce((a, wp) => a + ((projectBookedPerWpPerMa[wp.id] || {})[e.id] || 0), 0);
+              });
               return (
+                <div className="overflow-x-auto">
                 <table className="w-full text-sm border-collapse">
                   <thead>
                     <tr className="bg-gray-50 text-left">
-                      <th className="border px-2 py-1.5 font-medium text-gray-700">AP</th>
-                      <th className="border px-2 py-1.5 font-medium text-gray-700">Bezeichnung</th>
-                      <th className="border px-2 py-1.5 font-medium text-gray-700 whitespace-nowrap">Zeitraum (geplant)</th>
+                      <th rowSpan={2} className="border px-2 py-1.5 font-medium text-gray-700 align-bottom">AP</th>
+                      <th rowSpan={2} className="border px-2 py-1.5 font-medium text-gray-700 align-bottom">Bezeichnung</th>
+                      <th rowSpan={2} className="border px-2 py-1.5 font-medium text-gray-700 whitespace-nowrap align-bottom">Zeitraum (geplant)</th>
                       {isDurchfuehrbarkeitsstudie && (
-                        <th className="border px-2 py-1.5 font-medium text-gray-700 text-center">T/NT</th>
+                        <th rowSpan={2} className="border px-2 py-1.5 font-medium text-gray-700 text-center align-bottom">T/NT</th>
                       )}
-                      <th className="border px-2 py-1.5 font-medium text-gray-700 text-right">geplant (h)</th>
-                      <th className="border px-2 py-1.5 font-medium text-gray-700 text-right">gebucht (h)</th>
-                      <th className="border px-2 py-1.5 font-medium text-gray-700 text-right">offen (h)</th>
+                      <th colSpan={team.length + 1} className={`border px-2 py-1.5 font-medium text-gray-700 text-center ${grpStart}`}>geplant (h)</th>
+                      <th colSpan={team.length + 1} className={`border px-2 py-1.5 font-medium text-gray-700 text-center ${grpStart}`}>gebucht (h)</th>
+                      <th colSpan={team.length + 1} className={`border px-2 py-1.5 font-medium text-gray-700 text-center ${grpStart}`}>offen (h)</th>
+                    </tr>
+                    <tr className="bg-gray-50 text-right">
+                      {team.map((e, i) => (
+                        <th key={`hp-${e.id}`} className={`border px-2 py-1 font-medium text-gray-600 text-right whitespace-nowrap ${i === 0 ? grpStart : ''}`}>{maShortLabel(e)}</th>
+                      ))}
+                      <th className="border px-2 py-1 font-semibold text-gray-700 text-right bg-gray-100">gesamt</th>
+                      {team.map((e, i) => (
+                        <th key={`hb-${e.id}`} className={`border px-2 py-1 font-medium text-gray-600 text-right whitespace-nowrap ${i === 0 ? grpStart : ''}`}>{maShortLabel(e)}</th>
+                      ))}
+                      <th className="border px-2 py-1 font-semibold text-gray-700 text-right bg-gray-100">gesamt</th>
+                      {team.map((e, i) => (
+                        <th key={`ho-${e.id}`} className={`border px-2 py-1 font-medium text-gray-600 text-right whitespace-nowrap ${i === 0 ? grpStart : ''}`}>{maShortLabel(e)}</th>
+                      ))}
+                      <th className="border px-2 py-1 font-semibold text-gray-700 text-right bg-gray-100">gesamt</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -4496,7 +4629,9 @@ export default function TimesheetForm({
                       const planned = (wp.total_person_months || 0) * hoursPerPM(pmBasisWAZ);
                       const booked = projectBookedPerWP[wp.id] || 0;
                       const offen = planned - booked;
-                      const offenR = Math.round(offen * 100) / 100;
+                      const offenR = r2(offen);
+                      const pMap = plannedHoursPerWpPerMa[wp.id] || {};
+                      const bMap = projectBookedPerWpPerMa[wp.id] || {};
                       sumPlanned += planned;
                       sumBooked += booked;
                       return (
@@ -4513,31 +4648,70 @@ export default function TimesheetForm({
                                 : <span className="text-blue-700 font-bold text-xs">NT</span>}
                             </td>
                           )}
-                          <td className="border px-2 py-1.5 text-right whitespace-nowrap">{planned.toFixed(2)}</td>
-                          <td className="border px-2 py-1.5 text-right whitespace-nowrap">{booked.toFixed(2)}</td>
-                          <td className="border px-2 py-1.5 text-right whitespace-nowrap">
-                            <span className={offenR > 0 ? 'text-amber-600 font-bold' : offenR < 0 ? 'text-red-600 font-bold' : 'text-gray-400'}>{offenR.toFixed(2)}</span>
+                          {/* geplant je MA */}
+                          {team.map((e, i) => { const v = pMap[e.id] || 0; return (
+                            <td key={`p-${e.id}`} className={`${numCell} ${i === 0 ? grpStart : ''}`}>{v > 0 ? v.toFixed(2) : ''}</td>
+                          ); })}
+                          <td className={totCell}>{planned.toFixed(2)}</td>
+                          {/* gebucht je MA */}
+                          {team.map((e, i) => { const v = bMap[e.id] || 0; return (
+                            <td key={`b-${e.id}`} className={`${numCell} ${i === 0 ? grpStart : ''}`}>{v > 0 ? v.toFixed(2) : ''}</td>
+                          ); })}
+                          <td className={totCell}>{booked.toFixed(2)}</td>
+                          {/* offen je MA = geplant(MA) - gebucht(MA) */}
+                          {team.map((e, i) => {
+                            const pv = pMap[e.id] || 0; const bv = bMap[e.id] || 0;
+                            const ov = r2(pv - bv);
+                            const has = pv > 0 || bv > 0;
+                            return (
+                              <td key={`o-${e.id}`} className={`${numCell} ${i === 0 ? grpStart : ''}`}>
+                                {has ? <span className={offenColor(ov)}>{ov.toFixed(2)}</span> : ''}
+                              </td>
+                            );
+                          })}
+                          <td className={totCell}>
+                            <span className={offenColor(offenR)}>{offenR.toFixed(2)}</span>
                           </td>
                         </tr>
                       );
                     })}
                   </tbody>
                   <tfoot>
-                    <tr className="bg-gray-50 font-semibold">
+                    <tr className="bg-gray-100 font-semibold">
                       <td className="border px-2 py-1.5" colSpan={isDurchfuehrbarkeitsstudie ? 4 : 3}>Gesamt</td>
-                      <td className="border px-2 py-1.5 text-right">{sumPlanned.toFixed(2)}</td>
-                      <td className="border px-2 py-1.5 text-right">{sumBooked.toFixed(2)}</td>
-                      <td className="border px-2 py-1.5 text-right">
-                        {(() => { const g = Math.round((sumPlanned - sumBooked) * 100) / 100; return <span className={g > 0 ? 'text-amber-600 font-bold' : g < 0 ? 'text-red-600 font-bold' : 'text-gray-400'}>{g.toFixed(2)}</span>; })()}
+                      {team.map((e, i) => (
+                        <td key={`fp-${e.id}`} className={`${numCell} ${i === 0 ? grpStart : ''}`}>{colPlanned[e.id] > 0 ? colPlanned[e.id].toFixed(2) : ''}</td>
+                      ))}
+                      <td className={totCell}>{sumPlanned.toFixed(2)}</td>
+                      {team.map((e, i) => (
+                        <td key={`fb-${e.id}`} className={`${numCell} ${i === 0 ? grpStart : ''}`}>{colBooked[e.id] > 0 ? colBooked[e.id].toFixed(2) : ''}</td>
+                      ))}
+                      <td className={totCell}>{sumBooked.toFixed(2)}</td>
+                      {team.map((e, i) => {
+                        const ov = r2((colPlanned[e.id] || 0) - (colBooked[e.id] || 0));
+                        const has = (colPlanned[e.id] || 0) > 0 || (colBooked[e.id] || 0) > 0;
+                        return (
+                          <td key={`fo-${e.id}`} className={`${numCell} ${i === 0 ? grpStart : ''}`}>
+                            {has ? <span className={offenColor(ov)}>{ov.toFixed(2)}</span> : ''}
+                          </td>
+                        );
+                      })}
+                      <td className={totCell}>
+                        {(() => { const g = r2(sumPlanned - sumBooked); return <span className={offenColor(g)}>{g.toFixed(2)}</span>; })()}
                       </td>
                     </tr>
                   </tfoot>
                 </table>
+                </div>
               );
             })()}
 
             <p className="text-xs text-gray-400 mt-3">
-              Projektweit &uuml;ber alle Mitarbeiter. &quot;offen&quot; = geplante minus gebuchte Stunden je AP. Orange = noch zu buchen, Rot = &uuml;berbucht, Grau = erledigt.
+              Alle Werte in Stunden. Je Gruppe eine Spalte pro Mitarbeiter (V.Nachname) plus &quot;gesamt&quot;.
+              &quot;geplant&quot; je MA aus der AP-Zuordnung (Planstunden), &quot;gebucht&quot; je MA aus den Zeitbuchungen,
+              &quot;offen&quot; = geplant minus gebucht. Die Spalte &quot;gesamt&quot; bei geplant zeigt das AP-Soll (Gesamtplanung);
+              weicht sie von der Summe der MA-Spalten ab, ist der AP geplant, aber nicht vollst&auml;ndig je MA verteilt.
+              Orange = noch zu buchen, Rot = &uuml;berbucht, Grau = erledigt.
             </p>
 
             <div className="flex justify-end mt-4">
