@@ -3,7 +3,9 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 6. August 2026
-// Version: 7.4.6-72
+// Version: 7.4.6-73
+// v7.4.6-73: "Alle AP"-Modal offen-Gruppe Farbe: offene Stunden (+) jetzt GRUEN
+//   (statt orange), ueberbuchte (-) bleiben ROT, 0 grau. Nur Farblogik offenColor.
 // v7.4.6-72: "Alle AP"-Modal Feinschliff. (1) Modalbreite folgt jetzt der Tabelle
 //   (Container w-fit + max-w-[96vw]) -> Modal waechst/schrumpft automatisch mit der
 //   MA-Anzahl. (2) Fusszeile/Legende komplett entfernt (Infowert = 0, alles direkt
@@ -4628,7 +4630,8 @@ export default function TimesheetForm({
               const totHead = `border px-1 py-1 font-semibold text-gray-700 text-center bg-gray-100 ${grpL} ${team.length === 0 ? grpR : ''}`;
               const maHead = (i: number) => `border px-1 py-1 font-medium text-gray-600 align-bottom ${i === lastMa ? grpR : ''}`;
               const maNameDiv = 'max-w-[4.5rem] break-normal leading-tight text-center mx-auto';
-              const offenColor = (v: number) => v > 0 ? 'text-amber-600 font-bold' : v < 0 ? 'text-red-600 font-bold' : 'text-gray-400';
+              // v7.4.6-73: offene Stunden (+) gruen, ueberbuchte (-) rot, 0 grau.
+              const offenColor = (v: number) => v > 0 ? 'text-green-600 font-bold' : v < 0 ? 'text-red-600 font-bold' : 'text-gray-400';
               const r2 = (v: number) => Math.round(v * 100) / 100;
               // Spaltensummen je MA (fuer die Fusszeile)
               const colPlanned: Record<string, number> = {};
