@@ -1,6 +1,22 @@
 'use client';
 // src/components/shared/ApStatusModal.tsx
-// Version: 1.0-8
+// Version: 1.0-10
+// v1.0-10: NEUER Druckweg - eigenes Druckfenster statt In-Place-Druck. Die bisherigen
+//   In-Place-Varianten (v1.0-4..-9) erzeugten in PROD mit echten Daten Artefakte, zuletzt
+//   ZWEI identische Seiten (die Tabelle wurde dupliziert statt umgebrochen), weil das Modal
+//   tief im App-Layout haengt. Loesung: handlePrint kopiert die fertig gerenderte Tabelle
+//   (inkl. aufgeklappter Monatszeilen) in ein neues Fenster, das nur die Tabelle enthaelt,
+//   uebernimmt die App-Stylesheets (Tailwind -> Rahmen/Farben) und ruft dort window.print().
+//   Dort bricht die Tabelle zuverlaessig ueber mehrere Seiten um; "An Seitenbreite anpassen"
+//   skaliert voll aufs Querformat. Das gesamte In-Place-Druck-CSS entfaellt.
+// v1.0-9: Breitenanpassung wieder komplett dem Browser ueberlassen. Der eigene Auto-Zoom
+//   (v1.0-7) kollidierte mit Chromes "An Seitenbreite anpassen" - beide skalierten, rechts
+//   blieb ein Drittel leer. Jetzt KEIN eigener zoom mehr: die Tabelle wird in ihrer
+//   natuerlichen (breiten) Groesse gedruckt, und der Druckmodus "An Seitenbreite anpassen"
+//   skaliert sie vollstaendig und randlos aufs Querformat. Die Vorfahrenkette wird zusaetzlich
+//   auf width:max-content gesetzt, damit der Browser die volle Tabellenbreite sieht und
+//   korrekt herunterskaliert. Der robuste Seitenumbruch (normaler Fluss, display:none fuer
+//   den Rest) aus v1.0-8 bleibt. Empfehlung im Druckdialog: "An Seitenbreite anpassen".
 // v1.0-8: Robuster Seitenumbruch bei vielen aufgeklappten Monatszeilen. In -4..-7 wurde
 //   die Druck-Tabelle per position:absolute an den Blattanfang geholt; bei HOHEN Tabellen
 //   (viele Monatsaufschluesselungen) kam Chrome damit ueber mehrere Seiten nicht zurecht
@@ -67,7 +83,7 @@
 // TimesheetForm-v7_4_6-75.tsx uebernommen; nur State-/Datenherkunft wurde auf
 // eigenstaendiges Laden umgestellt.
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { hoursPerPM } from '@/lib/projektfortschritt-utils';
 
@@ -146,48 +162,66 @@ export default function ApStatusModal({ open, onClose, projectId, projectLabel, 
   const [expandedAllApRows, setExpandedAllApRows] = useState<Set<string>>(new Set());
   // v1.0-5: fuer den Druck werden voruebergehend ALLE mehrmonatigen APs aufgeklappt.
   const [printExpandAll, setPrintExpandAll] = useState(false);
-  // v1.0-7: Zoom-Faktor fuer den Druck (fuellt die Seitenbreite automatisch).
-  const [printZoom, setPrintZoom] = useState(1);
-  // v1.0-8: fuer den Druck markierte Vorfahren der Tabelle (zum Aufraeumen nach dem Druck).
-  const printAncestorsRef = useRef<HTMLElement[]>([]);
 
-  // v1.0-8: Druck ausloesen. (1) Alle mehrmonatigen APs aufklappen. (2) Nach dem Repaint
-  //   die tatsaechliche Tabellenbreite messen -> Zoom auf die nutzbare A4-Querformat-Breite
-  //   (~1040px bei 8mm Rand). (3) Die Vorfahren der Tabelle markieren, damit das Druck-CSS
-  //   nur die Vorfahrenkette + Tabelle zeigt (display:none fuer alles andere -> kein Leerraum,
-  //   normaler Fluss -> korrekter Seitenumbruch ueber mehrere Seiten). (4) Drucken. Aufraeumen
-  //   ueber afterprint (Markierungen entfernen, Zustaende zuruecksetzen).
+  // v1.0-10: Druck ueber ein eigenes, sauberes Druckfenster. Die In-Place-Varianten
+  //   (v1.0-4..-9) erzeugten je nach Datenmenge Artefakte (abgeschnitten, halbe Breite,
+  //   doppelte/identische Seiten), weil das Modal tief im App-Layout steckt. Jetzt wird die
+  //   fertig gerenderte Tabelle (inkl. aufgeklappter Monatszeilen) in ein neues Fenster
+  //   kopiert, das NUR die Tabelle enthaelt. Die Stylesheets der App (Tailwind) werden
+  //   uebernommen, damit Rahmen/Farben stimmen. Dort bricht die Tabelle zuverlaessig ueber
+  //   mehrere Seiten um; "An Seitenbreite anpassen" skaliert sie voll aufs Querformat.
   const handlePrint = () => {
     setPrintExpandAll(true);
     setTimeout(() => {
       const area = document.getElementById('ap-status-print-area');
       const table = area ? area.querySelector('table') : null;
-      const naturalW = table ? table.scrollWidth : 0;
-      const TARGET_PRINT_WIDTH = 1040; // A4 quer, ~8mm Rand, ~96dpi
-      const z = naturalW > 0 ? TARGET_PRINT_WIDTH / naturalW : 1;
-      setPrintZoom(Math.max(0.4, Math.min(3, z)));
-      // Vorfahrenkette markieren (bis <body>).
-      const marked: HTMLElement[] = [];
-      let n: HTMLElement | null = area ? area.parentElement : null;
-      while (n && n !== document.body) {
-        n.classList.add('ap-print-ancestor');
-        marked.push(n);
-        n = n.parentElement;
+      if (!table) { setPrintExpandAll(false); return; }
+      const tableHtml = table.outerHTML;
+      setPrintExpandAll(false);
+      const win = window.open('', '_blank', 'width=1400,height=900');
+      if (!win) {
+        window.alert('Bitte Popups fuer diese Seite erlauben, um den AP-Status zu drucken.');
+        return;
       }
-      printAncestorsRef.current = marked;
-      setTimeout(() => window.print(), 60);
+      const styleHead = Array.from(document.querySelectorAll('link[rel="stylesheet"], style'))
+        .map(el => el.outerHTML)
+        .join('\n');
+      const label = (projectLabel || '').replace(/[<>&]/g, '');
+      const html =
+        '<!doctype html><html lang="de"><head><meta charset="utf-8">'
+        + '<base href="' + window.location.origin + '/">'
+        + '<title>AP-Status ' + label + '</title>'
+        + styleHead
+        + '<style>'
+        +   '@page { size: A4 landscape; margin: 8mm; }'
+        +   'html,body{margin:0;padding:0;background:#fff;}'
+        +   '.ap-doc h2{font-size:14px;margin:0 0 8px 0;font-family:sans-serif;}'
+        +   '.ap-doc table{border-collapse:collapse;}'
+        +   '.ap-doc table,.ap-doc th,.ap-doc td{font-size:11px !important;}'
+        +   '.ap-doc *{-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
+        +   '@media print{'
+        +     '@page { size: A4 landscape; margin: 8mm; }'
+        +     '.ap-doc,.ap-doc *{visibility:visible !important;}'
+        +     '.ap-doc{display:block !important;}'
+        +     '.ap-doc table{display:table !important;}'
+        +     '.ap-doc thead{display:table-header-group !important;}'
+        +     '.ap-doc tbody{display:table-row-group !important;}'
+        +     '.ap-doc tfoot{display:table-footer-group !important;}'
+        +     '.ap-doc tr{display:table-row !important;page-break-inside:avoid;}'
+        +     '.ap-doc th,.ap-doc td{display:table-cell !important;}'
+        +   '}'
+        + '</style></head><body><div class="ap-doc">'
+        + '<h2>AP-Status ' + label + '</h2>'
+        + tableHtml
+        + '</div></body></html>';
+      win.document.open();
+      win.document.write(html);
+      win.document.close();
+      const doPrint = () => { try { win.focus(); win.print(); } catch (e) { /* ignore */ } };
+      win.onload = () => window.setTimeout(doPrint, 350);
+      window.setTimeout(doPrint, 1000);
     }, 80);
   };
-  useEffect(() => {
-    const reset = () => {
-      setPrintExpandAll(false);
-      setPrintZoom(1);
-      printAncestorsRef.current.forEach(el => el.classList.remove('ap-print-ancestor'));
-      printAncestorsRef.current = [];
-    };
-    window.addEventListener('afterprint', reset);
-    return () => window.removeEventListener('afterprint', reset);
-  }, []);
 
   // --------------------------------------------------------------------------
   // Datenladung: nur wenn open && projectId. Reagiert auf [open, projectId].
@@ -391,7 +425,7 @@ export default function ApStatusModal({ open, onClose, projectId, projectLabel, 
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div id="ap-status-print-area" style={{ ['--ap-print-zoom' as string]: String(printZoom) } as React.CSSProperties} className="bg-white rounded-lg shadow-xl p-6 max-w-[96vw] mx-4 w-fit max-h-[85vh] overflow-y-auto">
+      <div id="ap-status-print-area" className="bg-white rounded-lg shadow-xl p-6 max-w-[96vw] mx-4 w-fit max-h-[85vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-900">
             AP-Status {projectLabel || ''}
@@ -652,49 +686,8 @@ export default function ApStatusModal({ open, onClose, projectId, projectLabel, 
           </button>
         </div>
       </div>
-
-      {/* v1.0-8: Druck-CSS. Alles ausser der Vorfahrenkette + Tabelle per display:none aus;
-          Tabelle bleibt im normalen Fluss -> sauberer Seitenumbruch ueber mehrere Seiten. */}
-      <style jsx global>{`
-        @media print {
-          @page { size: A4 landscape; margin: 8mm; }
-          body * { display: none !important; }
-          .ap-print-ancestor {
-            display: block !important;
-            position: static !important;
-            overflow: visible !important;
-            height: auto !important;
-            max-height: none !important;
-            width: auto !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            background: transparent !important;
-          }
-          #ap-status-print-area {
-            display: block !important;
-            position: static !important;
-            width: max-content !important;
-            max-width: none !important;
-            max-height: none !important;
-            overflow: visible !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            box-shadow: none !important;
-            border-radius: 0 !important;
-            /* v1.0-7: automatischer Zoom auf die Seitenbreite (per Messung gesetzt) */
-            zoom: var(--ap-print-zoom, 1) !important;
-          }
-          #ap-status-print-area * { display: revert !important; }
-          #ap-status-print-area table { display: table !important; width: max-content !important; }
-          #ap-status-print-area thead { display: table-header-group !important; }
-          #ap-status-print-area tbody { display: table-row-group !important; }
-          #ap-status-print-area tfoot { display: table-footer-group !important; }
-          #ap-status-print-area tr { display: table-row !important; page-break-inside: avoid; }
-          #ap-status-print-area th, #ap-status-print-area td { display: table-cell !important; }
-          #ap-status-print-area .ap-print-hide { display: none !important; }
-          .ap-print-hide { display: none !important; }
-        }
-      `}</style>
+      {/* v1.0-10: Kein In-Place-Druck-CSS mehr. Gedruckt wird ueber ein eigenes, sauberes
+          Druckfenster (siehe handlePrint), das nur die Tabelle enthaelt. */}
     </div>
   );
 }
