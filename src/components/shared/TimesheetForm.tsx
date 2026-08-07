@@ -3,7 +3,15 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 6. August 2026
-// Version: 7.4.6-75
+// Version: 7.4.6-76
+// v7.4.6-76: Stufe 3b - Gating des Monats-Aufklappens im "Alle AP"-Modal. Das
+//   Aufklappen (Monatsaufschluesselung, -75) ist ein Feature der vertieften AP-
+//   Status-Analyse und daher nur fuer Berater bzw. FREIGESCHALTETE Firmen sichtbar:
+//   apAnalyseEnabled = (portal === 'berater') || company.ap_analyse_firma_freigeschaltet.
+//   Nicht freigeschaltete Firmen sehen die AP-Uebersicht wieder OHNE Aufklappen
+//   (Chevron/Monatszeilen entfallen). Voraussetzung fuers Firmen-Aktivieren: die
+//   Firmen-Elternseiten laden company.ap_analyse_firma_freigeschaltet mit (naechster
+//   Schritt). Reine Sichtbarkeitslogik, keine Daten-/Berechnungsaenderung.
 // v7.4.6-75: "Alle AP"-Modal - aufklappbare Monatsaufschluesselung. Bei APs, die in
 //   mehr als einem Monat Buchungen haben, laesst sich die Zeile per Klick (Chevron)
 //   aufklappen; darunter erscheint je Monat eine Unterzeile mit den GEBUCHTEN Stunden
@@ -669,6 +677,9 @@ interface ClientCompany {
   federal_state: string | null;
   holiday_region: string | null;  // v7.4.6: kommunaler Feiertags-Override
   standard_weekly_hours: number | null;
+  // v7.4.6-76: vertiefte AP-Status-Analyse fuer diese Firma freigeschaltet?
+  // Steuert das Monats-Aufklappen im "Alle AP"-Modal (Berater immer frei).
+  ap_analyse_firma_freigeschaltet?: boolean | null;
 }
 
 interface CalendarEntry {
@@ -951,6 +962,9 @@ export default function TimesheetForm({
   const selectedEmployee = safeEmployees.find(e => e.id === selectedEmployeeId);
   const isDurchfuehrbarkeitsstudie = selectedProject?.funding_format?.includes('DS') || false;
   const isNetzwerk = selectedProject?.funding_format === 'ZIM_NETZWERK';  // A-002: Wording-Steuerung
+  // v7.4.6-76: Vertiefte AP-Status-Analyse (Monats-Aufklappen im "Alle AP"-Modal)?
+  // Berater immer; Firma nur bei Freischaltung (company.ap_analyse_firma_freigeschaltet).
+  const apAnalyseEnabled = portal === 'berater' || !!company?.ap_analyse_firma_freigeschaltet;
 
   // v7.4.6-43: WAZ-Basis fuer PM->Stunden und Foerder-Monatsgrenze.
   // firmStdWAZ = Regelarbeitszeit der Firma; pmBasisWAZ = Projekt-Override
@@ -4769,7 +4783,8 @@ export default function TimesheetForm({
                       sumPlanned += planned;
                       sumBooked += booked;
                       const months = monthsOfWp(wp.id);
-                      const expandable = months.length > 1;
+                      // v7.4.6-76: Monats-Aufklappen nur bei freigeschalteter AP-Analyse.
+                      const expandable = apAnalyseEnabled && months.length > 1;
                       const isOpen = expandable && expandedAllApRows.has(wp.id);
                       const mMap = projectBookedPerWpPerMaMonth[wp.id] || {};
                       return (

@@ -2,7 +2,11 @@
 // ============================================================================
 // PZE V7 - Zeiterfassung Seite (Firmen-Portal)
 // ============================================================================
-// Version: 7.4.6-4
+// Version: 7.4.6-5
+// v7.4.6-5: Stufe 3c - company-Query um ap_analyse_firma_freigeschaltet erweitert
+//   und an TimesheetForm durchgereicht. Dadurch greift die Firmen-Freischaltung der
+//   vertieften AP-Status-Analyse (Monats-Aufklappen im "Alle AP"-Modal) auch im
+//   Firmen-Timesheet. Berater unveraendert. Reine Datendurchreichung.
 // v7.4.6-4: Liest zusaetzlich ?projekt= aus der URL und gibt es als
 //   initialProjectId an TimesheetForm -> richtiges Projekt vorbelegt.
 // Version: 7.4.6-3
@@ -61,6 +65,7 @@ interface ClientCompany {
   federal_state: string | null;
   holiday_region: string | null;  // v7.4.6
   standard_weekly_hours: number | null;
+  ap_analyse_firma_freigeschaltet?: boolean | null;  // v7.4.6-5: AP-Status-Analyse freigeschaltet
 }
 
 interface Employee {
@@ -162,7 +167,7 @@ function ZeiterfassungContent() {
         // 2. Company
         const { data: companyData, error: companyError } = await supabase
           .from('v7_client_companies')
-          .select('id, name, federal_state, holiday_region, standard_weekly_hours')
+          .select('id, name, federal_state, holiday_region, standard_weekly_hours, ap_analyse_firma_freigeschaltet')
           .eq('id', companyId)
           .single();
         

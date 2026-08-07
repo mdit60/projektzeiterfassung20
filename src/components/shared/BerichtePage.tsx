@@ -2,7 +2,12 @@
 // ============================================================================
 // PZE V7 - Shared Component: Berichte & Controlling
 // ============================================================================
-// Version: 7.4.6-23
+// Version: 7.4.6-24
+// v7.4.6-24: Stufe 3c - company-Query um ap_analyse_firma_freigeschaltet erweitert
+//   und apAnalyseEnabled an die StundennachweisMatrix uebergeben (Berater immer,
+//   Firma nur bei Freischaltung). Dadurch erscheint der externe "AP-Status"-Button
+//   im Firmen-Dashboard nur bei freigeschalteter Firma. Reine Sichtbarkeits-/
+//   Datendurchreichung, keine Logik-/Berechnungsaenderung.
 // v7.4.6-23: Stundennachweis-Matrix-Klick reicht jetzt die projectId an die
 //   ZE-Seite weiter (&projekt=) -> richtiges Projekt wird vorbelegt statt
 //   immer das erste. (Aufbauend auf -22.)
@@ -154,6 +159,7 @@ interface Company {
   federal_state: string | null;
   holiday_region: string | null;  // v7.4.6
   standard_weekly_hours: number | null;  // v7.4.6-21: Firmen-WAZ (Fallback fuer pm_basis)
+  ap_analyse_firma_freigeschaltet?: boolean | null;  // v7.4.6-24: AP-Status-Analyse freigeschaltet
 }
 
 interface Project {
@@ -381,7 +387,7 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
         // Company
         const { data: companyData, error: companyError } = await supabase
           .from('v7_client_companies')
-          .select('id, name, federal_state, holiday_region, standard_weekly_hours')
+          .select('id, name, federal_state, holiday_region, standard_weekly_hours, ap_analyse_firma_freigeschaltet')
           .eq('id', companyId)
           .single();
         if (companyError || !companyData) { setError('Firma nicht gefunden'); return; }
@@ -981,6 +987,7 @@ export default function BerichtePage({ portal, clientCompanyId }: BericherPagePr
               notes={timesheetNotes}
               company={company}
               matrixProjectId={matrixProjectId}
+              apAnalyseEnabled={portal === 'berater' || !!company?.ap_analyse_firma_freigeschaltet}
               onProjectChange={(id) => setMatrixProjectId(id)}
               onNavigateToZE={(empId, year, month, projectId) => {
                 const returnUrl = encodeURIComponent(matrixReturnUrl);
