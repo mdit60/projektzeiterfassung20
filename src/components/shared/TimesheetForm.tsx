@@ -3,7 +3,16 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 6. August 2026
-// Version: 7.4.6-74
+// Version: 7.4.6-75
+// v7.4.6-75: "Alle AP"-Modal - aufklappbare Monatsaufschluesselung. Bei APs, die in
+//   mehr als einem Monat Buchungen haben, laesst sich die Zeile per Klick (Chevron)
+//   aufklappen; darunter erscheint je Monat eine Unterzeile mit den GEBUCHTEN Stunden
+//   je MA (+ Monats-gesamt), damit man bei mehrmonatigen APs (z.B. 3.3) die
+//   Monatsverteilung auf einen Blick sieht (Managementinfo). Datenquelle: projektweite
+//   Timesheet-Abfrage um work_date erweitert -> projectBookedPerWpPerMaMonth. KEINE
+//   Farb-/Grenzmarkierung (Tages-/Monatsgrenzen werden ohnehin beim Erfassen erzwungen;
+//   der einzige weiche Fall waere GF-50%, der die Monats-Gesamtsumme betrifft, nicht die
+//   einzelne AP-Zelle - bewusst weggelassen). Reine Anzeige, keine DB-/Logikaenderung.
 // v7.4.6-74: WOCHEN-DECKEL fuer die Auto-Vorbelegung "sonstige Arbeiten".
 //   Problem (Teilzeit): Ein MA mit z.B. 30 h/Woche an 4 Tagen bekam am 5. Werktag
 //   automatisch 6 h "sonstige", obwohl die Wochenarbeitszeit an den 4 Tagen (4x8=32 h)
@@ -799,6 +808,11 @@ export default function TimesheetForm({
   //   MUSS vor allApTeam stehen (wird dort als useMemo-Dependency referenziert).
   const [projectBookedPerWpPerMa, setProjectBookedPerWpPerMa] = useState<Record<string, Record<string, number>>>({});
   const [plannedHoursPerWpPerMa, setPlannedHoursPerWpPerMa] = useState<Record<string, Record<string, number>>>({});
+  // v7.4.6-75: gebuchte Stunden je (AP, MA, Monat 'YYYY-MM') fuer die aufklappbare
+  //   Monatsaufschluesselung mehrmonatiger APs im "Alle AP"-Modal.
+  const [projectBookedPerWpPerMaMonth, setProjectBookedPerWpPerMaMonth] = useState<Record<string, Record<string, Record<string, number>>>>({});
+  // v7.4.6-75: aufgeklappte AP-Zeilen im "Alle AP"-Modal (Set von work_package_id).
+  const [expandedAllApRows, setExpandedAllApRows] = useState<Set<string>>(new Set());
 
   // v7.4.6-66: Projekt-Team als Spalten fuer das "Alle AP"-Modal.
   //   Quelle: teamNumbers (dem Projekt zugeordnete MA), sortiert nach Team-Nr.
@@ -1361,7 +1375,7 @@ export default function TimesheetForm({
       // bei nicht zugeordneten Mitarbeitern.
       const { data: projEntries, error: projErr } = await supabaseClient
         .from('v7_timesheets')
-        .select('work_package_id, employee_id, hours')
+        .select('work_package_id, employee_id, hours, work_date')
         .eq('project_id', selectedProjectId)
         .eq('is_active', true)
         .eq('is_billable', true);
@@ -1371,6 +1385,8 @@ export default function TimesheetForm({
         const projBooked: Record<string, number> = {};
         // v7.4.6-66: Buchungen zusaetzlich je (AP, MA) fuer die MA-Spalten im "Alle AP"-Modal.
         const projBookedPerMa: Record<string, Record<string, number>> = {};
+        // v7.4.6-75: zusaetzlich je (AP, MA, Monat) fuer die aufklappbare Monatsaufschluesselung.
+        const projBookedPerMaMonth: Record<string, Record<string, Record<string, number>>> = {};
         (projEntries || []).forEach((e: any) => {
           if (e.work_package_id) {
             const h = parseFloat(e.hours) || 0;
@@ -1380,12 +1396,20 @@ export default function TimesheetForm({
                 if (!projBookedPerMa[e.work_package_id]) projBookedPerMa[e.work_package_id] = {};
                 projBookedPerMa[e.work_package_id][e.employee_id] =
                   (projBookedPerMa[e.work_package_id][e.employee_id] || 0) + h;
+                const ym = typeof e.work_date === 'string' ? e.work_date.slice(0, 7) : '';
+                if (ym) {
+                  if (!projBookedPerMaMonth[e.work_package_id]) projBookedPerMaMonth[e.work_package_id] = {};
+                  if (!projBookedPerMaMonth[e.work_package_id][e.employee_id]) projBookedPerMaMonth[e.work_package_id][e.employee_id] = {};
+                  projBookedPerMaMonth[e.work_package_id][e.employee_id][ym] =
+                    (projBookedPerMaMonth[e.work_package_id][e.employee_id][ym] || 0) + h;
+                }
               }
             }
           }
         });
         setProjectBookedPerWP(projBooked);
         setProjectBookedPerWpPerMa(projBookedPerMa);
+        setProjectBookedPerWpPerMaMonth(projBookedPerMaMonth);
       }
     } catch (err) {
       console.error('[TimesheetForm] Fehler beim Reload der Stunden:', err);
@@ -4671,6 +4695,26 @@ export default function TimesheetForm({
               // v7.4.6-73: offene Stunden (+) gruen, ueberbuchte (-) rot, 0 grau.
               const offenColor = (v: number) => v > 0 ? 'text-green-600 font-bold' : v < 0 ? 'text-red-600 font-bold' : 'text-gray-400';
               const r2 = (v: number) => Math.round(v * 100) / 100;
+              // v7.4.6-75: Monatslabel 'YYYY-MM' -> 'Mrz 26' (ASCII, deterministisch).
+              const MON_ABK = ['Jan', 'Feb', 'Mrz', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
+              const fmtYm = (ym: string): string => {
+                const p = ym.split('-');
+                if (p.length < 2) return ym;
+                const mi = parseInt(p[1], 10) - 1;
+                return `${MON_ABK[mi] || p[1]} ${p[0].slice(-2)}`;
+              };
+              // v7.4.6-75: sortierte Monatsliste je AP (nur Monate mit Buchungen).
+              const monthsOfWp = (wpId: string): string[] => {
+                const mm = projectBookedPerWpPerMaMonth[wpId] || {};
+                const set = new Set<string>();
+                Object.values(mm).forEach(perYm => Object.keys(perYm).forEach(ym => set.add(ym)));
+                return Array.from(set).sort();
+              };
+              const toggleExpand = (wpId: string) => setExpandedAllApRows(prev => {
+                const nx = new Set(prev);
+                if (nx.has(wpId)) nx.delete(wpId); else nx.add(wpId);
+                return nx;
+              });
               // Spaltensummen je MA (fuer die Fusszeile)
               const colPlanned: Record<string, number> = {};
               const colBooked: Record<string, number> = {};
@@ -4724,9 +4768,16 @@ export default function TimesheetForm({
                       const bMap = projectBookedPerWpPerMa[wp.id] || {};
                       sumPlanned += planned;
                       sumBooked += booked;
+                      const months = monthsOfWp(wp.id);
+                      const expandable = months.length > 1;
+                      const isOpen = expandable && expandedAllApRows.has(wp.id);
+                      const mMap = projectBookedPerWpPerMaMonth[wp.id] || {};
                       return (
-                        <tr key={wp.id} className="hover:bg-gray-50">
-                          <td className="border px-2 py-1.5 whitespace-nowrap font-mono text-xs align-top">{apDisplay}</td>
+                        <React.Fragment key={wp.id}>
+                        <tr className={`hover:bg-gray-50 ${expandable ? 'cursor-pointer' : ''}`} onClick={expandable ? () => toggleExpand(wp.id) : undefined}>
+                          <td className="border px-2 py-1.5 whitespace-nowrap font-mono text-xs align-top" title={expandable ? 'Monatsaufschluesselung ein-/ausklappen' : undefined}>
+                            {expandable && <span className="inline-block w-3 text-gray-500 select-none">{isOpen ? '\u25be' : '\u25b8'}</span>}{apDisplay}
+                          </td>
                           <td className="border px-2 py-1.5 align-top w-[11rem] whitespace-normal break-words leading-tight">{wp.name}</td>
                           <td className="border px-2 py-1.5 whitespace-nowrap text-xs text-gray-600 align-top">
                             {(wp.start_date || wp.end_date) ? `${fmtMon(wp.start_date)} \u2013 ${fmtMon(wp.end_date)}` : '\u2014'}
@@ -4763,6 +4814,22 @@ export default function TimesheetForm({
                             );
                           })}
                         </tr>
+                        {/* v7.4.6-75: Monatsaufschluesselung (gebucht je MA je Monat) fuer mehrmonatige APs */}
+                        {isOpen && months.map(ym => {
+                          const monthTotal = team.reduce((a, e) => a + ((mMap[e.id] || {})[ym] || 0), 0);
+                          return (
+                            <tr key={`${wp.id}-${ym}`} className="bg-blue-50 text-xs">
+                              <td colSpan={isDurchfuehrbarkeitsstudie ? 4 : 3} className="border px-2 py-1 text-right italic text-gray-500 whitespace-nowrap">{fmtYm(ym)}</td>
+                              <td colSpan={team.length + 1} className={`border px-1 py-1 ${grpL} ${grpR}`}></td>
+                              <td className={`${numCell} ${grpL} bg-gray-100 font-semibold`}>{monthTotal > 0 ? monthTotal.toFixed(2) : ''}</td>
+                              {team.map((e, i) => { const v = (mMap[e.id] || {})[ym] || 0; return (
+                                <td key={`bm-${e.id}`} className={`${numCell} ${i === lastMa ? grpR : ''}`}>{v > 0 ? v.toFixed(2) : ''}</td>
+                              ); })}
+                              <td colSpan={team.length + 1} className={`border px-1 py-1 ${grpL} ${grpR}`}></td>
+                            </tr>
+                          );
+                        })}
+                        </React.Fragment>
                       );
                     })}
                   </tbody>
