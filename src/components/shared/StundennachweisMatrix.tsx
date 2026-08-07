@@ -2,7 +2,19 @@
 // ============================================================================
 // PZE V7 - Shared Component: Stundennachweis-Matrix
 // ============================================================================
-// Version: 7.4.6-13
+// Version: 7.4.6-15
+// v7.4.6-15: A-Variante Refactor - Ruecksprung in die AP-Status-Uebersicht. Beim
+//   Sprung aus dem AP-Status ins Timesheet wird ein Marker gesetzt
+//   (sessionStorage pze_apstatus_reopen = projectId). Kehrt der Nutzer ueber die
+//   returnUrl in die Matrix zurueck, oeffnet ein Mount-Effekt den AP-Status-Dialog
+//   automatisch wieder (und loescht den Marker). Damit landet man - wie aus dem
+//   Timesheet-Weg - wieder in der Uebersicht statt nur in der Matrix. Der geteilte
+//   Dialog ist jetzt ApStatusModal v1.0-3 (Prop showMonthly; Matrix nutzt Default).
+// v7.4.6-14: Direktsprung aus dem AP-Status ins Timesheet. Der AP-Status-Dialog
+//   (ApStatusModal v1.0-2) bekommt onJumpToTimesheet -> Klick auf eine gebuchte
+//   MA-Zelle springt in die Zeiterfassung dieses MA fuer den betreffenden Monat
+//   (nutzt onNavigateToZE inkl. returnUrl zurueck in die Matrix). Modal wird beim
+//   Sprung geschlossen. Sonst unveraendert.
 // v7.4.6-13: Stufe 3a - AP-Status direkt aus der Matrix erreichbar. Neuer Button
 //   "AP-Status" in der Bedienleiste neben "Sammeldruck" oeffnet den eigenstaendigen
 //   ApStatusModal-Dialog (geplant/gebucht/offen je AP und MA, inkl. Monats-
@@ -312,6 +324,24 @@ export default function StundennachweisMatrix({
     ? matrixProjectId
     : (projects[0]?.id || null);
   const activeProject = projects.find(p => p.id === activeProjectId) || projects[0] || null;
+
+  // v7.4.6-15: Nach Rueckkehr aus dem Timesheet (Sprung aus dem AP-Status) den
+  //   AP-Status-Dialog automatisch wieder oeffnen. Der Sprung hat den Marker
+  //   pze_apstatus_reopen = projectId gesetzt; passt er zum aktiven Projekt, den
+  //   Dialog reoeffnen und den Marker einmalig loeschen. sessionStorage ist im
+  //   echten App-Kontext erlaubt (nicht in Artefakten).
+  useEffect(() => {
+    if (!activeProjectId) return;
+    try {
+      const marker = sessionStorage.getItem('pze_apstatus_reopen');
+      if (marker && marker === activeProjectId) {
+        sessionStorage.removeItem('pze_apstatus_reopen');
+        setShowApStatus(true);
+      }
+    } catch {
+      /* sessionStorage nicht verfuegbar -> ignorieren */
+    }
+  }, [activeProjectId]);
 
   // v7.4.6-10: Sprung zur Zahlungsanforderung (ZA) des aktiven Projekts.
   // Gleiche Seite; returnTo = aktuelle URL fuer den Zurueck-Button in der ZA.
@@ -1034,6 +1064,15 @@ export default function StundennachweisMatrix({
         onClose={() => setShowApStatus(false)}
         projectId={activeProjectId}
         projectLabel={activeProject?.short_name || activeProject?.name || ''}
+        onJumpToTimesheet={(empId, year, month) => {
+          // v7.4.6-15: Marker setzen, damit die Matrix nach Rueckkehr den AP-Status
+          //   wieder oeffnet (Ruecksprung in die Uebersicht statt nur in die Matrix).
+          try { sessionStorage.setItem('pze_apstatus_reopen', activeProjectId); } catch {
+            /* sessionStorage nicht verfuegbar -> ignorieren */
+          }
+          setShowApStatus(false);
+          onNavigateToZE(empId, year, month, activeProjectId);
+        }}
       />
     )}
     </>

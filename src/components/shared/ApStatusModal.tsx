@@ -1,5 +1,20 @@
 'use client';
 // src/components/shared/ApStatusModal.tsx
+// Version: 1.0-3
+// v1.0-3: Neuer Prop showMonthly (Default true). Steuert, ob die aufklappbare
+//   Monatsaufschluesselung mehrmonatiger APs angeboten wird. Aufrufer aus dem
+//   Timesheet reicht showMonthly = apAnalyseEnabled hinein (Monatsansicht nur fuer
+//   Berater bzw. freigeschaltete Firmen); die Stundenmatrix laesst den Default
+//   (true), da der AP-Status-Button dort bereits vollstaendig gegated ist. Bei
+//   showMonthly === false sind AP-Zeilen nicht aufklappbar (kein Chevron), die
+//   MA-Direktspruenge der Hauptzeile (einmonatige APs) bleiben unveraendert.
+// Version: 1.0-2
+// v1.0-2: Direktsprung ins Timesheet. Die gebuchten MA-Zellen sind klickbar und
+//   springen in die Zeiterfassung des jeweiligen Mitarbeiters fuer den betreffenden
+//   Monat (Monatszellen der Aufschluesselung immer; Hauptzeile nur bei einmonatigen
+//   APs, da dort der Monat eindeutig ist). Verdrahtung ueber neuen Prop
+//   onJumpToTimesheet (Aufrufer setzt portalgerechte Navigation inkl. returnUrl).
+//   Fehlt der Callback, bleiben die Zellen wie bisher nicht klickbar.
 // Version: 1.0-1
 // Wiederverwendbarer AP-Status-Dialog ("Alle AP"): kapselt den projektweiten
 // AP-Status (geplant / gebucht / offen je AP, gruppiert nach gesamt + MA-Spalten,
@@ -49,9 +64,24 @@ interface ApStatusModalProps {
   onClose: () => void;
   projectId: string;
   projectLabel?: string;
+  // v1.0-3: Monatsaufschluesselung anbieten (Default true). false = keine
+  // aufklappbaren AP-Zeilen (kein Chevron, keine Monatszeilen).
+  showMonthly?: boolean;
+  // v1.0-2: Direktsprung in die Zeiterfassung eines MA fuer einen bestimmten Monat.
+  // Wird vom Aufrufer portalgerecht verdrahtet (inkl. returnUrl). Fehlt der Callback,
+  // sind die MA-Zellen nicht klickbar.
+  onJumpToTimesheet?: (employeeId: string, year: number, month: number) => void;
 }
 
-export default function ApStatusModal({ open, onClose, projectId, projectLabel }: ApStatusModalProps) {
+export default function ApStatusModal({ open, onClose, projectId, projectLabel, showMonthly = true, onJumpToTimesheet }: ApStatusModalProps) {
+  // v1.0-2: 'YYYY-MM' -> Sprung in die Zeiterfassung des MA fuer diesen Monat.
+  const jumpTo = (empId: string, ym: string) => {
+    if (!onJumpToTimesheet) return;
+    const y = parseInt(ym.slice(0, 4), 10);
+    const m = parseInt(ym.slice(5, 7), 10);
+    if (!y || !m) return;
+    onJumpToTimesheet(empId, y, m);
+  };
   // --------------------------------------------------------------------------
   // Selbst geladene Daten (analog der States in TimesheetForm)
   // --------------------------------------------------------------------------
@@ -395,7 +425,7 @@ export default function ApStatusModal({ open, onClose, projectId, projectLabel }
                   sumPlanned += planned;
                   sumBooked += booked;
                   const months = monthsOfWp(wp.id);
-                  const expandable = months.length > 1;
+                  const expandable = showMonthly && months.length > 1;
                   const isOpen = expandable && expandedAllApRows.has(wp.id);
                   const mMap = projectBookedPerWpPerMaMonth[wp.id] || {};
                   return (
@@ -422,9 +452,19 @@ export default function ApStatusModal({ open, onClose, projectId, projectLabel }
                       ); })}
                       {/* gebucht */}
                       <td className={`${totBase} ${grpL} ${team.length === 0 ? grpR : ''}`}>{booked.toFixed(2)}</td>
-                      {team.map((e, i) => { const v = bMap[e.id] || 0; return (
-                        <td key={`b-${e.id}`} className={`${numCell} ${i === lastMa ? grpR : ''}`}>{v > 0 ? v.toFixed(2) : ''}</td>
-                      ); })}
+                      {team.map((e, i) => {
+                        const v = bMap[e.id] || 0;
+                        // v1.0-2: bei einmonatigen APs ist der Monat eindeutig -> Direktsprung.
+                        const jm = (onJumpToTimesheet && months.length === 1) ? months[0] : null;
+                        return (
+                          <td key={`b-${e.id}`}
+                            className={`${numCell} ${i === lastMa ? grpR : ''} ${jm ? 'cursor-pointer hover:bg-blue-100 text-blue-700' : ''}`}
+                            title={jm ? `Zur Zeiterfassung: ${maShortLabel(e)} ${fmtYm(jm)}` : undefined}
+                            onClick={jm ? (ev) => { ev.stopPropagation(); jumpTo(e.id, jm); } : undefined}>
+                            {v > 0 ? v.toFixed(2) : ''}
+                          </td>
+                        );
+                      })}
                       {/* offen = geplant(MA) - gebucht(MA) */}
                       <td className={`${totBase} ${grpL} ${team.length === 0 ? grpR : ''}`}>
                         <span className={offenColor(offenR)}>{offenR.toFixed(2)}</span>
@@ -448,9 +488,18 @@ export default function ApStatusModal({ open, onClose, projectId, projectLabel }
                           <td colSpan={isDurchfuehrbarkeitsstudie ? 4 : 3} className="border px-2 py-1 text-right italic text-gray-500 whitespace-nowrap">{fmtYm(ym)}</td>
                           <td colSpan={team.length + 1} className={`border px-1 py-1 ${grpL} ${grpR}`}></td>
                           <td className={`${numCell} ${grpL} bg-gray-100 font-semibold`}>{monthTotal > 0 ? monthTotal.toFixed(2) : ''}</td>
-                          {team.map((e, i) => { const v = (mMap[e.id] || {})[ym] || 0; return (
-                            <td key={`bm-${e.id}`} className={`${numCell} ${i === lastMa ? grpR : ''}`}>{v > 0 ? v.toFixed(2) : ''}</td>
-                          ); })}
+                          {team.map((e, i) => {
+                            const v = (mMap[e.id] || {})[ym] || 0;
+                            const clickable = !!onJumpToTimesheet;
+                            return (
+                              <td key={`bm-${e.id}`}
+                                className={`${numCell} ${i === lastMa ? grpR : ''} ${clickable ? 'cursor-pointer hover:bg-blue-100 text-blue-700' : ''}`}
+                                title={clickable ? `Zur Zeiterfassung: ${maShortLabel(e)} ${fmtYm(ym)}` : undefined}
+                                onClick={clickable ? () => jumpTo(e.id, ym) : undefined}>
+                                {v > 0 ? v.toFixed(2) : ''}
+                              </td>
+                            );
+                          })}
                           <td colSpan={team.length + 1} className={`border px-1 py-1 ${grpL} ${grpR}`}></td>
                         </tr>
                       );
