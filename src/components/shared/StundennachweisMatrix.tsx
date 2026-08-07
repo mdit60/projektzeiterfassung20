@@ -2,7 +2,27 @@
 // ============================================================================
 // PZE V7 - Shared Component: Stundennachweis-Matrix
 // ============================================================================
-// Version: 7.4.6-10
+// Version: 7.4.6-13
+// v7.4.6-13: Stufe 3a - AP-Status direkt aus der Matrix erreichbar. Neuer Button
+//   "AP-Status" in der Bedienleiste neben "Sammeldruck" oeffnet den eigenstaendigen
+//   ApStatusModal-Dialog (geplant/gebucht/offen je AP und MA, inkl. Monats-
+//   Aufschluesselung), der seine Daten selbst per projectId laedt - kein Umweg mehr
+//   ueber ein Timesheet. Sichtbarkeit: Prop apAnalyseEnabled (Berater immer; Firma
+//   nur bei Freischaltung v7_client_companies.ap_analyse_firma_freigeschaltet; fehlt
+//   der Prop, konservativ nach Portal). Button nur ausserhalb des Druckmodus.
+// v7.4.6-12: FIX zu -11. Die kleine Monatszahl zeigte ALLE erfassten Stunden
+//   (foerderbar + nicht-foerderbare "sonstige"). Bei Geschaeftsfuehrern (50%-Regel)
+//   erschien so ein zu hoher Wert (u.a. > 170), der der AP-Gesamtplanung aehnelte
+//   statt den tatsaechlich gebuchten Stunden. Jetzt summiert die Anzeige nur noch
+//   die FOERDERBAREN Stunden (is_billable === true) - identisch zur "gebucht"-Spalte
+//   im AP-Status. Der Ampel-Status bleibt unveraendert (nutzt weiter alle erfassten
+//   Tage fuer die Vollstaendigkeit). Tooltip zeigt jetzt "<x>h gebucht".
+// v7.4.6-11: Stufe 1 Management-Uebersicht. In jeder Monatszelle wird zusaetzlich
+//   zur Ampel die gebuchte Monats-Stundenzahl je MA als kleine Zahl unter dem
+//   Feld angezeigt (nur wenn erfasst und Monat in Laufzeit/Vergangenheit). Kein
+//   Umschalter noetig - man sieht Auslastung/Luft sofort beim Oeffnen der Matrix.
+//   Fuer Berater UND Firma sichtbar (nicht schaltbar). Klick-ins-Timesheet +
+//   Ruecksprung unveraendert (onNavigateToZE). Reine Anzeige, keine DB-/Logikaenderung.
 // v7.4.6-10: ZA-Direktlink im Karten-Header (oben, neben Projektname/FKZ/Typ).
 //   Springt in die Zahlungsanforderung des aktiven Projekts (gleiche Seite,
 //   returnTo = aktuelle URL). Portal-abhaengige Route (Berater/Firma). Nur am
@@ -117,6 +137,7 @@ import {
 } from '@/lib/holidays/germanHolidays';
 import { createClient } from '@/lib/supabase/client';
 import StundennachweisSheet from '@/components/shared/StundennachweisSheet';
+import ApStatusModal from '@/components/shared/ApStatusModal'; // v7.4.6-13: AP-Status-Dialog
 import {
   buildStundennachweisSheetData,
   type StundennachweisSheetData,
@@ -183,6 +204,7 @@ interface Timesheet {
   employee_id: string;
   work_date: string;
   hours: number | null;
+  is_billable?: boolean | null; // v7.4.6-12: fuer die foerderbaren (gebuchten) Stunden
 }
 
 interface Completion {
@@ -214,7 +236,8 @@ interface MatrixCell {
   employeeId: string;
   year: number;
   month: number;
-  hoursRecorded: number;
+  hoursRecorded: number;   // alle erfassten Stunden (fuer Vollstaendigkeits-Status)
+  billableHours: number;   // v7.4.6-12: nur foerderbare (is_billable) Stunden -> Anzeige-Zahl
   status: 'complete' | 'partial' | 'missing' | 'future' | 'outside';
 }
 
@@ -233,6 +256,10 @@ interface StundennachweisMatrixProps {
   matrixProjectId: string | null;
   onProjectChange: (id: string) => void;
   onNavigateToZE: (employeeId: string, year: number, month: number, projectId: string) => void;
+  // v7.4.6-13: vertiefte AP-Status-Analyse verfuegbar? Berater immer; Firma nur bei
+  // Freischaltung (v7_client_companies.ap_analyse_firma_freigeschaltet). Fehlt der
+  // Wert, wird konservativ nach Portal entschieden (Berater true, Firma false).
+  apAnalyseEnabled?: boolean;
 }
 
 // ============================================================================
@@ -264,12 +291,16 @@ export default function StundennachweisMatrix({
   matrixProjectId,
   onProjectChange,
   onNavigateToZE,
+  apAnalyseEnabled,
 }: StundennachweisMatrixProps) {
 
   const accentColor = portal === 'berater' ? 'text-blue-600' : 'text-green-600';
   const iconColor = portal === 'berater' ? 'text-blue-600' : 'text-green-600';
   const focusRing = portal === 'berater' ? 'focus:ring-blue-500' : 'focus:ring-green-500';
   const router = useRouter();  // v7.4.6-10: fuer ZA-Sprung
+  // v7.4.6-13: AP-Status-Analyse verfuegbar? Fehlt der Prop, konservativ nach Portal.
+  const apEnabled = apAnalyseEnabled ?? (portal === 'berater');
+  const [showApStatus, setShowApStatus] = useState(false);
 
   // v7.4.6-5: Selbstheilungs-Guard. Liegt die uebergebene matrixProjectId NICHT
   // im (ggf. gefilterten) projects-Array, faellt die Auswahl auf projects[0]
@@ -383,6 +414,9 @@ export default function StundennachweisMatrix({
           return d.getFullYear() === year && d.getMonth() + 1 === month;
         });
         const hoursRecorded = monthTimesheets.reduce((sum, t) => sum + (t.hours || 0), 0);
+        // v7.4.6-12: nur foerderbare (gebuchte) Stunden - schliesst nicht-foerderbare
+        // "sonstige Arbeiten" aus (relevant v.a. bei GF mit 50%-Regel).
+        const billableHours = monthTimesheets.reduce((sum, t) => sum + (t.is_billable === true ? (t.hours || 0) : 0), 0);
         const workingDays = countWorkdaysInMonth(year, month, company?.federal_state ?? null, holidayRegion);
         const daysWithEntries = new Set(
           monthTimesheets.filter(t => (t.hours || 0) > 0).map(t => t.work_date)
@@ -406,7 +440,7 @@ export default function StundennachweisMatrix({
         else if (isCompleted) status = 'complete';
         else if (hoursRecorded > 0 && daysRecorded >= workingDays) status = 'complete';
         else if (hoursRecorded > 0) status = 'partial';
-        cells.push({ employeeId: emp.id, year, month, hoursRecorded, status });
+        cells.push({ employeeId: emp.id, year, month, hoursRecorded, billableHours, status });
       });
     });
 
@@ -763,6 +797,16 @@ export default function StundennachweisMatrix({
           >
             <Printer className="w-4 h-4" /> Sammeldruck
           </button>
+          {/* v7.4.6-13: AP-Status-Dialog direkt aus der Matrix (neben Sammeldruck) */}
+          {!druckModus && apEnabled && activeProjectId && (
+            <button
+              onClick={() => setShowApStatus(true)}
+              className={`flex items-center gap-2 text-sm px-3 py-1.5 rounded border bg-white ${accentColor} border-gray-300 hover:bg-gray-50`}
+              title="AP-Status (geplant / gebucht / offen je Arbeitspaket und Mitarbeiter) oeffnen"
+            >
+              <Grid3x3 className="w-4 h-4" /> AP-Status
+            </button>
+          )}
           {druckModus && (
             <span className="text-xs text-gray-500">
               Monatsspalte, MA-Name oder Zelle anklicken zum Aus-/Abwaehlen.
@@ -881,6 +925,7 @@ export default function StundennachweisMatrix({
                     );
                     const status = cell?.status || 'future';
                     const hours = cell?.hoursRecorded || 0;
+                    const billable = cell?.billableHours || 0; // v7.4.6-12: Anzeige-Zahl = foerderbar gebucht
                     const colorMap: Record<string, string> = {
                       complete: 'bg-green-500 hover:bg-green-600 cursor-pointer',
                       partial:  'bg-orange-400 hover:bg-orange-500 cursor-pointer',
@@ -898,31 +943,39 @@ export default function StundennachweisMatrix({
                     const tooltip = (status === 'future'
                       ? `${monthName} ${year}: Noch nicht erfasst`
                       : status === 'complete'
-                      ? `${monthName} ${year}: ${hours.toFixed(1)}h - Vollstaendig`
+                      ? `${monthName} ${year}: ${billable.toFixed(1)}h gebucht -Vollstaendig`
                       : status === 'partial'
-                      ? `${monthName} ${year}: ${hours.toFixed(1)}h - In Bearbeitung`
+                      ? `${monthName} ${year}: ${billable.toFixed(1)}h gebucht -In Bearbeitung`
                       : `${monthName} ${year}: Keine Erfassung`)
                       + (hasOpenNote ? ' | Offene Rueckfrage' : '');
+                    // v7.4.6-11: gebuchte Monatsstunden als kleine Zusatzzahl unter dem
+                    // Ampel-Feld (nur wenn erfasst und Monat innerhalb Laufzeit/Vergangenheit).
+                    const hoursLabel = (isClickable && billable > 0)
+                      ? (Number.isInteger(billable) ? String(billable) : billable.toFixed(1))
+                      : '';
                     return (
                       <td key={`${year}-${month}`}
-                        className="px-1 py-2 text-center border-l border-gray-100"
+                        className="px-1 py-1.5 text-center border-l border-gray-100"
                         title={tooltip}>
-                        <div className="relative w-8 h-7 mx-auto">
-                          <div
-                            className={`w-full h-full rounded flex items-center justify-center text-white font-bold transition-colors ${colorMap[status] || 'bg-gray-100'} ${druckModus && isClickable && isSelected(emp.id, year, month) ? 'ring-2 ring-offset-1 ring-blue-700' : ''}`}
-                            onClick={() => {
-                              if (druckModus) { if (isClickable) toggleCell(emp.id, year, month); }
-                              else if (isClickable) onNavigateToZE(emp.id, year, month, activeProjectId);
-                            }}
-                          >
-                            {status === 'complete' && <CheckCircle size={14} />}
-                            {status === 'partial'  && <AlertTriangle size={14} />}
-                            {status === 'missing'  && <XCircle size={14} />}
-                            {status === 'future'   && <span className="text-gray-400 text-xs">-</span>}
+                        <div className="flex flex-col items-center">
+                          <div className="relative w-8 h-7">
+                            <div
+                              className={`w-full h-full rounded flex items-center justify-center text-white font-bold transition-colors ${colorMap[status] || 'bg-gray-100'} ${druckModus && isClickable && isSelected(emp.id, year, month) ? 'ring-2 ring-offset-1 ring-blue-700' : ''}`}
+                              onClick={() => {
+                                if (druckModus) { if (isClickable) toggleCell(emp.id, year, month); }
+                                else if (isClickable) onNavigateToZE(emp.id, year, month, activeProjectId);
+                              }}
+                            >
+                              {status === 'complete' && <CheckCircle size={14} />}
+                              {status === 'partial'  && <AlertTriangle size={14} />}
+                              {status === 'missing'  && <XCircle size={14} />}
+                              {status === 'future'   && <span className="text-gray-400 text-xs">-</span>}
+                            </div>
+                            {hasOpenNote && (
+                              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-orange-500 rounded-full border border-white"></span>
+                            )}
                           </div>
-                          {hasOpenNote && (
-                            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-orange-500 rounded-full border border-white"></span>
-                          )}
+                          <span className="mt-0.5 h-3 text-[10px] leading-none text-gray-600 tabular-nums">{hoursLabel}</span>
                         </div>
                       </td>
                     );
@@ -972,6 +1025,16 @@ export default function StundennachweisMatrix({
           }
         ` }} />
       </>
+    )}
+
+    {/* v7.4.6-13: AP-Status-Dialog (eigenstaendige Komponente, laedt per projectId) */}
+    {showApStatus && activeProjectId && (
+      <ApStatusModal
+        open={showApStatus}
+        onClose={() => setShowApStatus(false)}
+        projectId={activeProjectId}
+        projectLabel={activeProject?.short_name || activeProject?.name || ''}
+      />
     )}
     </>
   );

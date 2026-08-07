@@ -4,6 +4,14 @@
 // ============================================================================
 // PZE V7 - System-Konfiguration (nur system_admin)
 // ============================================================================
+// Version: 7.4.4-4
+// v7.4.4-4: NEU Abschnitt "AP-Status-Analyse - Freigabe je Firma" (Stufe 2). Pro
+//   Firma (v7_client_companies.ap_analyse_firma_freigeschaltet) steuerbar, ob die
+//   vertiefte AP-Status-Analyse (Monats-Aufschluesselung + externer Zugang) im
+//   FIRMEN-Portal verfuegbar ist. Berater haben sie immer; Firmen sonst nur die
+//   einfache AP-Uebersicht im Timesheet. Speichern je Zeile sofort (eigene Tabelle),
+//   analog zum VN-Schalter. Voraussetzung: SQL-MIGRATION-ap-analyse-firma-freigabe-v1.sql.
+// Datum: 6. August 2026
 // Version: 7.4.4-3
 // v7.4.4-3: NEU Abschnitt "Verwendungsnachweis - Freigabe je Firma". Pro Firma
 //   (v7_client_companies.vn_firma_freigeschaltet) steuerbar, ob der VN im
@@ -34,6 +42,7 @@ interface FirmaVN {
   id: string;
   name: string;
   vn: boolean;
+  apAnalyse: boolean; // v7.4.4-4: vertiefte AP-Status-Analyse fuer Firma freigeschaltet
 }
 
 // ============================================================================
@@ -118,6 +127,9 @@ export default function SystemConfigPanel() {
   const [firmaSuche, setFirmaSuche] = useState('');
   const [firmaSaving, setFirmaSaving] = useState<Record<string, boolean>>({});
   const [firmaSaved, setFirmaSaved] = useState<Record<string, boolean>>({});
+  // v7.4.4-4: eigener Speicherstatus fuer den AP-Analyse-Schalter (Kollisionsfrei zum VN-Schalter)
+  const [apSaving, setApSaving] = useState<Record<string, boolean>>({});
+  const [apSaved, setApSaved] = useState<Record<string, boolean>>({});
 
   // -- Daten laden --
   useEffect(() => {
@@ -161,11 +173,12 @@ export default function SystemConfigPanel() {
       // VN-Freigabe je Firma laden
       const { data: firmenData } = await supabase
         .from('v7_client_companies')
-        .select('id, name, vn_firma_freigeschaltet')
+        .select('id, name, vn_firma_freigeschaltet, ap_analyse_firma_freigeschaltet')
         .order('name', { ascending: true });
       if (firmenData) {
         setFirmen(firmenData.map((f: any) => ({
           id: f.id, name: f.name, vn: !!f.vn_firma_freigeschaltet,
+          apAnalyse: !!f.ap_analyse_firma_freigeschaltet,
         })));
       }
 
@@ -234,6 +247,25 @@ export default function SystemConfigPanel() {
     }
   }
 
+  // v7.4.4-4: AP-Status-Analyse je Firma sofort speichern (optimistisch, mit Rollback)
+  async function toggleFirmaApAnalyse(id: string, next: boolean) {
+    const supabase = createClient();
+    setApSaving(prev => ({ ...prev, [id]: true }));
+    setFirmen(prev => prev.map(f => f.id === id ? { ...f, apAnalyse: next } : f));
+    const { error } = await supabase
+      .from('v7_client_companies')
+      .update({ ap_analyse_firma_freigeschaltet: next })
+      .eq('id', id);
+    setApSaving(prev => ({ ...prev, [id]: false }));
+    if (error) {
+      setFirmen(prev => prev.map(f => f.id === id ? { ...f, apAnalyse: !next } : f));
+      console.error('AP-Analyse-Freigabe speichern fehlgeschlagen fuer ' + id + ':', error);
+    } else {
+      setApSaved(prev => ({ ...prev, [id]: true }));
+      setTimeout(() => setApSaved(prev => ({ ...prev, [id]: false })), 2000);
+    }
+  }
+
   function resetSaveStatus() { setSaveStatus('idle'); }
 
   function formatDate(iso: string | null) {
@@ -257,6 +289,7 @@ export default function SystemConfigPanel() {
   const firmenGefiltert = firmen.filter(f =>
     f.name.toLowerCase().includes(firmaSuche.trim().toLowerCase()));
   const anzahlFrei = firmen.filter(f => f.vn).length;
+  const anzahlApFrei = firmen.filter(f => f.apAnalyse).length;
 
   return (
     <div className="space-y-6">
@@ -326,6 +359,73 @@ export default function SystemConfigPanel() {
                         f.vn ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700',
                       ].join(' ')}>
                         {f.vn ? 'Freigeschaltet' : 'Gesperrt'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {firmenGefiltert.length === 0 && (
+                <p className="text-sm text-gray-400 py-4 text-center">Keine Treffer.</p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ================================================================ */}
+      {/* AP-STATUS-ANALYSE - FREIGABE JE FIRMA (v7.4.4-4)                 */}
+      {/* ================================================================ */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+          <FileText size={20} className="text-gray-500" />
+          <div className="flex-1">
+            <h3 className="text-base font-semibold text-gray-900">AP-Status-Analyse &ndash; Freigabe je Firma</h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Steuert pro Firma, ob die <span className="font-medium">vertiefte AP-Status-Analyse</span> (Monats-Aufschl&uuml;sselung je Mitarbeiter
+              und direkter Zugang au&szlig;erhalb der Zeiterfassung) im <span className="font-medium">Firmen-Portal</span> verf&uuml;gbar ist.
+              Berater haben sie immer. Firmen sehen sonst nur die einfache AP-&Uuml;bersicht im Timesheet. Standard: gesperrt.
+            </p>
+          </div>
+          <span className="text-xs text-gray-500 whitespace-nowrap">
+            {anzahlApFrei} / {firmen.length} freigeschaltet
+          </span>
+        </div>
+
+        <div className="px-6 py-4">
+          {firmen.length === 0 ? (
+            <p className="text-sm text-gray-400 py-4 text-center">Keine Firmen gefunden.</p>
+          ) : (
+            <div className="divide-y divide-gray-50 max-h-96 overflow-y-auto">
+              {firmenGefiltert.map(f => (
+                <div key={f.id} className="flex items-center justify-between py-2.5">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <button
+                      onClick={() => toggleFirmaApAnalyse(f.id, !f.apAnalyse)}
+                      disabled={!!apSaving[f.id]}
+                      className={[
+                        'relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none flex-shrink-0 disabled:opacity-50',
+                        f.apAnalyse ? 'bg-green-500' : 'bg-gray-300',
+                      ].join(' ')}
+                      aria-label={'AP-Analyse-Freigabe ' + f.name}
+                    >
+                      <span className={[
+                        'inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-200',
+                        f.apAnalyse ? 'translate-x-6' : 'translate-x-1',
+                      ].join(' ')} />
+                    </button>
+                    <span className="text-sm text-gray-800 truncate">{f.name}</span>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {apSaving[f.id] ? (
+                      <Loader2 size={13} className="animate-spin text-gray-400" />
+                    ) : apSaved[f.id] ? (
+                      <span className="flex items-center gap-1 text-green-700 text-xs"><CheckCircle size={12} /> gespeichert</span>
+                    ) : (
+                      <span className={[
+                        'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
+                        f.apAnalyse ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700',
+                      ].join(' ')}>
+                        {f.apAnalyse ? 'Freigeschaltet' : 'Gesperrt'}
                       </span>
                     )}
                   </div>
