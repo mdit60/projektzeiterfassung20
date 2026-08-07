@@ -1,5 +1,40 @@
 'use client';
 // src/components/shared/ApStatusModal.tsx
+// Version: 1.0-7
+// v1.0-7: Druck fuellt die Seitenbreite AUTOMATISCH. Beim Drucken wird die tatsaechliche
+//   Tabellenbreite gemessen und daraus ein Zoom-Faktor berechnet, der die Tabelle genau
+//   auf die nutzbare Querformat-Breite bringt: wenige MA -> vergroessert, viele MA ->
+//   verkleinert. Umsetzung ueber die CSS-Eigenschaft "zoom" (nur im Druck via CSS-Variable
+//   --ap-print-zoom), weil zoom - anders als transform:scale - den Seitenumbruch korrekt
+//   mitzieht (mehrere Seiten untereinander bleiben moeglich). Die feste Druckschrift (8px)
+//   entfaellt; gemessen und gedruckt wird mit derselben Schrift, damit die Skalierung exakt
+//   passt. Empfehlung im Druckdialog: Skalierung auf "Standard/100%" (die Anpassung macht
+//   die Komponente selbst).
+// v1.0-6: Druck-Korrektur. In -5 wurde die Tabelle rechts abgeschnitten (die
+//   "offen"-Gruppe fehlte, dadurch eine zweite halbe Seite): width:100% + auto-Layout
+//   kann NICHT unter die Inhaltsbreite schrumpfen -> Ueberlauf wird gekappt. Jetzt
+//   druckt die Tabelle in ihrer NATUERLICHEN Breite mit kompakter Druckschrift (8px,
+//   enge Zellen); der Chrome-Druckmodus "An Seitenbreite anpassen" skaliert sie damit
+//   sauber und VOLLSTAENDIG (alle Spalten) aufs Querformat und bricht bei Bedarf nach
+//   unten auf mehrere Seiten um (Kopfzeile je Seite wiederholt, Zeilen nicht mittig
+//   getrennt). Empfehlung im Druckdialog: "An Seitenbreite anpassen" aktiv lassen.
+// v1.0-5: Druck-Feinschliff. (1) Die Tabelle nutzt im Druck die VOLLE Seitenbreite
+//   (table width 100%, quer/A4 landscape) und laeuft bei Bedarf auf mehrere Seiten
+//   UNTEREINANDER; Kopfzeile wird je Seite wiederholt (thead table-header-group),
+//   Zeilen werden nicht mitten umgebrochen (page-break-inside: avoid). (2) Fuer den
+//   Druck werden ALLE mehrmonatigen APs automatisch aufgeklappt (Monatsaufschluesselung
+//   sichtbar): Klick auf "Drucken" setzt printExpandAll -> nach dem Repaint window.print();
+//   das afterprint-Event setzt den Zustand zurueck (die manuelle Auf-/Zuklapp-Auswahl am
+//   Bildschirm bleibt unveraendert). Greift nur, wenn showMonthly aktiv ist.
+// v1.0-4: Drucken/PDF. Neuer Knopf "Drucken" im Kopf des Dialogs oeffnet den
+//   Browser-Druckdialog (window.print) - dort direkt drucken ODER "Als PDF sichern".
+//   Gezieltes Druck-CSS (@media print) blendet alles ausser der AP-Status-Tabelle aus
+//   und druckt sie quer (A4 landscape): Backdrop, Kopf-/Fuss-Buttons (Klasse
+//   ap-print-hide) verschwinden, die Tabelle (#ap-status-print-area) wird oben links
+//   voll aufgezogen (max-height/overflow aufgehoben, kein Schatten). Nur Anzeige/Export,
+//   keine Datenaenderung. Das Modal-Grundgeruest ist im Druck nicht mehr pauschal
+//   ausgeblendet (print:hidden am Overlay entfaellt); stattdessen regelt das Druck-CSS
+//   gezielt, was gedruckt wird.
 // Version: 1.0-3
 // v1.0-3: Neuer Prop showMonthly (Default true). Steuert, ob die aufklappbare
 //   Monatsaufschluesselung mehrmonatiger APs angeboten wird. Aufrufer aus dem
@@ -100,6 +135,33 @@ export default function ApStatusModal({ open, onClose, projectId, projectLabel, 
   const [projectBookedPerWpPerMaMonth, setProjectBookedPerWpPerMaMonth] = useState<Record<string, Record<string, Record<string, number>>>>({});
   // aufgeklappte AP-Zeilen (Set von work_package_id)
   const [expandedAllApRows, setExpandedAllApRows] = useState<Set<string>>(new Set());
+  // v1.0-5: fuer den Druck werden voruebergehend ALLE mehrmonatigen APs aufgeklappt.
+  const [printExpandAll, setPrintExpandAll] = useState(false);
+  // v1.0-7: Zoom-Faktor fuer den Druck (fuellt die Seitenbreite automatisch).
+  const [printZoom, setPrintZoom] = useState(1);
+
+  // v1.0-7: Druck ausloesen. (1) Alle mehrmonatigen APs aufklappen. (2) Nach dem Repaint
+  //   die tatsaechliche Tabellenbreite messen und einen Zoom berechnen, der sie auf die
+  //   nutzbare A4-Querformat-Breite (~1040px bei 8mm Rand) bringt. (3) Drucken. Der Zustand
+  //   wird ueber afterprint zurueckgesetzt (haelt die Bildschirm-Ansicht stabil).
+  const handlePrint = () => {
+    setPrintExpandAll(true);
+    setTimeout(() => {
+      const area = document.getElementById('ap-status-print-area');
+      const table = area ? area.querySelector('table') : null;
+      const naturalW = table ? table.scrollWidth : 0;
+      const TARGET_PRINT_WIDTH = 1040; // A4 quer, ~8mm Rand, ~96dpi
+      const z = naturalW > 0 ? TARGET_PRINT_WIDTH / naturalW : 1;
+      // Sicherheitsgrenzen gegen Extremwerte
+      setPrintZoom(Math.max(0.4, Math.min(3, z)));
+      setTimeout(() => window.print(), 60);
+    }, 80);
+  };
+  useEffect(() => {
+    const reset = () => { setPrintExpandAll(false); setPrintZoom(1); };
+    window.addEventListener('afterprint', reset);
+    return () => window.removeEventListener('afterprint', reset);
+  }, []);
 
   // --------------------------------------------------------------------------
   // Datenladung: nur wenn open && projectId. Reagiert auf [open, projectId].
@@ -302,17 +364,30 @@ export default function ApStatusModal({ open, onClose, projectId, projectLabel, 
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 print:hidden">
-      <div className="bg-white rounded-lg shadow-xl p-6 max-w-[96vw] mx-4 w-fit max-h-[85vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div id="ap-status-print-area" style={{ ['--ap-print-zoom' as string]: String(printZoom) } as React.CSSProperties} className="bg-white rounded-lg shadow-xl p-6 max-w-[96vw] mx-4 w-fit max-h-[85vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-900">
             AP-Status {projectLabel || ''}
           </h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2 ap-print-hide">
+            {/* v1.0-4: Drucken / Als PDF sichern (Browser-Druckdialog) */}
+            <button
+              onClick={handlePrint}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+              title="AP-Status drucken oder als PDF sichern"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+              </svg>
+              Drucken
+            </button>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {loading ? (
@@ -426,7 +501,8 @@ export default function ApStatusModal({ open, onClose, projectId, projectLabel, 
                   sumBooked += booked;
                   const months = monthsOfWp(wp.id);
                   const expandable = showMonthly && months.length > 1;
-                  const isOpen = expandable && expandedAllApRows.has(wp.id);
+                  // v1.0-5: im Druck alle mehrmonatigen APs aufgeklappt (printExpandAll).
+                  const isOpen = expandable && (printExpandAll || expandedAllApRows.has(wp.id));
                   const mMap = projectBookedPerWpPerMaMonth[wp.id] || {};
                   return (
                     <React.Fragment key={wp.id}>
@@ -541,7 +617,7 @@ export default function ApStatusModal({ open, onClose, projectId, projectLabel, 
           );
         })()}
 
-        <div className="flex justify-end mt-4">
+        <div className="flex justify-end mt-4 ap-print-hide">
           <button
             onClick={onClose}
             className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm"
@@ -550,6 +626,37 @@ export default function ApStatusModal({ open, onClose, projectId, projectLabel, 
           </button>
         </div>
       </div>
+
+      {/* v1.0-4: Druck-CSS. Nur die AP-Status-Tabelle drucken (quer), alles andere aus. */}
+      <style jsx global>{`
+        @media print {
+          @page { size: A4 landscape; margin: 8mm; }
+          body * { visibility: hidden !important; }
+          #ap-status-print-area, #ap-status-print-area * { visibility: visible !important; }
+          #ap-status-print-area {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: max-content !important;
+            max-width: none !important;
+            max-height: none !important;
+            overflow: visible !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+            /* v1.0-7: automatischer Zoom auf die Seitenbreite (per Messung gesetzt) */
+            zoom: var(--ap-print-zoom, 1) !important;
+          }
+          /* v1.0-7: natuerliche Tabellenbreite; die Anpassung an die Seitenbreite macht
+             der gemessene Zoom-Faktor (kein festes Verkleinern der Schrift mehr). */
+          #ap-status-print-area table { width: max-content !important; }
+          #ap-status-print-area thead { display: table-header-group; }
+          #ap-status-print-area tfoot { display: table-footer-group; }
+          #ap-status-print-area tr { page-break-inside: avoid; }
+          .ap-print-hide { display: none !important; }
+        }
+      `}</style>
     </div>
   );
 }
