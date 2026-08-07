@@ -3,7 +3,20 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 6. August 2026
-// Version: 7.4.6-73
+// Version: 7.4.6-74
+// v7.4.6-74: WOCHEN-DECKEL fuer die Auto-Vorbelegung "sonstige Arbeiten".
+//   Problem (Teilzeit): Ein MA mit z.B. 30 h/Woche an 4 Tagen bekam am 5. Werktag
+//   automatisch 6 h "sonstige", obwohl die Wochenarbeitszeit an den 4 Tagen (4x8=32 h)
+//   schon erreicht/ueberschritten war -> nicht-foerderbare Stunden ueber die WAZ hinaus.
+//   Ursache: der Auto-Wert war rein tagesbezogen (max(0, WAZ/5 - Projekt - andere))
+//   und kannte kein Wochenbudget. Fix: pro Kalenderwoche (Mo-So) laufendes Konto
+//   aus Projekt(dieses) + andere Projekte + Abwesenheiten + bereits gesetzter
+//   "sonstige"; der Auto-Wert je Tag = min(Tagesspielraum, Wochen-Restbudget).
+//   Ist die WAZ in der Woche voll, ist "sonstige" = 0. Abwesenheiten (U/K/S/Feiertag)
+//   zaehlen mit; angeschnittene Randwochen nur mit ihren Tagen im Monat. Gilt beim
+//   Laden UND live beim Tippen; korrigiert bestehende (auto-erzeugte) Ueberschuesse
+//   beim naechsten Oeffnen. Manuell gesetzte Tage bleiben unangetastet. Fuer
+//   Vollzeit (5 Tage) unveraendert. Reine Vorbelegungslogik, keine DB-Aenderung.
 // v7.4.6-73: "Alle AP"-Modal offen-Gruppe Farbe: offene Stunden (+) jetzt GRUEN
 //   (statt orange), ueberbuchte (-) bleiben ROT, 0 grau. Nur Farblogik offenColor.
 // v7.4.6-72: "Alle AP"-Modal Feinschliff. (1) Modalbreite folgt jetzt der Tabelle
@@ -2510,52 +2523,77 @@ export default function TimesheetForm({
   // ==========================================================================
   useEffect(() => {
     if (isCompleted) return;
+    // v7.4.6-74: WOCHEN-DECKEL. Die Auto-"sonstige" wird zusaetzlich zum Tages-
+    // spielraum durch das verbleibende WOCHEN-Budget begrenzt: pro Kalenderwoche
+    // (Mo-So) zaehlt Projekt(dieses) + andere Projekte + Abwesenheiten + bereits
+    // gesetzte "sonstige" gegen die vertragliche Wochenarbeitszeit (weeklyHoursAtMonth).
+    // Ist die WAZ in der Woche erreicht/ueberschritten, gibt es KEINE weitere
+    // "sonstige" mehr. Behebt: Teilzeit-MA (z.B. 30 h/4 Tage) bekam am 5. Werktag
+    // faelschlich 6 h "sonstige", obwohl die WAZ an 4 Tagen schon voll war.
+    // Angeschnittene Randwochen zaehlen nur ihre Tage im aktuellen Monat.
+    const WAZ = weeklyHoursAtMonth;
+    const daysInMon = getDaysInMonth(selectedYear, selectedMonth);
+    const weekKeyOf = (d: number): number => {
+      const jsDow = new Date(selectedYear, selectedMonth - 1, d).getDay(); // 0=So..6=Sa
+      const isoDow = jsDow === 0 ? 7 : jsDow; // 1=Mo..7=So
+      return d - (isoDow - 1); // Tagesnummer des Montags -> eindeutig je Woche
+    };
     setNonBillableEntries(prev => {
       let changed = false;
       const next = { ...prev };
-      const daysInMon = getDaysInMonth(selectedYear, selectedMonth);
+      const weekUsed: Record<number, number> = {}; // je Woche verbrauchte Stunden
       for (let d = 1; d <= daysInMon; d++) {
-        // v7.4.6-65: Sicherheitsnetz. Wird ein Tag nachtraeglich zum
-        // Abwesenheitstag (U/K/S) -- z.B. durch direkte Eingabe in den unteren
-        // Fehlzeit-Zeilen -- so muss eine nicht-manuell gesetzte "sonstige"-
-        // Vorbelegung entfernt werden, sonst ergaeben Fehlzeit + sonstige eine
-        // Tagesstunden-Ueberschreitung. Reine Weekend-/Feiertags-/Blocked-Tage
-        // erhalten ohnehin keine Auto-Vorbelegung; nur Abwesenheitstage muessen
-        // hier aktiv geraeumt werden.
-        if (!nonBillableManual[d] && getAbsenceCodeForDay(d) && next[d]) {
-          delete next[d];
-          changed = true;
-          continue;
-        }
-        if (nonBillableManual[d]) continue;
-        if (!isPlainWorkday(d)) continue;
+        const wk = weekKeyOf(d);
+        if (weekUsed[wk] === undefined) weekUsed[wk] = 0;
+        const absH = sumAbsenceHoursForDay(d);
         const proj = calculateDaySum(d);
         const other = otherProjectHours[d] || 0;
-        const auto = Math.max(0, Math.round((employeeDailyHours - proj - other) * 100) / 100);
-        const cur = prev[d]?.value || '';
-        const curVal = cur ? parseHours(cur) : 0;
-        const same = Math.abs(curVal - auto) < 0.005;
-        if (!monthHadData) {
-          // Neuer Monat: leere Tage auffuellen, Auto-Werte nachfuehren
-          if (auto > 0) {
-            if (!same) { next[d] = { ...(next[d] || { id: '' }), value: fmtH(auto) }; changed = true; }
-          } else if (cur !== '') {
-            delete next[d]; changed = true;
-          }
+        const dayFixed = proj + other + absH; // zaehlt fest gegen das Wochenbudget
+        // "sonstige"-Wert, der am Ende dieses Durchlaufs an diesem Tag steht:
+        let finalNB = next[d]?.value ? parseHours(next[d].value) : 0;
+
+        if (!nonBillableManual[d] && getAbsenceCodeForDay(d) && next[d]) {
+          // v7.4.6-65: Abwesenheitstag -> nicht-manuelle "sonstige"-Vorbelegung raeumen.
+          delete next[d];
+          changed = true;
+          finalNB = 0;
+        } else if (nonBillableManual[d]) {
+          // Manuell angefasst: Wert bleibt, zaehlt aber ins Wochenkonto.
+        } else if (!isPlainWorkday(d)) {
+          // Wochenende/Feiertag/Blocked: keine Auto-Vorbelegung.
         } else {
-          // Gespeicherter Monat: nur bereits gefuellte Tage nachfuehren
-          if (cur !== '') {
+          // Reiner Arbeitstag: Auto-Wert mit Tages- UND Wochen-Deckel.
+          const dailyRoom = Math.max(0, employeeDailyHours - proj - other);
+          const weekRoom = Math.max(0, WAZ - weekUsed[wk] - dayFixed);
+          const auto = Math.round(Math.min(dailyRoom, weekRoom) * 100) / 100;
+          const cur = prev[d]?.value || '';
+          const curVal = cur ? parseHours(cur) : 0;
+          const same = Math.abs(curVal - auto) < 0.005;
+          if (!monthHadData) {
+            // Neuer Monat: leere Tage auffuellen, Auto-Werte nachfuehren
             if (auto > 0) {
-              if (!same) { next[d] = { ...next[d], value: fmtH(auto) }; changed = true; }
-            } else {
+              if (!same) { next[d] = { ...(next[d] || { id: '' }), value: fmtH(auto) }; changed = true; }
+            } else if (cur !== '') {
               delete next[d]; changed = true;
             }
+          } else {
+            // Gespeicherter Monat: nur bereits gefuellte Tage nachfuehren
+            if (cur !== '') {
+              if (auto > 0) {
+                if (!same) { next[d] = { ...next[d], value: fmtH(auto) }; changed = true; }
+              } else {
+                delete next[d]; changed = true;
+              }
+            }
           }
+          finalNB = next[d]?.value ? parseHours(next[d].value) : 0;
         }
+
+        weekUsed[wk] += dayFixed + finalNB;
       }
       return changed ? next : prev;
     });
-  }, [apRows, nonBillableManual, employeeDailyHours, otherProjectHours, selectedYear, selectedMonth, blockedDays, kurzarbeitInput, absenceHoursInput, monthHadData, isCompleted]);
+  }, [apRows, nonBillableManual, employeeDailyHours, weeklyHoursAtMonth, otherProjectHours, selectedYear, selectedMonth, blockedDays, kurzarbeitInput, absenceHoursInput, monthHadData, isCompleted]);
 
   const calculateTotalBillable = (): number => {
     return apRows.reduce((sum, row) => sum + calculateRowSum(row), 0);
