@@ -1,6 +1,15 @@
 'use client';
 // src/components/shared/ApStatusModal.tsx
-// Version: 1.0-7
+// Version: 1.0-8
+// v1.0-8: Robuster Seitenumbruch bei vielen aufgeklappten Monatszeilen. In -4..-7 wurde
+//   die Druck-Tabelle per position:absolute an den Blattanfang geholt; bei HOHEN Tabellen
+//   (viele Monatsaufschluesselungen) kam Chrome damit ueber mehrere Seiten nicht zurecht
+//   (zerrissene/doppelte Darstellung). Jetzt bleibt die Tabelle im NORMALEN Fluss und bricht
+//   sauber ueber beliebig viele Seiten um. Umsetzung: beim Drucken werden per JS die Vorfahren
+//   der Tabelle markiert (Klasse ap-print-ancestor); das Druck-CSS blendet mit display:none
+//   ALLES aus und zeigt nur die Vorfahrenkette + die Tabelle (kein Leerraum, kein absolute,
+//   kein fixed). Die automatische Breitenanpassung (gemessener zoom, v1.0-7) und das Aufklappen
+//   aller mehrmonatigen APs (v1.0-5) bleiben. Markierungen werden ueber afterprint entfernt.
 // v1.0-7: Druck fuellt die Seitenbreite AUTOMATISCH. Beim Drucken wird die tatsaechliche
 //   Tabellenbreite gemessen und daraus ein Zoom-Faktor berechnet, der die Tabelle genau
 //   auf die nutzbare Querformat-Breite bringt: wenige MA -> vergroessert, viele MA ->
@@ -58,7 +67,7 @@
 // TimesheetForm-v7_4_6-75.tsx uebernommen; nur State-/Datenherkunft wurde auf
 // eigenstaendiges Laden umgestellt.
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { hoursPerPM } from '@/lib/projektfortschritt-utils';
 
@@ -139,11 +148,15 @@ export default function ApStatusModal({ open, onClose, projectId, projectLabel, 
   const [printExpandAll, setPrintExpandAll] = useState(false);
   // v1.0-7: Zoom-Faktor fuer den Druck (fuellt die Seitenbreite automatisch).
   const [printZoom, setPrintZoom] = useState(1);
+  // v1.0-8: fuer den Druck markierte Vorfahren der Tabelle (zum Aufraeumen nach dem Druck).
+  const printAncestorsRef = useRef<HTMLElement[]>([]);
 
-  // v1.0-7: Druck ausloesen. (1) Alle mehrmonatigen APs aufklappen. (2) Nach dem Repaint
-  //   die tatsaechliche Tabellenbreite messen und einen Zoom berechnen, der sie auf die
-  //   nutzbare A4-Querformat-Breite (~1040px bei 8mm Rand) bringt. (3) Drucken. Der Zustand
-  //   wird ueber afterprint zurueckgesetzt (haelt die Bildschirm-Ansicht stabil).
+  // v1.0-8: Druck ausloesen. (1) Alle mehrmonatigen APs aufklappen. (2) Nach dem Repaint
+  //   die tatsaechliche Tabellenbreite messen -> Zoom auf die nutzbare A4-Querformat-Breite
+  //   (~1040px bei 8mm Rand). (3) Die Vorfahren der Tabelle markieren, damit das Druck-CSS
+  //   nur die Vorfahrenkette + Tabelle zeigt (display:none fuer alles andere -> kein Leerraum,
+  //   normaler Fluss -> korrekter Seitenumbruch ueber mehrere Seiten). (4) Drucken. Aufraeumen
+  //   ueber afterprint (Markierungen entfernen, Zustaende zuruecksetzen).
   const handlePrint = () => {
     setPrintExpandAll(true);
     setTimeout(() => {
@@ -152,13 +165,26 @@ export default function ApStatusModal({ open, onClose, projectId, projectLabel, 
       const naturalW = table ? table.scrollWidth : 0;
       const TARGET_PRINT_WIDTH = 1040; // A4 quer, ~8mm Rand, ~96dpi
       const z = naturalW > 0 ? TARGET_PRINT_WIDTH / naturalW : 1;
-      // Sicherheitsgrenzen gegen Extremwerte
       setPrintZoom(Math.max(0.4, Math.min(3, z)));
+      // Vorfahrenkette markieren (bis <body>).
+      const marked: HTMLElement[] = [];
+      let n: HTMLElement | null = area ? area.parentElement : null;
+      while (n && n !== document.body) {
+        n.classList.add('ap-print-ancestor');
+        marked.push(n);
+        n = n.parentElement;
+      }
+      printAncestorsRef.current = marked;
       setTimeout(() => window.print(), 60);
     }, 80);
   };
   useEffect(() => {
-    const reset = () => { setPrintExpandAll(false); setPrintZoom(1); };
+    const reset = () => {
+      setPrintExpandAll(false);
+      setPrintZoom(1);
+      printAncestorsRef.current.forEach(el => el.classList.remove('ap-print-ancestor'));
+      printAncestorsRef.current = [];
+    };
     window.addEventListener('afterprint', reset);
     return () => window.removeEventListener('afterprint', reset);
   }, []);
@@ -627,16 +653,26 @@ export default function ApStatusModal({ open, onClose, projectId, projectLabel, 
         </div>
       </div>
 
-      {/* v1.0-4: Druck-CSS. Nur die AP-Status-Tabelle drucken (quer), alles andere aus. */}
+      {/* v1.0-8: Druck-CSS. Alles ausser der Vorfahrenkette + Tabelle per display:none aus;
+          Tabelle bleibt im normalen Fluss -> sauberer Seitenumbruch ueber mehrere Seiten. */}
       <style jsx global>{`
         @media print {
           @page { size: A4 landscape; margin: 8mm; }
-          body * { visibility: hidden !important; }
-          #ap-status-print-area, #ap-status-print-area * { visibility: visible !important; }
+          body * { display: none !important; }
+          .ap-print-ancestor {
+            display: block !important;
+            position: static !important;
+            overflow: visible !important;
+            height: auto !important;
+            max-height: none !important;
+            width: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: transparent !important;
+          }
           #ap-status-print-area {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
+            display: block !important;
+            position: static !important;
             width: max-content !important;
             max-width: none !important;
             max-height: none !important;
@@ -648,12 +684,14 @@ export default function ApStatusModal({ open, onClose, projectId, projectLabel, 
             /* v1.0-7: automatischer Zoom auf die Seitenbreite (per Messung gesetzt) */
             zoom: var(--ap-print-zoom, 1) !important;
           }
-          /* v1.0-7: natuerliche Tabellenbreite; die Anpassung an die Seitenbreite macht
-             der gemessene Zoom-Faktor (kein festes Verkleinern der Schrift mehr). */
-          #ap-status-print-area table { width: max-content !important; }
-          #ap-status-print-area thead { display: table-header-group; }
-          #ap-status-print-area tfoot { display: table-footer-group; }
-          #ap-status-print-area tr { page-break-inside: avoid; }
+          #ap-status-print-area * { display: revert !important; }
+          #ap-status-print-area table { display: table !important; width: max-content !important; }
+          #ap-status-print-area thead { display: table-header-group !important; }
+          #ap-status-print-area tbody { display: table-row-group !important; }
+          #ap-status-print-area tfoot { display: table-footer-group !important; }
+          #ap-status-print-area tr { display: table-row !important; page-break-inside: avoid; }
+          #ap-status-print-area th, #ap-status-print-area td { display: table-cell !important; }
+          #ap-status-print-area .ap-print-hide { display: none !important; }
           .ap-print-hide { display: none !important; }
         }
       `}</style>
