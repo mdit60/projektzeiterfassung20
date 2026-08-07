@@ -2,8 +2,28 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 6. August 2026
-// Version: 7.4.6-76
+// Datum: 7. August 2026
+// Version: 7.4.6-78
+// v7.4.6-78: Symmetrischer Ruecksprung. Nach einem In-Page-Sprung aus der "Alle AP"-
+//   Uebersicht (Klick auf eine gebuchte MA-Zelle) fuehrt der "Zurueck"-Knopf des
+//   Timesheets ZUERST zurueck in die AP-Status-Uebersicht (von dort kam der Sprung)
+//   und erst der naechste "Zurueck" verlaesst das Timesheet (onBack). Bisher ging
+//   "Zurueck" nach dem In-Page-Sprung direkt zur aufrufenden Matrix, obwohl der
+//   Nutzer aus der Uebersicht kam. Umsetzung: Merker apReopenOverviewOnBack wird beim
+//   Sprung gesetzt; der Zurueck-Handler oeffnet dann die Uebersicht erneut statt zu
+//   navigieren. Der Matrix-Weg (echte Navigation + sessionStorage-Reopen) ist
+//   unveraendert.
+// v7.4.6-77: A-Variante Refactor. Das bisher inline in TimesheetForm gepflegte
+//   "Alle AP"-Status-Modal (MA-Spalten, Monatsaufschluesselung, Direktsprung) ist
+//   entfallen und wird jetzt von der ZENTRALEN Shared-Komponente ApStatusModal
+//   geladen und gerendert. TimesheetForm reicht nur noch projectId + Label sowie
+//   die Callbacks hinein (Schnittstelle: open, onClose, projectId, projectLabel,
+//   showMonthly, onJumpToTimesheet). Entfallen sind hier die States
+//   projectBookedPerWpPerMa / plannedHoursPerWpPerMa / projectBookedPerWpPerMaMonth /
+//   expandedAllApRows, die Memo allApTeam, der Helfer maShortLabel sowie der
+//   Team-Planstunden-Ladeeffekt und die MA-/Monats-Akkumulation in reloadBookedHours.
+//   onJumpToTimesheet = In-Page-Sprung (checkUnsavedChanges -> MA/Jahr/Monat setzen,
+//   Modal schliessen). showMonthly = apAnalyseEnabled.
 // v7.4.6-76: Stufe 3b - Gating des Monats-Aufklappens im "Alle AP"-Modal. Das
 //   Aufklappen (Monatsaufschluesselung, -75) ist ein Feature der vertieften AP-
 //   Status-Analyse und daher nur fuer Berater bzw. FREIGESCHALTETE Firmen sichtbar:
@@ -584,6 +604,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { hoursPerPM } from '@/lib/projektfortschritt-utils';
+import ApStatusModal from '@/components/shared/ApStatusModal';
 import { istGeschaeftsfuehrerTitle } from '@/types/v7-types';
 import {
   getGermanHolidays,
@@ -786,6 +807,22 @@ export default function TimesheetForm({
   const [showMyAPModal, setShowMyAPModal] = useState(false);
   // NEU v7.4.6-50: "Alle AP"-Modal (projektweiter AP-Status: Soll/gebucht/offen)
   const [showAllAPModal, setShowAllAPModal] = useState(false);
+  // v7.4.6-78: Nach einem In-Page-Sprung aus der "Alle AP"-Uebersicht soll der
+  //   naechste "Zurueck" zuerst wieder die Uebersicht oeffnen (statt das Timesheet
+  //   zu verlassen). Der Merker wird beim Sprung gesetzt und vom Zurueck-Handler
+  //   sowie beim manuellen Schliessen der Uebersicht wieder geloescht.
+  const [apReopenOverviewOnBack, setApReopenOverviewOnBack] = useState(false);
+  // v7.4.6-78: Zurueck-Logik. Steht ein Reopen-Merker an, oeffnet der erste Zurueck
+  //   die AP-Status-Uebersicht erneut; sonst normal ueber onBack (mit Warnung bei
+  //   ungespeicherten Aenderungen) verlassen.
+  const handleTimesheetBack = () => {
+    if (apReopenOverviewOnBack) {
+      setApReopenOverviewOnBack(false);
+      setShowAllAPModal(true);
+      return;
+    }
+    checkUnsavedChanges(onBack);
+  };
 
   // NEU v7.4.6-22 (A-021): NWM-Tagessperren
   const [blockedDays, setBlockedDays] = useState<Set<number>>(new Set());
@@ -812,55 +849,10 @@ export default function TimesheetForm({
     });
   }, [safeEmployees, teamNumbers]);
 
-  // v7.4.6-66: "Alle AP"-Modal MA-Aufschluesselung. Je AP eine Map employee_id -> Stunden.
-  //   projectBookedPerWpPerMa: projektweit gebuchte Stunden je (AP, MA) aus v7_timesheets.
-  //   plannedHoursPerWpPerMa: geplante Stunden je (AP, MA) aus v7_work_package_assignments
-  //   (planned_person_months x hoursPerPM), ueber das GANZE Team (nicht nur den gewaehlten MA).
-  //   MUSS vor allApTeam stehen (wird dort als useMemo-Dependency referenziert).
-  const [projectBookedPerWpPerMa, setProjectBookedPerWpPerMa] = useState<Record<string, Record<string, number>>>({});
-  const [plannedHoursPerWpPerMa, setPlannedHoursPerWpPerMa] = useState<Record<string, Record<string, number>>>({});
-  // v7.4.6-75: gebuchte Stunden je (AP, MA, Monat 'YYYY-MM') fuer die aufklappbare
-  //   Monatsaufschluesselung mehrmonatiger APs im "Alle AP"-Modal.
-  const [projectBookedPerWpPerMaMonth, setProjectBookedPerWpPerMaMonth] = useState<Record<string, Record<string, Record<string, number>>>>({});
-  // v7.4.6-75: aufgeklappte AP-Zeilen im "Alle AP"-Modal (Set von work_package_id).
-  const [expandedAllApRows, setExpandedAllApRows] = useState<Set<string>>(new Set());
-
-  // v7.4.6-66: Projekt-Team als Spalten fuer das "Alle AP"-Modal.
-  //   Quelle: teamNumbers (dem Projekt zugeordnete MA), sortiert nach Team-Nr.
-  //   Fallback: MA, die im Projekt geplante oder gebuchte Stunden haben.
-  const allApTeam = useMemo(() => {
-    const ids = new Set<string>();
-    teamNumbers.forEach((_n, id) => ids.add(id));
-    if (ids.size === 0) {
-      Object.values(plannedHoursPerWpPerMa).forEach(m => Object.keys(m).forEach(id => ids.add(id)));
-      Object.values(projectBookedPerWpPerMa).forEach(m => Object.keys(m).forEach(id => ids.add(id)));
-    }
-    const list = safeEmployees.filter(e => ids.has(e.id));
-    list.sort((a, b) => {
-      const nA = teamNumbers.get(a.id) ?? 9999;
-      const nB = teamNumbers.get(b.id) ?? 9999;
-      if (nA !== nB) return nA - nB;
-      return (a.display_name || '').localeCompare(b.display_name || '');
-    });
-    return list;
-  }, [safeEmployees, teamNumbers, plannedHoursPerWpPerMa, projectBookedPerWpPerMa]);
-
-  // v7.4.6-66: Kurzlabel "V.Nachname" (Vorname-Initial . Nachname) fuer MA-Spalten.
-  const maShortLabel = (emp: { first_name?: string | null; last_name?: string | null; display_name?: string | null } | undefined): string => {
-    if (!emp) return '?';
-    const ln = (emp.last_name || '').trim();
-    const fn = (emp.first_name || '').trim();
-    if (ln && fn) return `${fn.charAt(0)}.${ln}`;
-    if (ln) return ln;
-    const dn = (emp.display_name || '').trim();
-    if (dn.includes(',')) {
-      const parts = dn.split(',');
-      const l = (parts[0] || '').trim();
-      const f = (parts[1] || '').trim();
-      return f ? `${f.charAt(0)}.${l}` : l;
-    }
-    return dn || '?';
-  };
+  // v7.4.6-77: Die "Alle AP"-Datenhaltung und -Helfer (projectBookedPerWpPerMa,
+  //   plannedHoursPerWpPerMa, projectBookedPerWpPerMaMonth, expandedAllApRows,
+  //   allApTeam, maShortLabel) sind entfallen. Der projektweite AP-Status wird jetzt
+  //   von der zentralen Shared-Komponente ApStatusModal selbst geladen und gerendert.
 
   // State
   const [saving, setSaving] = useState(false);
@@ -1397,33 +1389,15 @@ export default function TimesheetForm({
         console.error('[TimesheetForm] Fehler beim Laden der projektweiten Stunden:', projErr);
       } else {
         const projBooked: Record<string, number> = {};
-        // v7.4.6-66: Buchungen zusaetzlich je (AP, MA) fuer die MA-Spalten im "Alle AP"-Modal.
-        const projBookedPerMa: Record<string, Record<string, number>> = {};
-        // v7.4.6-75: zusaetzlich je (AP, MA, Monat) fuer die aufklappbare Monatsaufschluesselung.
-        const projBookedPerMaMonth: Record<string, Record<string, Record<string, number>>> = {};
         (projEntries || []).forEach((e: any) => {
           if (e.work_package_id) {
             const h = parseFloat(e.hours) || 0;
             if (h > 0) {
               projBooked[e.work_package_id] = (projBooked[e.work_package_id] || 0) + h;
-              if (e.employee_id) {
-                if (!projBookedPerMa[e.work_package_id]) projBookedPerMa[e.work_package_id] = {};
-                projBookedPerMa[e.work_package_id][e.employee_id] =
-                  (projBookedPerMa[e.work_package_id][e.employee_id] || 0) + h;
-                const ym = typeof e.work_date === 'string' ? e.work_date.slice(0, 7) : '';
-                if (ym) {
-                  if (!projBookedPerMaMonth[e.work_package_id]) projBookedPerMaMonth[e.work_package_id] = {};
-                  if (!projBookedPerMaMonth[e.work_package_id][e.employee_id]) projBookedPerMaMonth[e.work_package_id][e.employee_id] = {};
-                  projBookedPerMaMonth[e.work_package_id][e.employee_id][ym] =
-                    (projBookedPerMaMonth[e.work_package_id][e.employee_id][ym] || 0) + h;
-                }
-              }
             }
           }
         });
         setProjectBookedPerWP(projBooked);
-        setProjectBookedPerWpPerMa(projBookedPerMa);
-        setProjectBookedPerWpPerMaMonth(projBookedPerMaMonth);
       }
     } catch (err) {
       console.error('[TimesheetForm] Fehler beim Reload der Stunden:', err);
@@ -1626,43 +1600,8 @@ export default function TimesheetForm({
     loadAssignmentData();
   }, [selectedEmployeeId, selectedProjectId, workPackages, reloadBookedHours, pmBasisWAZ]);
 
-  // v7.4.6-66: Geplante Stunden je (AP, MA) fuer das GANZE Projekt-Team laden
-  //   (Grundlage der MA-Spalten im "Alle AP"-Modal). Unabhaengig vom gewaehlten MA.
-  useEffect(() => {
-    if (!selectedProjectId) { setPlannedHoursPerWpPerMa({}); return; }
-    const loadTeamPlanned = async () => {
-      try {
-        const supabaseClient = createClient();
-        const projectWPIds = safeWorkPackages
-          .filter(wp => wp.project_id === selectedProjectId)
-          .map(wp => wp.id);
-        if (projectWPIds.length === 0) { setPlannedHoursPerWpPerMa({}); return; }
-        const { data: rows, error } = await supabaseClient
-          .from('v7_work_package_assignments')
-          .select('work_package_id, employee_id, planned_person_months')
-          .in('work_package_id', projectWPIds)
-          .eq('is_active', true);
-        if (error) {
-          console.error('[TimesheetForm] Fehler beim Laden der Team-Planstunden:', error);
-          return;
-        }
-        const factor = hoursPerPM(pmBasisWAZ);
-        const map: Record<string, Record<string, number>> = {};
-        (rows || []).forEach((a: any) => {
-          const pm = a.planned_person_months || 0;
-          if (a.work_package_id && a.employee_id && pm > 0) {
-            if (!map[a.work_package_id]) map[a.work_package_id] = {};
-            map[a.work_package_id][a.employee_id] =
-              (map[a.work_package_id][a.employee_id] || 0) + pm * factor;
-          }
-        });
-        setPlannedHoursPerWpPerMa(map);
-      } catch (err) {
-        console.error('[TimesheetForm] Fehler beim Laden der Team-Planstunden:', err);
-      }
-    };
-    loadTeamPlanned();
-  }, [selectedProjectId, workPackages, pmBasisWAZ]);
+  // v7.4.6-77: Der Team-Planstunden-Ladeeffekt (Grundlage der MA-Spalten im alten
+  //   Inline-"Alle AP"-Modal) ist entfallen; ApStatusModal laedt diese Daten selbst.
 
   // A-021: NWM-Sperren + Cross-Projekt-Stunden laden
   useEffect(() => {
@@ -3533,7 +3472,7 @@ export default function TimesheetForm({
           <div className="flex justify-between items-center py-3">
             <div className="flex items-center gap-4">
               <button
-                onClick={() => checkUnsavedChanges(onBack)}
+                onClick={handleTimesheetBack}
                 className="text-white/80 hover:text-white flex items-center gap-1"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -4659,239 +4598,28 @@ export default function TimesheetForm({
         </div>
       )}
 
-      {/* v7.4.6-50: Alle AP - projektweiter AP-Status (Soll / gebucht / offen) */}
-      {showAllAPModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 print:hidden">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-[96vw] mx-4 w-fit max-h-[85vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">
-                AP-Status {selectedProject?.short_name || selectedProject?.name || ''}
-              </h3>
-              <button onClick={() => setShowAllAPModal(false)} className="text-gray-400 hover:text-gray-600">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            {(() => {
-              const realAPs = availableWorkPackages
-                .filter(wp => wp.total_person_months != null && wp.total_person_months > 0)
-                .sort(compareApCode);
-              if (realAPs.length === 0) {
-                return (
-                  <p className="text-gray-500 text-sm">Keine Arbeitspakete mit geplanten Stunden vorhanden.</p>
-                );
-              }
-              let sumPlanned = 0;
-              let sumBooked = 0;
-              const fmtMon = (d: string | null): string => {
-                if (!d) return '?';
-                const p = d.split('-');
-                return p.length >= 2 ? `${p[1]}.${p[0]}` : d;
-              };
-              // v7.4.6-66: MA-Spalten (ganzes Projekt-Team). Alle Werte in STUNDEN.
-              // v7.4.6-71: Reihenfolge je Gruppe = "gesamt" zuerst, dann MA-Spalten.
-              //   Jede Gruppe (geplant/gebucht/offen) mit dickem Rahmen (border-gray-500).
-              const team = allApTeam;
-              const lastMa = team.length - 1;
-              const numCell = 'border px-1 py-1.5 text-center whitespace-nowrap';
-              const totBase = 'border px-1 py-1.5 text-center whitespace-nowrap bg-gray-50 font-semibold';
-              // Rahmen-Kanten der Gruppe (dick, gut sichtbar)
-              const grpL = 'border-l-4 border-gray-500';                 // linke Kante (auf "gesamt")
-              const grpR = 'border-r-4 border-gray-500';                 // rechte Kante (auf letzter MA)
-              const grpB = 'border-b-4 border-gray-500';                 // untere Kante (Fusszeile)
-              const grpTLR = 'border-t-4 border-l-4 border-r-4 border-gray-500'; // Kopf oben+seiten
-              // "gesamt"-Zelle einer Gruppe: linke Kante, falls kein MA folgt auch rechte Kante
-              const totHead = `border px-1 py-1 font-semibold text-gray-700 text-center bg-gray-100 ${grpL} ${team.length === 0 ? grpR : ''}`;
-              const maHead = (i: number) => `border px-1 py-1 font-medium text-gray-600 align-bottom ${i === lastMa ? grpR : ''}`;
-              const maNameDiv = 'max-w-[4.5rem] break-normal leading-tight text-center mx-auto';
-              // v7.4.6-73: offene Stunden (+) gruen, ueberbuchte (-) rot, 0 grau.
-              const offenColor = (v: number) => v > 0 ? 'text-green-600 font-bold' : v < 0 ? 'text-red-600 font-bold' : 'text-gray-400';
-              const r2 = (v: number) => Math.round(v * 100) / 100;
-              // v7.4.6-75: Monatslabel 'YYYY-MM' -> 'Mrz 26' (ASCII, deterministisch).
-              const MON_ABK = ['Jan', 'Feb', 'Mrz', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
-              const fmtYm = (ym: string): string => {
-                const p = ym.split('-');
-                if (p.length < 2) return ym;
-                const mi = parseInt(p[1], 10) - 1;
-                return `${MON_ABK[mi] || p[1]} ${p[0].slice(-2)}`;
-              };
-              // v7.4.6-75: sortierte Monatsliste je AP (nur Monate mit Buchungen).
-              const monthsOfWp = (wpId: string): string[] => {
-                const mm = projectBookedPerWpPerMaMonth[wpId] || {};
-                const set = new Set<string>();
-                Object.values(mm).forEach(perYm => Object.keys(perYm).forEach(ym => set.add(ym)));
-                return Array.from(set).sort();
-              };
-              const toggleExpand = (wpId: string) => setExpandedAllApRows(prev => {
-                const nx = new Set(prev);
-                if (nx.has(wpId)) nx.delete(wpId); else nx.add(wpId);
-                return nx;
-              });
-              // Spaltensummen je MA (fuer die Fusszeile)
-              const colPlanned: Record<string, number> = {};
-              const colBooked: Record<string, number> = {};
-              team.forEach(e => {
-                colPlanned[e.id] = realAPs.reduce((a, wp) => a + ((plannedHoursPerWpPerMa[wp.id] || {})[e.id] || 0), 0);
-                colBooked[e.id] = realAPs.reduce((a, wp) => a + ((projectBookedPerWpPerMa[wp.id] || {})[e.id] || 0), 0);
-              });
-              return (
-                <div className="overflow-x-auto">
-                <table className="text-xs border-collapse w-auto">
-                  <thead>
-                    <tr className="bg-gray-50 text-left">
-                      <th rowSpan={2} className="border px-2 py-1.5 font-medium text-gray-700 align-bottom">AP</th>
-                      <th rowSpan={2} className="border px-2 py-1.5 font-medium text-gray-700 align-bottom w-[11rem]">Bezeichnung</th>
-                      <th rowSpan={2} className="border px-2 py-1.5 font-medium text-gray-700 whitespace-nowrap align-bottom">Zeitraum (geplant)</th>
-                      {isDurchfuehrbarkeitsstudie && (
-                        <th rowSpan={2} className="border px-2 py-1.5 font-medium text-gray-700 text-center align-bottom">T/NT</th>
-                      )}
-                      <th colSpan={team.length + 1} className={`px-1 py-1.5 font-medium text-gray-700 text-center ${grpTLR}`}>geplant (h)</th>
-                      <th colSpan={team.length + 1} className={`px-1 py-1.5 font-medium text-gray-700 text-center ${grpTLR}`}>gebucht (h)</th>
-                      <th colSpan={team.length + 1} className={`px-1 py-1.5 font-medium text-gray-700 text-center ${grpTLR}`}>offen (h)</th>
-                    </tr>
-                    <tr className="bg-gray-50 text-center">
-                      {/* geplant: gesamt zuerst, dann MA */}
-                      <th className={totHead}>gesamt</th>
-                      {team.map((e, i) => (
-                        <th key={`hp-${e.id}`} className={maHead(i)}><div className={maNameDiv}>{maShortLabel(e)}</div></th>
-                      ))}
-                      {/* gebucht */}
-                      <th className={totHead}>gesamt</th>
-                      {team.map((e, i) => (
-                        <th key={`hb-${e.id}`} className={maHead(i)}><div className={maNameDiv}>{maShortLabel(e)}</div></th>
-                      ))}
-                      {/* offen */}
-                      <th className={totHead}>gesamt</th>
-                      {team.map((e, i) => (
-                        <th key={`ho-${e.id}`} className={maHead(i)}><div className={maNameDiv}>{maShortLabel(e)}</div></th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {realAPs.map(wp => {
-                      const apDisplay = wp.ap_code
-                        ? wp.ap_code.replace(/^AP\s*/i, '')
-                        : `${wp.ap_number}${wp.ap_sub_number ? `.${wp.ap_sub_number}` : ''}`;
-                      const planned = (wp.total_person_months || 0) * hoursPerPM(pmBasisWAZ);
-                      const booked = projectBookedPerWP[wp.id] || 0;
-                      const offen = planned - booked;
-                      const offenR = r2(offen);
-                      const pMap = plannedHoursPerWpPerMa[wp.id] || {};
-                      const bMap = projectBookedPerWpPerMa[wp.id] || {};
-                      sumPlanned += planned;
-                      sumBooked += booked;
-                      const months = monthsOfWp(wp.id);
-                      // v7.4.6-76: Monats-Aufklappen nur bei freigeschalteter AP-Analyse.
-                      const expandable = apAnalyseEnabled && months.length > 1;
-                      const isOpen = expandable && expandedAllApRows.has(wp.id);
-                      const mMap = projectBookedPerWpPerMaMonth[wp.id] || {};
-                      return (
-                        <React.Fragment key={wp.id}>
-                        <tr className={`hover:bg-gray-50 ${expandable ? 'cursor-pointer' : ''}`} onClick={expandable ? () => toggleExpand(wp.id) : undefined}>
-                          <td className="border px-2 py-1.5 whitespace-nowrap font-mono text-xs align-top" title={expandable ? 'Monatsaufschluesselung ein-/ausklappen' : undefined}>
-                            {expandable && <span className="inline-block w-3 text-gray-500 select-none">{isOpen ? '\u25be' : '\u25b8'}</span>}{apDisplay}
-                          </td>
-                          <td className="border px-2 py-1.5 align-top w-[11rem] whitespace-normal break-words leading-tight">{wp.name}</td>
-                          <td className="border px-2 py-1.5 whitespace-nowrap text-xs text-gray-600 align-top">
-                            {(wp.start_date || wp.end_date) ? `${fmtMon(wp.start_date)} \u2013 ${fmtMon(wp.end_date)}` : '\u2014'}
-                          </td>
-                          {isDurchfuehrbarkeitsstudie && (
-                            <td className="border px-2 py-1.5 text-center align-top">
-                              {isTechnicalAP(wp)
-                                ? <span className="text-green-700 font-bold text-xs">T</span>
-                                : <span className="text-blue-700 font-bold text-xs">NT</span>}
-                            </td>
-                          )}
-                          {/* geplant: gesamt zuerst, dann je MA */}
-                          <td className={`${totBase} ${grpL} ${team.length === 0 ? grpR : ''}`}>{planned.toFixed(2)}</td>
-                          {team.map((e, i) => { const v = pMap[e.id] || 0; return (
-                            <td key={`p-${e.id}`} className={`${numCell} ${i === lastMa ? grpR : ''}`}>{v > 0 ? v.toFixed(2) : ''}</td>
-                          ); })}
-                          {/* gebucht */}
-                          <td className={`${totBase} ${grpL} ${team.length === 0 ? grpR : ''}`}>{booked.toFixed(2)}</td>
-                          {team.map((e, i) => { const v = bMap[e.id] || 0; return (
-                            <td key={`b-${e.id}`} className={`${numCell} ${i === lastMa ? grpR : ''}`}>{v > 0 ? v.toFixed(2) : ''}</td>
-                          ); })}
-                          {/* offen = geplant(MA) - gebucht(MA) */}
-                          <td className={`${totBase} ${grpL} ${team.length === 0 ? grpR : ''}`}>
-                            <span className={offenColor(offenR)}>{offenR.toFixed(2)}</span>
-                          </td>
-                          {team.map((e, i) => {
-                            const pv = pMap[e.id] || 0; const bv = bMap[e.id] || 0;
-                            const ov = r2(pv - bv);
-                            const has = pv > 0 || bv > 0;
-                            return (
-                              <td key={`o-${e.id}`} className={`${numCell} ${i === lastMa ? grpR : ''}`}>
-                                {has ? <span className={offenColor(ov)}>{ov.toFixed(2)}</span> : ''}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                        {/* v7.4.6-75: Monatsaufschluesselung (gebucht je MA je Monat) fuer mehrmonatige APs */}
-                        {isOpen && months.map(ym => {
-                          const monthTotal = team.reduce((a, e) => a + ((mMap[e.id] || {})[ym] || 0), 0);
-                          return (
-                            <tr key={`${wp.id}-${ym}`} className="bg-blue-50 text-xs">
-                              <td colSpan={isDurchfuehrbarkeitsstudie ? 4 : 3} className="border px-2 py-1 text-right italic text-gray-500 whitespace-nowrap">{fmtYm(ym)}</td>
-                              <td colSpan={team.length + 1} className={`border px-1 py-1 ${grpL} ${grpR}`}></td>
-                              <td className={`${numCell} ${grpL} bg-gray-100 font-semibold`}>{monthTotal > 0 ? monthTotal.toFixed(2) : ''}</td>
-                              {team.map((e, i) => { const v = (mMap[e.id] || {})[ym] || 0; return (
-                                <td key={`bm-${e.id}`} className={`${numCell} ${i === lastMa ? grpR : ''}`}>{v > 0 ? v.toFixed(2) : ''}</td>
-                              ); })}
-                              <td colSpan={team.length + 1} className={`border px-1 py-1 ${grpL} ${grpR}`}></td>
-                            </tr>
-                          );
-                        })}
-                        </React.Fragment>
-                      );
-                    })}
-                  </tbody>
-                  <tfoot>
-                    <tr className="bg-gray-100 font-semibold">
-                      <td className="border px-2 py-1.5" colSpan={isDurchfuehrbarkeitsstudie ? 4 : 3}>Gesamt</td>
-                      {/* geplant */}
-                      <td className={`${totBase} ${grpL} ${grpB} ${team.length === 0 ? grpR : ''}`}>{sumPlanned.toFixed(2)}</td>
-                      {team.map((e, i) => (
-                        <td key={`fp-${e.id}`} className={`${numCell} ${grpB} ${i === lastMa ? grpR : ''}`}>{colPlanned[e.id] > 0 ? colPlanned[e.id].toFixed(2) : ''}</td>
-                      ))}
-                      {/* gebucht */}
-                      <td className={`${totBase} ${grpL} ${grpB} ${team.length === 0 ? grpR : ''}`}>{sumBooked.toFixed(2)}</td>
-                      {team.map((e, i) => (
-                        <td key={`fb-${e.id}`} className={`${numCell} ${grpB} ${i === lastMa ? grpR : ''}`}>{colBooked[e.id] > 0 ? colBooked[e.id].toFixed(2) : ''}</td>
-                      ))}
-                      {/* offen */}
-                      <td className={`${totBase} ${grpL} ${grpB} ${team.length === 0 ? grpR : ''}`}>
-                        {(() => { const g = r2(sumPlanned - sumBooked); return <span className={offenColor(g)}>{g.toFixed(2)}</span>; })()}
-                      </td>
-                      {team.map((e, i) => {
-                        const ov = r2((colPlanned[e.id] || 0) - (colBooked[e.id] || 0));
-                        const has = (colPlanned[e.id] || 0) > 0 || (colBooked[e.id] || 0) > 0;
-                        return (
-                          <td key={`fo-${e.id}`} className={`${numCell} ${grpB} ${i === lastMa ? grpR : ''}`}>
-                            {has ? <span className={offenColor(ov)}>{ov.toFixed(2)}</span> : ''}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  </tfoot>
-                </table>
-                </div>
-              );
-            })()}
-
-            <div className="flex justify-end mt-4">
-              <button
-                onClick={() => setShowAllAPModal(false)}
-                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm"
-              >
-                {'Schlie\u00dfen'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* v7.4.6-77: Alle AP - jetzt ueber die zentrale Shared-Komponente ApStatusModal.
+          onJumpToTimesheet = In-Page-Sprung (MA/Jahr/Monat umschalten, Modal schliessen);
+          checkUnsavedChanges warnt bei offenen Aenderungen. showMonthly = apAnalyseEnabled
+          (Monatsaufschluesselung nur fuer Berater bzw. freigeschaltete Firmen). */}
+      <ApStatusModal
+        open={showAllAPModal}
+        onClose={() => { setShowAllAPModal(false); setApReopenOverviewOnBack(false); }}
+        projectId={selectedProjectId}
+        projectLabel={selectedProject?.short_name || selectedProject?.name || ''}
+        showMonthly={apAnalyseEnabled}
+        onJumpToTimesheet={(employeeId, year, month) => {
+          checkUnsavedChanges(() => {
+            setShowAllAPModal(false);
+            setSelectedEmployeeId(employeeId);
+            setSelectedYear(year);
+            setSelectedMonth(month);
+            // v7.4.6-78: Merker, damit der naechste "Zurueck" zuerst die Uebersicht
+            //   wieder oeffnet (Ruecksprung dorthin, von wo der Sprung ausging).
+            setApReopenOverviewOnBack(true);
+          });
+        }}
+      />
 
       {/* A-021: NWM-Sperren-Verwaltungs-Modal */}
       {showBlockModal && (
