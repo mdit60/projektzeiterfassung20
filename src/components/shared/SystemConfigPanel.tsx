@@ -4,7 +4,13 @@
 // ============================================================================
 // PZE V7 - System-Konfiguration (nur system_admin)
 // ============================================================================
-// Version: 7.4.4-4
+// Version: 7.4.4-5
+// v7.4.4-5: Feature-Freigaben je Firma als MATRIX zusammengefasst. Statt je Feature
+//   eine eigene Liste (VN, AP-Status) jetzt EINE Tabelle: Zeilen = Firmen, Spalten =
+//   Features (Toggle je Zelle, sofort gespeichert, mit Spinner/Check). Erweiterbar
+//   ueber das featureDefs-Array (neues Feature = ein Eintrag + State/Toggle + DB-Spalte).
+//   Spaltenkopf zeigt "x / n frei". Suche filtert die Zeilen. Cockpit-Freischaltung und
+//   Anleitungen-Downloads (globale, fuer alle Firmen gleiche Schalter) bleiben separat.
 // v7.4.4-4: NEU Abschnitt "AP-Status-Analyse - Freigabe je Firma" (Stufe 2). Pro
 //   Firma (v7_client_companies.ap_analyse_firma_freigeschaltet) steuerbar, ob die
 //   vertiefte AP-Status-Analyse (Monats-Aufschluesselung + externer Zugang) im
@@ -288,28 +294,36 @@ export default function SystemConfigPanel() {
 
   const firmenGefiltert = firmen.filter(f =>
     f.name.toLowerCase().includes(firmaSuche.trim().toLowerCase()));
-  const anzahlFrei = firmen.filter(f => f.vn).length;
-  const anzahlApFrei = firmen.filter(f => f.apAnalyse).length;
+  // v7.4.4-5: Feature-Freigaben als Matrix (Firmen x Features). Erweiterbar:
+  //   ein weiteres Feature = ein Eintrag hier + zugehoeriger State/Toggle + DB-Spalte.
+  const featureDefs: {
+    key: string;
+    label: string;
+    value: (f: FirmaVN) => boolean;
+    toggle: (id: string, next: boolean) => void | Promise<void>;
+    saving: Record<string, boolean>;
+    saved: Record<string, boolean>;
+  }[] = [
+    { key: 'vn', label: 'Verwendungsnachweis', value: (f) => f.vn, toggle: toggleFirmaVN, saving: firmaSaving, saved: firmaSaved },
+    { key: 'apAnalyse', label: 'AP-Status-Analyse', value: (f) => f.apAnalyse, toggle: toggleFirmaApAnalyse, saving: apSaving, saved: apSaved },
+  ];
 
   return (
     <div className="space-y-6">
 
       {/* ================================================================ */}
-      {/* VERWENDUNGSNACHWEIS - FREIGABE JE FIRMA                         */}
+      {/* FEATURE-FREIGABEN JE FIRMA (Matrix) - v7.4.4-5                   */}
       {/* ================================================================ */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
           <FileText size={20} className="text-gray-500" />
           <div className="flex-1">
-            <h3 className="text-base font-semibold text-gray-900">Verwendungsnachweis &ndash; Freigabe je Firma</h3>
+            <h3 className="text-base font-semibold text-gray-900">Feature-Freigaben je Firma</h3>
             <p className="text-xs text-gray-500 mt-0.5">
-              Steuert pro Firma, ob der Verwendungsnachweis im <span className="font-medium">Firmen-Portal</span> sichtbar ist.
-              Die Berater-Seite ist immer frei (zum Testen). Standard: gesperrt.
+              Pro Firma steuerbar, welche Features im <span className="font-medium">Firmen-Portal</span> verf&uuml;gbar sind.
+              Die Berater-Seite ist immer frei. Standard: gesperrt. &Auml;nderungen werden sofort gespeichert.
             </p>
           </div>
-          <span className="text-xs text-gray-500 whitespace-nowrap">
-            {anzahlFrei} / {firmen.length} freigeschaltet
-          </span>
         </div>
 
         <div className="px-6 py-4">
@@ -328,112 +342,59 @@ export default function SystemConfigPanel() {
           {firmen.length === 0 ? (
             <p className="text-sm text-gray-400 py-4 text-center">Keine Firmen gefunden.</p>
           ) : (
-            <div className="divide-y divide-gray-50 max-h-96 overflow-y-auto">
-              {firmenGefiltert.map(f => (
-                <div key={f.id} className="flex items-center justify-between py-2.5">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <button
-                      onClick={() => toggleFirmaVN(f.id, !f.vn)}
-                      disabled={!!firmaSaving[f.id]}
-                      className={[
-                        'relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none flex-shrink-0 disabled:opacity-50',
-                        f.vn ? 'bg-green-500' : 'bg-gray-300',
-                      ].join(' ')}
-                      aria-label={'VN-Freigabe ' + f.name}
-                    >
-                      <span className={[
-                        'inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-200',
-                        f.vn ? 'translate-x-6' : 'translate-x-1',
-                      ].join(' ')} />
-                    </button>
-                    <span className="text-sm text-gray-800 truncate">{f.name}</span>
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    {firmaSaving[f.id] ? (
-                      <Loader2 size={13} className="animate-spin text-gray-400" />
-                    ) : firmaSaved[f.id] ? (
-                      <span className="flex items-center gap-1 text-green-700 text-xs"><CheckCircle size={12} /> gespeichert</span>
-                    ) : (
-                      <span className={[
-                        'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
-                        f.vn ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700',
-                      ].join(' ')}>
-                        {f.vn ? 'Freigeschaltet' : 'Gesperrt'}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
-              {firmenGefiltert.length === 0 && (
-                <p className="text-sm text-gray-400 py-4 text-center">Keine Treffer.</p>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ================================================================ */}
-      {/* AP-STATUS-ANALYSE - FREIGABE JE FIRMA (v7.4.4-4)                 */}
-      {/* ================================================================ */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
-          <FileText size={20} className="text-gray-500" />
-          <div className="flex-1">
-            <h3 className="text-base font-semibold text-gray-900">AP-Status-Analyse &ndash; Freigabe je Firma</h3>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Steuert pro Firma, ob die <span className="font-medium">vertiefte AP-Status-Analyse</span> (Monats-Aufschl&uuml;sselung je Mitarbeiter
-              und direkter Zugang au&szlig;erhalb der Zeiterfassung) im <span className="font-medium">Firmen-Portal</span> verf&uuml;gbar ist.
-              Berater haben sie immer. Firmen sehen sonst nur die einfache AP-&Uuml;bersicht im Timesheet. Standard: gesperrt.
-            </p>
-          </div>
-          <span className="text-xs text-gray-500 whitespace-nowrap">
-            {anzahlApFrei} / {firmen.length} freigeschaltet
-          </span>
-        </div>
-
-        <div className="px-6 py-4">
-          {firmen.length === 0 ? (
-            <p className="text-sm text-gray-400 py-4 text-center">Keine Firmen gefunden.</p>
-          ) : (
-            <div className="divide-y divide-gray-50 max-h-96 overflow-y-auto">
-              {firmenGefiltert.map(f => (
-                <div key={f.id} className="flex items-center justify-between py-2.5">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <button
-                      onClick={() => toggleFirmaApAnalyse(f.id, !f.apAnalyse)}
-                      disabled={!!apSaving[f.id]}
-                      className={[
-                        'relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none flex-shrink-0 disabled:opacity-50',
-                        f.apAnalyse ? 'bg-green-500' : 'bg-gray-300',
-                      ].join(' ')}
-                      aria-label={'AP-Analyse-Freigabe ' + f.name}
-                    >
-                      <span className={[
-                        'inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-200',
-                        f.apAnalyse ? 'translate-x-6' : 'translate-x-1',
-                      ].join(' ')} />
-                    </button>
-                    <span className="text-sm text-gray-800 truncate">{f.name}</span>
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    {apSaving[f.id] ? (
-                      <Loader2 size={13} className="animate-spin text-gray-400" />
-                    ) : apSaved[f.id] ? (
-                      <span className="flex items-center gap-1 text-green-700 text-xs"><CheckCircle size={12} /> gespeichert</span>
-                    ) : (
-                      <span className={[
-                        'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
-                        f.apAnalyse ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700',
-                      ].join(' ')}>
-                        {f.apAnalyse ? 'Freigeschaltet' : 'Gesperrt'}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
-              {firmenGefiltert.length === 0 && (
-                <p className="text-sm text-gray-400 py-4 text-center">Keine Treffer.</p>
-              )}
+            <div className="overflow-x-auto max-h-[28rem] overflow-y-auto border border-gray-100 rounded-lg">
+              <table className="w-full text-sm border-collapse">
+                <thead className="sticky top-0 bg-gray-50 z-10">
+                  <tr>
+                    <th className="text-left font-medium text-gray-600 px-3 py-2 border-b border-gray-200">Firma</th>
+                    {featureDefs.map(ft => (
+                      <th key={ft.key} className="px-3 py-2 border-b border-gray-200 text-center font-medium text-gray-600 whitespace-nowrap">
+                        <div>{ft.label}</div>
+                        <div className="text-[11px] font-normal text-gray-400">{firmen.filter(ft.value).length} / {firmen.length} frei</div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {firmenGefiltert.map(f => (
+                    <tr key={f.id} className="border-b border-gray-50 hover:bg-gray-50">
+                      <td className="px-3 py-2 text-gray-800">{f.name}</td>
+                      {featureDefs.map(ft => {
+                        const on = ft.value(f);
+                        const saving = !!ft.saving[f.id];
+                        return (
+                          <td key={ft.key} className="px-3 py-2 text-center">
+                            <div className="inline-flex items-center gap-1.5">
+                              <button
+                                onClick={() => ft.toggle(f.id, !on)}
+                                disabled={saving}
+                                className={[
+                                  'relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none flex-shrink-0 disabled:opacity-50',
+                                  on ? 'bg-green-500' : 'bg-gray-300',
+                                ].join(' ')}
+                                aria-label={ft.label + '-Freigabe ' + f.name}
+                                title={(on ? 'Freigeschaltet' : 'Gesperrt') + ' - ' + ft.label}
+                              >
+                                <span className={[
+                                  'inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-200',
+                                  on ? 'translate-x-6' : 'translate-x-1',
+                                ].join(' ')} />
+                              </button>
+                              <span className="inline-flex w-4 justify-center flex-shrink-0">
+                                {saving ? <Loader2 size={13} className="animate-spin text-gray-400" />
+                                  : ft.saved[f.id] ? <CheckCircle size={13} className="text-green-600" /> : null}
+                              </span>
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                  {firmenGefiltert.length === 0 && (
+                    <tr><td colSpan={featureDefs.length + 1} className="text-sm text-gray-400 py-4 text-center">Keine Treffer.</td></tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
