@@ -3,7 +3,31 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 7. August 2026
-// Version: 7.4.6-78
+// Version: 7.4.6-80
+// v7.4.6-80: Ergonomie zu -79. Der Umschalter der Restanzeige wandert aus dem Kopf
+//   (Knopf "Rest: ...") DIREKT in die Kopfzelle der rechten Spalte (bisher Text
+//   "+/-", der ohne Bedeutung war). Die Zelle ist jetzt ein klickbarer
+//   SCHIEBESCHALTER: rechts/gruen = Monatsende, links/grau = gesamt; Tooltip
+//   erklaert. So bleibt die Maus dort, wo der Blick ist (rechte Spalte). Die
+//   Rest-Spalte wird dafuer minimal breiter (25 -> 34 px). Reine UI-/Platzierungs-
+//   aenderung, Logik + Persistenz aus -79 unveraendert. Der separate Kopf-Knopf
+//   entfaellt.
+// v7.4.6-79: NEUES FEATURE (Wunsch Katrin) - schaltbare Restanzeige in der rechten
+//   "+/-"-Spalte des Timesheets. Zwei Modi:
+//   - "gesamt" (Standard, bisheriges Verhalten): projektweit noch offene Stunden
+//     des AP fuer diesen MA ueber ALLE Monate (geplant - gebucht_gesamt).
+//   - "monatsende": am Ende des ANGEZEIGTEN Monats noch offene Stunden, kumuliert
+//     bis inkl. dieses Monats (geplant - (Vormonate + Live-Formstand)). Zukuenftige
+//     Monate werden NICHT abgezogen. Nutzen: bei nachtraeglichen Korrekturen sieht
+//     man je Monat, wieviel am Monatsende noch offen war (Beispiel Katrin/Snapshot:
+//     Jan 250, Feb 170, Maer 70 ... statt ueberall 0 bei ausgebuchtem AP).
+//   Umschalter im Kopf ("Rest: gesamt / Monatsende"). Die Wahl wird PRO NUTZER in
+//   der neuen Tabelle v7_user_preferences (settings.timesheet_rest_modus) gespeichert
+//   und beim Laden wiederhergestellt (geraeteunabhaengig). Nur die gruen/rot
+//   angezeigte Restzahl ZUGEORDNETER APs ist betroffen; die blaue projektweite
+//   Restzahl (nicht zugeordnete MA) und die "Alle AP"-Uebersicht bleiben unveraendert.
+//   Datengrundlage: reloadBookedHours liest work_date mit und baut monthlyBookedPerWP.
+//   SQL: SQL-MIGRATION-user-preferences-v1.sql (DEV + PROD).
 // v7.4.6-78: Symmetrischer Ruecksprung. Nach einem In-Page-Sprung aus der "Alle AP"-
 //   Uebersicht (Klick auf eine gebuchte MA-Zelle) fuehrt der "Zurueck"-Knopf des
 //   Timesheets ZUERST zurueck in die AP-Status-Uebersicht (von dort kam der Sprung)
@@ -936,6 +960,16 @@ export default function TimesheetForm({
   // Live-Berechnung der rechten "offen"-Spalte). Live-Rest = geplant minus
   // (gebucht_gesamt + (aktueller Formstand - dieser Schnappschuss)).
   const [savedMonthHoursPerWP, setSavedMonthHoursPerWP] = useState<Record<string, number>>({});
+  // v7.4.6-79: Monatsweise gebuchte Stunden je AP (nur dieser MA), Schluessel
+  // "YYYY-MM". Aufbau in reloadBookedHours. Grundlage fuer Restanzeige "monatsende".
+  const [monthlyBookedPerWP, setMonthlyBookedPerWP] = useState<Record<string, Record<string, number>>>({});
+  // v7.4.6-79: Restanzeige-Modus (Feature Katrin). "gesamt" = projektweit ueber
+  // alle Monate (Standard/bisher). "monatsende" = am Ende des Anzeigemonats offen.
+  // Persistenz pro Nutzer in v7_user_preferences.settings.timesheet_rest_modus.
+  const [restAnzeigeModus, setRestAnzeigeModus] = useState<'gesamt' | 'monatsende'>('gesamt');
+  // v7.4.6-79: geladene Nutzer-Settings (jsonb) - beim Speichern zusammengefuehrt,
+  // damit kuenftige Praeferenzen nicht ueberschrieben werden.
+  const [userPrefSettings, setUserPrefSettings] = useState<Record<string, any>>({});
   // IDs der APs, die dem MA laut Arbeitsplan zugeordnet sind
   const [assignedWPIds, setAssignedWPIds] = useState<string[]>([]);
 
@@ -1326,6 +1360,32 @@ export default function TimesheetForm({
     loadMaData();
   }, [selectedEmployeeId, selectedYear, selectedMonth, company?.standard_weekly_hours]);
 
+  // v7.4.6-79: Nutzer-Praeferenz "Restanzeige-Modus" einmalig laden (Feature Katrin).
+  useEffect(() => {
+    const loadUserPrefs = async () => {
+      try {
+        const supabaseClient = createClient();
+        const { data: { user } } = await supabaseClient.auth.getUser();
+        if (!user) return;
+        const { data } = await supabaseClient
+          .from('v7_user_preferences')
+          .select('settings')
+          .eq('user_id', user.id)
+          .maybeSingle();
+        const settings = (data?.settings as Record<string, any>) || {};
+        setUserPrefSettings(settings);
+        const modus = settings.timesheet_rest_modus;
+        if (modus === 'monatsende' || modus === 'gesamt') {
+          setRestAnzeigeModus(modus);
+        }
+      } catch (err) {
+        console.error('[TimesheetForm] Fehler beim Laden der Nutzer-Praeferenzen:', err);
+      }
+    };
+    loadUserPrefs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // NEU v7.4.3-9: Completion-Status laden
   const loadCompletionStatus = async (empId: string, projId: string, year: number, month: number) => {
     if (!empId || !projId) return;
@@ -1353,7 +1413,7 @@ export default function TimesheetForm({
       const supabaseClient = createClient();
       const { data: tsEntries, error: tsErr } = await supabaseClient
         .from('v7_timesheets')
-        .select('work_package_id, hours')
+        .select('work_package_id, hours, work_date')
         .eq('employee_id', selectedEmployeeId)
         .eq('project_id', selectedProjectId)
         .eq('is_active', true)
@@ -1365,16 +1425,24 @@ export default function TimesheetForm({
       }
 
       const booked: Record<string, number> = {};
+      // v7.4.6-79: zusaetzlich monatsweise (fuer Restanzeige-Modus "monatsende")
+      const monthly: Record<string, Record<string, number>> = {};
       (tsEntries || []).forEach((e: any) => {
         if (e.work_package_id) {
           const h = parseFloat(e.hours) || 0;
           if (h > 0) {
             booked[e.work_package_id] = (booked[e.work_package_id] || 0) + h;
+            const ym = typeof e.work_date === 'string' ? e.work_date.slice(0, 7) : '';
+            if (ym) {
+              if (!monthly[e.work_package_id]) monthly[e.work_package_id] = {};
+              monthly[e.work_package_id][ym] = (monthly[e.work_package_id][ym] || 0) + h;
+            }
           }
         }
       });
 
       setTotalBookedPerWP(booked);
+      setMonthlyBookedPerWP(monthly);
       console.log('[TimesheetForm] Kumulierte Stunden aktualisiert:', booked);
 
       // v7.4.6-29: Projektweite Buchungen je AP (alle MA) - fuer blaue Restzahl
@@ -2460,6 +2528,61 @@ export default function TimesheetForm({
       return null; // Noch keine Stunden -> "-"
     }
     return Math.round(planned - booked);
+  };
+
+  // v7.4.6-79: Summe der VOR dem angezeigten Monat gebuchten Stunden eines AP
+  // (nur dieser MA). Grundlage fuer die Restanzeige "monatsende". Der aktuelle
+  // Monat wird bewusst ausgeklammert und stattdessen live ueber
+  // currentMonthFormSumForWP beruecksichtigt (Doppelzaehlung vermeiden).
+  const bookedBeforeSelectedMonth = (wpId: string): number => {
+    const perMonth = monthlyBookedPerWP[wpId];
+    if (!perMonth) return 0;
+    const grenze = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`;
+    let sum = 0;
+    for (const ym in perMonth) {
+      if (ym < grenze) sum += perMonth[ym];
+    }
+    return sum;
+  };
+
+  // v7.4.6-79: Verbleibende Stunden am Ende des ANGEZEIGTEN Monats (kumuliert):
+  // geplant minus (Buchungen der Vormonate + Live-Formstand des aktuellen Monats).
+  // Zukuenftige Monate werden NICHT abgezogen (Feature Katrin, Modus "monatsende").
+  const calculateRemainingHoursMonthly = (wpId: string | null): number | null => {
+    if (!wpId) return null;
+    const planned = plannedHoursPerWP[wpId];
+    const bookedUpTo = bookedBeforeSelectedMonth(wpId) + currentMonthFormSumForWP(wpId);
+    if (planned === undefined) {
+      // MA nicht im Arbeitsplan: nur anzeigen wenn tatsaechlich Stunden gebucht
+      if (bookedUpTo > 0) return -Math.round(bookedUpTo);
+      return null;
+    }
+    return Math.round(planned - bookedUpTo);
+  };
+
+  // v7.4.6-79: Restanzeige-Modus umschalten + pro Nutzer speichern (upsert).
+  const handleToggleRestModus = async () => {
+    const neu = restAnzeigeModus === 'gesamt' ? 'monatsende' : 'gesamt';
+    setRestAnzeigeModus(neu);
+    const neueSettings = { ...userPrefSettings, timesheet_rest_modus: neu };
+    setUserPrefSettings(neueSettings);
+    try {
+      const supabaseClient = createClient();
+      const { data: { user } } = await supabaseClient.auth.getUser();
+      if (!user) return;
+      const { error: prefErr } = await supabaseClient
+        .from('v7_user_preferences')
+        .upsert({
+          user_id: user.id,
+          settings: neueSettings,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'user_id' });
+      if (prefErr) {
+        console.error('[TimesheetForm] Fehler beim Speichern der Restanzeige-Praeferenz:', prefErr);
+      }
+    } catch (err) {
+      console.error('[TimesheetForm] Fehler beim Speichern der Restanzeige-Praeferenz:', err);
+    }
   };
 
   // v7.4.6-29: Projektweite Restzahl eines AP = Gesamt-Soll (total_person_months
@@ -3851,7 +3974,31 @@ export default function TimesheetForm({
                   );
                 })}
                 <th className="border p-1 text-center" style={{ width: '25px' }}>S</th>
-                <th className="border p-1 text-center print:hidden" style={{ width: '25px', backgroundColor: '#E8F5E9' }}>+/-</th>
+                {/* v7.4.6-80: Schiebeschalter Restanzeige-Modus (ersetzt "+/-"). */}
+                <th
+                  className="border p-0 text-center print:hidden"
+                  style={{ width: '34px', backgroundColor: '#E8F5E9' }}
+                >
+                  <button
+                    type="button"
+                    onClick={handleToggleRestModus}
+                    className="w-full h-full flex items-center justify-center py-1 hover:bg-green-100"
+                    aria-label="Restanzeige umschalten: projektweit gesamt oder Monatsende"
+                    title={restAnzeigeModus === 'monatsende'
+                      ? 'Restanzeige: noch offene Stunden am Ende des angezeigten Monats (kumuliert). Klicken fuer projektweite Gesamtanzeige.'
+                      : 'Restanzeige: projektweit noch offene Stunden ueber alle Monate. Klicken fuer Anzeige am Monatsende.'}
+                  >
+                    <span
+                      className={`relative inline-block rounded-full transition-colors ${restAnzeigeModus === 'monatsende' ? 'bg-green-600' : 'bg-gray-400'}`}
+                      style={{ width: '28px', height: '15px' }}
+                    >
+                      <span
+                        className="absolute bg-white rounded-full shadow transition-all"
+                        style={{ width: '11px', height: '11px', top: '2px', left: restAnzeigeModus === 'monatsende' ? '15px' : '2px' }}
+                      />
+                    </span>
+                  </button>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -3994,7 +4141,11 @@ export default function TimesheetForm({
                         if (!wpId) return <span className="text-gray-300">-</span>;
                         const istZugeordnet = plannedHoursPerWP[wpId] !== undefined;
                         if (istZugeordnet) {
-                          const remaining = calculateRemainingHours(wpId);
+                          // v7.4.6-79: Modus "monatsende" -> kumuliert bis Anzeigemonat,
+                          // sonst projektweit ueber alle Monate (Standard).
+                          const remaining = restAnzeigeModus === 'monatsende'
+                            ? calculateRemainingHoursMonthly(wpId)
+                            : calculateRemainingHours(wpId);
                           if (remaining === null) return <span className="text-gray-300">-</span>;
                           // v7.4.6-61: offene MA-Stunden gruen, ueberbuchte rot
                           if (remaining > 0) return <span className="text-green-600 font-semibold">{remaining}</span>;
