@@ -3,7 +3,20 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 7. August 2026
-// Version: 7.4.6-80
+// Version: 7.4.6-81
+// v7.4.6-81: Zwei Aenderungen (Abstimmung Katrin/Martin).
+//   (1) STANDARD gedreht: Default-Modus der Restanzeige ist jetzt "monatsende"
+//       (Katrins Sicht) statt "gesamt". Nutzer ohne gespeicherte Wahl sehen also
+//       die am Monatsende noch offenen Stunden; eine bereits gespeicherte
+//       persoenliche Wahl bleibt unangetastet.
+//   (2) Bedienelement gewechselt: Der Schiebeschalter (-80) weicht einem
+//       dezenten KREISPFEIL in der Kopfzelle der Rest-Spalte. Ruhezustand
+//       (= Monatsende, Standard) grau/unauffaellig; ein Klick aktiviert die
+//       Gesamtsicht ("gesamt") und hebt den Kreispfeil mit gruenem Chip
+//       (bg-green-200/text-green-800) hervor. Bewusst gruen statt Bernstein,
+//       da Bernstein dem Feiertags-Orange im Sheet zu aehnlich waere. Tooltip
+//       erklaert je Zustand. Nur UI + Default; Logik/Persistenz aus -79/-80
+//       unveraendert.
 // v7.4.6-80: Ergonomie zu -79. Der Umschalter der Restanzeige wandert aus dem Kopf
 //   (Knopf "Rest: ...") DIREKT in die Kopfzelle der rechten Spalte (bisher Text
 //   "+/-", der ohne Bedeutung war). Die Zelle ist jetzt ein klickbarer
@@ -963,10 +976,10 @@ export default function TimesheetForm({
   // v7.4.6-79: Monatsweise gebuchte Stunden je AP (nur dieser MA), Schluessel
   // "YYYY-MM". Aufbau in reloadBookedHours. Grundlage fuer Restanzeige "monatsende".
   const [monthlyBookedPerWP, setMonthlyBookedPerWP] = useState<Record<string, Record<string, number>>>({});
-  // v7.4.6-79: Restanzeige-Modus (Feature Katrin). "gesamt" = projektweit ueber
-  // alle Monate (Standard/bisher). "monatsende" = am Ende des Anzeigemonats offen.
-  // Persistenz pro Nutzer in v7_user_preferences.settings.timesheet_rest_modus.
-  const [restAnzeigeModus, setRestAnzeigeModus] = useState<'gesamt' | 'monatsende'>('gesamt');
+  // v7.4.6-79/-81: Restanzeige-Modus (Feature Katrin). "monatsende" = am Ende des
+  // Anzeigemonats noch offen (v7.4.6-81 STANDARD). "gesamt" = projektweit ueber
+  // alle Monate. Persistenz pro Nutzer in v7_user_preferences.settings.timesheet_rest_modus.
+  const [restAnzeigeModus, setRestAnzeigeModus] = useState<'gesamt' | 'monatsende'>('monatsende');
   // v7.4.6-79: geladene Nutzer-Settings (jsonb) - beim Speichern zusammengefuehrt,
   // damit kuenftige Praeferenzen nicht ueberschrieben werden.
   const [userPrefSettings, setUserPrefSettings] = useState<Record<string, any>>({});
@@ -3974,28 +3987,32 @@ export default function TimesheetForm({
                   );
                 })}
                 <th className="border p-1 text-center" style={{ width: '25px' }}>S</th>
-                {/* v7.4.6-80: Schiebeschalter Restanzeige-Modus (ersetzt "+/-"). */}
+                {/* v7.4.6-81: Restanzeige-Umschalter als Kreispfeil (ersetzt
+                    Schiebeschalter). Ruhe = grau = Monatsende (Standard);
+                    aktiv = gruener Chip = projektweite Gesamtsicht. */}
                 <th
                   className="border p-0 text-center print:hidden"
-                  style={{ width: '34px', backgroundColor: '#E8F5E9' }}
+                  style={{ width: '30px', backgroundColor: '#E8F5E9' }}
                 >
                   <button
                     type="button"
                     onClick={handleToggleRestModus}
                     className="w-full h-full flex items-center justify-center py-1 hover:bg-green-100"
-                    aria-label="Restanzeige umschalten: projektweit gesamt oder Monatsende"
-                    title={restAnzeigeModus === 'monatsende'
-                      ? 'Restanzeige: noch offene Stunden am Ende des angezeigten Monats (kumuliert). Klicken fuer projektweite Gesamtanzeige.'
-                      : 'Restanzeige: projektweit noch offene Stunden ueber alle Monate. Klicken fuer Anzeige am Monatsende.'}
+                    aria-label="Restanzeige umschalten: Monatsende oder projektweit gesamt"
+                    title={restAnzeigeModus === 'gesamt'
+                      ? 'Gesamtsicht aktiv: projektweit noch offene Stunden ueber alle Monate. Klicken zurueck auf Monatsende.'
+                      : 'Monatsende (Standard): noch offene Stunden am Ende des angezeigten Monats. Klicken fuer projektweite Gesamtsicht.'}
                   >
                     <span
-                      className={`relative inline-block rounded-full transition-colors ${restAnzeigeModus === 'monatsende' ? 'bg-green-600' : 'bg-gray-400'}`}
-                      style={{ width: '28px', height: '15px' }}
+                      className={`inline-flex items-center justify-center rounded-md transition-colors ${restAnzeigeModus === 'gesamt' ? 'bg-green-200 text-green-800' : 'text-gray-500'}`}
+                      style={{ width: '22px', height: '22px' }}
                     >
-                      <span
-                        className="absolute bg-white rounded-full shadow transition-all"
-                        style={{ width: '11px', height: '11px', top: '2px', left: restAnzeigeModus === 'monatsende' ? '15px' : '2px' }}
-                      />
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M20 20v-5h-5" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M20 9a8 8 0 0 0-14-3L4 9" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 15a8 8 0 0 0 14 3l2-3" />
+                      </svg>
                     </span>
                   </button>
                 </th>
