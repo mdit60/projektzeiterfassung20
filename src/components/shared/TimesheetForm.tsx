@@ -2,8 +2,22 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 7. August 2026
-// Version: 7.4.6-81
+// Datum: 10. August 2026
+// Version: 7.4.6-82
+// v7.4.6-82: AP-Angebot im Timesheet - Untergrenze statt Obergrenze.
+//   PROBLEM: Einem MA zugeordnete APs wurden ab dem ERSTEN Projektmonat im
+//   Dropdown/der Vorbelegung angeboten, obwohl sie laut Arbeitsplan erst
+//   spaeter starten (Beispiel AURA/GMM: MA Oezalp, AP 3.3 ab Maerz, AP 3.5 ab
+//   August). Das verleitete zu Fehlbuchungen in Monaten vor dem Planstart.
+//   FIX: Neuer monatsgenauer Startmonats-Filter (hasAPStarted): ein AP
+//   erscheint erst ab seinem geplanten Startmonat (wp.start_date) -- weder als
+//   "Zugeordnete AP" noch als "Weitere AP" davor.
+//   ZUGLEICH ENTFERNT: die bisherige Obergrenze (end_date + 2 Monate >=
+//   Monatsende) in isAPInAssignedGroup. Begruendung (Martin): ein AP kann
+//   laenger dauern als geplant; solange noch Stunden offen sind, muss er
+//   waehlbar bleiben. Die vorhandene Pruefung (planned - booked > 0) reicht als
+//   Relevanzkriterium nach oben aus. Damit gilt kuenftig nur noch: ab Startmonat
+//   UND solange offene Stunden vorhanden sind.
 // v7.4.6-81: Zwei Aenderungen (Abstimmung Katrin/Martin).
 //   (1) STANDARD gedreht: Default-Modus der Restanzeige ist jetzt "monatsende"
 //       (Katrins Sicht) statt "gesamt". Nutzer ohne gespeicherte Wahl sehen also
@@ -1063,30 +1077,42 @@ export default function TimesheetForm({
     return new Date(selectedYear, selectedMonth - 1, daysInMonth);
   };
 
-  // Zugeordnete AP: dem MA zugewiesen, mit offenen Stunden, und
-  // end_date + 2 Monate >= Monatsende des gewaehlten Timesheet-Monats.
+  // v7.4.6-82: Untergrenze -- ein AP wird erst ab seinem geplanten Startmonat
+  // angeboten. Liegt der Startmonat (aus wp.start_date) NACH dem gewaehlten
+  // Timesheet-Monat, ist der AP noch nicht angelaufen und erscheint weder als
+  // "Zugeordnete AP" noch als "Weitere AP" (Schutz vor Fehlbuchung auf noch
+  // nicht gestartete APs). Monatsgenauer Vergleich: erster Tag des Startmonats
+  // gegen das Monatsende des gewaehlten Monats.
+  const hasAPStarted = (wp: WorkPackage): boolean => {
+    if (!wp.start_date) return false;
+    const startDate = new Date(wp.start_date as string);
+    const startMonthBegin = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+    return startMonthBegin <= getReferenceDate();
+  };
+
+  // Zugeordnete AP: dem MA zugewiesen, ab dem geplanten Startmonat und mit noch
+  // offenen Stunden. v7.4.6-82: KEINE Obergrenze mehr -- solange Stunden offen
+  // sind, bleibt der AP waehlbar (ein AP kann laenger dauern als geplant und
+  // darf dann nicht wegen Ablauf der Plan-Laufzeit verschwinden).
   const isAPInAssignedGroup = (wp: WorkPackage): boolean => {
     if (!isSelectableAP(wp)) return false;
     if (!assignedWPIds.includes(wp.id)) return false;
+    if (!hasAPStarted(wp)) return false; // v7.4.6-82: Untergrenze (Startmonat)
     const planned = plannedHoursPerWP[wp.id] || 0;
     const booked = totalBookedPerWP[wp.id] || 0;
     if (planned <= 0) return false;
     if ((planned - booked) <= 0) return false;
-    // Laufzeit-Check: end_date + 2 volle Monate
-    // Wir vergleichen nur monatsgenau, deshalb den Tag auf 1 setzen
-    // (vermeidet JS-Rollover bei Monatsenden wie 31.7 -> 1.10)
-    const endDate = new Date(wp.end_date as string);
-    const endPlus2 = new Date(endDate.getFullYear(), endDate.getMonth() + 3, 0); // letzter Tag von Monat + 2
-    const ref = getReferenceDate();
-    return endPlus2 >= ref;
+    return true;
   };
 
   // Weitere AP (v7.4.6-3): Alle uebrigen echten APs (mit PM > 0 und Datum),
-  // die nicht bereits in "Zugeordnete AP" sichtbar sind. Kein Laufzeit-Check
+  // die nicht bereits in "Zugeordnete AP" sichtbar sind. Kein Obergrenzen-Check
   // hier, damit Vertretungsfaelle (Uebernahme von einem anderen MA) moeglich
-  // bleiben. Nur Ueberschriften und APs ohne Datum werden ausgeblendet.
+  // bleiben. v7.4.6-82: aber auch hier erst ab dem Startmonat -- ein noch nicht
+  // angelaufener AP wird generell nicht angeboten.
   const isAPInWeitereGroup = (wp: WorkPackage): boolean => {
     if (!isSelectableAP(wp)) return false;
+    if (!hasAPStarted(wp)) return false; // v7.4.6-82: Untergrenze (Startmonat)
     return !isAPInAssignedGroup(wp);
   };
 
@@ -2011,10 +2037,12 @@ export default function TimesheetForm({
       const hasAssignmentData = Object.keys(plannedHoursPerWP).length > 0;
       
       if (wpEntryMap.size === 0 && absenceEntries.size === 0 && assignedWPIds.length > 0 && hasAssignmentData) {
-        // v7.4.6-3: Nur APs vorbelegen, die dem MA zugeordnet sind, noch Stunden
-        // offen haben UND deren Laufzeit zeitlich passt (end_date + 2 Monate
-        // >= Monatsende). Damit werden alte APs (z.B. Spezifikation aus Mai)
-        // nicht mehr automatisch in spaete Monate (z.B. Januar) gezogen.
+        // v7.4.6-3 / -82: Nur APs vorbelegen, die dem MA zugeordnet sind, noch
+        // Stunden offen haben UND bereits ab ihrem geplanten Startmonat laufen
+        // (hasAPStarted). Damit werden noch nicht angelaufene APs (z.B. AP 3.5 ab
+        // August) nicht in fruehe Monate (z.B. Dezember) vorbelegt. Eine
+        // Obergrenze gibt es bewusst nicht mehr: solange Stunden offen sind,
+        // bleibt der AP relevant, auch nach seiner geplanten Laufzeit.
         const relevantAssigned = assignedWPIds.filter(id => {
           if (!wpIds.includes(id)) return false;
           const wp = safeWorkPackages.find(w => w.id === id);
