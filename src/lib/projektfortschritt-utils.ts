@@ -2,8 +2,23 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Berechnungslogik (Shared Utility)
 // ============================================================================
-// Version: 7.4.9-5
-// Datum: 23. Juni 2026
+// Version: 7.4.9-6
+// Datum: 10. August 2026
+// v7.4.9-6: PROGNOSE ueberarbeitet - Planerfuellung statt flachem Monatstempo.
+//   PROBLEM: Ein Projekt bei 83% Laufzeit / 82% PM / 86% Kosten wurde als
+//   "Ziel gefaehrdet" gemeldet. Ursache war die Hochrechnung
+//   prognostizierteGesamtStunden = Ist + (Durchschnitt der letzten 3
+//   abgeschlossenen Monate) x Restmonate. Dieser flache Wert misst das
+//   ABSOLUTE Monatstempo; der planmaessige Projektauslauf (fallende Ist-Balken
+//   gegen Projektende) drueckt den Schnitt und ignoriert zugleich, dass die
+//   Restmonate laut Plan noch grosse Soll-Bloecke haben. Ergebnis: falsche
+//   Gefaehrdungswarnung, obwohl die kumulierte Ist-Leistung auf Plan liegt.
+//   FIX: prognostizierteGesamtStunden = Ist(abgeschlossene Monate) + Rest-Soll
+//   (aktueller + kuenftige Monate) x Erfuellungsgrad, wobei Erfuellungsgrad =
+//   Ist/Soll der bereits abgeschlossenen Monate (gekappt auf [0, 1.15]). Die
+//   AP-genaue Soll-Verteilung (sollMonatMap) wird dafuer zentral vorne berechnet
+//   und auch vom Monatsverlauf genutzt. Ampel-Schwellen unveraendert
+//   (>=90% gruen, >=60% gelb, sonst rot). Neues Rueckgabefeld erfuellungsgrad.
 // v7.4.9-5: Foerderformat-Labels: BMBF_KMU -> 'KMU-innovativ'; 'OTHER' ergaenzt.
 // v7.4.9-4: Abrechnungs-Stundensatz pro Mitarbeiter skalieren.
 //   - rateScale jetzt = echte weekly_hours des MA / pmBasis (statt global
@@ -169,6 +184,7 @@ export interface ProjectAnalysis {
   tempoUeberPlan: boolean;              // v7.4.9-2: Roh-Hochrechnung > Plan
   pFarbe: PrognoseFarbe;
   basisStunden: number;
+  erfuellungsgrad: number;              // v7.4.9-6: Ist/Soll bis heute (Planerfuellung, 0..1.15)
   letzten3Count: number;
   zielErreichbar: boolean;
   zielStundenProMonat: number;
@@ -475,7 +491,41 @@ export function calculateProjectAnalysis(
   // ---- Monatsverlauf: AP-genaue Soll-Verteilung ----
   let monatData: MonatDatum[] = [];
 
-  // ---- Projektion: Durchschnitt letzte 3 abgeschlossene Monate ----
+  // v7.4.9-6: AP-genaue Soll-Verteilung je Monat -- einmal zentral berechnet und
+  // sowohl fuer die plan-bezogene Prognose (unten) als auch fuer den
+  // Monatsverlauf (weiter unten) genutzt. Verteilt die Plan-Stunden jedes AP
+  // tagegenau auf die ueberlappenden Kalendermonate.
+  const sollMonatMap: Record<string, number> = {};
+  projWPs.forEach(wp => {
+    if (!wp.start_date || !wp.end_date) return;
+    const apStart = new Date(wp.start_date);
+    const apEnd = new Date(wp.end_date);
+    const apWPAs = wpAssignments.filter(wpa => wpa.work_package_id === wp.id);
+    const apTotalPM = apWPAs.reduce((s, wpa) => s + (wpa.planned_person_months || 0), 0);
+    const apTotalHours = apTotalPM * hpm;
+    if (apTotalHours === 0) return;
+    const apDurationDays = (apEnd.getTime() - apStart.getTime()) / (1000 * 60 * 60 * 24) + 1;
+    if (apDurationDays <= 0) return;
+    const hoursPerDay = apTotalHours / apDurationDays;
+    const cursor = new Date(apStart.getFullYear(), apStart.getMonth(), 1);
+    const lastMonth = new Date(apEnd.getFullYear(), apEnd.getMonth(), 1);
+    while (cursor <= lastMonth) {
+      const year = cursor.getFullYear();
+      const month = cursor.getMonth() + 1;
+      const monthStart = new Date(year, month - 1, 1);
+      const monthEnd = new Date(year, month, 0);
+      const overlapStart = apStart > monthStart ? apStart : monthStart;
+      const overlapEnd = apEnd < monthEnd ? apEnd : monthEnd;
+      const overlapDays = (overlapEnd.getTime() - overlapStart.getTime()) / (1000 * 60 * 60 * 24) + 1;
+      if (overlapDays > 0) {
+        const key = year + '-' + String(month).padStart(2, '0');
+        sollMonatMap[key] = (sollMonatMap[key] || 0) + hoursPerDay * overlapDays;
+      }
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+  });
+
+  // ---- Projektion: plan-bezogene Hochrechnung (v7.4.9-6) ----
   const istMonatMap: Record<string, number> = {};
   projTimesheets.forEach(t => {
     const d = new Date(t.work_date);
@@ -499,7 +549,43 @@ export function calculateProjectAnalysis(
     ? letzten3.reduce((s, k) => s + (istMonatMap[k] || 0), 0) / letzten3.length
     : 0;
 
-  const prognostizierteGesamtStunden = gesamtIstStunden + basisStunden * verbleibendeMonateAb;
+  // v7.4.9-6: PLAN-BEZOGENE Hochrechnung statt flacher 3-Monats-Fortschreibung.
+  // Die alte Formel (Ist + Durchschnitt-letzte-3-Monate x Restmonate) mass das
+  // absolute Monatstempo und stufte den normalen Projektauslauf faelschlich als
+  // "gefaehrdet" ein, obwohl die kumulierte Ist-Leistung planmaessig lag.
+  // Neue Formel: Ist der abgeschlossenen Monate + noch geplantes Rest-Soll,
+  // skaliert mit dem bisher erreichten Erfuellungsgrad (Ist/Soll der bereits
+  // abgeschlossenen Monate).
+  let istBisHeute = 0;
+  let sollBisHeute = 0;
+  let restSollAbHeute = 0;
+  {
+    const alleMonatKeys = new Set<string>([
+      ...Object.keys(sollMonatMap),
+      ...Object.keys(istMonatMap),
+    ]);
+    alleMonatKeys.forEach(key => {
+      const parts = key.split('-');
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10);
+      const abgeschlossen = new Date(y, m, 0) < now;
+      const soll = sollMonatMap[key] || 0;
+      const ist = istMonatMap[key] || 0;
+      if (abgeschlossen) {
+        sollBisHeute += soll;
+        istBisHeute += ist;
+      } else {
+        restSollAbHeute += soll;
+      }
+    });
+  }
+  // Erfuellungsgrad auf [0, 1.15] gekappt: leichter Vorlauf darf die Prognose
+  // stuetzen, aber nicht beliebig ueberzeichnen (Abrechnung ist ohnehin auf den
+  // Plan gedeckelt). Ohne abgeschlossene Soll-Basis (Projektstart) = 1.
+  const erfuellungsgrad = sollBisHeute > 0
+    ? Math.min(Math.max(istBisHeute / sollBisHeute, 0), 1.15)
+    : 1;
+  const prognostizierteGesamtStunden = istBisHeute + restSollAbHeute * erfuellungsgrad;
   const erreichungsgrad = gesamtPlanStunden > 0
     ? Math.round((prognostizierteGesamtStunden / gesamtPlanStunden) * 100)
     : 0;
@@ -694,32 +780,7 @@ export function calculateProjectAnalysis(
       cur.setMonth(cur.getMonth() + 1);
     }
 
-    const sollMap: Record<string, number> = {};
-    projWPs.forEach(wp => {
-      if (!wp.start_date || !wp.end_date) return;
-      const apStart = new Date(wp.start_date);
-      const apEnd = new Date(wp.end_date);
-      const apWPAs = wpAssignments.filter(wpa => wpa.work_package_id === wp.id);
-      const apTotalPM = apWPAs.reduce((s, wpa) => s + (wpa.planned_person_months || 0), 0);
-      const apTotalHours = apTotalPM * hpm;
-      if (apTotalHours === 0) return;
-      const apDurationDays =
-        (apEnd.getTime() - apStart.getTime()) / (1000 * 60 * 60 * 24) + 1;
-      if (apDurationDays <= 0) return;
-      const hoursPerDay = apTotalHours / apDurationDays;
-      months.forEach(({ year, month }) => {
-        const monthStart = new Date(year, month - 1, 1);
-        const monthEnd = new Date(year, month, 0);
-        if (apEnd < monthStart || apStart > monthEnd) return;
-        const overlapStart = apStart > monthStart ? apStart : monthStart;
-        const overlapEnd = apEnd < monthEnd ? apEnd : monthEnd;
-        const overlapDays =
-          (overlapEnd.getTime() - overlapStart.getTime()) / (1000 * 60 * 60 * 24) + 1;
-        const key = year + '-' + String(month).padStart(2, '0');
-        sollMap[key] = (sollMap[key] || 0) + hoursPerDay * overlapDays;
-      });
-    });
-
+    // v7.4.9-6: nutzt die zentral vorberechnete sollMonatMap (siehe oben).
     let sollKumuliert = 0;
     let istKumuliert = 0;
     let projektionKumuliert = gesamtIstStunden;
@@ -728,7 +789,7 @@ export function calculateProjectAnalysis(
 
     monatData = months.map(({ year, month, label }) => {
       const key = year + '-' + String(month).padStart(2, '0');
-      const soll = Math.round(sollMap[key] || 0);
+      const soll = Math.round(sollMonatMap[key] || 0);
       const ist = Math.round(istMonatMap[key] || 0);
       sollKumuliert += soll;
       istKumuliert += ist;
@@ -747,7 +808,9 @@ export function calculateProjectAnalysis(
           zielProjektion = istKumuliert;
           zielProjektionKumuliert = istKumuliert;
         } else {
-          projektionKumuliert += basisStunden;
+          // v7.4.9-6: Prognoselinie folgt dem geplanten Monats-Soll, skaliert
+          // mit dem Erfuellungsgrad (konsistent zur Headline-Hochrechnung).
+          projektionKumuliert += (sollMonatMap[key] || 0) * erfuellungsgrad;
           projektion = Math.round(Math.min(projektionKumuliert, gesamtPlanStunden));
           if (zielErreichbar && zielStundenProMonat > 0) {
             zielProjektionKumuliert += zielStundenProMonat;
@@ -796,6 +859,7 @@ export function calculateProjectAnalysis(
     tempoUeberPlan,
     pFarbe,
     basisStunden,
+    erfuellungsgrad,
     letzten3Count: letzten3.length,
     zielErreichbar,
     zielStundenProMonat,

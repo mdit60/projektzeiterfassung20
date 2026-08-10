@@ -3,7 +3,11 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-36-10
+// Version: 7.4.9-36-11
+// v7.4.9-36-11: Prognose-"Basis"-Text an das neue Planerfuellungs-Modell
+//   angepasst (projektfortschritt-utils v7.4.9-6). Statt "X h/Monat (letzte 3
+//   Mon.)" jetzt "Plan-Erfuellung XX% (Ist/Soll bis heute)". Reine Label-
+//   Aenderung; Zahlenlogik kommt aus den utils.
 // v7.4.9-36-10: VN-Freigabe je Firma. Im FIRMEN-Portal erscheinen die VN-Kacheln
 //   (aktive + abgeschlossene Projekte) nur, wenn die Firma freigeschaltet ist
 //   (v7_client_companies.vn_firma_freigeschaltet). Die BERATER-Seite bleibt immer
@@ -1681,7 +1685,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                 </div>
                 <div className="flex justify-between text-[10px]">
                   <span className="text-gray-500">
-                    Basis: {Math.round(analysis.basisStunden)} h/Monat (letzte {analysis.letzten3Count} Mon.)
+                    Basis: Plan-Erf&uuml;llung {Math.round(analysis.erfuellungsgrad * 100)}% (Ist/Soll bis heute)
                   </span>
                   <span className={'font-bold ' + analysis.pFarbe.text}>
                     {Math.min(analysis.erreichungsgrad, 100)}% des Foerderziels
