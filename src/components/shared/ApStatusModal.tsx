@@ -1,6 +1,22 @@
 'use client';
 // src/components/shared/ApStatusModal.tsx
-// Version: 1.0-10
+// Version: 1.0-11
+// v1.0-11: RUNDUNG - Gesamt-Spalten gehen jetzt spaltenweise exakt auf.
+//   PROBLEM: In der AP-Status-Uebersicht zeigte die "gesamt"-Spalte (geplant/
+//   offen) 0,01h-Reste, die in den MA-Spalten nicht auftauchten (dort 0,00).
+//   Beispiel AP 3.2: gesamt offen 0,34 obwohl MA-Spalten 0,00 + 0,33 = 0,33.
+//   URSACHE: gesamt-geplant wurde aus total_person_months x hoursPerPM
+//   gerechnet; hoursPerPM(40) = 40*52/12 = 173,3333... ist periodisch. Die
+//   vollen Nachkommastellen blieben im gesamt-Wert, waehrend je MA und je
+//   Buchung nur 2 Stellen existieren -- die verlorenen Tausendstel summierten
+//   sich sichtbar zu +-0,01 in der gesamt-Spalte.
+//   FIX (Reconciling): die gesamt-Werte (geplant/gebucht/offen) werden als
+//   Summe der auf 2 Stellen GERUNDETEN MA-Werte gebildet (r2 je MA, dann
+//   summiert). Damit gilt gesamt == Summe der MA-Zellen in jeder Zeile und in
+//   der Fusszeile; voll gebuchte APs zeigen ueberall 0,00. Fallback auf
+//   total_person_months x hoursPerPM nur noch fuer APs ganz ohne MA-Planwert.
+//   Reine Anzeige-/Aggregationslogik dieses Modals; keine Aenderung an Buchung,
+//   Foerdergrenzen oder gespeicherten Daten.
 // v1.0-10: NEUER Druckweg - eigenes Druckfenster statt In-Place-Druck. Die bisherigen
 //   In-Place-Varianten (v1.0-4..-9) erzeugten in PROD mit echten Daten Artefakte, zuletzt
 //   ZWEI identische Seiten (die Tabelle wurde dupliziert statt umgebrochen), weil das Modal
@@ -463,6 +479,7 @@ export default function ApStatusModal({ open, onClose, projectId, projectLabel, 
           }
           let sumPlanned = 0;
           let sumBooked = 0;
+          let sumOffen = 0; // v1.0-11: Summe der (reconcilten) Zeilen-Offen-Werte
           const fmtMon = (d: string | null): string => {
             if (!d) return '?';
             const p = d.split('-');
@@ -551,14 +568,27 @@ export default function ApStatusModal({ open, onClose, projectId, projectLabel, 
                   const apDisplay = wp.ap_code
                     ? wp.ap_code.replace(/^AP\s*/i, '')
                     : `${wp.ap_number}${wp.ap_sub_number ? `.${wp.ap_sub_number}` : ''}`;
-                  const planned = (wp.total_person_months || 0) * hoursPerPM(pmBasisWAZ);
-                  const booked = projectBookedPerWP[wp.id] || 0;
-                  const offen = planned - booked;
-                  const offenR = r2(offen);
                   const pMap = plannedHoursPerWpPerMa[wp.id] || {};
                   const bMap = projectBookedPerWpPerMa[wp.id] || {};
+                  // v1.0-11: Gesamt = Summe der auf 2 Stellen gerundeten MA-Werte,
+                  // damit die Zeile spaltenweise exakt aufgeht (kein 0,01-Phantom
+                  // aus dem periodischen PM-Faktor 173,3333...). Fallback auf das
+                  // rechnerische Soll (total_person_months x hoursPerPM) nur, wenn
+                  // fuer diesen AP gar kein MA-Planwert vorliegt.
+                  const hasMaPlan = team.some(e => (pMap[e.id] || 0) > 0);
+                  const planned = hasMaPlan
+                    ? r2(team.reduce((a, e) => a + r2(pMap[e.id] || 0), 0))
+                    : r2((wp.total_person_months || 0) * hoursPerPM(pmBasisWAZ));
+                  const booked = team.length > 0
+                    ? r2(team.reduce((a, e) => a + r2(bMap[e.id] || 0), 0))
+                    : (projectBookedPerWP[wp.id] || 0);
+                  const offen = hasMaPlan
+                    ? r2(team.reduce((a, e) => a + r2((pMap[e.id] || 0) - (bMap[e.id] || 0)), 0))
+                    : r2(planned - booked);
+                  const offenR = offen;
                   sumPlanned += planned;
                   sumBooked += booked;
+                  sumOffen += offen;
                   const months = monthsOfWp(wp.id);
                   const expandable = showMonthly && months.length > 1;
                   // v1.0-5: im Druck alle mehrmonatigen APs aufgeklappt (printExpandAll).
@@ -648,18 +678,18 @@ export default function ApStatusModal({ open, onClose, projectId, projectLabel, 
                 <tr className="bg-gray-100 font-semibold">
                   <td className="border px-2 py-1.5" colSpan={isDurchfuehrbarkeitsstudie ? 4 : 3}>Gesamt</td>
                   {/* geplant */}
-                  <td className={`${totBase} ${grpL} ${grpB} ${team.length === 0 ? grpR : ''}`}>{sumPlanned.toFixed(2)}</td>
+                  <td className={`${totBase} ${grpL} ${grpB} ${team.length === 0 ? grpR : ''}`}>{r2(sumPlanned).toFixed(2)}</td>
                   {team.map((e, i) => (
                     <td key={`fp-${e.id}`} className={`${numCell} ${grpB} ${i === lastMa ? grpR : ''}`}>{colPlanned[e.id] > 0 ? colPlanned[e.id].toFixed(2) : ''}</td>
                   ))}
                   {/* gebucht */}
-                  <td className={`${totBase} ${grpL} ${grpB} ${team.length === 0 ? grpR : ''}`}>{sumBooked.toFixed(2)}</td>
+                  <td className={`${totBase} ${grpL} ${grpB} ${team.length === 0 ? grpR : ''}`}>{r2(sumBooked).toFixed(2)}</td>
                   {team.map((e, i) => (
                     <td key={`fb-${e.id}`} className={`${numCell} ${grpB} ${i === lastMa ? grpR : ''}`}>{colBooked[e.id] > 0 ? colBooked[e.id].toFixed(2) : ''}</td>
                   ))}
                   {/* offen */}
                   <td className={`${totBase} ${grpL} ${grpB} ${team.length === 0 ? grpR : ''}`}>
-                    {(() => { const g = r2(sumPlanned - sumBooked); return <span className={offenColor(g)}>{g.toFixed(2)}</span>; })()}
+                    {(() => { const g = r2(sumOffen); return <span className={offenColor(g)}>{g.toFixed(2)}</span>; })()}
                   </td>
                   {team.map((e, i) => {
                     const ov = r2((colPlanned[e.id] || 0) - (colBooked[e.id] || 0));
