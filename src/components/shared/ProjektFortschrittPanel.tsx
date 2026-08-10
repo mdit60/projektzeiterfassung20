@@ -2,7 +2,12 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Grafische Auswertung
 // ============================================================================
-// Version: 7.4.5-25
+// Version: 7.4.5-26
+// v7.4.5-26: Prognose-"Basis"-Text an das neue Planerfuellungs-Modell angepasst
+//   (projektfortschritt-utils v7.4.9-6). Prognose-Headline zeigt jetzt
+//   "Plan-Erfuellung XX% (Ist/Soll bis heute)" statt "X h/Monat (letzte 3
+//   Monate)". Die Szenarien-Sektion ("Weiter wie bisher") behaelt bewusst den
+//   3-Monats-Tempo-Hinweis. Reine Label-Aenderung.
 // v7.4.5-25: pm_basis_weekly_hours im Project-Interface, wird an die utils
 //   durchgereicht (Soll/PM/Kosten projektbasiert).
 //
@@ -715,7 +720,7 @@ export default function ProjektFortschrittPanel({
                 </div>
                 <div className="flex justify-between text-xs">
                   <span className="text-gray-700">
-                    Basis: {Math.round(analysis.basisStunden)} h/Monat (Team, letzte {analysis.letzten3Count} Monate)
+                    Basis: Plan-Erf&uuml;llung {Math.round(analysis.erfuellungsgrad * 100)}% (Ist/Soll bis heute)
                   </span>
                   <span className={`font-bold ${analysis.pFarbe.text}`}>
                     {Math.min(analysis.erreichungsgrad, 100)}% des Foerderziels
