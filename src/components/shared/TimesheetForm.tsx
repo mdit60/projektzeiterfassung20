@@ -3,7 +3,23 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 10. August 2026
-// Version: 7.4.6-83
+// Version: 7.4.6-84
+// v7.4.6-84: Obergrenze fuer die Auto-Anzeige "Zugeordnete AP" wieder
+//   eingefuehrt -- start-basiert (Startmonat + 3 Monate). PROBLEM: seit -82
+//   (Wegfall der alten end_date+2-Obergrenze) blieb ein zugeordnetes AP
+//   automatisch vorbelegt, solange auch nur ein Rundungsrest offen war
+//   (z.B. 0,01 h). Dadurch tauchten laengst abgeschlossene APs vom Projektanfang
+//   (z.B. 1.1 Anforderungsanalyse, Start 05/2025) noch >1 Jahr spaeter im
+//   Stundennachweis auf. FIX: Ein zugeordnetes AP wird nur noch automatisch
+//   angezeigt/vorbelegt, wenn sein geplanter Startmonat hoechstens 3 Monate vor
+//   dem gewaehlten Timesheet-Monat liegt (monthsSinceStart <= 3). Grundlage:
+//   nach Foerderrichtlinie ist ein AP auf max. 3 PM begrenzt, dauert also nie
+//   laenger als rund 3 Kalendermonate; die Startmonats-Grenze deckt damit die
+//   gesamte Plan-Laufzeit ab. Die Reststunden-Pruefung (planned - booked > 0)
+//   bleibt als zusaetzliches UND erhalten. Betrifft ausschliesslich die
+//   automatische Anzeige: "Weitere AP" bleibt ohne Zeit-Filter jederzeit
+//   vollstaendig waehlbar, spaete legitime Nachbuchungen sind also weiter
+//   moeglich. Untergrenze (hasAPStarted, -82) unveraendert.
 // v7.4.6-83: KORREKTUR zu -82. Der Startmonats-Filter darf NUR fuer die
 //   automatisch angezeigten "Zugeordnete AP" gelten, NICHT fuer "Weitere AP".
 //   PROBLEM (AURA/GMM, MA Fells, ab Maerz ausgeschieden): AP 3.3 war fuer
@@ -1100,14 +1116,33 @@ export default function TimesheetForm({
     return startMonthBegin <= getReferenceDate();
   };
 
-  // Zugeordnete AP: dem MA zugewiesen, ab dem geplanten Startmonat und mit noch
-  // offenen Stunden. v7.4.6-82: KEINE Obergrenze mehr -- solange Stunden offen
-  // sind, bleibt der AP waehlbar (ein AP kann laenger dauern als geplant und
-  // darf dann nicht wegen Ablauf der Plan-Laufzeit verschwinden).
+  // v7.4.6-84: Ganze Monate zwischen dem geplanten Startmonat des AP und dem
+  // gewaehlten Timesheet-Monat (monatsgenau, Kalendermonate). 0 = AP startet im
+  // gewaehlten Monat; positive Werte = so viele Monate nach Planstart. Null nur,
+  // wenn kein start_date vorhanden ist (bei zugeordneten APs durch isSelectableAP
+  // bereits ausgeschlossen).
+  const monthsSinceStart = (wp: WorkPackage): number | null => {
+    if (!wp.start_date) return null;
+    const startDate = new Date(wp.start_date as string);
+    const ref = getReferenceDate();
+    return (ref.getFullYear() - startDate.getFullYear()) * 12
+      + (ref.getMonth() - startDate.getMonth());
+  };
+
+  // Zugeordnete AP: dem MA zugewiesen, innerhalb des Auto-Anzeige-Fensters
+  // (ab Startmonat bis Startmonat + 3 Monate) und mit noch offenen Stunden.
+  // v7.4.6-84: Start-basierte Obergrenze wieder eingefuehrt (ersetzt die in -82
+  // entfernte end_date+2-Grenze). Da ein AP laut Foerderrichtlinie max. 3 PM und
+  // damit nie mehr als rund 3 Kalendermonate umfasst, deckt "Startmonat + 3" die
+  // gesamte Plan-Laufzeit ab; laengst abgeschlossene APs mit Rundungsresten
+  // (z.B. 0,01 h offen) verschwinden dadurch aus der Auto-Anzeige. Spaete
+  // Nachbuchungen bleiben ueber "Weitere AP" (ohne Zeit-Filter) moeglich.
   const isAPInAssignedGroup = (wp: WorkPackage): boolean => {
     if (!isSelectableAP(wp)) return false;
     if (!assignedWPIds.includes(wp.id)) return false;
     if (!hasAPStarted(wp)) return false; // v7.4.6-82: Untergrenze (Startmonat)
+    const mss = monthsSinceStart(wp);    // v7.4.6-84: Obergrenze (Startmonat + 3)
+    if (mss === null || mss > 3) return false;
     const planned = plannedHoursPerWP[wp.id] || 0;
     const booked = totalBookedPerWP[wp.id] || 0;
     if (planned <= 0) return false;
@@ -2050,12 +2085,14 @@ export default function TimesheetForm({
       const hasAssignmentData = Object.keys(plannedHoursPerWP).length > 0;
       
       if (wpEntryMap.size === 0 && absenceEntries.size === 0 && assignedWPIds.length > 0 && hasAssignmentData) {
-        // v7.4.6-3 / -82: Nur APs vorbelegen, die dem MA zugeordnet sind, noch
-        // Stunden offen haben UND bereits ab ihrem geplanten Startmonat laufen
-        // (hasAPStarted). Damit werden noch nicht angelaufene APs (z.B. AP 3.5 ab
-        // August) nicht in fruehe Monate (z.B. Dezember) vorbelegt. Eine
-        // Obergrenze gibt es bewusst nicht mehr: solange Stunden offen sind,
-        // bleibt der AP relevant, auch nach seiner geplanten Laufzeit.
+        // v7.4.6-3 / -82 / -84: Nur APs vorbelegen, die dem MA zugeordnet sind,
+        // noch Stunden offen haben UND innerhalb des Auto-Anzeige-Fensters liegen
+        // (ab geplantem Startmonat via hasAPStarted, hoechstens 3 Monate danach
+        // via monthsSinceStart <= 3). Damit werden weder noch nicht angelaufene
+        // APs (z.B. AP 3.5 ab August) in fruehe Monate vorbelegt, noch laengst
+        // abgeschlossene APs vom Projektanfang mit blossem Rundungsrest. Die
+        // Filterregel ist identisch mit dem Dropdown "Zugeordnete AP"
+        // (isAPInAssignedGroup), daher greift die -84-Obergrenze hier automatisch.
         const relevantAssigned = assignedWPIds.filter(id => {
           if (!wpIds.includes(id)) return false;
           const wp = safeWorkPackages.find(w => w.id === id);
