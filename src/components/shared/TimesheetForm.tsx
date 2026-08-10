@@ -3,7 +3,17 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 10. August 2026
-// Version: 7.4.6-82
+// Version: 7.4.6-83
+// v7.4.6-83: KORREKTUR zu -82. Der Startmonats-Filter darf NUR fuer die
+//   automatisch angezeigten "Zugeordnete AP" gelten, NICHT fuer "Weitere AP".
+//   PROBLEM (AURA/GMM, MA Fells, ab Maerz ausgeschieden): AP 3.3 war fuer
+//   03-05.2026 geplant, wurde aber schon im Februar begonnen, weil das
+//   Vorgaenger-AP 3.2 bereits fertig war. Nach -82 liess sich 3.3 im Februar
+//   nicht mehr waehlen (weder als "Zugeordnete AP" noch unter "Weitere AP").
+//   FIX: Der in -82 auch in isAPInWeitereGroup eingebaute hasAPStarted-Check
+//   wird wieder entfernt. Damit gilt: "Zugeordnete AP" erst ab geplantem
+//   Startmonat (Untergrenze bleibt); "Weitere AP" jederzeit vollstaendig fuer
+//   jeden MA (kein Zeit-Filter) -- fuer vorgezogene/uebernommene APs.
 // v7.4.6-82: AP-Angebot im Timesheet - Untergrenze statt Obergrenze.
 //   PROBLEM: Einem MA zugeordnete APs wurden ab dem ERSTEN Projektmonat im
 //   Dropdown/der Vorbelegung angeboten, obwohl sie laut Arbeitsplan erst
@@ -1106,13 +1116,16 @@ export default function TimesheetForm({
   };
 
   // Weitere AP (v7.4.6-3): Alle uebrigen echten APs (mit PM > 0 und Datum),
-  // die nicht bereits in "Zugeordnete AP" sichtbar sind. Kein Obergrenzen-Check
-  // hier, damit Vertretungsfaelle (Uebernahme von einem anderen MA) moeglich
-  // bleiben. v7.4.6-82: aber auch hier erst ab dem Startmonat -- ein noch nicht
-  // angelaufener AP wird generell nicht angeboten.
+  // die nicht bereits in "Zugeordnete AP" sichtbar sind. BEWUSST KEIN
+  // Zeit-Filter (weder Unter- noch Obergrenze): diese Liste muss fuer jeden MA
+  // jederzeit vollstaendig waehlbar sein. v7.4.6-83: Der in -82 hier ergaenzte
+  // Startmonats-Check wurde wieder entfernt -- ein vorgezogenes AP (z.B. AP 3.3
+  // ab Maerz geplant, aber im Februar begonnen, weil das Vorgaenger-AP 3.2 schon
+  // fertig war) muss unter "Weitere AP" auswaehlbar bleiben. Die zeitliche
+  // Selektion (hasAPStarted) gilt ausschliesslich fuer die automatisch
+  // angezeigten "Zugeordnete AP".
   const isAPInWeitereGroup = (wp: WorkPackage): boolean => {
     if (!isSelectableAP(wp)) return false;
-    if (!hasAPStarted(wp)) return false; // v7.4.6-82: Untergrenze (Startmonat)
     return !isAPInAssignedGroup(wp);
   };
 
