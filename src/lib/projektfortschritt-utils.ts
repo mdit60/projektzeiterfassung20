@@ -2,8 +2,19 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Berechnungslogik (Shared Utility)
 // ============================================================================
-// Version: 7.4.9-11
+// Version: 7.4.9-12
 // Datum: 11. August 2026
+// v7.4.9-12: FIX GF-Erkennung. Die 50%-Regel fuer Geschaeftsfuehrer griff nicht,
+//   weil die lokale Pruefung den position_title exakt gegen die ASCII-
+//   transliterierte Liste GF_POSITIONS (['Geschaeftsfuehrer', ...]) verglich,
+//   die Stammdaten aber den echten Umlaut-String (Position mit ae/ue als echte
+//   Umlaute) speichern -> nie ein Treffer, GF bekam faelschlich das volle
+//   Monatsmaximum
+//   (z.B. 162 statt 82 h). FIX: Nutzt jetzt die kanonische, umlaut-robuste
+//   istGeschaeftsfuehrerTitle() aus v7-types (normalisiert Schreibweisen) in
+//   maxProjektstundenMonat() und istGeschaeftsfuehrer(). Die alte ASCII-Liste
+//   GF_POSITIONS bleibt nur als Export erhalten, wird aber nicht mehr zur
+//   Erkennung genutzt.
 // v7.4.9-11: PROGNOSE-NEUFASSUNG STUFE 2 (Ebene 2 - auslastungsbasierte
 //   Hochrechnung). Siehe KONZEPT-PROGNOSE-NEU-v0_2. Die Kopf-Hochrechnung ist
 //   nicht mehr die Planerfuellungs-Fortschreibung, sondern:
@@ -141,6 +152,8 @@ import {
   countWorkdays,
   type HolidayRegion,
 } from './holidays/germanHolidays';
+// v7.4.9-12: kanonische, umlaut-robuste GF-Erkennung (einzige Quelle laut v7-types).
+import { istGeschaeftsfuehrerTitle } from '@/types/v7-types';
 
 // ============================================================================
 // INTERFACES
@@ -447,16 +460,14 @@ export function maxProjektstundenMonat(
   const firmStd = firmStandardWeeklyHours ?? 40;
   const pmBasis = pmBasisWeeklyHours ?? firmStd;
   const basisMax = hoursPerPM(pmBasis) * (waz / firmStd);
-  const istGF = emp?.position_title
-    ? GF_POSITIONS.includes(emp.position_title)
-    : false;
+  // v7.4.9-12: umlaut-robuste GF-Erkennung ueber die kanonische Funktion.
+  const istGF = istGeschaeftsfuehrerTitle(emp?.position_title ?? null);
   return istGF ? basisMax * GF_FAKTOR : basisMax;
 }
 
-/** Prueft ob MA ein GF ist */
+/** Prueft ob MA ein GF ist (v7.4.9-12: kanonische, umlaut-robuste Pruefung) */
 export function istGeschaeftsfuehrer(emp: PFEmployee | undefined): boolean {
-  if (!emp?.position_title) return false;
-  return GF_POSITIONS.includes(emp.position_title);
+  return istGeschaeftsfuehrerTitle(emp?.position_title ?? null);
 }
 
 /** Prognose-Farbe basierend auf Erreichungsgrad */
