@@ -2,8 +2,27 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Berechnungslogik (Shared Utility)
 // ============================================================================
-// Version: 7.4.9-7
+// Version: 7.4.9-8
 // Datum: 11. August 2026
+// v7.4.9-8: AUSGESCHIEDENE Mitarbeiter werden in der Prognose beruecksichtigt.
+//   PROBLEM: Ein aus dem Projekt ausgeschiedener MA (v7_project_assignments
+//   .assignment_end in der Vergangenheit) wurde weiter als verfuegbare
+//   Kapazitaet gezaehlt. Die Szenarien "Vollast alle N MA" und "Fuer 100% Ziel
+//   (alle N MA)" teilten das benoetigte Team-Tempo durch die volle
+//   Zuordnungszahl (z.B. 3 statt real 2) und rechneten die Kapazitaet des
+//   Ausgeschiedenen als abrufbar mit -> je-MA-Werte zu niedrig, Erreichbarkeit
+//   zu optimistisch. Ursache: PFProjectAssignment trug kein assignment_end, der
+//   Rechenkern kannte den Austritt technisch nicht.
+//   FIX: PFProjectAssignment erhaelt assignment_end. Ein MA gilt als verfuegbar,
+//   wenn er mind. eine nicht-beendete Projekt-Zuordnung hat (Kriterium wie im
+//   FirmaCockpit: !assignment_end || assignment_end >= heute). Team-Zaehlung,
+//   Kapazitaets-Obergrenzen (teamMaxProMonat, GF/MA-Splits) und alle Szenarien
+//   rechnen nur noch mit den verfuegbaren MA. aktivCount zaehlt Ausgeschiedene
+//   nie mit. Neues Rueckgabefeld ausgeschiedenCount fuer die Anzeige. Die
+//   offenen Planstunden des Ausgeschiedenen BLEIBEN im Ziel (Restteam uebernimmt)
+//   - Ziel/Rest-Soll unveraendert, nur die Kapazitaets-/Szenariensicht schrumpft.
+//   Abwaertskompatibel: ohne assignment_end (nicht geladen) gilt jeder als
+//   verfuegbar -> Verhalten wie bisher.
 // v7.4.9-7: Szenario "Fuer 100% Ziel (alle N MA)" nur noch anzeigen, wenn die
 //   Hochrechnung das Foerderziel NICHT bereits voll erreicht.
 //   PROBLEM: Die Kopf-Hochrechnung wurde in v7.4.9-6 auf das planbezogene
@@ -109,6 +128,9 @@ export interface PFProjectAssignment {
   project_id: string;
   employee_id: string;
   hourly_rate: number | null;
+  // v7.4.9-8: Projekt-Austritt. Gesetzt und in der Vergangenheit = ausgeschieden.
+  // Optional -> abwaertskompatibel: fehlt das Feld, gilt der MA als verfuegbar.
+  assignment_end?: string | null;
 }
 
 export interface PFEmployee {
@@ -210,7 +232,8 @@ export interface ProjectAnalysis {
   prognostizierteGesamtKosten: number;
   // Team-Daten
   aktivCount: number;
-  gesamtMACount: number;
+  gesamtMACount: number;              // v7.4.9-8: nur verfuegbare MA (ohne Ausgeschiedene)
+  ausgeschiedenCount: number;         // v7.4.9-8: aus dem Projekt ausgeschiedene MA
   gfCount: number;
   normalMACount: number;
   istHProTagTeam: number;
@@ -618,9 +641,25 @@ export function calculateProjectAnalysis(
     if (letzten3.includes(key)) aktiveMaIds.add(t.employee_id);
   });
 
-  const alleMAIds = Array.from(new Set(projAssignments.map(pa => pa.employee_id)));
-  const aktivCount = aktiveMaIds.size;
-  const gesamtMACount = alleMAIds.length;
+  // v7.4.9-8: Verfuegbarkeit je MA aus Projekt-Zuordnungen. Ein MA ist
+  // verfuegbar, wenn er mind. eine nicht-beendete Zuordnung hat (Kriterium wie
+  // im FirmaCockpit). Ausgeschiedene (assignment_end in der Vergangenheit)
+  // zaehlen nicht mehr als Kapazitaet.
+  const heuteStr = now.toISOString().split('T')[0];
+  const maVerfuegbarMap = new Map<string, boolean>();
+  projAssignments.forEach(pa => {
+    const verfuegbar = !pa.assignment_end || pa.assignment_end >= heuteStr;
+    maVerfuegbarMap.set(
+      pa.employee_id,
+      (maVerfuegbarMap.get(pa.employee_id) || false) || verfuegbar
+    );
+  });
+  const alleMAIds = Array.from(maVerfuegbarMap.keys());
+  const verfuegbareMAIds = alleMAIds.filter(id => maVerfuegbarMap.get(id));
+  const ausgeschiedenCount = alleMAIds.length - verfuegbareMAIds.length;
+  // Ausgeschiedene nie als "aktiv" zaehlen, auch wenn sie zuletzt gebucht haben.
+  const aktivCount = Array.from(aktiveMaIds).filter(id => maVerfuegbarMap.get(id)).length;
+  const gesamtMACount = verfuegbareMAIds.length;
 
   // Arbeitstage der letzten 3 Monate
   const gesamtArbeitstage3M = letzten3.reduce((s, key) => {
@@ -638,7 +677,8 @@ export function calculateProjectAnalysis(
     : 0;
 
   // ---- MA-individuelle Obergrenzen ----
-  const maObergrenzen = alleMAIds.map(empId => {
+  // v7.4.9-8: Kapazitaets-Obergrenzen nur ueber verfuegbare MA (ohne Ausgeschiedene).
+  const maObergrenzen = verfuegbareMAIds.map(empId => {
     const emp = employees.find(e => e.id === empId);
     const maxProMonat = maxProjektstundenMonat(emp, pmBasisWAZ, firmStdWAZ);
     const isGF = istGeschaeftsfuehrer(emp);
@@ -673,7 +713,9 @@ export function calculateProjectAnalysis(
   // ---- Szenarien ----
   const szenarien: Szenario[] = [];
 
-  if (restArbeitstage > 0) {
+  // v7.4.9-8: gesamtMACount > 0 verhindert Division durch Null, falls alle
+  // zugeordneten MA ausgeschieden sind (dann gibt es kein Team fuer Szenarien).
+  if (restArbeitstage > 0 && gesamtMACount > 0) {
     const teamMaxErreichbar = teamMaxProMonat * verbleibendeMonateAb;
     const maxErreichbarGesamt = gesamtIstStunden + teamMaxErreichbar;
     const maxErreichbarPct = gesamtPlanStunden > 0
@@ -889,6 +931,7 @@ export function calculateProjectAnalysis(
     prognostizierteGesamtKosten,
     aktivCount,
     gesamtMACount,
+    ausgeschiedenCount,
     gfCount,
     normalMACount,
     istHProTagTeam,

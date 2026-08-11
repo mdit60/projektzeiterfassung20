@@ -2,7 +2,12 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-64
+// Version: 7.4.4-65
+// v7.4.4-65: loadProjectAssignments liefert zusaetzlich assignment_end mit, damit
+//   die Projekt-Fortschritts-/Prognoseberechnung (projektfortschritt-utils v7.4.9-8)
+//   ausgeschiedene Mitarbeiter (assignment_end in der Vergangenheit) erkennen und
+//   aus der Kapazitaets-/Szenariensicht ausschliessen kann. Reine Feld-Ergaenzung,
+//   keine Logikaenderung am ZA-Panel selbst.
 // v7.4.4-64: FIX Monatsdarstellung Anlage 1a nutzerabhaengig verdreht ("25 Dez"
 //   statt "Dez. 25" bei einzelnen Anwendern). Ursache NICHT der Code: die Labels
 //   werden bereits fest mit toLocaleString('de-DE', {month:'short', year:'2-digit'})
@@ -312,7 +317,7 @@ export async function loadProjectAssignments(projectIds: string[]) {
   const supabase = createClient();
   const { data, error } = await supabase
     .from('v7_project_assignments')
-    .select(`id, project_id, employee_id, employee_number, hourly_rate, hourly_rate_approved, role_in_project,
+    .select(`id, project_id, employee_id, employee_number, hourly_rate, hourly_rate_approved, role_in_project, assignment_end,
              v7_employees!inner(annual_salary, weekly_hours, qualification)`)
     .in('project_id', projectIds)
     .eq('is_active', true);
@@ -328,6 +333,7 @@ export async function loadProjectAssignments(projectIds: string[]) {
     hourly_rate: pa.hourly_rate,
     hourly_rate_approved: pa.hourly_rate_approved ?? null,
     role_in_project: pa.role_in_project,
+    assignment_end: pa.assignment_end ?? null,
     annual_salary: pa.v7_employees?.annual_salary,
     weekly_hours: pa.v7_employees?.weekly_hours,
     qualification: pa.v7_employees?.qualification,

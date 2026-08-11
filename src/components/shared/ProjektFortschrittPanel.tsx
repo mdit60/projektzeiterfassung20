@@ -2,7 +2,13 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Grafische Auswertung
 // ============================================================================
-// Version: 7.4.5-26
+// Version: 7.4.5-27
+// v7.4.5-27: Ausgeschiedene MA werden in der Prognose beruecksichtigt und
+//   ausgewiesen (projektfortschritt-utils v7.4.9-8). "Aktive Mitarbeiter" zeigt
+//   nur noch verfuegbare MA (ohne Ausgeschiedene); bei ausgeschiedenen MA
+//   erscheint darunter der Hinweis "N ausgeschieden (nicht mehr im Team)". Die
+//   Szenarien rechnen dadurch mit der realen Teamgroesse. ProjectAssignment-Typ
+//   um assignment_end ergaenzt (wird von loadProjectAssignments geliefert).
 // v7.4.5-26: Prognose-"Basis"-Text an das neue Planerfuellungs-Modell angepasst
 //   (projektfortschritt-utils v7.4.9-6). Prognose-Headline zeigt jetzt
 //   "Plan-Erfuellung XX% (Ist/Soll bis heute)" statt "X h/Monat (letzte 3
@@ -160,6 +166,8 @@ interface ProjectAssignment {
   project_id: string;
   employee_id: string;
   hourly_rate: number | null;
+  // v7.4.5-27: Projekt-Austritt (fuer Ausschluss ausgeschiedener MA in der Prognose).
+  assignment_end?: string | null;
 }
 
 interface Employee {
@@ -755,6 +763,11 @@ export default function ProjektFortschrittPanel({
                           </span>
                         )}
                       </div>
+                      {analysis.ausgeschiedenCount > 0 && (
+                        <div className="text-xs text-gray-500 mt-0.5">
+                          {analysis.ausgeschiedenCount} ausgeschieden (nicht mehr im Team)
+                        </div>
+                      )}
                     </div>
                     <div>
                       <div className="text-xs text-gray-700">Intensitaet je MA</div>
