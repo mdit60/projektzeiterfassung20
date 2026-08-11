@@ -2,7 +2,11 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-66
+// Version: 7.4.4-67
+// v7.4.4-67: loadProjectAssignments liefert zusaetzlich assignment_start mit
+//   (Ergaenzung zu assignment_end aus -65). Wird von der Prognose-Utility
+//   v7.4.9-10 (Ebene 1) fuer das monatsgenaue Ein-/Austrittsfenster benoetigt
+//   (Ersatz-MA traegt Potential erst ab Eintritt bei). Reine Feld-Ergaenzung.
 // v7.4.4-66: FIX Stundensatz-Diskrepanz Team-Anlage vs. ZA Anlage 1b bei
 //   Teilzeit-MA. getHourlyRate skalierte den kalkulatorischen Satz in Pfad 2
 //   noch mit weekly_hours / pm_basis (z.B. 28,00 -> 22,40 bei 32/40), obwohl der
@@ -329,7 +333,7 @@ export async function loadProjectAssignments(projectIds: string[]) {
   const supabase = createClient();
   const { data, error } = await supabase
     .from('v7_project_assignments')
-    .select(`id, project_id, employee_id, employee_number, hourly_rate, hourly_rate_approved, role_in_project, assignment_end,
+    .select(`id, project_id, employee_id, employee_number, hourly_rate, hourly_rate_approved, role_in_project, assignment_end, assignment_start,
              v7_employees!inner(annual_salary, weekly_hours, qualification)`)
     .in('project_id', projectIds)
     .eq('is_active', true);
@@ -346,6 +350,7 @@ export async function loadProjectAssignments(projectIds: string[]) {
     hourly_rate_approved: pa.hourly_rate_approved ?? null,
     role_in_project: pa.role_in_project,
     assignment_end: pa.assignment_end ?? null,
+    assignment_start: pa.assignment_start ?? null,
     annual_salary: pa.v7_employees?.annual_salary,
     weekly_hours: pa.v7_employees?.weekly_hours,
     qualification: pa.v7_employees?.qualification,
