@@ -2,8 +2,16 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Berechnungslogik (Shared Utility)
 // ============================================================================
-// Version: 7.4.9-12
+// Version: 7.4.9-13
 // Datum: 11. August 2026
+// v7.4.9-13: FIX Firmenstandard-WAZ. Der Beschaeftigungsgrad (waz / firmStd) fiel
+//   auf firmStd = 40 zurueck, wenn project.firm_standard_weekly_hours nicht
+//   gesetzt/geladen war - dadurch galt ein 37,5-h-Vollzeit-MA faelschlich als
+//   93,75% und das Monatsmaximum war zu niedrig (GF 76 statt 81, MA entsprechend).
+//   FIX: firmStd faellt jetzt auf options.firmStandardWeeklyHours (Firmen-
+//   Regelarbeitszeit) bzw. die Antrags-WAZ (pm_basis) zurueck, erst dann auf 40.
+//   Neues optionales Feld options.firmStandardWeeklyHours; die Aufrufer geben die
+//   standard_weekly_hours der Firma mit.
 // v7.4.9-12: FIX GF-Erkennung. Die 50%-Regel fuer Geschaeftsfuehrer griff nicht,
 //   weil die lokale Pruefung den position_title exakt gegen die ASCII-
 //   transliterierte Liste GF_POSITIONS (['Geschaeftsfuehrer', ...]) verglich,
@@ -218,6 +226,10 @@ export interface PFPrognoseOptions {
   federalState?: string | null;   // Bundesland (Langname oder ISO) der Firma
   holidayRegion?: HolidayRegion;  // kommunaler Feiertags-Override (z.B. BY_AUGSBURG)
   absences?: PFAbsenceEntry[];     // erfasste UND geplante Abwesenheiten
+  // v7.4.9-13: Firmen-Regelarbeitszeit (standard_weekly_hours) als Referenz fuer
+  // den Beschaeftigungsgrad. Ohne diesen Wert faellt firmStd auf die Antrags-WAZ
+  // (pm_basis) und erst dann auf 40 zurueck.
+  firmStandardWeeklyHours?: number | null;
 }
 
 export interface PFEmployee {
@@ -596,7 +608,13 @@ export function calculateProjectAnalysis(
   // rateScaleFor hebt den auf realer MA-WAZ gespeicherten Stundensatz auf die
   // Abrechnungs-Basis (Antrag/Bescheid) -> Plan-/Ist-Kosten = PM x Monatsgehalt,
   // korrekt auch bei Teilzeit (rateScale = echte weekly_hours des MA / pmBasis).
-  const firmStdWAZ = project.firm_standard_weekly_hours ?? 40;
+  // v7.4.9-13: Firmenstandard priorisiert (Projekt-Override -> Firmen-
+  // Regelarbeitszeit aus options -> Antrags-WAZ -> 40). Verhindert die falsche
+  // 40-h-Referenz, wenn firm_standard_weekly_hours am Projekt nicht gesetzt ist.
+  const firmStdWAZ = project.firm_standard_weekly_hours
+    ?? options?.firmStandardWeeklyHours
+    ?? project.pm_basis_weekly_hours
+    ?? 40;
   const pmBasisWAZ = project.pm_basis_weekly_hours ?? firmStdWAZ;
   const hpm = hoursPerPM(pmBasisWAZ);
   const rateScaleFor = (employeeId: string): number => {

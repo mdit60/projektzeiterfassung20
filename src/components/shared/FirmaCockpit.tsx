@@ -3,7 +3,11 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-36-12
+// Version: 7.4.9-36-13
+// v7.4.9-36-13: Gibt zusaetzlich die Firmen-Regelarbeitszeit
+//   (firma.standard_weekly_hours) als prognoseOptions.firmStandardWeeklyHours mit,
+//   damit der Beschaeftigungsgrad gegen die echte Firmen-WAZ statt gegen 40
+//   rechnet (projektfortschritt-utils v7.4.9-13).
 // v7.4.9-36-12: Prognose-Neufassung Stufe 2 verkabelt. Uebergibt federal_state/
 //   holiday_region der Firma und die Abwesenheiten (loadEmployeeAbsencesAsTimesheets)
 //   sowie assignment_start/-end als options an calculateProjectAnalysis
@@ -738,6 +742,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
       {
         federalState: firma?.federal_state ?? null,
         holidayRegion: (firma?.holiday_region ?? undefined) as any,
+        firmStandardWeeklyHours: firma?.standard_weekly_hours ?? null,
         absences: rawAbsences,
       },
     );

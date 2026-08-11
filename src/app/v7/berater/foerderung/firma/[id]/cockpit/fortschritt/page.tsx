@@ -2,7 +2,11 @@
 
 // Route: /v7/berater/foerderung/firma/[id]/cockpit/fortschritt
 // Eigenstaendige Seite fuer ProjektFortschrittPanel (ohne BerichtePage)
-// Version: 7.4.9-7
+// Version: 7.4.9-8
+// v7.4.9-8: Firmen-Regelarbeitszeit (standard_weekly_hours) mitladen und als
+//   prognoseOptions.firmStandardWeeklyHours uebergeben, damit der Beschaeftigungs-
+//   grad korrekt gegen die echte Firmen-WAZ (z.B. 37,5) statt gegen 40 rechnet
+//   (projektfortschritt-utils v7.4.9-13).
 // v7.4.9-7: Prognose-Neufassung Stufe 1. Laedt federal_state/holiday_region der
 //   Firma sowie die Abwesenheiten (loadEmployeeAbsencesAsTimesheets) ueber die
 //   Projektlaufzeit und reicht sie als prognoseOptions an ProjektFortschrittPanel
@@ -41,7 +45,7 @@ export default function CockpitFortschrittPage() {
   const [employees, setEmployees] = useState<any[]>([]);
   const [timesheets, setTimesheets] = useState<any[]>([]);
   // v7.4.9-7: Kapazitaets-Eingaben fuer die Prognose (Ebene 1)
-  const [firmaRegion, setFirmaRegion] = useState<{ federal_state: string | null; holiday_region: string | null }>({ federal_state: null, holiday_region: null });
+  const [firmaRegion, setFirmaRegion] = useState<{ federal_state: string | null; holiday_region: string | null; standard_weekly_hours: number | null }>({ federal_state: null, holiday_region: null, standard_weekly_hours: null });
   const [absences, setAbsences] = useState<any[]>([]);
 
   useEffect(() => {
@@ -63,13 +67,14 @@ export default function CockpitFortschrittPage() {
 
       const { data: firma } = await supabase
         .from('v7_client_companies')
-        .select('name, federal_state, holiday_region')
+        .select('name, federal_state, holiday_region, standard_weekly_hours')
         .eq('id', firmaId)
         .single();
       setFirmaName(firma?.name || '');
       setFirmaRegion({
         federal_state: firma?.federal_state ?? null,
         holiday_region: firma?.holiday_region ?? null,
+        standard_weekly_hours: firma?.standard_weekly_hours ?? null,
       });
 
       const { data: projectsData } = await supabase
@@ -186,6 +191,7 @@ export default function CockpitFortschrittPage() {
           prognoseOptions={{
             federalState: firmaRegion.federal_state,
             holidayRegion: (firmaRegion.holiday_region ?? undefined) as any,
+            firmStandardWeeklyHours: firmaRegion.standard_weekly_hours,
             absences,
           }}
         />
