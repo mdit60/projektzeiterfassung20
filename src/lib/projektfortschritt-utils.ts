@@ -2,8 +2,27 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Berechnungslogik (Shared Utility)
 // ============================================================================
-// Version: 7.4.9-9
+// Version: 7.4.9-10
 // Datum: 11. August 2026
+// v7.4.9-10: PROGNOSE-NEUFASSUNG STUFE 1 (Ebene 1 - reales Kapazitaetspotential).
+//   Siehe KONZEPT-PROGNOSE-NEU-v0_2. Bisher: die maximal erreichbare Kapazitaet
+//   des Teams war Pauschale (teamMaxProMonat x Restmonate) - ohne Lage der
+//   Arbeitstage, ohne Feiertage, ohne Abwesenheiten. NEU: Das Restpotential wird
+//   MONATSGENAU aus echten Nettoarbeitstagen (Werktage minus Feiertage laut
+//   germanHolidays fuer Bundesland/holiday_region minus erfasste/geplante
+//   Abwesenheiten) mal foerderfaehiger Tagesrate je MA berechnet und ueber die
+//   Restmonate summiert (teamPotentialRest). Ein-/Austritt je Monat via
+//   assignment_start/assignment_end (Ersatz-MA ab Eintritt, Ausgeschiedene ab
+//   Austritt = 0). Ersetzt teamMaxErreichbar in maxErreichbarPct und im
+//   Foerder-Konsequenzen-Block. Die Tages-Anzeigen (Vollast h/Tag) bleiben die
+//   foerderfaehige Tagesrate und aendern sich nicht.
+//   NEUE INPUTS (alle optional, abwaertskompatibel): options.federalState,
+//   options.holidayRegion, options.absences. Ohne options faellt die Berechnung
+//   auf Werktage ohne Feiertage/Abwesenheiten zurueck (Verhalten wie bisher, nur
+//   mit echten Werktagszahlen je Monat statt Pauschal-21,7).
+//   HINWEIS: Ebene 2 (auslastungsbasierte Hochrechnung) und Ebene 3
+//   (ZA-Optimierung) folgen in Stufe 2/3; die Kopf-Hochrechnung ist hier noch
+//   das Planerfuellungs-Modell aus v7.4.9-6.
 // v7.4.9-9: INTERIM-FIX gegen unmoegliche 100%-Empfehlung. Die Zeile "Fuer 100%
 //   Ziel (alle N MA)" konnte einen benoetigten Tagessatz ausgeben, der ueber der
 //   Vollast-Obergrenze (und ueber der foerderfaehigen Tagesgrenze) lag - z.B.
@@ -102,6 +121,12 @@
 // Keine React-Abhaengigkeiten - reine TypeScript-Funktionen.
 // ============================================================================
 
+import {
+  getGermanHolidays,
+  countWorkdaysInMonth,
+  type HolidayRegion,
+} from './holidays/germanHolidays';
+
 // ============================================================================
 // INTERFACES
 // ============================================================================
@@ -145,6 +170,26 @@ export interface PFProjectAssignment {
   // v7.4.9-8: Projekt-Austritt. Gesetzt und in der Vergangenheit = ausgeschieden.
   // Optional -> abwaertskompatibel: fehlt das Feld, gilt der MA als verfuegbar.
   assignment_end?: string | null;
+  // v7.4.9-10: Projekt-Eintritt. Fuer die monatsgenaue Potentialberechnung
+  // (Ersatz-MA traegt Potential erst ab assignment_start bei). Optional.
+  assignment_start?: string | null;
+}
+
+// v7.4.9-10: Abwesenheit (U/K/S) als Eingabe fuer die Potentialberechnung.
+// work_date im Format 'YYYY-MM-DD'. Quelle: loadEmployeeAbsencesAsTimesheets.
+export interface PFAbsenceEntry {
+  employee_id: string;
+  work_date: string;
+  absence_code?: string | null;
+}
+
+// v7.4.9-10: Optionale Zusatz-Eingaben fuer die kapazitaetsbasierte Prognose.
+// Alle Felder optional -> ohne sie Verhalten wie zuvor (Fallback auf Werktage
+// ohne Feiertage/Abwesenheiten).
+export interface PFPrognoseOptions {
+  federalState?: string | null;   // Bundesland (Langname oder ISO) der Firma
+  holidayRegion?: HolidayRegion;  // kommunaler Feiertags-Override (z.B. BY_AUGSBURG)
+  absences?: PFAbsenceEntry[];     // erfasste UND geplante Abwesenheiten
 }
 
 export interface PFEmployee {
@@ -255,6 +300,11 @@ export interface ProjectAnalysis {
   avgMaxProTagGF: number;
   avgMaxProTagMA: number;
   teamMaxProMonat: number;
+  // v7.4.9-10: reales Restpotential des verfuegbaren Teams (Ebene 1),
+  // monatsgenau aus Nettoarbeitstagen x foerderfaehiger Tagesrate.
+  kapazitaetPotentialRest: number;
+  // true, wenn Feiertage/Abwesenheiten (options) einflossen; false = Fallback.
+  potentialBasiert: boolean;
   // Szenarien
   szenarien: Szenario[];
   verbleibendeMonateAb: number;
@@ -431,8 +481,58 @@ export function calculateProjectAnalysis(
   projectAssignments: PFProjectAssignment[],
   employees: PFEmployee[],
   timesheets: PFTimesheetEntry[],
+  options?: PFPrognoseOptions,
 ): ProjectAnalysis | null {
   if (!project) return null;
+
+  // v7.4.9-10: Kapazitaets-Helfer (Ebene 1). Alle Eingaben optional.
+  const oFederalState = options?.federalState ?? null;
+  const oHolidayRegion = options?.holidayRegion;
+  const potentialBasiert = !!oFederalState || !!(options?.absences && options.absences.length > 0);
+
+  // Nettowerktage eines Monats: mit Bundesland -> Werktage minus Feiertage,
+  // sonst Fallback auf reine Werktage (Mo-Fr).
+  const nettoWerktageImMonat = (y: number, m: number): number =>
+    oFederalState
+      ? countWorkdaysInMonth(y, m, oFederalState, oHolidayRegion)
+      : arbeitstageImMonat(y, m);
+
+  // Feiertagsmap je Jahr (fuer die Werktagspruefung von Abwesenheitstagen).
+  const _holidayMapCache = new Map<number, Map<string, string>>();
+  const _holidayMap = (y: number): Map<string, string> => {
+    let mp = _holidayMapCache.get(y);
+    if (!mp) {
+      mp = oFederalState ? getGermanHolidays(y, oFederalState, oHolidayRegion) : new Map();
+      _holidayMapCache.set(y, mp);
+    }
+    return mp;
+  };
+  // Ist ein Datum ('YYYY-MM-DD') ein Werktag am Arbeitsort (Mo-Fr, kein Feiertag)?
+  const istWerktagStr = (dateStr: string): boolean => {
+    const yy = parseInt(dateStr.slice(0, 4), 10);
+    const mm = parseInt(dateStr.slice(5, 7), 10);
+    const dd = parseInt(dateStr.slice(8, 10), 10);
+    const dow = new Date(yy, mm - 1, dd).getDay();
+    if (dow === 0 || dow === 6) return false;
+    return !_holidayMap(yy).has(dateStr);
+  };
+
+  // Abwesenheitstage je MA (nur Werktage zaehlen; Wochenende/Feiertag reduziert
+  // das Potential nicht doppelt).
+  const _absDatesByEmp = new Map<string, Set<string>>();
+  (options?.absences ?? []).forEach(a => {
+    if (!a.employee_id || !a.work_date) return;
+    let s = _absDatesByEmp.get(a.employee_id);
+    if (!s) { s = new Set<string>(); _absDatesByEmp.set(a.employee_id, s); }
+    s.add(a.work_date);
+  });
+  const abwesenheitsWerktage = (empId: string, ym: string): number => {
+    const s = _absDatesByEmp.get(empId);
+    if (!s) return 0;
+    let c = 0;
+    s.forEach(dt => { if (dt.slice(0, 7) === ym && istWerktagStr(dt)) c++; });
+    return c;
+  };
 
   const projWPs = workPackages.filter(wp => wp.project_id === project.id);
   const projAssignments = projectAssignments.filter(pa => pa.project_id === project.id);
@@ -710,14 +810,54 @@ export function calculateProjectAnalysis(
     ? maObergrenzen.filter(ma => !ma.isGF).reduce((s, ma) => s + ma.maxProMonat, 0) / normalMACount / 21.7
     : 0;
 
-  // ---- Restliche Arbeitstage bis Projektende ----
+  // v7.4.9-10: Ebene 1 - foerderfaehige Tagesrate je verfuegbarem MA (Monats-
+  // Obergrenze auf einen Standard-Arbeitstag umgelegt) und Ein-/Austrittsfenster.
+  const tdByEmp = new Map<string, number>();
+  maObergrenzen.forEach(ma => tdByEmp.set(ma.empId, ma.maxProMonat / 21.7));
+  const fensterByEmp = new Map<string, { start: string | null; end: string | null }>();
+  projAssignments.forEach(pa => {
+    const start = pa.assignment_start ?? null;
+    const end = pa.assignment_end ?? null;
+    const prev = fensterByEmp.get(pa.employee_id);
+    if (!prev) {
+      fensterByEmp.set(pa.employee_id, { start, end });
+    } else {
+      // Ueber mehrere Zuordnungen: frueheste offene Grenze gewinnt (null = offen).
+      const combStart = (prev.start == null || start == null)
+        ? null : (start < prev.start ? start : prev.start);
+      const combEnd = (prev.end == null || end == null)
+        ? null : (end > prev.end ? end : prev.end);
+      fensterByEmp.set(pa.employee_id, { start: combStart, end: combEnd });
+    }
+  });
+
+  // ---- Restliche Arbeitstage bis Projektende + reales Restpotential (Ebene 1) ----
   let restArbeitstage = 0;
+  let teamPotentialRest = 0;
   if (project.end_date) {
     const projEnd = new Date(project.end_date);
     const startCalc = new Date(now.getFullYear(), now.getMonth() + 1, 1);
     const cur2 = new Date(startCalc);
     while (cur2 <= projEnd) {
-      restArbeitstage += arbeitstageImMonat(cur2.getFullYear(), cur2.getMonth() + 1);
+      const y = cur2.getFullYear();
+      const mo = cur2.getMonth() + 1;
+      // Bewusst weiterhin reine Werktage fuer den benoetigten-Tempo-Nenner.
+      restArbeitstage += arbeitstageImMonat(y, mo);
+
+      // v7.4.9-10: monatsgenaues Potential aller in diesem Monat verfuegbaren MA.
+      const netto = nettoWerktageImMonat(y, mo);
+      const ym = y + '-' + String(mo).padStart(2, '0');
+      const monatStart = ym + '-01';
+      const monatEnde = ym + '-' + String(new Date(y, mo, 0).getDate()).padStart(2, '0');
+      maObergrenzen.forEach(ma => {
+        const f = fensterByEmp.get(ma.empId);
+        const verfuegbarImMonat = !f
+          || ((f.start == null || f.start <= monatEnde) && (f.end == null || f.end >= monatStart));
+        if (!verfuegbarImMonat) return;
+        const nettoEmp = Math.max(0, netto - abwesenheitsWerktage(ma.empId, ym));
+        teamPotentialRest += nettoEmp * (tdByEmp.get(ma.empId) ?? 0);
+      });
+
       cur2.setMonth(cur2.getMonth() + 1);
     }
   }
@@ -730,7 +870,9 @@ export function calculateProjectAnalysis(
   // v7.4.9-8: gesamtMACount > 0 verhindert Division durch Null, falls alle
   // zugeordneten MA ausgeschieden sind (dann gibt es kein Team fuer Szenarien).
   if (restArbeitstage > 0 && gesamtMACount > 0) {
-    const teamMaxErreichbar = teamMaxProMonat * verbleibendeMonateAb;
+    // v7.4.9-10: reales Restpotential (Ebene 1) statt Pauschale
+    // (teamMaxProMonat x Restmonate).
+    const teamMaxErreichbar = teamPotentialRest;
     const maxErreichbarGesamt = gesamtIstStunden + teamMaxErreichbar;
     const maxErreichbarPct = gesamtPlanStunden > 0
       ? Math.round((maxErreichbarGesamt / gesamtPlanStunden) * 100)
@@ -837,7 +979,8 @@ export function calculateProjectAnalysis(
   const verschenktZiel = 0;
 
   // ---- Zieltempo ----
-  const teamMaxErreichbarGesamt = gesamtIstStunden + teamMaxProMonat * verbleibendeMonateAb;
+  // v7.4.9-10: reales Restpotential (Ebene 1) statt Pauschale.
+  const teamMaxErreichbarGesamt = gesamtIstStunden + teamPotentialRest;
   const maxErreichbarPct = gesamtPlanStunden > 0
     ? Math.round((teamMaxErreichbarGesamt / gesamtPlanStunden) * 100)
     : 0;
@@ -963,6 +1106,8 @@ export function calculateProjectAnalysis(
     avgMaxProTagGF,
     avgMaxProTagMA,
     teamMaxProMonat,
+    kapazitaetPotentialRest: teamPotentialRest,
+    potentialBasiert,
     szenarien,
     verbleibendeMonateAb,
   };

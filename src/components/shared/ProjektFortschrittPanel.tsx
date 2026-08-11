@@ -2,7 +2,12 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Grafische Auswertung
 // ============================================================================
-// Version: 7.4.5-27
+// Version: 7.4.5-28
+// v7.4.5-28: Prognose-Neufassung Stufe 1 (Ebene 1). Der Panel reicht jetzt die
+//   optionale prognoseOptions (Bundesland/holiday_region + Abwesenheiten) an
+//   calculateProjectAnalysis v7.4.9-10 durch, damit das Restpotential
+//   feiertags- und abwesenheitsgenau berechnet wird. ProjectAssignment um
+//   assignment_start ergaenzt. Ohne die Prop unveraendertes Verhalten.
 // v7.4.5-27: Ausgeschiedene MA werden in der Prognose beruecksichtigt und
 //   ausgewiesen (projektfortschritt-utils v7.4.9-8). "Aktive Mitarbeiter" zeigt
 //   nur noch verfuegbare MA (ohne Ausgeschiedene); bei ausgeschiedenen MA
@@ -115,6 +120,7 @@ import {
   fmtEur,
   fmtH,
   fmtDateDE,
+  type PFPrognoseOptions,
 } from '@/lib/projektfortschritt-utils';
 
 // Foerderformat-Labels
@@ -168,6 +174,8 @@ interface ProjectAssignment {
   hourly_rate: number | null;
   // v7.4.5-27: Projekt-Austritt (fuer Ausschluss ausgeschiedener MA in der Prognose).
   assignment_end?: string | null;
+  // v7.4.5-28: Projekt-Eintritt (fuer monatsgenaues Potential ab Eintritt).
+  assignment_start?: string | null;
 }
 
 interface Employee {
@@ -194,6 +202,9 @@ interface ProjektFortschrittPanelProps {
   employees: Employee[];
   timesheets: TimesheetEntry[];
   initialProjectId?: string;
+  // v7.4.5-28: optionale Kapazitaets-Eingaben (Bundesland/holiday_region +
+  // Abwesenheiten) fuer die feiertags-/abwesenheitsgenaue Potentialberechnung.
+  prognoseOptions?: PFPrognoseOptions;
 }
 
 // ----------------------------------------------------------------------------
@@ -304,6 +315,7 @@ export default function ProjektFortschrittPanel({
   employees,
   timesheets,
   initialProjectId,
+  prognoseOptions,
 }: ProjektFortschrittPanelProps) {
 
   const accentColor = portal === 'firma' ? '#16a34a' : '#2563eb';
@@ -335,9 +347,10 @@ export default function ProjektFortschrittPanel({
             projectAssignments,
             employees,
             timesheets,
+            prognoseOptions,
           )
         : null,
-    [project, workPackages, wpAssignments, projectAssignments, employees, timesheets],
+    [project, workPackages, wpAssignments, projectAssignments, employees, timesheets, prognoseOptions],
   );
 
   if (!project || !analysis) {
