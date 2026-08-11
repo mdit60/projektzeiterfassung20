@@ -2,8 +2,20 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Berechnungslogik (Shared Utility)
 // ============================================================================
-// Version: 7.4.9-6
-// Datum: 10. August 2026
+// Version: 7.4.9-7
+// Datum: 11. August 2026
+// v7.4.9-7: Szenario "Fuer 100% Ziel (alle N MA)" nur noch anzeigen, wenn die
+//   Hochrechnung das Foerderziel NICHT bereits voll erreicht.
+//   PROBLEM: Die Kopf-Hochrechnung wurde in v7.4.9-6 auf das planbezogene
+//   Modell umgestellt (prognostizierteGesamtStunden), der Szenarien-Block
+//   darunter blieb aber auf der alten mechanischen Formel
+//   (restStunden / restArbeitstage). Folge: Bei "Ziel sicher erreichbar"
+//   (Prognose >= Plan) stand trotzdem eine Empfehlung "du brauchst X h/Tag je
+//   MA fuer 100%" darunter - ein Widerspruch. Erreicht "weiter wie bisher"
+//   bereits 100%, ist die 100%-Empfehlung ueberfluessig.
+//   FIX: Zusaetzliche Bedingung prognostizierteGesamtStunden < gesamtPlanStunden
+//   am 100%-Szenario. Nur wenn das Ziel mit dem aktuellen Kurs NICHT erreicht
+//   wird, erscheint die Handlungsempfehlung. Restliche Logik unveraendert.
 // v7.4.9-6: PROGNOSE ueberarbeitet - Planerfuellung statt flachem Monatstempo.
 //   PROBLEM: Ein Projekt bei 83% Laufzeit / 82% PM / 86% Kosten wurde als
 //   "Ziel gefaehrdet" gemeldet. Ursache war die Hochrechnung
@@ -687,7 +699,12 @@ export function calculateProjectAnalysis(
       });
     }
 
-    if (restArbeitstage > 0 && restStunden > 0 && maxErreichbarPct >= 90) {
+    // v7.4.9-7: 100%-Empfehlung nur, wenn der aktuelle Kurs das Ziel NICHT
+    // schon erreicht. Erreicht "weiter wie bisher" bereits >= Plan
+    // (prognostizierteGesamtStunden >= gesamtPlanStunden), waere die Empfehlung
+    // ueberfluessig und stuende im Widerspruch zur gruenen Kopf-Hochrechnung.
+    const zielMitAktuellemKursErreicht = prognostizierteGesamtStunden >= gesamtPlanStunden;
+    if (restArbeitstage > 0 && restStunden > 0 && maxErreichbarPct >= 90 && !zielMitAktuellemKursErreicht) {
       const benoetigtTeamHProTag = restStunden / restArbeitstage;
       const benoetigtJeMAHProTag = gesamtMACount > 0
         ? benoetigtTeamHProTag / gesamtMACount
