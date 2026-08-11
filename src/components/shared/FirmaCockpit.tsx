@@ -3,7 +3,13 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-36-11
+// Version: 7.4.9-36-12
+// v7.4.9-36-12: Prognose-Neufassung Stufe 2 verkabelt. Uebergibt federal_state/
+//   holiday_region der Firma und die Abwesenheiten (loadEmployeeAbsencesAsTimesheets)
+//   sowie assignment_start/-end als options an calculateProjectAnalysis
+//   (v7.4.9-11), damit auch die kompakte Hochrechnung auslastungsbasiert und
+//   kapazitaetsgedeckelt ist. Basis-Zeile zeigt beim Auslastungsmodell
+//   "Auslastung XX% der Kapazitaet" (+ "(vorlaeufig)").
 // v7.4.9-36-11: Prognose-"Basis"-Text an das neue Planerfuellungs-Modell
 //   angepasst (projektfortschritt-utils v7.4.9-6). Statt "X h/Monat (letzte 3
 //   Mon.)" jetzt "Plan-Erfuellung XX% (Ist/Soll bis heute)". Reine Label-
@@ -204,6 +210,7 @@ import type {
   PFTimesheetEntry,
   ProjectAnalysis,
 } from '@/lib/projektfortschritt-utils';
+import { loadEmployeeAbsencesAsTimesheets } from '@/lib/employeeAbsences';
 
 // ============================================================================
 // KONSTANTEN
@@ -461,6 +468,8 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
   const [rawWPAssignments, setRawWPAssignments] = useState<PFWorkPackageAssignment[]>([]);
   const [rawProjAssignments, setRawProjAssignments] = useState<PFProjectAssignment[]>([]);
   const [rawEmployees, setRawEmployees] = useState<PFEmployee[]>([]);
+  // v7.4.9-36-12: Abwesenheiten fuer die kapazitaetsbasierte Prognose (Ebene 1/2)
+  const [rawAbsences, setRawAbsences] = useState<{ employee_id: string; work_date: string; absence_code?: string | null }[]>([]);
 
   // ==========================================================================
   // DATEN LADEN
@@ -642,15 +651,31 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
         // Projekt-Zuordnungen (Stundensaetze)
         const { data: paDB } = await supabase
           .from('v7_project_assignments')
-          .select('project_id, employee_id, hourly_rate')
+          .select('project_id, employee_id, hourly_rate, assignment_start, assignment_end')
           .in('project_id', alleProjektIds)
           .eq('is_active', true);
         const paList: PFProjectAssignment[] = (paDB || []).map(pa => ({
           project_id: pa.project_id,
           employee_id: pa.employee_id,
           hourly_rate: pa.hourly_rate,
+          assignment_start: pa.assignment_start ?? null,
+          assignment_end: pa.assignment_end ?? null,
         }));
         setRawProjAssignments(paList);
+
+        // v7.4.9-36-12: Abwesenheiten (U/K/S, inkl. geplanter Zukunft) ueber die
+        // Projektlaufzeit fuer die Ebene-1/2-Potentialberechnung.
+        const startDates = alleProjekte.map(p => p.start_date).filter(Boolean).sort();
+        const endDates = alleProjekte.map(p => p.end_date).filter(Boolean).sort();
+        const absRows = await loadEmployeeAbsencesAsTimesheets(alleProjektIds, {
+          fromDate: startDates[0] as string | undefined,
+          toDate: endDates[endDates.length - 1] as string | undefined,
+        });
+        setRawAbsences(absRows.map(a => ({
+          employee_id: a.employee_id,
+          work_date: a.work_date,
+          absence_code: a.absence_code,
+        })));
 
         // Timesheets MIT work_date (fuer Monatsverlauf)
         const { data: tsDB } = await supabase
@@ -710,8 +735,13 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
       rawProjAssignments,
       rawEmployees,
       rawTimesheets,
+      {
+        federalState: firma?.federal_state ?? null,
+        holidayRegion: (firma?.holiday_region ?? undefined) as any,
+        absences: rawAbsences,
+      },
     );
-  }, [selectedProjektId, projekte, rawTimesheets, rawWorkPackages, rawWPAssignments, rawProjAssignments, rawEmployees]);
+  }, [selectedProjektId, projekte, rawTimesheets, rawWorkPackages, rawWPAssignments, rawProjAssignments, rawEmployees, firma, rawAbsences]);
 
   // ==========================================================================
   // NAVIGATION
@@ -1685,7 +1715,9 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                 </div>
                 <div className="flex justify-between text-[10px]">
                   <span className="text-gray-500">
-                    Basis: Plan-Erf&uuml;llung {Math.round(analysis.erfuellungsgrad * 100)}% (Ist/Soll bis heute)
+                    {analysis.prognoseModell === 'auslastung'
+                      ? <>Basis: Auslastung {Math.round(analysis.erwarteteAuslastung * 100)}% der Kapazit&auml;t{analysis.prognoseVorlaeufig ? <> (vorl&auml;ufig)</> : null}</>
+                      : <>Basis: Plan-Erf&uuml;llung {Math.round(analysis.erfuellungsgrad * 100)}% (Ist/Soll bis heute)</>}
                   </span>
                   <span className={'font-bold ' + analysis.pFarbe.text}>
                     {Math.min(analysis.erreichungsgrad, 100)}% des Foerderziels

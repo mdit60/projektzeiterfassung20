@@ -2,7 +2,11 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Grafische Auswertung
 // ============================================================================
-// Version: 7.4.5-28
+// Version: 7.4.5-29
+// v7.4.5-29: Prognose-Neufassung Stufe 2 (Ebene 2). Basis-Zeile zeigt beim
+//   Auslastungsmodell "Auslastung XX% der Kapazitaet" (+ "(vorlaeufig)"-Marker,
+//   solange zu wenige repraesentative Monate) statt "Plan-Erfuellung". Nur
+//   Anzeige; die Berechnung liegt in projektfortschritt-utils v7.4.9-11.
 // v7.4.5-28: Prognose-Neufassung Stufe 1 (Ebene 1). Der Panel reicht jetzt die
 //   optionale prognoseOptions (Bundesland/holiday_region + Abwesenheiten) an
 //   calculateProjectAnalysis v7.4.9-10 durch, damit das Restpotential
@@ -741,7 +745,9 @@ export default function ProjektFortschrittPanel({
                 </div>
                 <div className="flex justify-between text-xs">
                   <span className="text-gray-700">
-                    Basis: Plan-Erf&uuml;llung {Math.round(analysis.erfuellungsgrad * 100)}% (Ist/Soll bis heute)
+                    {analysis.prognoseModell === 'auslastung'
+                      ? <>Basis: Auslastung {Math.round(analysis.erwarteteAuslastung * 100)}% der Kapazit&auml;t{analysis.prognoseVorlaeufig ? <> (vorl&auml;ufig)</> : null}</>
+                      : <>Basis: Plan-Erf&uuml;llung {Math.round(analysis.erfuellungsgrad * 100)}% (Ist/Soll bis heute)</>}
                   </span>
                   <span className={`font-bold ${analysis.pFarbe.text}`}>
                     {Math.min(analysis.erreichungsgrad, 100)}% des Foerderziels

@@ -2,7 +2,12 @@
 
 // Route: /v7/berater/foerderung/firma/[id]/cockpit/fortschritt
 // Eigenstaendige Seite fuer ProjektFortschrittPanel (ohne BerichtePage)
-// Version: 7.4.9-6
+// Version: 7.4.9-7
+// v7.4.9-7: Prognose-Neufassung Stufe 1. Laedt federal_state/holiday_region der
+//   Firma sowie die Abwesenheiten (loadEmployeeAbsencesAsTimesheets) ueber die
+//   Projektlaufzeit und reicht sie als prognoseOptions an ProjektFortschrittPanel
+//   (Ebene-1-Potential in projektfortschritt-utils v7.4.9-10). ProjectAssignments
+//   kommen aus loadProjectAssignments (ZAPanel v7.4.4-67, inkl. assignment_start).
 // v7.4.9-6: pm_basis_weekly_hours im Projekt-Select, wird an
 //   ProjektFortschrittPanel durchgereicht (Kosten/PM projektbasiert).
 // v7.4.9-5: FIX "Zurueck" fuehrt jetzt deterministisch ins Firma-Cockpit
@@ -15,6 +20,7 @@ import { createClient } from '@/lib/supabase/client';
 import PortalHeader from '@/components/shared/PortalHeader';
 import ProjektFortschrittPanel from '@/components/shared/ProjektFortschrittPanel';
 import { loadProjectAssignments } from '@/components/shared/ZAPanel';
+import { loadEmployeeAbsencesAsTimesheets } from '@/lib/employeeAbsences';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 
 export default function CockpitFortschrittPage() {
@@ -34,6 +40,9 @@ export default function CockpitFortschrittPage() {
   const [projectAssignments, setProjectAssignments] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [timesheets, setTimesheets] = useState<any[]>([]);
+  // v7.4.9-7: Kapazitaets-Eingaben fuer die Prognose (Ebene 1)
+  const [firmaRegion, setFirmaRegion] = useState<{ federal_state: string | null; holiday_region: string | null }>({ federal_state: null, holiday_region: null });
+  const [absences, setAbsences] = useState<any[]>([]);
 
   useEffect(() => {
     async function loadData() {
@@ -54,10 +63,14 @@ export default function CockpitFortschrittPage() {
 
       const { data: firma } = await supabase
         .from('v7_client_companies')
-        .select('name')
+        .select('name, federal_state, holiday_region')
         .eq('id', firmaId)
         .single();
       setFirmaName(firma?.name || '');
+      setFirmaRegion({
+        federal_state: firma?.federal_state ?? null,
+        holiday_region: firma?.holiday_region ?? null,
+      });
 
       const { data: projectsData } = await supabase
         .from('v7_projects')
@@ -87,6 +100,20 @@ export default function CockpitFortschrittPage() {
 
         const paFlat = await loadProjectAssignments(projectIds);
         setProjectAssignments(paFlat);
+
+        // v7.4.9-7: Abwesenheiten (U/K/S, inkl. geplanter Zukunft) ueber die
+        // Projektlaufzeit fuer die Ebene-1-Potentialberechnung.
+        const startDates = (projectsData || []).map((p: any) => p.start_date).filter(Boolean).sort();
+        const endDates = (projectsData || []).map((p: any) => p.end_date).filter(Boolean).sort();
+        const absRows = await loadEmployeeAbsencesAsTimesheets(projectIds, {
+          fromDate: startDates[0],
+          toDate: endDates[endDates.length - 1],
+        });
+        setAbsences(absRows.map(a => ({
+          employee_id: a.employee_id,
+          work_date: a.work_date,
+          absence_code: a.absence_code,
+        })));
 
         const { data: empData } = await supabase
           .from('v7_employees')
@@ -156,6 +183,11 @@ export default function CockpitFortschrittPage() {
           employees={employees}
           timesheets={timesheets}
           initialProjectId={projektId}
+          prognoseOptions={{
+            federalState: firmaRegion.federal_state,
+            holidayRegion: (firmaRegion.holiday_region ?? undefined) as any,
+            absences,
+          }}
         />
       </div>
     </div>
