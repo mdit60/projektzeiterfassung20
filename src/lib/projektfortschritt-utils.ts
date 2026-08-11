@@ -2,8 +2,22 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Berechnungslogik (Shared Utility)
 // ============================================================================
-// Version: 7.4.9-10
+// Version: 7.4.9-11
 // Datum: 11. August 2026
+// v7.4.9-11: PROGNOSE-NEUFASSUNG STUFE 2 (Ebene 2 - auslastungsbasierte
+//   Hochrechnung). Siehe KONZEPT-PROGNOSE-NEU-v0_2. Die Kopf-Hochrechnung ist
+//   nicht mehr die Planerfuellungs-Fortschreibung, sondern:
+//     Prognose = Ist_bisher + Summe(kuenftige Monate: Potential(MA,Monat) x
+//                erwartete Auslastung(MA)), inkl. Rest des laufenden Monats,
+//                gedeckelt auf die Vollast-Kapazitaet (teamPotentialRest).
+//   Erwartete Auslastung je MA = gleitender Durchschnitt (letzte 3 abgeschl.
+//   Monate) von Ist/Potential, auf [0,1] geklemmt; Fallback: projektweite
+//   Durchschnittsauslastung; ganz ohne Historie/ohne options -> Rueckfall auf die
+//   bisherige Planerfuellungs-Hochrechnung (prognoseModell='planerfuellung').
+//   Loest den Widerspruch "Kopf 98% trotz Kapazitaet ~90%": die Prognose kann
+//   nie ueber die reale Teamkapazitaet steigen. Neue Felder: erwarteteAuslastung,
+//   prognoseModell, prognoseVorlaeufig (true, solange < 3 repraesentative Monate).
+//   Auch die gestrichelte Chart-Prognoselinie folgt jetzt dem Auslastungsmodell.
 // v7.4.9-10: PROGNOSE-NEUFASSUNG STUFE 1 (Ebene 1 - reales Kapazitaetspotential).
 //   Siehe KONZEPT-PROGNOSE-NEU-v0_2. Bisher: die maximal erreichbare Kapazitaet
 //   des Teams war Pauschale (teamMaxProMonat x Restmonate) - ohne Lage der
@@ -124,6 +138,7 @@
 import {
   getGermanHolidays,
   countWorkdaysInMonth,
+  countWorkdays,
   type HolidayRegion,
 } from './holidays/germanHolidays';
 
@@ -278,6 +293,9 @@ export interface ProjectAnalysis {
   pFarbe: PrognoseFarbe;
   basisStunden: number;
   erfuellungsgrad: number;              // v7.4.9-6: Ist/Soll bis heute (Planerfuellung, 0..1.15)
+  erwarteteAuslastung: number;          // v7.4.9-11: projektweite erwartete Auslastung (0..1)
+  prognoseModell: 'auslastung' | 'planerfuellung'; // v7.4.9-11
+  prognoseVorlaeufig: boolean;          // v7.4.9-11: zu wenig repraesentative Monate
   letzten3Count: number;
   zielErreichbar: boolean;
   zielStundenProMonat: number;
@@ -533,6 +551,29 @@ export function calculateProjectAnalysis(
     s.forEach(dt => { if (dt.slice(0, 7) === ym && istWerktagStr(dt)) c++; });
     return c;
   };
+  // v7.4.9-11: Werktage in einem Datumsbereich (Fallback ohne Feiertage) und
+  // Abwesenheits-Werktage in einem Bereich (fuer den laufenden Monatsrest).
+  const werktageImZeitraum = (von: Date, bis: Date): number => {
+    if (bis < von) return 0;
+    let c = 0;
+    const cur = new Date(von.getFullYear(), von.getMonth(), von.getDate());
+    const end = new Date(bis.getFullYear(), bis.getMonth(), bis.getDate());
+    while (cur <= end) {
+      const dow = cur.getDay();
+      if (dow !== 0 && dow !== 6) c++;
+      cur.setDate(cur.getDate() + 1);
+    }
+    return c;
+  };
+  const nettoWerktageZeitraum = (von: Date, bis: Date): number =>
+    oFederalState ? countWorkdays(von, bis, oFederalState, oHolidayRegion) : werktageImZeitraum(von, bis);
+  const abwesenheitsWerktageImZeitraum = (empId: string, fromStr: string, toStr: string): number => {
+    const s = _absDatesByEmp.get(empId);
+    if (!s) return 0;
+    let c = 0;
+    s.forEach(dt => { if (dt >= fromStr && dt <= toStr && istWerktagStr(dt)) c++; });
+    return c;
+  };
 
   const projWPs = workPackages.filter(wp => wp.project_id === project.id);
   const projAssignments = projectAssignments.filter(pa => pa.project_id === project.id);
@@ -676,10 +717,15 @@ export function calculateProjectAnalysis(
 
   // ---- Projektion: plan-bezogene Hochrechnung (v7.4.9-6) ----
   const istMonatMap: Record<string, number> = {};
+  // v7.4.9-11: zusaetzlich Ist je (MA, Monat) fuer die Auslastung (Ebene 2).
+  const istByEmpMonth = new Map<string, Map<string, number>>();
   projTimesheets.forEach(t => {
     const d = new Date(t.work_date);
     const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
     istMonatMap[key] = (istMonatMap[key] || 0) + t.hours;
+    let mm = istByEmpMonth.get(t.employee_id);
+    if (!mm) { mm = new Map<string, number>(); istByEmpMonth.set(t.employee_id, mm); }
+    mm.set(key, (mm.get(key) || 0) + (t.hours || 0));
   });
 
   const vergangeneMonatKeys = Object.keys(istMonatMap)
@@ -734,18 +780,10 @@ export function calculateProjectAnalysis(
   const erfuellungsgrad = sollBisHeute > 0
     ? Math.min(Math.max(istBisHeute / sollBisHeute, 0), 1.15)
     : 1;
-  const prognostizierteGesamtStunden = istBisHeute + restSollAbHeute * erfuellungsgrad;
-  const erreichungsgrad = gesamtPlanStunden > 0
-    ? Math.round((prognostizierteGesamtStunden / gesamtPlanStunden) * 100)
-    : 0;
-  const fehlendStunden = Math.max(0, gesamtPlanStunden - prognostizierteGesamtStunden);
-  const pFarbe = prognoseFarbe(Math.min(erreichungsgrad, 100));
-
-  // v7.4.9-2: Abrechnungsrelevante Hochrechnung auf den Plan gekappt - mehr als
-  // das Foerderziel kann nicht abgerechnet werden. Die Roh-Hochrechnung bleibt
-  // fuer die Tempo- und Szenarienlogik unveraendert erhalten.
-  const prognoseStundenAbrechenbar = Math.min(prognostizierteGesamtStunden, gesamtPlanStunden);
-  const tempoUeberPlan = prognostizierteGesamtStunden > gesamtPlanStunden;
+  // v7.4.9-11: nur noch der PLANBEZOGENE Wert (Fallback fuer die Anlaufphase /
+  // ohne options). Die endgueltige Hochrechnung (Ebene 2) wird weiter unten nach
+  // der Potentialberechnung festgelegt und auf die Kapazitaet gedeckelt.
+  const prognosePlanbasiert = istBisHeute + restSollAbHeute * erfuellungsgrad;
 
   // ---- Beteiligung & Intensitaet ----
   const aktiveMaIds = new Set<string>();
@@ -831,9 +869,84 @@ export function calculateProjectAnalysis(
     }
   });
 
-  // ---- Restliche Arbeitstage bis Projektende + reales Restpotential (Ebene 1) ----
+  // ---- v7.4.9-11: Ebene 2 - erwartete Auslastung je MA ----
+  // A(MA,Monat) = Ist / Potential der letzten 3 abgeschlossenen Monate,
+  // gleitender (gleichgewichteter) Durchschnitt, auf [0,1] geklemmt.
+  // Fallback bei fehlender MA-Historie: projektweite Durchschnittsauslastung.
+  const auslastungByEmp = new Map<string, number>();
+  let projIstSum = 0;
+  let projPotSum = 0;
+  let repMonateProjekt = 0;
+  letzten3.forEach(ym => {
+    const y = parseInt(ym.slice(0, 4), 10);
+    const mo = parseInt(ym.slice(5, 7), 10);
+    let potMonat = 0;
+    let istMonat = 0;
+    verfuegbareMAIds.forEach(empId => {
+      const netto = Math.max(0, nettoWerktageImMonat(y, mo) - abwesenheitsWerktage(empId, ym));
+      potMonat += netto * (tdByEmp.get(empId) ?? 0);
+      istMonat += istByEmpMonth.get(empId)?.get(ym) ?? 0;
+    });
+    if (potMonat > 0 && istMonat > 0) {
+      repMonateProjekt++;
+      projPotSum += potMonat;
+      projIstSum += istMonat;
+    }
+  });
+  verfuegbareMAIds.forEach(empId => {
+    const td = tdByEmp.get(empId) ?? 0;
+    const werte: number[] = [];
+    letzten3.forEach(ym => {
+      const y = parseInt(ym.slice(0, 4), 10);
+      const mo = parseInt(ym.slice(5, 7), 10);
+      const netto = Math.max(0, nettoWerktageImMonat(y, mo) - abwesenheitsWerktage(empId, ym));
+      const P = netto * td;
+      if (P <= 0) return;
+      const ist = istByEmpMonth.get(empId)?.get(ym) ?? 0;
+      werte.push(ist / P);
+    });
+    if (werte.length > 0) {
+      auslastungByEmp.set(empId, werte.reduce((a, b) => a + b, 0) / werte.length);
+    }
+  });
+  const auslastungProjekt = projPotSum > 0 ? projIstSum / projPotSum : 1;
+  const erwarteteAuslastung = Math.max(0, Math.min(1, auslastungProjekt));
+  const auslastungClamp = (empId: string): number => {
+    const a = auslastungByEmp.has(empId) ? (auslastungByEmp.get(empId) as number) : auslastungProjekt;
+    return Math.max(0, Math.min(1, a));
+  };
+
+  // ---- Restliche Arbeitstage + Restpotential (Vollast, Ebene 1) und
+  //      auslastungsgewichtetes Potential (Ebene 2) ----
   let restArbeitstage = 0;
-  let teamPotentialRest = 0;
+  let teamPotentialRest = 0;        // Vollast (Auslastung = 100%)
+  let teamPotentialGewichtet = 0;   // erwartete Auslastung
+  let curRemainderGewichtet = 0;    // gewichteter Rest des laufenden Monats
+  const erwartetProMonat: Record<string, number> = {}; // je kuenftigem Monat (gewichtet)
+
+  // Laufender Monat: Rest ab morgen bis Monatsende (Actual bereits in gesamtIstStunden).
+  {
+    const morgen = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const curEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    if (morgen <= curEnd) {
+      const nettoRest = nettoWerktageZeitraum(morgen, curEnd);
+      const morgenStr = morgen.getFullYear() + '-' + String(morgen.getMonth() + 1).padStart(2, '0') + '-' + String(morgen.getDate()).padStart(2, '0');
+      const curEndStr = curEnd.getFullYear() + '-' + String(curEnd.getMonth() + 1).padStart(2, '0') + '-' + String(curEnd.getDate()).padStart(2, '0');
+      verfuegbareMAIds.forEach(empId => {
+        const f = fensterByEmp.get(empId);
+        const verf = !f || ((f.start == null || f.start <= curEndStr) && (f.end == null || f.end >= morgenStr));
+        if (!verf) return;
+        const td = tdByEmp.get(empId) ?? 0;
+        const nettoEmp = Math.max(0, nettoRest - abwesenheitsWerktageImZeitraum(empId, morgenStr, curEndStr));
+        teamPotentialRest += nettoEmp * td;
+        const gew = nettoEmp * td * auslastungClamp(empId);
+        teamPotentialGewichtet += gew;
+        curRemainderGewichtet += gew;
+      });
+    }
+  }
+
+  // Volle kuenftige Monate (ab naechstem Monat bis Projektende).
   if (project.end_date) {
     const projEnd = new Date(project.end_date);
     const startCalc = new Date(now.getFullYear(), now.getMonth() + 1, 1);
@@ -844,23 +957,45 @@ export function calculateProjectAnalysis(
       // Bewusst weiterhin reine Werktage fuer den benoetigten-Tempo-Nenner.
       restArbeitstage += arbeitstageImMonat(y, mo);
 
-      // v7.4.9-10: monatsgenaues Potential aller in diesem Monat verfuegbaren MA.
       const netto = nettoWerktageImMonat(y, mo);
       const ym = y + '-' + String(mo).padStart(2, '0');
       const monatStart = ym + '-01';
       const monatEnde = ym + '-' + String(new Date(y, mo, 0).getDate()).padStart(2, '0');
-      maObergrenzen.forEach(ma => {
-        const f = fensterByEmp.get(ma.empId);
+      let monatGewichtet = 0;
+      verfuegbareMAIds.forEach(empId => {
+        const f = fensterByEmp.get(empId);
         const verfuegbarImMonat = !f
           || ((f.start == null || f.start <= monatEnde) && (f.end == null || f.end >= monatStart));
         if (!verfuegbarImMonat) return;
-        const nettoEmp = Math.max(0, netto - abwesenheitsWerktage(ma.empId, ym));
-        teamPotentialRest += nettoEmp * (tdByEmp.get(ma.empId) ?? 0);
+        const td = tdByEmp.get(empId) ?? 0;
+        const nettoEmp = Math.max(0, netto - abwesenheitsWerktage(empId, ym));
+        teamPotentialRest += nettoEmp * td;
+        const gew = nettoEmp * td * auslastungClamp(empId);
+        teamPotentialGewichtet += gew;
+        monatGewichtet += gew;
       });
+      erwartetProMonat[ym] = monatGewichtet;
 
       cur2.setMonth(cur2.getMonth() + 1);
     }
   }
+
+  // ---- v7.4.9-11: endgueltige Hochrechnung (Ebene 2, auf Vollast gedeckelt) ----
+  const vollastGesamt = gesamtIstStunden + teamPotentialRest;
+  const prognoseAuslastung = Math.min(gesamtIstStunden + teamPotentialGewichtet, vollastGesamt);
+  const nutzeEbene2 = potentialBasiert && repMonateProjekt >= 1;
+  const prognoseModell: 'auslastung' | 'planerfuellung' = nutzeEbene2 ? 'auslastung' : 'planerfuellung';
+  const prognoseVorlaeufig = nutzeEbene2 && repMonateProjekt < 3;
+  const prognostizierteGesamtStunden = nutzeEbene2 ? prognoseAuslastung : prognosePlanbasiert;
+
+  const erreichungsgrad = gesamtPlanStunden > 0
+    ? Math.round((prognostizierteGesamtStunden / gesamtPlanStunden) * 100)
+    : 0;
+  const fehlendStunden = Math.max(0, gesamtPlanStunden - prognostizierteGesamtStunden);
+  const pFarbe = prognoseFarbe(Math.min(erreichungsgrad, 100));
+  // Abrechnungsrelevante Hochrechnung auf den Plan gekappt.
+  const prognoseStundenAbrechenbar = Math.min(prognostizierteGesamtStunden, gesamtPlanStunden);
+  const tempoUeberPlan = prognostizierteGesamtStunden > gesamtPlanStunden;
 
   const restStunden = Math.max(0, gesamtPlanStunden - gesamtIstStunden);
 
@@ -1030,13 +1165,20 @@ export function calculateProjectAnalysis(
       if (!istVergangenheit || istAktuell) {
         if (istAktuell) {
           projektion = istKumuliert;
-          projektionKumuliert = istKumuliert;
+          // v7.4.9-11: laufenden Monatsrest (gewichtet) in die Prognoselinie
+          // einspeisen, damit ihr Endpunkt der Headline-Hochrechnung entspricht.
+          projektionKumuliert = istKumuliert + (nutzeEbene2 ? curRemainderGewichtet : 0);
           zielProjektion = istKumuliert;
           zielProjektionKumuliert = istKumuliert;
         } else {
-          // v7.4.9-6: Prognoselinie folgt dem geplanten Monats-Soll, skaliert
-          // mit dem Erfuellungsgrad (konsistent zur Headline-Hochrechnung).
-          projektionKumuliert += (sollMonatMap[key] || 0) * erfuellungsgrad;
+          if (nutzeEbene2) {
+            // v7.4.9-11: Prognoselinie folgt dem erwarteten Potential je Monat
+            // (Auslastungsmodell) - konsistent zur Headline-Hochrechnung.
+            projektionKumuliert += erwartetProMonat[key] ?? 0;
+          } else {
+            // Fallback: Prognoselinie folgt dem geplanten Monats-Soll x Erfuellungsgrad.
+            projektionKumuliert += (sollMonatMap[key] || 0) * erfuellungsgrad;
+          }
           projektion = Math.round(Math.min(projektionKumuliert, gesamtPlanStunden));
           if (zielErreichbar && zielStundenProMonat > 0) {
             zielProjektionKumuliert += zielStundenProMonat;
@@ -1086,6 +1228,9 @@ export function calculateProjectAnalysis(
     pFarbe,
     basisStunden,
     erfuellungsgrad,
+    erwarteteAuslastung,
+    prognoseModell,
+    prognoseVorlaeufig,
     letzten3Count: letzten3.length,
     zielErreichbar,
     zielStundenProMonat,
