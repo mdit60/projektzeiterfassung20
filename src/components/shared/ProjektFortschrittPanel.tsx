@@ -2,7 +2,13 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Grafische Auswertung
 // ============================================================================
-// Version: 7.4.5-29
+// Version: 7.4.5-30
+// v7.4.5-30: Rollen-Maxima klarer. Der Block "Max. moeglich je Tag" zeigt jetzt
+//   das foerderfaehige MONATS-Maximum je Rolle (GF 50%-Regel vs. Mitarbeiter,
+//   z.B. 82 bzw. 162 h/Monat) mit dem Tageswert in Klammern, und erscheint auch
+//   ohne GF (sobald MA-Maxima vorliegen). Zusammen mit der GF-Erkennungs-
+//   korrektur (utils v7.4.9-12) stehen die von der Foerderrichtlinie erwarteten
+//   Werte direkt sichtbar. Nur Anzeige.
 // v7.4.5-29: Prognose-Neufassung Stufe 2 (Ebene 2). Basis-Zeile zeigt beim
 //   Auslastungsmodell "Auslastung XX% der Kapazitaet" (+ "(vorlaeufig)"-Marker,
 //   solange zu wenige repraesentative Monate) statt "Plan-Erfuellung". Nur
@@ -804,20 +810,24 @@ export default function ProjektFortschrittPanel({
                           : '--'}
                       </div>
                     </div>
-                    {analysis.gfCount > 0 && (
+                    {(analysis.avgMaxProTagGF > 0 || analysis.avgMaxProTagMA > 0) && (
                       <div className="pt-2 border-t border-gray-100 space-y-1">
-                        <p className="text-xs text-gray-700">Max. moeglich je Tag:</p>
-                        <div className="flex justify-between text-xs">
-                          <span className="text-gray-700">GF (50%-Regel)</span>
-                          <span className="font-medium text-gray-700">
-                            {Math.round(analysis.avgMaxProTagGF * 10) / 10} h
-                          </span>
-                        </div>
+                        <p className="text-xs text-gray-700">Max. f&ouml;rderf&auml;hig je MA:</p>
+                        {analysis.gfCount > 0 && (
+                          <div className="flex justify-between text-xs">
+                            <span className="text-gray-700">GF (50%-Regel)</span>
+                            <span className="font-medium text-gray-700">
+                              {Math.round(analysis.avgMaxProTagGF * 21.7)} h/Monat
+                              <span className="text-gray-400 ml-1">({Math.round(analysis.avgMaxProTagGF * 10) / 10} h/Tag)</span>
+                            </span>
+                          </div>
+                        )}
                         {analysis.normalMACount > 0 && (
                           <div className="flex justify-between text-xs">
                             <span className="text-gray-700">Mitarbeiter</span>
                             <span className="font-medium text-gray-700">
-                              {Math.round(analysis.avgMaxProTagMA * 10) / 10} h
+                              {Math.round(analysis.avgMaxProTagMA * 21.7)} h/Monat
+                              <span className="text-gray-400 ml-1">({Math.round(analysis.avgMaxProTagMA * 10) / 10} h/Tag)</span>
                             </span>
                           </div>
                         )}
