@@ -2,7 +2,19 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-65
+// Version: 7.4.4-66
+// v7.4.4-66: FIX Stundensatz-Diskrepanz Team-Anlage vs. ZA Anlage 1b bei
+//   Teilzeit-MA. getHourlyRate skalierte den kalkulatorischen Satz in Pfad 2
+//   noch mit weekly_hours / pm_basis (z.B. 28,00 -> 22,40 bei 32/40), obwohl der
+//   kalkulatorische Satz laut ProjectTeamManager bereits (Monatslohn x 12 +
+//   Zulagen) / (persoenliche WAZ x 52) ist - also schon der echte
+//   personengebundene Stundensatz. Die ZA rechnet echte Stunden x Satz; die
+//   zweite Skalierung rechnete Teilzeit ein zweites Mal herunter und
+//   unterschaetzte die Personalkosten. Team zeigte 28,00, ZA 22,40.
+//   FIX: Pfad 2 gibt den Satz unskaliert zurueck (wie die Team-Anlage:
+//   hourly_rate_approved ?? hourly_rate). Bei Vollzeit (WAZ = pm_basis) ohne
+//   Wirkung, daher Zimmermann unveraendert. Die WAZ-/PM-Skalierung bleibt
+//   bewusst NUR in der Fortschritts-Utility (PM x Monatsgehalt), nicht in der ZA.
 // v7.4.4-65: loadProjectAssignments liefert zusaetzlich assignment_end mit, damit
 //   die Projekt-Fortschritts-/Prognoseberechnung (projektfortschritt-utils v7.4.9-8)
 //   ausgeschiedene Mitarbeiter (assignment_end in der Vergangenheit) erkennen und
@@ -697,14 +709,15 @@ export default function ZAPanel({
     // v7.4.4-59: 1) Anerkannter/gekuerzter Traeger-Satz hat Vorrang und wird
     //    AS-IS verwendet (absolute Vorgabe vom Zuwendungsgeber, KEINE Skalierung).
     if (pa.hourly_rate_approved != null) return pa.hourly_rate_approved;
-    // 2) Sonst der kalkulatorische Satz (Jahresbrutto / vertragl. WAZ), auf die
-    //    Antrags-WAZ (pm_basis) gehoben: Satz x vertragl.WAZ / pmBasis. Ohne
-    //    Antrags-WAZ (NULL) bleibt es der rohe Satz (Skalierung = 1). Damit
-    //    taucht in der ZA nie der unskalierte Firmen-WAZ-Satz auf.
+    // 2) v7.4.4-66: Sonst der kalkulatorische Satz UNSKALIERT. Er ist laut
+    //    ProjectTeamManager bereits (Monatslohn x 12 + Zulagen) / (persoenl. WAZ
+    //    x 52) - also der echte personengebundene Stundensatz. Die frueher hier
+    //    angewandte Skalierung x (weekly_hours / pm_basis) rechnete Teilzeit-
+    //    Saetze faelschlich ein zweites Mal auf die Antrags-WAZ herunter (28,00
+    //    -> 22,40) und widersprach der Team-Anlage. Die ZA rechnet echte Stunden
+    //    x echten Satz -> hier kein Herunterskalieren. Identisch zur Team-Anzeige
+    //    (hourly_rate_approved ?? hourly_rate).
     if (pa.hourly_rate != null) {
-      const pmBasis = (pid === projectId ? zaProjectExtra.pm_basis_weekly_hours : null) ?? pa.weekly_hours ?? null;
-      const realWAZ = pa.weekly_hours ?? pmBasis;
-      if (pmBasis && realWAZ && pmBasis > 0) return pa.hourly_rate * (realWAZ / pmBasis);
       return pa.hourly_rate;
     }
     // 3) Gar kein Satz (keine Gehaltsdaten hinterlegt) -> null, wird sichtbar gewarnt.
