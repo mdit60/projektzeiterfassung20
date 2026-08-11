@@ -2,8 +2,17 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Berechnungslogik (Shared Utility)
 // ============================================================================
-// Version: 7.4.9-13
+// Version: 7.4.9-14
 // Datum: 11. August 2026
+// v7.4.9-14: MASSSTAB "100% Zielerreichung" = volle Ausschoepfung der BEWILLIGTEN
+//   Foerdersumme (fachliche Vorgabe). Bisher war die Obergrenze auf
+//   min(bewilligte_summe, Plankosten x Foerdersatz) gekappt (v7.4.9-2), sodass
+//   "Bei 100%" die (ggf. niedrigeren) Plankosten x Satz zeigte und "verschenkt"
+//   sich daran mass. NEU: foerderMaximum = bewilligte Summe (falls gesetzt);
+//   "Bei 100% abrufbar" = bewilligte Summe; "verschenkt" = bewilligte Summe minus
+//   abrufbar-bei-Prognose. Ohne bewilligte Summe Fallback auf Plankosten x Satz.
+//   Folge: Ist der erfasste Plan guenstiger als die Bewilligung, zeigt
+//   "verschenkt" dauerhaft die Luecke bis zur vollen Ausschoepfung - gewollt.
 // v7.4.9-13: FIX Firmenstandard-WAZ. Der Beschaeftigungsgrad (waz / firmStd) fiel
 //   auf firmStd = 40 zurueck, wenn project.firm_standard_weekly_hours nicht
 //   gesetzt/geladen war - dadurch galt ein 37,5-h-Vollzeit-MA faelschlich als
@@ -1130,15 +1139,14 @@ export function calculateProjectAnalysis(
   const foerderbarRechnerischProg = Math.min(prognostizierteGesamtKosten, gesamtPlanKosten) * fs;
   const foerderbarRechnerischPlan = gesamtPlanKosten * fs;
 
-  const deckel = bewilligteSumme ?? Infinity;
-  const foerderbarProg = Math.min(foerderbarRechnerischProg, deckel);
-  const foerderbarPlan = Math.min(foerderbarRechnerischPlan, deckel);
-
-  // v7.4.9-2: Maximal erreichbare Zuwendung = Minimum aus bewilligter Summe und
-  // (Plankosten x Foerdersatz). Mehr als die foerderfaehigen Plankosten kann nie
-  // abgerufen werden, auch wenn die bewilligte Summe rundungsbedingt hoeher
-  // gespeichert ist. Behebt Phantom-"Verschenkt"-Betraege bei 100% Plan.
-  const foerderMaximum = Math.min(bewilligteSumme ?? Infinity, foerderbarRechnerischPlan);
+  // v7.4.9-14: Massstab "100% Zielerreichung" = volle Ausschoepfung der
+  // bewilligten Foerdersumme. foerderMaximum = bewilligte Summe (falls gesetzt),
+  // sonst Fallback auf Plankosten x Satz. "Bei 100% abrufbar" = foerderMaximum;
+  // "verschenkt" misst sich daran. abrufbar bei Prognose bleibt auf foerderMaximum
+  // gedeckelt (mehr als bewilligt ist nie abrufbar).
+  const foerderMaximum = bewilligteSumme ?? foerderbarRechnerischPlan;
+  const foerderbarProg = Math.min(foerderbarRechnerischProg, foerderMaximum);
+  const foerderbarPlan = foerderMaximum;
   const verschenktProg = Math.max(0, foerderMaximum - foerderbarProg);
   const verschenktZiel = 0;
 
