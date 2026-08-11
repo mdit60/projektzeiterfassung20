@@ -2,8 +2,22 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Berechnungslogik (Shared Utility)
 // ============================================================================
-// Version: 7.4.9-8
+// Version: 7.4.9-9
 // Datum: 11. August 2026
+// v7.4.9-9: INTERIM-FIX gegen unmoegliche 100%-Empfehlung. Die Zeile "Fuer 100%
+//   Ziel (alle N MA)" konnte einen benoetigten Tagessatz ausgeben, der ueber der
+//   Vollast-Obergrenze (und ueber der foerderfaehigen Tagesgrenze) lag - z.B.
+//   10,9 h/Tag je MA, obwohl "Vollast (Maximum)" nur 6,3 h/Tag zeigt. Ursache:
+//   der benoetigte Satz (restStunden/restArbeitstage/N) wurde nicht gegen die
+//   Kapazitaet geprueft; die Zeile erschien schon ab maxErreichbarPct >= 90.
+//   FIX: Die 100%-Zeile erscheint nur noch, wenn 100% innerhalb der Vollast-
+//   Grenze ueberhaupt erreichbar ist (maxErreichbarPct >= 100). In diesem Fall
+//   ist der benoetigte Satz mathematisch garantiert <= Vollast, also nie
+//   unmoeglich. Ist 100% nicht erreichbar (90..99%), entfaellt die Zeile und die
+//   Vollast-Zeile weist per Hinweis "Bei Vollast max. X% - 100% nicht erreichbar"
+//   auf die Obergrenze hin. HINWEIS: Dies ist ein Interim. Die vollstaendige
+//   kapazitaets-/wahrscheinlichkeitsbasierte Neufassung ist separat als
+//   KONZEPT-PROGNOSE-NEU dokumentiert.
 // v7.4.9-8: AUSGESCHIEDENE Mitarbeiter werden in der Prognose beruecksichtigt.
 //   PROBLEM: Ein aus dem Projekt ausgeschiedener MA (v7_project_assignments
 //   .assignment_end in der Vergangenheit) wurde weiter als verfuegbare
@@ -735,9 +749,14 @@ export function calculateProjectAnalysis(
         hProTagJeMA: Math.round((teamMaxProMonat / gesamtMACount / 21.7) * 10) / 10,
         teamHProTag: Math.round((teamMaxProMonat / 21.7) * 10) / 10,
         erreichbar: maxErreichbarPct >= 90,
+        // v7.4.9-9: Hinweis auf die Obergrenze immer zeigen, wenn 100% nicht
+        // erreichbar ist (nicht erst unter 90%). So ist die Kapazitaetsgrenze
+        // sichtbar, sobald die 100%-Empfehlung entfaellt.
         hinweis: maxErreichbarPct < 90
-          ? 'Selbst bei Vollast: max. ' + maxErreichbarPct + '% des Foerderziels erreichbar'
-          : undefined,
+          ? 'Selbst bei Vollast nur max. ' + maxErreichbarPct + '% des Foerderziels'
+          : (maxErreichbarPct < 100
+            ? 'Bei Vollast max. ' + maxErreichbarPct + '% - 100% nicht erreichbar'
+            : undefined),
       });
     }
 
@@ -746,7 +765,12 @@ export function calculateProjectAnalysis(
     // (prognostizierteGesamtStunden >= gesamtPlanStunden), waere die Empfehlung
     // ueberfluessig und stuende im Widerspruch zur gruenen Kopf-Hochrechnung.
     const zielMitAktuellemKursErreicht = prognostizierteGesamtStunden >= gesamtPlanStunden;
-    if (restArbeitstage > 0 && restStunden > 0 && maxErreichbarPct >= 90 && !zielMitAktuellemKursErreicht) {
+    // v7.4.9-9: Nur zeigen, wenn 100% innerhalb der Vollast-Grenze erreichbar ist
+    // (maxErreichbarPct >= 100). Dann gilt: benoetigter Team-Satz
+    // (restStunden/restArbeitstage) <= Vollast-Team-Satz, der benoetigte Satz je
+    // MA ist also nie hoeher als die Vollast-Obergrenze. Verhindert unmoegliche
+    // Empfehlungen wie 10,9 h/Tag ueber der 6,3-Vollast.
+    if (restArbeitstage > 0 && restStunden > 0 && maxErreichbarPct >= 100 && !zielMitAktuellemKursErreicht) {
       const benoetigtTeamHProTag = restStunden / restArbeitstage;
       const benoetigtJeMAHProTag = gesamtMACount > 0
         ? benoetigtTeamHProTag / gesamtMACount
