@@ -2,7 +2,12 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Grafische Auswertung
 // ============================================================================
-// Version: 7.4.5-30
+// Version: 7.4.5-31
+// v7.4.5-31: Szenarien ("Was waere noetig?") zeigen jetzt den TEAM-Wert als
+//   Hauptzahl statt eines gemittelten "je MA"-Werts. Der Mittelwert ueber
+//   heterogene Rollen (GF mit 50%-Regel + Teilzeit) war irrefuehrend (z.B. 4,9
+//   h/Tag statt der erwarteten 7,5/8). Die foerderfaehigen Einzel-Maxima je Rolle
+//   stehen weiterhin links im Block "Max. foerderfaehig je MA". Nur Anzeige.
 // v7.4.5-30: Rollen-Maxima klarer. Der Block "Max. moeglich je Tag" zeigt jetzt
 //   das foerderfaehige MONATS-Maximum je Rolle (GF 50%-Regel vs. Mitarbeiter,
 //   z.B. 82 bzw. 162 h/Monat) mit dem Tageswert in Klammern, und erscheint auch
@@ -855,10 +860,7 @@ export default function ProjektFortschrittPanel({
                           <div className="flex-1 min-w-0">
                             <div className="text-xs text-gray-700">{sz.label}</div>
                             <div className={`text-sm font-bold mt-0.5 ${sz.erreichbar ? 'text-green-700' : 'text-red-600'}`}>
-                              {sz.hProTagJeMA > 0 ? `${sz.hProTagJeMA} h/Tag je MA` : 'wie bisher'}
-                            </div>
-                            <div className="text-xs text-gray-700">
-                              Team: {sz.teamHProTag} h/Tag
+                              {sz.teamHProTag > 0 ? `Team ${sz.teamHProTag} h/Tag` : 'wie bisher'}
                             </div>
                             {sz.hinweis && (
                               <div className="text-xs text-red-500 mt-0.5">{sz.hinweis}</div>
@@ -876,7 +878,8 @@ export default function ProjektFortschrittPanel({
                     </div>
                   )}
                   <div className="text-xs text-gray-700 mt-2 pt-2 border-t border-gray-100 italic">
-                    Durchschnittswerte zur Orientierung. Individuelle Buchung
+                    Team-Richtwerte zur Orientierung; die foerderfaehigen
+                    Einzel-Maxima je Rolle stehen links. Individuelle Buchung
                     je Mitarbeiter gemaess Arbeitsplan.
                   </div>
                 </div>
