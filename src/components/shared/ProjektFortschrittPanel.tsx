@@ -2,7 +2,12 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Grafische Auswertung
 // ============================================================================
-// Version: 7.4.5-31
+// Version: 7.4.5-32
+// v7.4.5-32: Dritte Stufe "Fuer 100% noetig" ergaenzt (analysis.bedarfFuer100).
+//   Zeigt unter den Szenarien: entweder das fuer 100% noetige Team-Tempo (wenn im
+//   Rahmen der WAZ machbar) oder - wenn die offizielle Vollast nicht reicht - die
+//   fehlenden Stunden, ausgedrueckt als Team-Mehrarbeit (h/Tag ueber die WAZ) bzw.
+//   zusaetzliche Vollzeit-MA-Aequivalente. Nur Anzeige (utils v7.4.9-15).
 // v7.4.5-31: Szenarien ("Was waere noetig?") zeigen jetzt den TEAM-Wert als
 //   Hauptzahl statt eines gemittelten "je MA"-Werts. Der Mittelwert ueber
 //   heterogene Rollen (GF mit 50%-Regel + Teilzeit) war irrefuehrend (z.B. 4,9
@@ -871,6 +876,35 @@ export default function ProjektFortschrittPanel({
                     </div>
                   ) : (
                     <p className="text-xs text-gray-700">Keine Szenarien verfuegbar.</p>
+                  )}
+                  {/* Stufe 3: Fuer 100% noetig */}
+                  {!analysis.bedarfFuer100.zielSchonErreicht && (
+                    <div className="mt-4 pt-3 border-t border-gray-200">
+                      <div className="text-xs font-semibold text-gray-700 mb-1">
+                        F&uuml;r 100 % n&ouml;tig
+                      </div>
+                      {analysis.bedarfFuer100.imRahmenMoeglich ? (
+                        <>
+                          <div className="text-sm font-bold text-green-700">
+                            Team {analysis.bedarfFuer100.noetigTeamHProTag} h/Tag
+                          </div>
+                          <div className="text-xs text-gray-700 mt-0.5">
+                            im Rahmen der WAZ machbar
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="text-sm font-bold text-amber-600">
+                            + {fmtH(analysis.bedarfFuer100.fehlendStunden)} &uuml;ber die Vollast hinaus
+                          </div>
+                          <div className="text-xs text-gray-700 mt-0.5">
+                            entspricht rund {analysis.bedarfFuer100.mehrarbeitProTag} h/Tag
+                            Team-Mehrarbeit &uuml;ber die WAZ, oder ~{analysis.bedarfFuer100.zusatzMa}
+                            {' '}zus&auml;tzliche(n) Vollzeit-MA &uuml;ber die Restlaufzeit.
+                          </div>
+                        </>
+                      )}
+                    </div>
                   )}
                   {analysis.verbleibendeMonateAb > 0 && (
                     <div className="text-xs text-gray-700 mt-3 pt-2 border-t border-gray-100">
