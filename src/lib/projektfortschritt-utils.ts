@@ -2,8 +2,20 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Berechnungslogik (Shared Utility)
 // ============================================================================
-// Version: 7.4.9-14
+// Version: 7.4.9-15
 // Datum: 11. August 2026
+// v7.4.9-15: DREISTUFIGE Zielerreichungs-Sicht. Neben (1) "Weiter wie bisher" und
+//   (2) "Vollast (Maximum, offiziell leistbar)" gibt es jetzt Stufe (3) "Was fuer
+//   100% zusaetzlich noetig waere". Neues Rueckgabeobjekt bedarfFuer100:
+//     - zielSchonErreicht: aktueller Kurs erreicht 100% (kein Zusatzbedarf)
+//     - imRahmenMoeglich: 100% ist innerhalb der WAZ-Vollast machbar -> noetiges
+//       Team-Tempo (h/Tag)
+//     - sonst: fehlende Stunden ueber die Vollast hinaus, ausgedrueckt als
+//       Team-Mehrarbeit (h/Tag ueber die WAZ) ODER zusaetzliche Vollzeit-MA-
+//       Aequivalente ueber die Restlaufzeit.
+//   Die fruehere Szenario-Zeile "Fuer 100% Ziel" entfaellt (in Stufe 3 aufgegangen).
+//   Die offizielle Vollast bleibt bei den foerderfaehig-sauberen Grenzen (MA WAZ,
+//   GF 50%) - der 100%-Bedarf ist bewusst nur ein Hinweis, keine foerderfaehige Zusage.
 // v7.4.9-14: MASSSTAB "100% Zielerreichung" = volle Ausschoepfung der BEWILLIGTEN
 //   Foerdersumme (fachliche Vorgabe). Bisher war die Obergrenze auf
 //   min(bewilligte_summe, Plankosten x Foerdersatz) gekappt (v7.4.9-2), sodass
@@ -281,6 +293,16 @@ export interface MAChartDatum {
   istEUR: number;
 }
 
+// v7.4.9-15: Stufe 3 - Bedarf, um 100% zu erreichen.
+export interface BedarfFuer100 {
+  zielSchonErreicht: boolean;   // aktueller Kurs erreicht bereits 100%
+  imRahmenMoeglich: boolean;    // 100% ist mit WAZ-Vollast machbar
+  fehlendStunden: number;       // Luecke ueber die Vollast hinaus (h)
+  noetigTeamHProTag: number;    // bei imRahmenMoeglich: noetiges Team-Tempo (h/Tag)
+  mehrarbeitProTag: number;     // sonst: Team-Mehrarbeit je Tag ueber die WAZ (h/Tag)
+  zusatzMa: number;             // sonst: zusaetzliche Vollzeit-MA-Aequivalente
+}
+
 export interface Szenario {
   label: string;
   hProTagJeMA: number;
@@ -359,6 +381,7 @@ export interface ProjectAnalysis {
   potentialBasiert: boolean;
   // Szenarien
   szenarien: Szenario[];
+  bedarfFuer100: BedarfFuer100;   // v7.4.9-15: Stufe 3
   verbleibendeMonateAb: number;
 }
 
@@ -1064,56 +1087,15 @@ export function calculateProjectAnalysis(
         hProTagJeMA: Math.round((teamMaxProMonat / gesamtMACount / 21.7) * 10) / 10,
         teamHProTag: Math.round((teamMaxProMonat / 21.7) * 10) / 10,
         erreichbar: maxErreichbarPct >= 90,
-        // v7.4.9-9: Hinweis auf die Obergrenze immer zeigen, wenn 100% nicht
-        // erreichbar ist (nicht erst unter 90%). So ist die Kapazitaetsgrenze
-        // sichtbar, sobald die 100%-Empfehlung entfaellt.
-        hinweis: maxErreichbarPct < 90
-          ? 'Selbst bei Vollast nur max. ' + maxErreichbarPct + '% des Foerderziels'
-          : (maxErreichbarPct < 100
-            ? 'Bei Vollast max. ' + maxErreichbarPct + '% - 100% nicht erreichbar'
-            : undefined),
+        // Hinweis auf die Obergrenze, wenn 100% nicht erreichbar ist. Was dafuer
+        // noetig waere, steht jetzt in Stufe 3 (bedarfFuer100).
+        hinweis: maxErreichbarPct < 100
+          ? 'Bei Vollast max. ' + maxErreichbarPct + '% des Foerderziels'
+          : undefined,
       });
     }
-
-    // v7.4.9-7: 100%-Empfehlung nur, wenn der aktuelle Kurs das Ziel NICHT
-    // schon erreicht. Erreicht "weiter wie bisher" bereits >= Plan
-    // (prognostizierteGesamtStunden >= gesamtPlanStunden), waere die Empfehlung
-    // ueberfluessig und stuende im Widerspruch zur gruenen Kopf-Hochrechnung.
-    const zielMitAktuellemKursErreicht = prognostizierteGesamtStunden >= gesamtPlanStunden;
-    // v7.4.9-9: Nur zeigen, wenn 100% innerhalb der Vollast-Grenze erreichbar ist
-    // (maxErreichbarPct >= 100). Dann gilt: benoetigter Team-Satz
-    // (restStunden/restArbeitstage) <= Vollast-Team-Satz, der benoetigte Satz je
-    // MA ist also nie hoeher als die Vollast-Obergrenze. Verhindert unmoegliche
-    // Empfehlungen wie 10,9 h/Tag ueber der 6,3-Vollast.
-    if (restArbeitstage > 0 && restStunden > 0 && maxErreichbarPct >= 100 && !zielMitAktuellemKursErreicht) {
-      const benoetigtTeamHProTag = restStunden / restArbeitstage;
-      const benoetigtJeMAHProTag = gesamtMACount > 0
-        ? benoetigtTeamHProTag / gesamtMACount
-        : 0;
-
-      const gfMaxHProTag = gfCount > 0 ? avgMaxProTagGF : 0;
-      const maMaxHProTag = normalMACount > 0 ? avgMaxProTagMA : 0;
-
-      const erreichbar = (gfCount === 0 || benoetigtJeMAHProTag <= gfMaxHProTag) &&
-                         (normalMACount === 0 || benoetigtJeMAHProTag <= maMaxHProTag);
-
-      let hinweis: string | undefined;
-      if (!erreichbar) {
-        if (gfCount > 0 && benoetigtJeMAHProTag > gfMaxHProTag) {
-          hinweis = 'GF: max. ' + (Math.round(gfMaxHProTag * 10) / 10) + ' h/Tag moeglich (50%-Regel)';
-        }
-      }
-
-      if (szenarien.length < 3) {
-        szenarien.push({
-          label: 'Fuer 100% Ziel (alle ' + gesamtMACount + ' MA)',
-          hProTagJeMA: Math.round(benoetigtJeMAHProTag * 10) / 10,
-          teamHProTag: Math.round(benoetigtTeamHProTag * 10) / 10,
-          erreichbar,
-          hinweis,
-        });
-      }
-    }
+    // v7.4.9-15: Die fruehere Szenario-Zeile "Fuer 100% Ziel" ist in Stufe 3
+    // (bedarfFuer100, siehe unten) aufgegangen.
   }
 
   // ---- Kosten-Prognose ----
@@ -1160,6 +1142,28 @@ export function calculateProjectAnalysis(
   const zielStundenProMonat = (zielErreichbar && verbleibendeMonateAb > 0)
     ? restStunden / verbleibendeMonateAb
     : 0;
+
+  // ---- v7.4.9-15: Stufe 3 - Was fuer 100% zusaetzlich noetig waere ----
+  const zielSchonErreicht = prognostizierteGesamtStunden >= gesamtPlanStunden;
+  const hundertImRahmen = teamMaxErreichbarGesamt >= gesamtPlanStunden; // 100% mit WAZ-Vollast machbar
+  const fehlendNachVollast = Math.max(0, gesamtPlanStunden - teamMaxErreichbarGesamt);
+  // Bei "im Rahmen": noetiges Team-Tempo (h/Tag) fuer 100% innerhalb der WAZ.
+  const noetigTeamHProTag100 = restArbeitstage > 0 ? restStunden / restArbeitstage : 0;
+  // Sonst: Mehrarbeit je Tag (Team) ueber die Vollast hinaus.
+  const mehrarbeitProTag100 = restArbeitstage > 0 ? fehlendNachVollast / restArbeitstage : 0;
+  // ... bzw. zusaetzliche Vollzeit-MA-Aequivalente ueber die Restlaufzeit
+  // (ein Vollzeit-MA ~ hoursPerPM(firmStdWAZ)/21,7 h je Werktag).
+  const vzMaTagesStd = hoursPerPM(firmStdWAZ) / 21.7;
+  const vzMaRestpotential = vzMaTagesStd * restArbeitstage;
+  const zusatzMaFuer100 = vzMaRestpotential > 0 ? fehlendNachVollast / vzMaRestpotential : 0;
+  const bedarfFuer100: BedarfFuer100 = {
+    zielSchonErreicht,
+    imRahmenMoeglich: hundertImRahmen,
+    fehlendStunden: Math.round(fehlendNachVollast),
+    noetigTeamHProTag: Math.round(noetigTeamHProTag100 * 10) / 10,
+    mehrarbeitProTag: Math.round(mehrarbeitProTag100 * 10) / 10,
+    zusatzMa: Math.round(zusatzMaFuer100 * 10) / 10,
+  };
 
   // ---- Monatsverlauf aufbauen ----
   if (project.start_date && project.end_date) {
@@ -1291,6 +1295,7 @@ export function calculateProjectAnalysis(
     kapazitaetPotentialRest: teamPotentialRest,
     potentialBasiert,
     szenarien,
+    bedarfFuer100,
     verbleibendeMonateAb,
   };
 }
