@@ -2,7 +2,10 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-68
+// Version: 7.4.4-69
+// v7.4.4-69: FZ-Grenzueberschreitung verhindern: ZA-Abrechnungszeitraum darf
+//   nicht ueber die Grenze zwischen zwei Foerderzeitraeumen (Netzwerkjahren)
+//   gehen, da unterschiedliche Foerderquoten gelten. Rote Warnung + Speichersperre.
 // v7.4.4-68: NWM Foerderquote automatisch aus v7_nwm_foerderzeitraeume statt
 //   Date-Arithmetik. openPanel laedt FZ-Daten fuer NWM-Projekte, neue Funktion
 //   getFoerderquoteFromFZ matched ZA-Zeitraum gegen FZ-Tabelle und liefert die
@@ -817,6 +820,31 @@ export default function ZAPanel({
     return null;
   };
 
+  // v7.4.4-69: Prueft ob ZA-Zeitraum ueber eine FZ-Grenze hinweggeht.
+  // Unterschiedliche Foerderquoten in einem Abrechnungszeitraum sind nicht zulaessig.
+  // Rueckgabe: null = ok, sonst Fehlermeldung-String.
+  const checkFZGrenzueberschreitung = (vonStr: string, bisStr: string): string | null => {
+    if (!vonStr || !bisStr || nwmFoerderzeitraeumeZA.length < 2) return null;
+    const vonDate = new Date(vonStr);
+    const bisDate = new Date(bisStr);
+    // Finde FZ fuer von und bis
+    let fzVon: typeof nwmFoerderzeitraeumeZA[0] | null = null;
+    let fzBis: typeof nwmFoerderzeitraeumeZA[0] | null = null;
+    for (const fz of nwmFoerderzeitraeumeZA) {
+      const s = new Date(fz.start_datum);
+      const e = new Date(fz.ende_datum);
+      if (vonDate >= s && vonDate <= e) fzVon = fz;
+      if (bisDate >= s && bisDate <= e) fzBis = fz;
+    }
+    if (fzVon && fzBis && fzVon.netzwerkjahr !== fzBis.netzwerkjahr) {
+      return `Der Abrechnungszeitraum ${vonStr} \u2013 ${bisStr} erstreckt sich \u00fcber zwei F\u00f6rderzeitr\u00e4ume `
+        + `(NWJ ${fzVon.netzwerkjahr}: ${fzVon.foerderquote}% \u2192 NWJ ${fzBis.netzwerkjahr}: ${fzBis.foerderquote}%). `
+        + `Bitte den Zeitraum so w\u00e4hlen, dass er innerhalb eines Netzwerkjahres liegt `
+        + `(Grenze: ${fzVon.ende_datum}).`;
+    }
+    return null;
+  };
+
   // NWM-Personalkosten aus ZE berechnen (foerderfaehige Std x hourly_rate_approved)
   const calcNWMPersonalkosten = (pid: string, vonStr: string, bisStr: string): number => {
     if (!vonStr || !bisStr) return 0;
@@ -1024,6 +1052,8 @@ export default function ZAPanel({
   // NWM-spezifische Berechnungen (nur relevant wenn isNetzwerk)
   // v7.4.4-68: Primaer aus v7_nwm_foerderzeitraeume, Fallback auf Date-Arithmetik
   const fzMatch = isNetzwerk && bisStr ? getFoerderquoteFromFZ(bisStr) : null;
+  // v7.4.4-69: Pruefe FZ-Grenzueberschreitung
+  const fzGrenzfehler = isNetzwerk ? checkFZGrenzueberschreitung(vonStr, bisStr) : null;
   const nwmLaufzeitjahr = fzMatch
     ? fzMatch.netzwerkjahr
     : (isNetzwerk && bisStr
@@ -1255,7 +1285,7 @@ export default function ZAPanel({
                         onChange={e => { setEingereichtAmEdit(e.target.value); setHasChanges(true); }}
                         className={`flex-1 px-2 py-1 text-sm border border-gray-300 rounded bg-blue-50 ${colors.inputFocus}`} />
                       <button onClick={handleSave}
-                        disabled={zaSaving || !zaFormData.zeitraum_von || !zaFormData.zeitraum_bis}
+                        disabled={zaSaving || !zaFormData.zeitraum_von || !zaFormData.zeitraum_bis || !!fzGrenzfehler}
                         className={`px-4 py-1 text-sm font-medium rounded border ${colors.btnPrimary} text-white whitespace-nowrap disabled:opacity-50 transition-colors`}>
                         {zaSaving ? 'Speichern...' : 'ZA speichern'}
                       </button>
@@ -1274,6 +1304,13 @@ export default function ZAPanel({
                   <div className="bg-amber-50 border border-amber-300 rounded p-2 text-xs text-amber-700 mb-3">
                     Weder F&ouml;rderzeitr&auml;ume noch Bewilligungsdatum hinterlegt. Bitte im Tab Netzwerk &rsaquo; Einstellungen
                     die F&ouml;rderzeitr&auml;ume anlegen, damit F&ouml;rderquote und Netzwerkjahr automatisch ermittelt werden.
+                  </div>
+                )}
+                {/* v7.4.4-69: Warnung wenn ZA-Zeitraum ueber FZ-Grenze geht */}
+                {fzGrenzfehler && (
+                  <div className="bg-red-50 border border-red-400 rounded p-2 text-xs text-red-800 mb-3">
+                    <strong>Ung&uuml;ltiger Abrechnungszeitraum:</strong>{' '}
+                    {fzGrenzfehler}
                   </div>
                 )}
 
