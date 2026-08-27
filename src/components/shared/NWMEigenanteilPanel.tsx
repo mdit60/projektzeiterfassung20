@@ -2,9 +2,12 @@
 // ============================================================================
 // PZE V7 - NWM Eigenanteil-Berechnung und Zahlungsstatus
 // ============================================================================
-// Version: 7.4.5-12
-// Datum: 15. April 2026
+// Version: 7.4.5-13
 //
+// v7.4.5-13: FZ-basierte Foerderquote + Grenzueberschreitungs-Validierung.
+//   Foerderquote und Netzwerkjahr werden primaer aus v7_nwm_foerderzeitraeume
+//   ermittelt (Fallback auf Date-Arithmetik). Abrechnungszeitraum darf nicht
+//   ueber FZ-Grenze hinweggehen (rote Warnung + Speichersperre).
 // v7.4.5-12: Drei Korrekturen:
 //   1. Perioden-Dropdown entfernt - nur freie Von/Bis-Felder
 //   2. Archiv-Tab: "EA brutto" -> "USt-Anteil" (summeBrutto -> summeUst)
@@ -292,6 +295,14 @@ export default function NWMEigenanteilPanel({
   // Loeschen-Dialog
   const [loeschenPeriode, setLoeschenPeriode] = useState<{ von: string; bis: string } | null>(null);
 
+  // v7.4.5-13: NWM Foerderzeitraeume fuer automatische Foerderquote
+  const [nwmFoerderzeitraeume, setNwmFoerderzeitraeume] = useState<Array<{
+    netzwerkjahr: number;
+    start_datum: string;
+    ende_datum: string;
+    foerderquote: number;
+  }>>([]);
+
   // ---- Daten laden ----
   const loadDaten = useCallback(async () => {
     setLoading(true);
@@ -342,6 +353,14 @@ export default function NWMEigenanteilPanel({
         .order('sort_order');
       setArchivPerioden(archivPerioden);
       setPartner(npData || []);
+
+      // v7.4.5-13: Foerderzeitraeume laden fuer automatische Foerderquote
+      const { data: fzRows } = await supabase
+        .from('v7_nwm_foerderzeitraeume')
+        .select('netzwerkjahr, start_datum, ende_datum, foerderquote')
+        .eq('project_id', project.id)
+        .order('netzwerkjahr', { ascending: true });
+      setNwmFoerderzeitraeume(fzRows || []);
 
       // Eigenanteile fuer dieses Quartal laden
       const { data: eaData } = await supabase
@@ -408,19 +427,61 @@ export default function NWMEigenanteilPanel({
   useEffect(() => { loadDaten(); }, [loadDaten]);
 
   // ---- Berechnungen ----
-  const laufzeitjahr = calcLaufzeitjahr(
-    project.bewilligung_datum,
-    project.phase2_start_datum,
-    project.netzwerk_phase,
-    selectedQ.bis
-  );
+  // v7.4.5-13: FZ-basierte Foerderquote mit Fallback auf Date-Arithmetik
+  const fzMatchEA = (() => {
+    if (!selectedQ.bis || nwmFoerderzeitraeume.length === 0) return null;
+    const bisDate = new Date(selectedQ.bis);
+    for (const fz of nwmFoerderzeitraeume) {
+      if (bisDate >= new Date(fz.start_datum) && bisDate <= new Date(fz.ende_datum)) {
+        return { netzwerkjahr: fz.netzwerkjahr, foerderquote: fz.foerderquote };
+      }
+    }
+    const first = nwmFoerderzeitraeume[0];
+    if (bisDate < new Date(first.start_datum)) return { netzwerkjahr: first.netzwerkjahr, foerderquote: first.foerderquote };
+    const last = nwmFoerderzeitraeume[nwmFoerderzeitraeume.length - 1];
+    if (bisDate > new Date(last.ende_datum)) return { netzwerkjahr: last.netzwerkjahr, foerderquote: last.foerderquote };
+    return null;
+  })();
 
-  const foerdersatz = getFoerdersatz(
-    project.foerdersatz_stufen,
-    laufzeitjahr,
-    project.netzwerk_typ,
-    project.netzwerk_phase
-  );
+  // v7.4.5-13: FZ-Grenzueberschreitungs-Pruefung
+  const fzGrenzfehlerEA = (() => {
+    if (!selectedQ.von || !selectedQ.bis || nwmFoerderzeitraeume.length < 2) return null;
+    const vonDate = new Date(selectedQ.von);
+    const bisDate = new Date(selectedQ.bis);
+    let fzVon: typeof nwmFoerderzeitraeume[0] | null = null;
+    let fzBis: typeof nwmFoerderzeitraeume[0] | null = null;
+    for (const fz of nwmFoerderzeitraeume) {
+      const s = new Date(fz.start_datum);
+      const e = new Date(fz.ende_datum);
+      if (vonDate >= s && vonDate <= e) fzVon = fz;
+      if (bisDate >= s && bisDate <= e) fzBis = fz;
+    }
+    if (fzVon && fzBis && fzVon.netzwerkjahr !== fzBis.netzwerkjahr) {
+      return `Der Abrechnungszeitraum ${selectedQ.von} \u2013 ${selectedQ.bis} erstreckt sich \u00fcber zwei F\u00f6rderzeitr\u00e4ume `
+        + `(NWJ ${fzVon.netzwerkjahr}: ${fzVon.foerderquote}% \u2192 NWJ ${fzBis.netzwerkjahr}: ${fzBis.foerderquote}%). `
+        + `Bitte den Zeitraum so w\u00e4hlen, dass er innerhalb eines Netzwerkjahres liegt `
+        + `(Grenze: ${fzVon.ende_datum}).`;
+    }
+    return null;
+  })();
+
+  const laufzeitjahr = fzMatchEA
+    ? fzMatchEA.netzwerkjahr
+    : calcLaufzeitjahr(
+      project.bewilligung_datum,
+      project.phase2_start_datum,
+      project.netzwerk_phase,
+      selectedQ.bis
+    );
+
+  const foerdersatz = fzMatchEA
+    ? fzMatchEA.foerderquote
+    : getFoerdersatz(
+      project.foerdersatz_stufen,
+      laufzeitjahr,
+      project.netzwerk_typ,
+      project.netzwerk_phase
+    );
 
   const eigenanteilsquote = 100 - foerdersatz;
 
@@ -448,8 +509,13 @@ export default function NWMEigenanteilPanel({
       setError('Keine aktiven Netzwerkpartner vorhanden.');
       return;
     }
-    if (!project.bewilligung_datum) {
-      setError('Bewilligungsdatum fehlt. Bitte in Einstellungen hinterlegen.');
+    if (!project.bewilligung_datum && nwmFoerderzeitraeume.length === 0) {
+      setError('Weder Foerderzeitraeume noch Bewilligungsdatum hinterlegt. Bitte in Einstellungen anlegen.');
+      return;
+    }
+    // v7.4.5-13: FZ-Grenzueberschreitung blockiert Berechnung
+    if (fzGrenzfehlerEA) {
+      setError(fzGrenzfehlerEA);
       return;
     }
 
@@ -1026,10 +1092,17 @@ export default function NWMEigenanteilPanel({
             <span className="px-2 py-0.5 bg-green-50 border border-green-200 text-green-700 rounded font-medium">
               Foerdersatz {foerdersatz}%
             </span>
+            {fzMatchEA && <span className="text-[10px] text-green-600">(aus FZ-Tabelle)</span>}
+            {!fzMatchEA && <span className="text-[10px] text-amber-600">(Fallback)</span>}
             <span className="px-2 py-0.5 bg-orange-50 border border-orange-200 text-orange-700 rounded font-medium">
               Eigenanteil {eigenanteilsquote}%
             </span>
           </div>
+          {fzGrenzfehlerEA && (
+            <div className="mt-2 bg-red-50 border border-red-400 rounded p-2 text-xs text-red-800">
+              <strong>Ung&uuml;ltiger Abrechnungszeitraum:</strong>{' '}{fzGrenzfehlerEA}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1070,7 +1143,7 @@ export default function NWMEigenanteilPanel({
           <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={handleBerechnen}
-              disabled={calculating || loading}
+              disabled={calculating || loading || !!fzGrenzfehlerEA}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white rounded-lg disabled:opacity-50 ${btnPrimary}`}
             >
               <Calculator size={13} />
