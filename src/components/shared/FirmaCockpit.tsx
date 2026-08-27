@@ -3,7 +3,12 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-36-13
+// Version: 7.4.9-36-14
+// v7.4.9-36-14: NWM-Jahreskenntnis (Bereich 2). Laedt fuer ZIM_NETZWERK-Projekte
+//   die Foerderzeitraeume (v7_nwm_foerderzeitraeume) und die jahresspezifischen
+//   AP-Zuordnungen (v7_nwm_ap_planung). Die kompakte Analyse (calculateProject-
+//   Analysis) rechnet bei NWM-Projekten automatisch auf das aktuelle Netzwerkjahr,
+//   konsistent zur Fortschrittsseite (ProjektFortschrittPanel v7.4.5-33).
 // v7.4.9-36-13: Gibt zusaetzlich die Firmen-Regelarbeitszeit
 //   (firma.standard_weekly_hours) als prognoseOptions.firmStandardWeeklyHours mit,
 //   damit der Beschaeftigungsgrad gegen die echte Firmen-WAZ statt gegen 40
@@ -474,6 +479,9 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
   const [rawEmployees, setRawEmployees] = useState<PFEmployee[]>([]);
   // v7.4.9-36-12: Abwesenheiten fuer die kapazitaetsbasierte Prognose (Ebene 1/2)
   const [rawAbsences, setRawAbsences] = useState<{ employee_id: string; work_date: string; absence_code?: string | null }[]>([]);
+  // v7.4.9-36-14: NWM-Daten fuer jahresspezifische Analyse
+  const [rawNwmFoerderzeitraeume, setRawNwmFoerderzeitraeume] = useState<{ id: string; project_id: string; netzwerkjahr: number; start_datum: string; ende_datum: string }[]>([]);
+  const [rawNwmApPlanung, setRawNwmApPlanung] = useState<{ id: string; foerderzeitraum_id: string; work_package_id: string; employee_id: string; planned_pm: number; start_datum?: string | null; ende_datum?: string | null }[]>([]);
 
   // ==========================================================================
   // DATEN LADEN
@@ -697,6 +705,32 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
         }));
         setRawTimesheets(tsList);
 
+        // v7.4.9-36-14: NWM-Daten laden (Foerderzeitraeume + AP-Planung)
+        const nwmProjektIds = alleProjekte
+          .filter(p => p.funding_format === 'ZIM_NETZWERK')
+          .map(p => p.id);
+
+        if (nwmProjektIds.length > 0) {
+          const { data: fzData } = await supabase
+            .from('v7_nwm_foerderzeitraeume')
+            .select('id, project_id, netzwerkjahr, start_datum, ende_datum')
+            .in('project_id', nwmProjektIds)
+            .order('netzwerkjahr');
+          setRawNwmFoerderzeitraeume(fzData || []);
+
+          const fzIds = (fzData || []).map((fz: any) => fz.id);
+          if (fzIds.length > 0) {
+            const { data: apData } = await supabase
+              .from('v7_nwm_ap_planung')
+              .select('id, foerderzeitraum_id, work_package_id, employee_id, planned_pm, start_datum, ende_datum')
+              .in('foerderzeitraum_id', fzIds);
+            setRawNwmApPlanung(apData || []);
+          }
+        } else {
+          setRawNwmFoerderzeitraeume([]);
+          setRawNwmApPlanung([]);
+        }
+
         // 5. ZA-Uebersicht
         const { data: zaDB } = await supabase
           .from('v7_zahlungsanforderungen')
@@ -724,6 +758,104 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
   }
 
   // ==========================================================================
+  // v7.4.9-36-14: NWM effectiveData - bei ZIM_NETZWERK automatisch aktuelles
+  // Netzwerkjahr verwenden (konsistent zu ProjektFortschrittPanel v7.4.5-33)
+  // ==========================================================================
+
+  const nwmEffective = useMemo(() => {
+    if (!selectedProjektId) return null;
+    const projekt = projekte.find(p => p.id === selectedProjektId);
+    if (!projekt || projekt.funding_format !== 'ZIM_NETZWERK') return null;
+
+    // Foerderzeitraeume fuer dieses Projekt
+    const projektFZ = rawNwmFoerderzeitraeume
+      .filter(fz => fz.project_id === projekt.id)
+      .sort((a, b) => a.netzwerkjahr - b.netzwerkjahr);
+    if (projektFZ.length === 0) return null;
+
+    // Aktuelles Netzwerkjahr bestimmen
+    const today = new Date().toISOString().slice(0, 10);
+    let aktiverFZ = projektFZ.find(fz => fz.start_datum <= today && fz.ende_datum >= today);
+    if (!aktiverFZ) {
+      aktiverFZ = today > projektFZ[projektFZ.length - 1].ende_datum
+        ? projektFZ[projektFZ.length - 1]
+        : projektFZ[0];
+    }
+
+    // Projekt-Dates auf FZ einschraenken
+    const nwmProject = {
+      ...projekt,
+      start_date: aktiverFZ.start_datum,
+      end_date: aktiverFZ.ende_datum,
+    };
+
+    // AP-Zuordnungen aus nwm_ap_planung
+    const fzApPlanung = rawNwmApPlanung.filter(
+      ap => ap.foerderzeitraum_id === aktiverFZ!.id
+    );
+    const fzWpIds = new Set(fzApPlanung.map(ap => ap.work_package_id));
+
+    // WP date overrides
+    const wpDateOverrides: Record<string, { start: string; end: string }> = {};
+    fzApPlanung.forEach(ap => {
+      if (ap.start_datum && ap.ende_datum) {
+        const wp = ap.work_package_id;
+        if (!wpDateOverrides[wp]) {
+          wpDateOverrides[wp] = { start: ap.start_datum, end: ap.ende_datum };
+        } else {
+          if (ap.start_datum < wpDateOverrides[wp].start) wpDateOverrides[wp].start = ap.start_datum;
+          if (ap.ende_datum > wpDateOverrides[wp].end) wpDateOverrides[wp].end = ap.ende_datum;
+        }
+      }
+    });
+
+    const nwmWorkPackages: PFWorkPackage[] = rawWorkPackages
+      .filter(wp => wp.project_id === projekt.id && fzWpIds.has(wp.id))
+      .map(wp => {
+        const override = wpDateOverrides[wp.id];
+        const totalPm = fzApPlanung
+          .filter(ap => ap.work_package_id === wp.id)
+          .reduce((sum, ap) => sum + (ap.planned_pm || 0), 0);
+        return {
+          ...wp,
+          start_date: override ? override.start : (wp.start_date || aktiverFZ!.start_datum),
+          end_date: override ? override.end : (wp.end_date || aktiverFZ!.ende_datum),
+          total_person_months: totalPm,
+        };
+      });
+
+    // WP-Assignments aggregieren
+    const assignmentMap = new Map<string, number>();
+    fzApPlanung.forEach(ap => {
+      const key = ap.work_package_id + '|' + ap.employee_id;
+      assignmentMap.set(key, (assignmentMap.get(key) || 0) + (ap.planned_pm || 0));
+    });
+    const nwmWpAssignments: PFWorkPackageAssignment[] = [];
+    assignmentMap.forEach((pm, key) => {
+      const [wpId, empId] = key.split('|');
+      nwmWpAssignments.push({
+        work_package_id: wpId,
+        employee_id: empId,
+        planned_person_months: pm,
+      });
+    });
+
+    // Timesheets auf FZ filtern
+    const nwmTimesheets: PFTimesheetEntry[] = rawTimesheets.filter(ts => {
+      if (ts.project_id !== projekt.id) return true;
+      return ts.work_date >= aktiverFZ!.start_datum && ts.work_date <= aktiverFZ!.ende_datum;
+    });
+
+    return {
+      project: nwmProject as PFProject,
+      workPackages: nwmWorkPackages,
+      wpAssignments: nwmWpAssignments,
+      timesheets: nwmTimesheets,
+      netzwerkjahr: aktiverFZ.netzwerkjahr,
+    };
+  }, [selectedProjektId, projekte, rawNwmFoerderzeitraeume, rawNwmApPlanung, rawWorkPackages, rawTimesheets]);
+
+  // ==========================================================================
   // ANALYSE-BERECHNUNG (useMemo - reagiert auf Projektauswahl)
   // ==========================================================================
 
@@ -732,13 +864,19 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
     const projekt = projekte.find(p => p.id === selectedProjektId);
     if (!projekt) return null;
 
+    // v7.4.9-36-14: Bei NWM -> effectiveData aus aktuellem Netzwerkjahr
+    const effProject = nwmEffective ? nwmEffective.project : (projekt as PFProject);
+    const effWP = nwmEffective ? nwmEffective.workPackages : rawWorkPackages;
+    const effWPA = nwmEffective ? nwmEffective.wpAssignments : rawWPAssignments;
+    const effTS = nwmEffective ? nwmEffective.timesheets : rawTimesheets;
+
     return calculateProjectAnalysis(
-      projekt as PFProject,
-      rawWorkPackages,
-      rawWPAssignments,
+      effProject,
+      effWP,
+      effWPA,
       rawProjAssignments,
       rawEmployees,
-      rawTimesheets,
+      effTS,
       {
         federalState: firma?.federal_state ?? null,
         holidayRegion: (firma?.holiday_region ?? undefined) as any,
@@ -746,7 +884,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
         absences: rawAbsences,
       },
     );
-  }, [selectedProjektId, projekte, rawTimesheets, rawWorkPackages, rawWPAssignments, rawProjAssignments, rawEmployees, firma, rawAbsences]);
+  }, [selectedProjektId, projekte, nwmEffective, rawTimesheets, rawWorkPackages, rawWPAssignments, rawProjAssignments, rawEmployees, firma, rawAbsences]);
 
   // ==========================================================================
   // NAVIGATION
