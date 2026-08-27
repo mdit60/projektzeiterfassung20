@@ -2,7 +2,14 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Grafische Auswertung
 // ============================================================================
-// Version: 7.4.5-32
+// Version: 7.4.5-33
+// v7.4.5-33: NWM-Jahreskenntnis (Bereich 2). Bei ZIM_NETZWERK-Projekten zeigt das
+//   Panel einen Jahresselektor. Default = aktuelles Netzwerkjahr (anhand today vs.
+//   Foerderzeitraeume). Optionen: vorangegangene Jahre + Gesamtverlauf. Bei Auswahl
+//   eines Netzwerkjahrs werden Projektdaten (start/end, WP-Assignments, Timesheets)
+//   auf den Foerderzeitraum zugeschnitten, bevor calculateProjectAnalysis aufgerufen
+//   wird. Neue Props: nwmFoerderzeitraeume, nwmApPlanung. Ohne diese Props = altes
+//   Verhalten. Nur Anzeige-/Daten-Transformation; die Utils bleiben unveraendert.
 // v7.4.5-32: Dritte Stufe "Fuer 100% noetig" ergaenzt (analysis.bedarfFuer100).
 //   Zeigt unter den Szenarien: entweder das fuer 100% noetige Team-Tempo (wenn im
 //   Rahmen der WAZ machbar) oder - wenn die offizielle Vollast nicht reicht - die
@@ -140,6 +147,8 @@ import {
   fmtEur,
   fmtH,
   fmtDateDE,
+  fmtDateShortDE,
+  hoursPerPM,
   type PFPrognoseOptions,
 } from '@/lib/projektfortschritt-utils';
 
@@ -213,6 +222,26 @@ interface TimesheetEntry {
   is_billable: boolean;
 }
 
+// v7.4.5-33: NWM-Foerderzeitraum (pro Projekt/Netzwerkjahr)
+interface NwmFoerderzeitraum {
+  id: string;
+  project_id: string;
+  netzwerkjahr: number;
+  start_datum: string;
+  ende_datum: string;
+}
+
+// v7.4.5-33: NWM-AP-Planung (jahresspezifische Zuordnung)
+interface NwmApPlanungEntry {
+  id: string;
+  foerderzeitraum_id: string;
+  work_package_id: string;
+  employee_id: string;
+  planned_pm: number;
+  start_datum?: string | null;
+  ende_datum?: string | null;
+}
+
 interface ProjektFortschrittPanelProps {
   portal: 'berater' | 'firma';
   projects: Project[];
@@ -225,6 +254,10 @@ interface ProjektFortschrittPanelProps {
   // v7.4.5-28: optionale Kapazitaets-Eingaben (Bundesland/holiday_region +
   // Abwesenheiten) fuer die feiertags-/abwesenheitsgenaue Potentialberechnung.
   prognoseOptions?: PFPrognoseOptions;
+  // v7.4.5-33: NWM-Daten fuer jahresspezifische Fortschrittsanzeige.
+  // Ohne diese Props = Gesamtverlauf (altes Verhalten).
+  nwmFoerderzeitraeume?: NwmFoerderzeitraum[];
+  nwmApPlanung?: NwmApPlanungEntry[];
 }
 
 // ----------------------------------------------------------------------------
@@ -336,6 +369,8 @@ export default function ProjektFortschrittPanel({
   timesheets,
   initialProjectId,
   prognoseOptions,
+  nwmFoerderzeitraeume,
+  nwmApPlanung,
 }: ProjektFortschrittPanelProps) {
 
   const accentColor = portal === 'firma' ? '#16a34a' : '#2563eb';
@@ -351,6 +386,150 @@ export default function ProjektFortschrittPanel({
   const project = projects.find(p => p.id === selectedProjectId) || projects[0];
 
   // ============================================================================
+  // v7.4.5-33: NWM-Jahresselektor
+  // ============================================================================
+
+  const isNetzwerk = project?.funding_format === 'ZIM_NETZWERK';
+
+  // Foerderzeitraeume des gewahlten Projekts, sortiert nach Netzwerkjahr
+  const projektFZ = useMemo(() => {
+    if (!isNetzwerk || !nwmFoerderzeitraeume || !project) return [];
+    return nwmFoerderzeitraeume
+      .filter(fz => fz.project_id === project.id)
+      .sort((a, b) => a.netzwerkjahr - b.netzwerkjahr);
+  }, [isNetzwerk, nwmFoerderzeitraeume, project]);
+
+  // Aktuelles Netzwerkjahr bestimmen: In welchem FZ liegt today?
+  // Falls today nach allen FZ -> letztes Jahr; falls vor allen -> erstes Jahr.
+  const aktuellesNWJ = useMemo(() => {
+    if (projektFZ.length === 0) return 0;
+    const today = new Date().toISOString().slice(0, 10);
+    const match = projektFZ.find(fz => fz.start_datum <= today && fz.ende_datum >= today);
+    if (match) return match.netzwerkjahr;
+    // Falls today nach allen FZ liegt -> letztes
+    if (today > projektFZ[projektFZ.length - 1].ende_datum) {
+      return projektFZ[projektFZ.length - 1].netzwerkjahr;
+    }
+    // Falls today vor allen FZ liegt -> erstes
+    return projektFZ[0].netzwerkjahr;
+  }, [projektFZ]);
+
+  // selectedNWJ: 0 = Gesamtverlauf, 1..N = Netzwerkjahr
+  // Default = aktuelles Netzwerkjahr (nicht 0 / Gesamt!)
+  const [selectedNWJ, setSelectedNWJ] = useState<number>(0);
+
+  // Bei Projektwechsel oder wenn aktuellesNWJ sich aendert: Default setzen
+  React.useEffect(() => {
+    if (isNetzwerk && aktuellesNWJ > 0) {
+      setSelectedNWJ(aktuellesNWJ);
+    } else {
+      setSelectedNWJ(0);
+    }
+  }, [isNetzwerk, aktuellesNWJ, selectedProjectId]);
+
+  // Der aktive Foerderzeitraum (bei selectedNWJ > 0)
+  const aktiverFZ = useMemo(() => {
+    if (selectedNWJ === 0 || projektFZ.length === 0) return null;
+    return projektFZ.find(fz => fz.netzwerkjahr === selectedNWJ) || null;
+  }, [selectedNWJ, projektFZ]);
+
+  // ============================================================================
+  // v7.4.5-33: NWM-Daten-Transformation
+  // Wenn ein Netzwerkjahr gewaehlt ist, werden die Eingabedaten auf den FZ
+  // zugeschnitten; bei Gesamtverlauf (selectedNWJ === 0) bleiben die Originaldaten.
+  // ============================================================================
+
+  const effectiveData = useMemo(() => {
+    // Nicht-NWM oder Gesamtverlauf -> keine Transformation
+    if (!isNetzwerk || selectedNWJ === 0 || !aktiverFZ || !nwmApPlanung) {
+      return {
+        project: project,
+        workPackages: workPackages,
+        wpAssignments: wpAssignments,
+        timesheets: timesheets,
+      };
+    }
+
+    // -- NWM + spezifisches Netzwerkjahr --
+
+    // 1. Projekt-Dates auf FZ-Zeitraum einschraenken
+    const nwmProject = {
+      ...project,
+      start_date: aktiverFZ.start_datum,
+      end_date: aktiverFZ.ende_datum,
+    };
+
+    // 2. AP-Zuordnungen aus v7_nwm_ap_planung fuer diesen FZ
+    const fzApPlanung = nwmApPlanung.filter(
+      ap => ap.foerderzeitraum_id === aktiverFZ.id
+    );
+
+    // WP-IDs, die in diesem FZ geplant sind
+    const fzWpIds = new Set(fzApPlanung.map(ap => ap.work_package_id));
+
+    // 3. Work Packages auf die im FZ geplanten einschraenken,
+    //    mit jahresspezifischen Dates aus der Planung
+    const wpDateOverrides: Record<string, { start: string; end: string }> = {};
+    fzApPlanung.forEach(ap => {
+      if (ap.start_datum && ap.ende_datum) {
+        const wp = ap.work_package_id;
+        if (!wpDateOverrides[wp]) {
+          wpDateOverrides[wp] = { start: ap.start_datum, end: ap.ende_datum };
+        } else {
+          if (ap.start_datum < wpDateOverrides[wp].start) wpDateOverrides[wp].start = ap.start_datum;
+          if (ap.ende_datum > wpDateOverrides[wp].end) wpDateOverrides[wp].end = ap.ende_datum;
+        }
+      }
+    });
+
+    const nwmWorkPackages = workPackages
+      .filter(wp => wp.project_id === project.id && fzWpIds.has(wp.id))
+      .map(wp => {
+        const override = wpDateOverrides[wp.id];
+        // total_person_months: Summe der planned_pm fuer diesen FZ und dieses WP
+        const totalPm = fzApPlanung
+          .filter(ap => ap.work_package_id === wp.id)
+          .reduce((sum, ap) => sum + (ap.planned_pm || 0), 0);
+        return {
+          ...wp,
+          start_date: override ? override.start : (wp.start_date || aktiverFZ.start_datum),
+          end_date: override ? override.end : (wp.end_date || aktiverFZ.ende_datum),
+          total_person_months: totalPm,
+        };
+      });
+
+    // 4. WP-Assignments: aus nwm_ap_planung je MA/WP aggregieren
+    // (Summe planned_pm pro work_package_id + employee_id im FZ)
+    const assignmentMap = new Map<string, number>();
+    fzApPlanung.forEach(ap => {
+      const key = ap.work_package_id + '|' + ap.employee_id;
+      assignmentMap.set(key, (assignmentMap.get(key) || 0) + (ap.planned_pm || 0));
+    });
+    const nwmWpAssignments: WorkPackageAssignment[] = [];
+    assignmentMap.forEach((pm, key) => {
+      const [wpId, empId] = key.split('|');
+      nwmWpAssignments.push({
+        work_package_id: wpId,
+        employee_id: empId,
+        planned_person_months: pm,
+      });
+    });
+
+    // 5. Timesheets auf FZ-Zeitraum filtern
+    const nwmTimesheets = timesheets.filter(ts => {
+      if (ts.project_id !== project.id) return true; // andere Projekte unveraendert
+      return ts.work_date >= aktiverFZ.start_datum && ts.work_date <= aktiverFZ.ende_datum;
+    });
+
+    return {
+      project: nwmProject,
+      workPackages: nwmWorkPackages,
+      wpAssignments: nwmWpAssignments,
+      timesheets: nwmTimesheets,
+    };
+  }, [isNetzwerk, selectedNWJ, aktiverFZ, nwmApPlanung, project, workPackages, wpAssignments, timesheets]);
+
+  // ============================================================================
   // BERECHNUNGEN
   // ============================================================================
 
@@ -359,18 +538,18 @@ export default function ProjektFortschrittPanel({
   // nachgewiesen identische Ergebnisse, einzige Rechenquelle (auch FirmaCockpit).
   const analysis = useMemo(
     () =>
-      project
+      effectiveData.project
         ? calculateProjectAnalysis(
-            project,
-            workPackages,
-            wpAssignments,
+            effectiveData.project,
+            effectiveData.workPackages,
+            effectiveData.wpAssignments,
             projectAssignments,
             employees,
-            timesheets,
+            effectiveData.timesheets,
             prognoseOptions,
           )
         : null,
-    [project, workPackages, wpAssignments, projectAssignments, employees, timesheets, prognoseOptions],
+    [effectiveData, projectAssignments, employees, prognoseOptions],
   );
 
   if (!project || !analysis) {
@@ -491,6 +670,31 @@ export default function ProjektFortschrittPanel({
           {(project.start_date || project.end_date) && (
             <span className="text-xs text-gray-700 bg-gray-100 px-2 py-0.5 rounded ml-1">
               {fmtDateDE(project.start_date)} &ndash; {fmtDateDE(project.end_date)}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* v7.4.5-33: NWM-Jahresselektor (nur bei ZIM_NETZWERK mit FZ-Daten) */}
+      {isNetzwerk && projektFZ.length > 0 && (
+        <div className="flex items-center gap-3 flex-wrap bg-indigo-50 border border-indigo-200 rounded-lg px-4 py-2">
+          <label className="text-sm font-medium text-indigo-800">Netzwerkjahr:</label>
+          <select
+            value={selectedNWJ}
+            onChange={e => setSelectedNWJ(Number(e.target.value))}
+            className="px-3 py-1.5 text-sm border border-indigo-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          >
+            {projektFZ.map(fz => (
+              <option key={fz.netzwerkjahr} value={fz.netzwerkjahr}>
+                {fz.netzwerkjahr}. Netzwerkjahr ({fmtDateShortDE(fz.start_datum)} {'\u2013'} {fmtDateShortDE(fz.ende_datum)})
+                {fz.netzwerkjahr === aktuellesNWJ ? ' \u2190 aktuell' : ''}
+              </option>
+            ))}
+            <option value={0}>Gesamtverlauf ({fmtDateShortDE(project.start_date)} {'\u2013'} {fmtDateShortDE(project.end_date)})</option>
+          </select>
+          {selectedNWJ > 0 && aktiverFZ && (
+            <span className="text-xs text-indigo-700">
+              F{'\u00f6'}rderzeitraum: {fmtDateDE(aktiverFZ.start_datum)} {'\u2013'} {fmtDateDE(aktiverFZ.ende_datum)}
             </span>
           )}
         </div>

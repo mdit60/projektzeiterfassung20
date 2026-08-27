@@ -2,7 +2,12 @@
 
 // Route: /v7/berater/foerderung/firma/[id]/cockpit/fortschritt
 // Eigenstaendige Seite fuer ProjektFortschrittPanel (ohne BerichtePage)
-// Version: 7.4.9-8
+// Version: 7.4.9-9
+// v7.4.9-9: NWM-Jahreskenntnis (Bereich 2). Laedt fuer ZIM_NETZWERK-Projekte die
+//   Foerderzeitraeume (v7_nwm_foerderzeitraeume) und die jahresspezifischen
+//   AP-Zuordnungen (v7_nwm_ap_planung) und reicht sie als neue Props
+//   nwmFoerderzeitraeume / nwmApPlanung an ProjektFortschrittPanel. Damit kann
+//   das Panel pro Netzwerkjahr oder Gesamtverlauf rechnen.
 // v7.4.9-8: Firmen-Regelarbeitszeit (standard_weekly_hours) mitladen und als
 //   prognoseOptions.firmStandardWeeklyHours uebergeben, damit der Beschaeftigungs-
 //   grad korrekt gegen die echte Firmen-WAZ (z.B. 37,5) statt gegen 40 rechnet
@@ -47,6 +52,9 @@ export default function CockpitFortschrittPage() {
   // v7.4.9-7: Kapazitaets-Eingaben fuer die Prognose (Ebene 1)
   const [firmaRegion, setFirmaRegion] = useState<{ federal_state: string | null; holiday_region: string | null; standard_weekly_hours: number | null }>({ federal_state: null, holiday_region: null, standard_weekly_hours: null });
   const [absences, setAbsences] = useState<any[]>([]);
+  // v7.4.9-9: NWM-Daten fuer jahresspezifische Fortschrittsanzeige
+  const [nwmFoerderzeitraeume, setNwmFoerderzeitraeume] = useState<any[]>([]);
+  const [nwmApPlanung, setNwmApPlanung] = useState<any[]>([]);
 
   useEffect(() => {
     async function loadData() {
@@ -133,6 +141,30 @@ export default function CockpitFortschrittPage() {
           .in('project_id', projectIds)
           .eq('is_active', true);
         setTimesheets(tsData || []);
+
+        // v7.4.9-9: NWM-Daten laden (Foerderzeitraeume + AP-Planung) fuer alle
+        // ZIM_NETZWERK-Projekte dieser Firma.
+        const nwmProjektIds = (projectsData || [])
+          .filter((p: any) => p.funding_format === 'ZIM_NETZWERK')
+          .map((p: any) => p.id);
+
+        if (nwmProjektIds.length > 0) {
+          const { data: fzData } = await supabase
+            .from('v7_nwm_foerderzeitraeume')
+            .select('id, project_id, netzwerkjahr, start_datum, ende_datum')
+            .in('project_id', nwmProjektIds)
+            .order('netzwerkjahr');
+          setNwmFoerderzeitraeume(fzData || []);
+
+          const fzIds = (fzData || []).map((fz: any) => fz.id);
+          if (fzIds.length > 0) {
+            const { data: apData } = await supabase
+              .from('v7_nwm_ap_planung')
+              .select('id, foerderzeitraum_id, work_package_id, employee_id, planned_pm, start_datum, ende_datum')
+              .in('foerderzeitraum_id', fzIds);
+            setNwmApPlanung(apData || []);
+          }
+        }
       }
 
       setLoading(false);
@@ -194,6 +226,8 @@ export default function CockpitFortschrittPage() {
             firmStandardWeeklyHours: firmaRegion.standard_weekly_hours,
             absences,
           }}
+          nwmFoerderzeitraeume={nwmFoerderzeitraeume}
+          nwmApPlanung={nwmApPlanung}
         />
       </div>
     </div>
