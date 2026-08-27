@@ -2,8 +2,40 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 10. August 2026
-// Version: 7.4.6-84
+// Datum: 27. August 2026
+// Version: 7.4.6-86
+// v7.4.6-86: NWM-Jahres-Anpassung fuer Modale und Bearbeitungsstand.
+//   (1) "Meine AP"-Modal zeigt jetzt jahresspezifische Zeitraeume (nwmApDates)
+//       statt der Gesamt-Projektdaten aus v7_work_packages.
+//   (2) "AP Quick-View"-Modal zeigt bei NWM-Projekten jahresspezifische
+//       Zeitraeume und PM pro AP (neuer State nwmAllApInfo, geladen aus
+//       v7_nwm_ap_planung fuer den aktiven Foerderzeitraum, alle MA).
+//   (3) Bearbeitungsstand (gebucht/offen) wird bei NWM-Projekten auf den
+//       aktiven Foerderzeitraum eingeschraenkt: reloadBookedHours filtert
+//       Buchungen per work_date auf start_datum..ende_datum des FZ. Neuer
+//       Ref nwmActiveFzDatesRef speichert den aktiven FZ-Zeitraum; wird in
+//       loadAssignmentData gesetzt, BEVOR reloadBookedHours aufgerufen wird.
+//   (4) ApStatusModal erhaelt selectedYear + selectedMonth als neue Props,
+//       damit die "Alle AP"-Uebersicht ebenfalls jahresspezifisch arbeitet.
+//   Unterstuetzt bis zu 3+ Netzwerkjahre (dynamisch per Foerderzeitraum).
+// v7.4.6-85: FIX NWM-Netzwerkjahr: Bei ZIM_NETZWERK-Projekten wurden im
+//   Stundennachweis keine AP-Zuordnungen angezeigt, wenn die Zuordnungen
+//   (wie bei NWM ueblich) in v7_nwm_ap_planung statt in der generischen
+//   v7_work_package_assignments-Tabelle lagen. Betraf insbesondere Jahr 2+,
+//   da die generische Tabelle nur Jahr-1-Zuordnungen enthielt.
+//   FIX: loadAssignmentData erkennt NWM-Projekte (isNetzwerk) und ermittelt
+//   den zum gewaehlten Monat passenden Foerderzeitraum aus
+//   v7_nwm_foerderzeitraeume, laedt dann die AP-Zuordnungen aus
+//   v7_nwm_ap_planung (analog ProjectDetailPage.ladeNwmAssignments).
+//   Fallback auf generische Assignments wenn kein Foerderzeitraum passt.
+//   selectedYear/selectedMonth als useEffect-Dependencies hinzugefuegt,
+//   damit ein Monatswechsel ueber die NW-Jahresgrenze die APs neu laedt.
+//   ZUSAETZLICH: hasAPStarted und monthsSinceStart nutzen bei NWM-Projekten
+//   die jahresspezifischen start_datum/ende_datum aus v7_nwm_ap_planung
+//   (neuer State nwmApDates, neue Hilfsfunktion getEffectiveStartDate).
+//   Ohne diesen Override griff der Startmonats-Filter (monthsSinceStart <= 3)
+//   auf das Gesamt-Startdatum aus v7_work_packages zurueck, das bei APs im
+//   Jahr 2+ bereits >12 Monate zuruecklag -> AP wurde ausgefiltert.
 // v7.4.6-84: Obergrenze fuer die Auto-Anzeige "Zugeordnete AP" wieder
 //   eingefuehrt -- start-basiert (Startmonat + 3 Monate). PROBLEM: seit -82
 //   (Wegfall der alten end_date+2-Obergrenze) blieb ein zugeordnetes AP
@@ -1025,6 +1057,16 @@ export default function TimesheetForm({
   const [userPrefSettings, setUserPrefSettings] = useState<Record<string, any>>({});
   // IDs der APs, die dem MA laut Arbeitsplan zugeordnet sind
   const [assignedWPIds, setAssignedWPIds] = useState<string[]>([]);
+  // v7.4.6-85: NWM-jahresspezifische AP-Zeitraeume (Override fuer wp.start_date/end_date)
+  // Schluessel = work_package_id, Wert = {start, end} aus v7_nwm_ap_planung
+  const [nwmApDates, setNwmApDates] = useState<Record<string, {start: string; end: string}>>({});
+  // v7.4.6-86: Ref fuer den aktiven Foerderzeitraum-Datumsbereich (NWM). Wird in
+  // loadAssignmentData gesetzt und von reloadBookedHours gelesen, damit die
+  // gebuchten Stunden auf den aktiven FZ eingeschraenkt werden koennen.
+  const nwmActiveFzDatesRef = useRef<{start: string; end: string} | null>(null);
+  // v7.4.6-86: Projekt-weite NWM-AP-Infos fuer den aktiven Foerderzeitraum (alle MA):
+  // Zeitraeume und Gesamt-PM pro AP. Fuer das "AP Quick-View"-Modal.
+  const [nwmAllApInfo, setNwmAllApInfo] = useState<Record<string, {start: string; end: string; totalPm: number}>>({});
 
   // Feiertage
   const [holidays, setHolidays] = useState<Map<string, string>>(new Map());
@@ -1109,9 +1151,19 @@ export default function TimesheetForm({
   // "Zugeordnete AP" noch als "Weitere AP" (Schutz vor Fehlbuchung auf noch
   // nicht gestartete APs). Monatsgenauer Vergleich: erster Tag des Startmonats
   // gegen das Monatsende des gewaehlten Monats.
+  // v7.4.6-85: Bei NWM-Projekten wird das jahresspezifische start_datum aus
+  // nwmApDates bevorzugt (aus v7_nwm_ap_planung). Damit startet ein AP im
+  // Timesheet ab dem im jeweiligen Netzwerkjahr geplanten Monat, nicht ab dem
+  // Gesamtprojekt-Startdatum (das ggf. ueber ein Jahr zurueckliegt).
+  const getEffectiveStartDate = (wp: WorkPackage): string | null => {
+    if (isNetzwerk && nwmApDates[wp.id]?.start) return nwmApDates[wp.id].start;
+    return wp.start_date || null;
+  };
+
   const hasAPStarted = (wp: WorkPackage): boolean => {
-    if (!wp.start_date) return false;
-    const startDate = new Date(wp.start_date as string);
+    const sd = getEffectiveStartDate(wp);
+    if (!sd) return false;
+    const startDate = new Date(sd);
     const startMonthBegin = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
     return startMonthBegin <= getReferenceDate();
   };
@@ -1121,9 +1173,11 @@ export default function TimesheetForm({
   // gewaehlten Monat; positive Werte = so viele Monate nach Planstart. Null nur,
   // wenn kein start_date vorhanden ist (bei zugeordneten APs durch isSelectableAP
   // bereits ausgeschlossen).
+  // v7.4.6-85: Nutzt getEffectiveStartDate (NWM-jahresspezifisch).
   const monthsSinceStart = (wp: WorkPackage): number | null => {
-    if (!wp.start_date) return null;
-    const startDate = new Date(wp.start_date as string);
+    const sd = getEffectiveStartDate(wp);
+    if (!sd) return null;
+    const startDate = new Date(sd);
     const ref = getReferenceDate();
     return (ref.getFullYear() - startDate.getFullYear()) * 12
       + (ref.getMonth() - startDate.getMonth());
@@ -1498,13 +1552,20 @@ export default function TimesheetForm({
     if (!selectedEmployeeId || !selectedProjectId) return;
     try {
       const supabaseClient = createClient();
-      const { data: tsEntries, error: tsErr } = await supabaseClient
+      // v7.4.6-86: Bei NWM-Projekten die Buchungen auf den aktiven
+      // Foerderzeitraum einschraenken (jahresspezifischer Bearbeitungsstand).
+      const fzDates = nwmActiveFzDatesRef.current;
+      let empQuery = supabaseClient
         .from('v7_timesheets')
         .select('work_package_id, hours, work_date')
         .eq('employee_id', selectedEmployeeId)
         .eq('project_id', selectedProjectId)
         .eq('is_active', true)
         .eq('is_billable', true);
+      if (fzDates) {
+        empQuery = empQuery.gte('work_date', fzDates.start).lte('work_date', fzDates.end);
+      }
+      const { data: tsEntries, error: tsErr } = await empQuery;
 
       if (tsErr) {
         console.error('[TimesheetForm] Fehler beim Laden der kumulierten Stunden:', tsErr);
@@ -1534,12 +1595,17 @@ export default function TimesheetForm({
 
       // v7.4.6-29: Projektweite Buchungen je AP (alle MA) - fuer blaue Restzahl
       // bei nicht zugeordneten Mitarbeitern.
-      const { data: projEntries, error: projErr } = await supabaseClient
+      // v7.4.6-86: Ebenfalls FZ-Einschraenkung bei NWM.
+      let projQuery = supabaseClient
         .from('v7_timesheets')
         .select('work_package_id, employee_id, hours, work_date')
         .eq('project_id', selectedProjectId)
         .eq('is_active', true)
         .eq('is_billable', true);
+      if (fzDates) {
+        projQuery = projQuery.gte('work_date', fzDates.start).lte('work_date', fzDates.end);
+      }
+      const { data: projEntries, error: projErr } = await projQuery;
       if (projErr) {
         console.error('[TimesheetForm] Fehler beim Laden der projektweiten Stunden:', projErr);
       } else {
@@ -1710,18 +1776,6 @@ export default function TimesheetForm({
       try {
         const supabaseClient = createClient();
 
-        // 1. Geplante PM pro WP fuer diesen MA aus v7_work_package_assignments
-        const { data: assignments, error: assErr } = await supabaseClient
-          .from('v7_work_package_assignments')
-          .select('work_package_id, planned_person_months')
-          .eq('employee_id', selectedEmployeeId)
-          .eq('is_active', true);
-
-        if (assErr) {
-          console.error('[TimesheetForm] Fehler beim Laden der Assignments:', assErr);
-          return;
-        }
-
         // Filter: Nur APs die zu diesem Projekt gehoeren
         const projectWPIds = safeWorkPackages
           .filter(wp => wp.project_id === selectedProjectId)
@@ -1730,15 +1784,154 @@ export default function TimesheetForm({
         const planned: Record<string, number> = {};
         const assignedIds: string[] = [];
 
-        (assignments || []).forEach((a: any) => {
-          if (projectWPIds.includes(a.work_package_id)) {
-            const pm = a.planned_person_months || 0;
-            if (pm > 0) {
-              planned[a.work_package_id] = pm * hoursPerPM(pmBasisWAZ);
-              assignedIds.push(a.work_package_id);
-            }
+        // v7.4.6-85: Bei ZIM_NETZWERK-Projekten die AP-Zuordnungen aus der
+        // netzwerkjahr-spezifischen Tabelle v7_nwm_ap_planung laden (analog zu
+        // ProjectDetailPage.ladeNwmAssignments). Bisher wurde nur die generische
+        // Tabelle v7_work_package_assignments abgefragt, die bei NWM-Projekten
+        // fuer Jahr 2+ keine Eintraege enthaelt. Der passende Foerderzeitraum
+        // wird anhand des gewaehlten Monats (selectedYear/selectedMonth) ermittelt.
+        if (isNetzwerk) {
+          // 1a. Foerderzeitraeume des Projekts laden
+          const { data: fzData, error: fzErr } = await supabaseClient
+            .from('v7_nwm_foerderzeitraeume')
+            .select('id, netzwerkjahr, start_datum, ende_datum')
+            .eq('project_id', selectedProjectId)
+            .order('netzwerkjahr');
+
+          if (fzErr) {
+            console.error('[TimesheetForm] Fehler beim Laden der Foerderzeitraeume:', fzErr);
           }
-        });
+
+          // 1b. Passenden Foerderzeitraum fuer den gewaehlten Monat ermitteln
+          const monatStart = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
+          const dim = getDaysInMonth(selectedYear, selectedMonth);
+          const monatEnde = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(dim).padStart(2, '0')}`;
+
+          const aktiverFZ = (fzData || []).find(
+            (fz: any) => fz.start_datum <= monatEnde && fz.ende_datum >= monatStart
+          );
+
+          if (aktiverFZ) {
+            console.log('[TimesheetForm] NWM: Aktiver Foerderzeitraum:', aktiverFZ.netzwerkjahr, aktiverFZ.id);
+
+            // 1c. AP-Zuordnungen aus v7_nwm_ap_planung fuer diesen Foerderzeitraum + MA
+            // Lade auch start_datum/ende_datum fuer jahresspezifische Zeitfenster
+            const { data: nwmAssignments, error: nwmErr } = await supabaseClient
+              .from('v7_nwm_ap_planung')
+              .select('work_package_id, planned_pm, start_datum, ende_datum')
+              .eq('foerderzeitraum_id', aktiverFZ.id)
+              .eq('employee_id', selectedEmployeeId);
+
+            if (nwmErr) {
+              console.error('[TimesheetForm] Fehler beim Laden der NWM-Assignments:', nwmErr);
+            }
+
+            // v7.4.6-85: Jahresspezifische Zeitraeume pro AP ermitteln
+            // (analog ProjectDetailPage.ladeNwmAssignments -> nwmApZeitraeume)
+            const apDates: Record<string, {start: string; end: string}> = {};
+            (nwmAssignments || []).forEach((a: any) => {
+              if (projectWPIds.includes(a.work_package_id)) {
+                const pm = a.planned_pm || 0;
+                if (pm > 0) {
+                  planned[a.work_package_id] = pm * hoursPerPM(pmBasisWAZ);
+                  assignedIds.push(a.work_package_id);
+                }
+                // Zeitraeume sammeln (MIN start, MAX end pro WP)
+                if (a.start_datum && a.ende_datum) {
+                  const wp = a.work_package_id;
+                  if (!apDates[wp]) {
+                    apDates[wp] = { start: a.start_datum, end: a.ende_datum };
+                  } else {
+                    if (a.start_datum < apDates[wp].start) apDates[wp].start = a.start_datum;
+                    if (a.ende_datum > apDates[wp].end) apDates[wp].end = a.ende_datum;
+                  }
+                }
+              }
+            });
+            setNwmApDates(apDates);
+            console.log('[TimesheetForm] NWM: Jahresspezifische AP-Zeitraeume:', apDates);
+
+            // v7.4.6-86: Ref SETZEN bevor reloadBookedHours aufgerufen wird,
+            // damit die gebuchten Stunden auf den aktiven FZ eingeschraenkt werden.
+            nwmActiveFzDatesRef.current = {
+              start: aktiverFZ.start_datum,
+              end: aktiverFZ.ende_datum,
+            };
+
+            // v7.4.6-86: Projekt-weite NWM-AP-Daten (ohne employee_id-Filter)
+            // fuer das AP-Quick-View-Modal (zeigt ALLE APs, nicht nur die des MA).
+            const { data: nwmAllRows } = await supabaseClient
+              .from('v7_nwm_ap_planung')
+              .select('work_package_id, planned_pm, start_datum, ende_datum')
+              .eq('foerderzeitraum_id', aktiverFZ.id);
+
+            const allInfo: Record<string, {start: string; end: string; totalPm: number}> = {};
+            (nwmAllRows || []).forEach((r: any) => {
+              if (!projectWPIds.includes(r.work_package_id)) return;
+              const wpId = r.work_package_id;
+              const pm = r.planned_pm || 0;
+              if (!allInfo[wpId]) {
+                allInfo[wpId] = {
+                  start: r.start_datum || '',
+                  end: r.ende_datum || '',
+                  totalPm: pm,
+                };
+              } else {
+                allInfo[wpId].totalPm += pm;
+                if (r.start_datum && r.start_datum < allInfo[wpId].start) allInfo[wpId].start = r.start_datum;
+                if (r.ende_datum && r.ende_datum > allInfo[wpId].end) allInfo[wpId].end = r.ende_datum;
+              }
+            });
+            setNwmAllApInfo(allInfo);
+            console.log('[TimesheetForm] NWM: Projekt-weite AP-Infos:', allInfo);
+          } else {
+            console.warn('[TimesheetForm] NWM: Kein Foerderzeitraum fuer', monatStart, '-', monatEnde);
+            setNwmApDates({});
+            nwmActiveFzDatesRef.current = null;
+            setNwmAllApInfo({});
+            // Fallback auf generische Assignments (fuer Uebergangszeitraeume)
+            const { data: assignments } = await supabaseClient
+              .from('v7_work_package_assignments')
+              .select('work_package_id, planned_person_months')
+              .eq('employee_id', selectedEmployeeId)
+              .eq('is_active', true);
+
+            (assignments || []).forEach((a: any) => {
+              if (projectWPIds.includes(a.work_package_id)) {
+                const pm = a.planned_person_months || 0;
+                if (pm > 0) {
+                  planned[a.work_package_id] = pm * hoursPerPM(pmBasisWAZ);
+                  assignedIds.push(a.work_package_id);
+                }
+              }
+            });
+          }
+        } else {
+          // Nicht-NWM: Generische Assignments wie bisher
+          setNwmApDates({});
+          nwmActiveFzDatesRef.current = null;
+          setNwmAllApInfo({});
+          const { data: assignments, error: assErr } = await supabaseClient
+            .from('v7_work_package_assignments')
+            .select('work_package_id, planned_person_months')
+            .eq('employee_id', selectedEmployeeId)
+            .eq('is_active', true);
+
+          if (assErr) {
+            console.error('[TimesheetForm] Fehler beim Laden der Assignments:', assErr);
+            return;
+          }
+
+          (assignments || []).forEach((a: any) => {
+            if (projectWPIds.includes(a.work_package_id)) {
+              const pm = a.planned_person_months || 0;
+              if (pm > 0) {
+                planned[a.work_package_id] = pm * hoursPerPM(pmBasisWAZ);
+                assignedIds.push(a.work_package_id);
+              }
+            }
+          });
+        }
 
         setPlannedHoursPerWP(planned);
         setAssignedWPIds(assignedIds);
@@ -1746,14 +1939,16 @@ export default function TimesheetForm({
         // 2. Kumulierte Ist-Stunden laden
         await reloadBookedHours();
 
-        console.log('[TimesheetForm] Arbeitsplan geladen:', { planned, assignedIds });
+        console.log('[TimesheetForm] Arbeitsplan geladen:', { planned, assignedIds, isNetzwerk });
       } catch (err) {
         console.error('[TimesheetForm] Fehler beim Laden der Arbeitsplan-Daten:', err);
       }
     };
 
     loadAssignmentData();
-  }, [selectedEmployeeId, selectedProjectId, workPackages, reloadBookedHours, pmBasisWAZ]);
+  // v7.4.6-85: selectedYear + selectedMonth als Deps, weil bei NWM der
+  // Foerderzeitraum monatsbezogen ermittelt wird (Jahreswechsel = neue APs).
+  }, [selectedEmployeeId, selectedProjectId, selectedYear, selectedMonth, workPackages, reloadBookedHours, pmBasisWAZ, isNetzwerk]);
 
   // v7.4.6-77: Der Team-Planstunden-Ladeeffekt (Grundlage der MA-Spalten im alten
   //   Inline-"Alle AP"-Modal) ist entfallen; ApStatusModal laedt diese Daten selbst.
@@ -4709,14 +4904,23 @@ export default function TimesheetForm({
                         <td className="border px-2 py-1.5 whitespace-nowrap font-mono text-xs">{wp.ap_code || `AP ${wp.ap_number}`}</td>
                         <td className="border px-2 py-1.5">{wp.name}</td>
                         <td className="border px-2 py-1.5 text-center whitespace-nowrap text-xs">
-                          {wp.start_date && wp.end_date
-                            ? `${new Date(wp.start_date).toLocaleDateString('de-DE')} \u2013 ${new Date(wp.end_date).toLocaleDateString('de-DE')}`
-                            : wp.start_date
-                              ? `ab ${new Date(wp.start_date).toLocaleDateString('de-DE')}`
-                              : '\u2013'}
+                          {/* v7.4.6-86: Bei NWM jahresspezifische Laufzeiten */}
+                          {(() => {
+                            const nwm = isNetzwerk && nwmAllApInfo[wp.id];
+                            const sd = nwm ? nwm.start : wp.start_date;
+                            const ed = nwm ? nwm.end : wp.end_date;
+                            if (sd && ed) return `${new Date(sd).toLocaleDateString('de-DE')} \u2013 ${new Date(ed).toLocaleDateString('de-DE')}`;
+                            if (sd) return `ab ${new Date(sd).toLocaleDateString('de-DE')}`;
+                            return '\u2013';
+                          })()}
                         </td>
                         <td className="border px-2 py-1.5 text-right whitespace-nowrap">
-                          {wp.total_person_months != null ? wp.total_person_months.toFixed(1) : '\u2013'}
+                          {/* v7.4.6-86: Bei NWM jahresspezifische PM */}
+                          {(() => {
+                            const nwm = isNetzwerk && nwmAllApInfo[wp.id];
+                            const pm = nwm ? nwm.totalPm : wp.total_person_months;
+                            return pm != null ? pm.toFixed(1) : '\u2013';
+                          })()}
                         </td>
                       </tr>
                     ))}
@@ -4725,8 +4929,12 @@ export default function TimesheetForm({
                   <tr className="bg-gray-50 font-semibold">
                     <td className="border px-2 py-1.5" colSpan={3}>Gesamt</td>
                     <td className="border px-2 py-1.5 text-right">
+                      {/* v7.4.6-86: Bei NWM jahresspezifische PM-Summe */}
                       {availableWorkPackages
-                        .reduce((sum, wp) => sum + (wp.total_person_months || 0), 0)
+                        .reduce((sum, wp) => {
+                          const nwm = isNetzwerk && nwmAllApInfo[wp.id];
+                          return sum + (nwm ? nwm.totalPm : (wp.total_person_months || 0));
+                        }, 0)
                         .toFixed(1)}
                     </td>
                   </tr>
@@ -4803,7 +5011,13 @@ export default function TimesheetForm({
                           <td className="border px-2 py-1.5 whitespace-nowrap font-mono text-xs">{apDisplay}</td>
                           <td className="border px-2 py-1.5">{wp.name}</td>
                           <td className="border px-2 py-1.5 whitespace-nowrap text-xs text-gray-600">
-                            {(wp.start_date || wp.end_date) ? `${fmtMon(wp.start_date)} \u2013 ${fmtMon(wp.end_date)}` : '\u2014'}
+                            {/* v7.4.6-86: Bei NWM jahresspezifische Zeitraeume anzeigen */}
+                            {(() => {
+                              const nwm = isNetzwerk && nwmApDates[wp.id];
+                              const sd = nwm ? nwm.start : wp.start_date;
+                              const ed = nwm ? nwm.end : wp.end_date;
+                              return (sd || ed) ? `${fmtMon(sd)} \u2013 ${fmtMon(ed)}` : '\u2014';
+                            })()}
                           </td>
                           {isDurchfuehrbarkeitsstudie && (
                             <td className="border px-2 py-1.5 text-center">
@@ -4854,6 +5068,8 @@ export default function TimesheetForm({
         projectId={selectedProjectId}
         projectLabel={selectedProject?.short_name || selectedProject?.name || ''}
         showMonthly={apAnalyseEnabled}
+        selectedYear={selectedYear}
+        selectedMonth={selectedMonth}
         onJumpToTimesheet={(employeeId, year, month) => {
           checkUnsavedChanges(() => {
             setShowAllAPModal(false);
