@@ -2,7 +2,12 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-67
+// Version: 7.4.4-68
+// v7.4.4-68: NWM Foerderquote automatisch aus v7_nwm_foerderzeitraeume statt
+//   Date-Arithmetik. openPanel laedt FZ-Daten fuer NWM-Projekte, neue Funktion
+//   getFoerderquoteFromFZ matched ZA-Zeitraum gegen FZ-Tabelle und liefert die
+//   korrekte foerderquote pro Netzwerkjahr. calcLaufzeitjahr + getFoerdersatzNWM
+//   bleiben als Fallback, greifen nur wenn keine FZ-Daten vorhanden.
 // v7.4.4-67: loadProjectAssignments liefert zusaetzlich assignment_start mit
 //   (Ergaenzung zu assignment_end aus -65). Wird von der Prognose-Utility
 //   v7.4.9-10 (Ebene 1) fuer das monatsgenaue Ein-/Austrittsfenster benoetigt
@@ -466,6 +471,13 @@ export default function ZAPanel({
     bewilligte_summe: number | null;
     pm_basis_weekly_hours: number | null;  // v7.4.4-59: Antrags-WAZ fuer Satz-Skalierung
   }>({ bewilligung_datum: null, bewilligte_summe: null, pm_basis_weekly_hours: null });
+  // v7.4.4-68: NWM Foerderzeitraeume fuer automatische Foerderquote
+  const [nwmFoerderzeitraeumeZA, setNwmFoerderzeitraeumeZA] = useState<Array<{
+    netzwerkjahr: number;
+    start_datum: string;
+    ende_datum: string;
+    foerderquote: number;
+  }>>([]);
   const [zaFormData, setZAFormData] = useState<ZAFormData>({
     za_nummer: '1',
     zeitraum_von: '',
@@ -495,6 +507,20 @@ export default function ZAPanel({
       bewilligte_summe: projectDB?.bewilligte_summe || null,
       pm_basis_weekly_hours: projectDB?.pm_basis_weekly_hours ?? null,
     });
+
+    // v7.4.4-68: NWM Foerderzeitraeume laden fuer automatische Foerderquote
+    const projForFZ = projects.find(p => p.id === pid);
+    const isFZNetzwerk = String(projForFZ?.funding_format || '').toUpperCase().trim() === 'ZIM_NETZWERK';
+    if (isFZNetzwerk) {
+      const { data: fzRows } = await supabase
+        .from('v7_nwm_foerderzeitraeume')
+        .select('netzwerkjahr, start_datum, ende_datum, foerderquote')
+        .eq('project_id', pid)
+        .order('netzwerkjahr', { ascending: true });
+      setNwmFoerderzeitraeumeZA(fzRows || []);
+    } else {
+      setNwmFoerderzeitraeumeZA([]);
+    }
 
     const { data: existingZAs } = await supabase
       .from('v7_zahlungsanforderungen')
@@ -764,6 +790,33 @@ export default function ZAPanel({
     return stufe ? stufe.satz_percent : (stufen[stufen.length - 1]?.satz_percent || 30);
   };
 
+  // v7.4.4-68: Foerderquote aus v7_nwm_foerderzeitraeume ermitteln.
+  // Matched das ZA-Periodenende (zeitraum_bis) gegen die FZ-Zeitraeume.
+  // Rueckgabe: { netzwerkjahr, foerderquote } oder null wenn kein Match.
+  const getFoerderquoteFromFZ = (bisStr: string): { netzwerkjahr: number; foerderquote: number } | null => {
+    if (!bisStr || nwmFoerderzeitraeumeZA.length === 0) return null;
+    const bisDate = new Date(bisStr);
+    // Finde den FZ, in dessen Zeitraum das ZA-Periodenende faellt
+    for (const fz of nwmFoerderzeitraeumeZA) {
+      const fzStart = new Date(fz.start_datum);
+      const fzEnde = new Date(fz.ende_datum);
+      if (bisDate >= fzStart && bisDate <= fzEnde) {
+        return { netzwerkjahr: fz.netzwerkjahr, foerderquote: fz.foerderquote };
+      }
+    }
+    // Fallback: Wenn bisDate vor dem ersten FZ liegt, nimm den ersten
+    const firstFZ = nwmFoerderzeitraeumeZA[0];
+    if (bisDate < new Date(firstFZ.start_datum)) {
+      return { netzwerkjahr: firstFZ.netzwerkjahr, foerderquote: firstFZ.foerderquote };
+    }
+    // Wenn bisDate nach dem letzten FZ liegt, nimm den letzten
+    const lastFZ = nwmFoerderzeitraeumeZA[nwmFoerderzeitraeumeZA.length - 1];
+    if (bisDate > new Date(lastFZ.ende_datum)) {
+      return { netzwerkjahr: lastFZ.netzwerkjahr, foerderquote: lastFZ.foerderquote };
+    }
+    return null;
+  };
+
   // NWM-Personalkosten aus ZE berechnen (foerderfaehige Std x hourly_rate_approved)
   const calcNWMPersonalkosten = (pid: string, vonStr: string, bisStr: string): number => {
     if (!vonStr || !bisStr) return 0;
@@ -969,12 +1022,18 @@ export default function ZAPanel({
   const psData = (vonStr && bisStr && projectId) ? getZAPersonenstunden(projectId, vonStr, bisStr) : [];
 
   // NWM-spezifische Berechnungen (nur relevant wenn isNetzwerk)
-  const nwmLaufzeitjahr = isNetzwerk && bisStr
-    ? calcLaufzeitjahr(zaProjectExtra.bewilligung_datum || zaProject?.bewilligung_datum || null, bisStr)
-    : 1;
-  const nwmFoerdersatz = isNetzwerk
-    ? getFoerdersatzNWM(zaProject, nwmLaufzeitjahr)
-    : (zaProject?.foerdersatz || 0);
+  // v7.4.4-68: Primaer aus v7_nwm_foerderzeitraeume, Fallback auf Date-Arithmetik
+  const fzMatch = isNetzwerk && bisStr ? getFoerderquoteFromFZ(bisStr) : null;
+  const nwmLaufzeitjahr = fzMatch
+    ? fzMatch.netzwerkjahr
+    : (isNetzwerk && bisStr
+      ? calcLaufzeitjahr(zaProjectExtra.bewilligung_datum || zaProject?.bewilligung_datum || null, bisStr)
+      : 1);
+  const nwmFoerdersatz = fzMatch
+    ? fzMatch.foerderquote
+    : (isNetzwerk
+      ? getFoerdersatzNWM(zaProject, nwmLaufzeitjahr)
+      : (zaProject?.foerdersatz || 0));
   const nwmPersonalkosten = isNetzwerk && vonStr && bisStr
     ? calcNWMPersonalkosten(projectId, vonStr, bisStr)
     : 0;
@@ -1211,10 +1270,10 @@ export default function ZAPanel({
                     Bitte im Projekt bearbeiten (Tab &Uuml;bersicht &rsaquo; Bearbeiten).
                   </div>
                 )}
-                {isNetzwerk && !zaProjectExtra.bewilligung_datum && !zaProject?.bewilligung_datum && (
+                {isNetzwerk && nwmFoerderzeitraeumeZA.length === 0 && !zaProjectExtra.bewilligung_datum && !zaProject?.bewilligung_datum && (
                   <div className="bg-amber-50 border border-amber-300 rounded p-2 text-xs text-amber-700 mb-3">
-                    Bewilligungsdatum fehlt. Bitte im Tab Netzwerk &rsaquo; Einstellungen hinterlegen,
-                    damit Laufzeitjahr und F&ouml;rdersatz automatisch berechnet werden.
+                    Weder F&ouml;rderzeitr&auml;ume noch Bewilligungsdatum hinterlegt. Bitte im Tab Netzwerk &rsaquo; Einstellungen
+                    die F&ouml;rderzeitr&auml;ume anlegen, damit F&ouml;rderquote und Netzwerkjahr automatisch ermittelt werden.
                   </div>
                 )}
 
@@ -1226,10 +1285,12 @@ export default function ZAPanel({
                         NWM-Kosten Abrechnungszeitraum
                       </div>
                       <div className="flex items-center gap-2 ml-auto">
-                        <span className="text-xs text-gray-500">Laufzeitjahr:</span>
+                        <span className="text-xs text-gray-500">Netzwerkjahr:</span>
                         <span className="text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded">{nwmLaufzeitjahr}</span>
-                        <span className="text-xs text-gray-500 ml-2">F&ouml;rdersatz:</span>
+                        <span className="text-xs text-gray-500 ml-2">F&ouml;rderquote:</span>
                         <span className="text-xs font-bold text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded">{nwmFoerdersatz}%</span>
+                        {fzMatch && <span className="text-[10px] text-green-600 ml-1">(aus FZ-Tabelle)</span>}
+                        {!fzMatch && isNetzwerk && <span className="text-[10px] text-amber-600 ml-1">(Fallback)</span>}
                         <span className="text-xs text-gray-500 ml-2">Eigenanteil:</span>
                         <span className="text-xs font-bold text-orange-700 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded">{nwmEigenanteilsquote}%</span>
                       </div>
