@@ -1,6 +1,13 @@
 'use client';
 // src/components/shared/ApStatusModal.tsx
-// Version: 1.0-11
+// Version: 1.0-12
+// v1.0-12: NWM-JAHRESSPEZIFISCH. Bei ZIM_NETZWERK-Projekten werden ueber die
+//   neuen Props selectedYear/selectedMonth der aktive Foerderzeitraum ermittelt
+//   und daraus: (a) die geplanten Stunden je (AP, MA) aus v7_nwm_ap_planung
+//   statt aus v7_work_package_assignments geladen, (b) die Buchungen auf den
+//   Foerderzeitraum-Datumsbereich eingeschraenkt, (c) die Laufzeit-Spalte mit
+//   jahresspezifischen Daten befuellt. Damit zeigt "Alle AP" den korrekten
+//   Bearbeitungsstand fuer das gewaehlte Netzwerkjahr.
 // v1.0-11: RUNDUNG - Gesamt-Spalten gehen jetzt spaltenweise exakt auf.
 //   PROBLEM: In der AP-Status-Uebersicht zeigte die "gesamt"-Spalte (geplant/
 //   offen) 0,01h-Reste, die in den MA-Spalten nicht auftauchten (dort 0,00).
@@ -147,9 +154,13 @@ interface ApStatusModalProps {
   // Wird vom Aufrufer portalgerecht verdrahtet (inkl. returnUrl). Fehlt der Callback,
   // sind die MA-Zellen nicht klickbar.
   onJumpToTimesheet?: (employeeId: string, year: number, month: number) => void;
+  // v1.0-12: Aktuell gewaehlter Monat (wird nur bei NWM benoetigt, um den
+  // aktiven Foerderzeitraum zu ermitteln).
+  selectedYear?: number;
+  selectedMonth?: number;
 }
 
-export default function ApStatusModal({ open, onClose, projectId, projectLabel, showMonthly = true, onJumpToTimesheet }: ApStatusModalProps) {
+export default function ApStatusModal({ open, onClose, projectId, projectLabel, showMonthly = true, onJumpToTimesheet, selectedYear, selectedMonth }: ApStatusModalProps) {
   // v1.0-2: 'YYYY-MM' -> Sprung in die Zeiterfassung des MA fuer diesen Monat.
   const jumpTo = (empId: string, ym: string) => {
     if (!onJumpToTimesheet) return;
@@ -178,6 +189,8 @@ export default function ApStatusModal({ open, onClose, projectId, projectLabel, 
   const [expandedAllApRows, setExpandedAllApRows] = useState<Set<string>>(new Set());
   // v1.0-5: fuer den Druck werden voruebergehend ALLE mehrmonatigen APs aufgeklappt.
   const [printExpandAll, setPrintExpandAll] = useState(false);
+  // v1.0-12: NWM jahresspezifische AP-Zeitraeume (Override fuer wp.start_date/end_date)
+  const [nwmApDates, setNwmApDates] = useState<Record<string, { start: string; end: string }>>({});
 
   // v1.0-10: Druck ueber ein eigenes, sauberes Druckfenster. Die In-Place-Varianten
   //   (v1.0-4..-9) erzeugten je nach Datenmenge Artefakte (abgeschnitten, halbe Breite,
@@ -312,34 +325,114 @@ export default function ApStatusModal({ open, onClose, projectId, projectLabel, 
         });
 
         // 6. Geplante Stunden je (AP, MA) ueber das ganze Team
+        // v1.0-12: Bei NWM aus v7_nwm_ap_planung (jahresspezifisch),
+        // sonst wie bisher aus v7_work_package_assignments.
+        const isNwm = projectRow?.funding_format === 'ZIM_NETZWERK';
+        let nwmFzStart: string | null = null;
+        let nwmFzEnd: string | null = null;
+        // v1.0-12: jahresspezifische AP-Zeitraeume (nur NWM)
+        const nwmApDatesMap: Record<string, { start: string; end: string }> = {};
+
         const plannedMap: Record<string, Record<string, number>> = {};
         if (wpIds.length > 0) {
-          const { data: wpAssigns } = await supabase
-            .from('v7_work_package_assignments')
-            .select('work_package_id, employee_id, planned_person_months')
-            .in('work_package_id', wpIds)
-            .eq('is_active', true);
           const factor = hoursPerPM(pmBasis);
-          (wpAssigns || []).forEach((a: { work_package_id: string; employee_id: string; planned_person_months: number | null }) => {
-            const pm = a.planned_person_months || 0;
-            if (a.work_package_id && a.employee_id && pm > 0) {
-              if (!plannedMap[a.work_package_id]) plannedMap[a.work_package_id] = {};
-              plannedMap[a.work_package_id][a.employee_id] =
-                (plannedMap[a.work_package_id][a.employee_id] || 0) + pm * factor;
+
+          if (isNwm && selectedYear && selectedMonth) {
+            // NWM-Pfad: Foerderzeitraeume laden und passenden ermitteln
+            const { data: fzData } = await supabase
+              .from('v7_nwm_foerderzeitraeume')
+              .select('id, netzwerkjahr, start_datum, ende_datum')
+              .eq('project_id', projectId)
+              .order('netzwerkjahr');
+
+            const dim = new Date(selectedYear, selectedMonth, 0).getDate();
+            const monatStart = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
+            const monatEnde = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(dim).padStart(2, '0')}`;
+
+            const aktiverFZ = (fzData || []).find(
+              (fz: any) => fz.start_datum <= monatEnde && fz.ende_datum >= monatStart
+            );
+
+            if (aktiverFZ) {
+              nwmFzStart = aktiverFZ.start_datum;
+              nwmFzEnd = aktiverFZ.ende_datum;
+              console.log('[ApStatusModal] NWM: Aktiver FZ:', aktiverFZ.netzwerkjahr, aktiverFZ.id);
+
+              // Geplante Stunden aus v7_nwm_ap_planung (alle MA)
+              const { data: nwmRows } = await supabase
+                .from('v7_nwm_ap_planung')
+                .select('work_package_id, employee_id, planned_pm, start_datum, ende_datum')
+                .eq('foerderzeitraum_id', aktiverFZ.id);
+
+              (nwmRows || []).forEach((a: any) => {
+                const wpId = a.work_package_id;
+                const empId = a.employee_id;
+                const pm = a.planned_pm || 0;
+                if (wpId && empId && pm > 0) {
+                  if (!plannedMap[wpId]) plannedMap[wpId] = {};
+                  plannedMap[wpId][empId] =
+                    (plannedMap[wpId][empId] || 0) + pm * factor;
+                }
+                // Zeitraeume sammeln (MIN start, MAX end pro WP)
+                if (wpId && a.start_datum && a.ende_datum) {
+                  if (!nwmApDatesMap[wpId]) {
+                    nwmApDatesMap[wpId] = { start: a.start_datum, end: a.ende_datum };
+                  } else {
+                    if (a.start_datum < nwmApDatesMap[wpId].start) nwmApDatesMap[wpId].start = a.start_datum;
+                    if (a.ende_datum > nwmApDatesMap[wpId].end) nwmApDatesMap[wpId].end = a.ende_datum;
+                  }
+                }
+              });
+            } else {
+              console.warn('[ApStatusModal] NWM: Kein passender FZ fuer', monatStart);
+              // Fallback auf generische Assignments
+              const { data: wpAssigns } = await supabase
+                .from('v7_work_package_assignments')
+                .select('work_package_id, employee_id, planned_person_months')
+                .in('work_package_id', wpIds)
+                .eq('is_active', true);
+              (wpAssigns || []).forEach((a: { work_package_id: string; employee_id: string; planned_person_months: number | null }) => {
+                const pm = a.planned_person_months || 0;
+                if (a.work_package_id && a.employee_id && pm > 0) {
+                  if (!plannedMap[a.work_package_id]) plannedMap[a.work_package_id] = {};
+                  plannedMap[a.work_package_id][a.employee_id] =
+                    (plannedMap[a.work_package_id][a.employee_id] || 0) + pm * factor;
+                }
+              });
             }
-          });
+          } else {
+            // Nicht-NWM: Generische Assignments wie bisher
+            const { data: wpAssigns } = await supabase
+              .from('v7_work_package_assignments')
+              .select('work_package_id, employee_id, planned_person_months')
+              .in('work_package_id', wpIds)
+              .eq('is_active', true);
+            (wpAssigns || []).forEach((a: { work_package_id: string; employee_id: string; planned_person_months: number | null }) => {
+              const pm = a.planned_person_months || 0;
+              if (a.work_package_id && a.employee_id && pm > 0) {
+                if (!plannedMap[a.work_package_id]) plannedMap[a.work_package_id] = {};
+                plannedMap[a.work_package_id][a.employee_id] =
+                  (plannedMap[a.work_package_id][a.employee_id] || 0) + pm * factor;
+              }
+            });
+          }
         }
 
         // 7. Projektweite Buchungen aus v7_timesheets (gesamt / je MA / je MA je Monat)
+        // v1.0-12: Bei NWM auf den Foerderzeitraum einschraenken.
         const projBooked: Record<string, number> = {};
         const projBookedPerMa: Record<string, Record<string, number>> = {};
         const projBookedPerMaMonth: Record<string, Record<string, Record<string, number>>> = {};
-        const { data: projEntries } = await supabase
+        let tsQuery = supabase
           .from('v7_timesheets')
           .select('work_package_id, employee_id, hours, work_date')
           .eq('project_id', projectId)
           .eq('is_active', true)
           .eq('is_billable', true);
+        if (nwmFzStart && nwmFzEnd) {
+          tsQuery = tsQuery.gte('work_date', nwmFzStart).lte('work_date', nwmFzEnd);
+        }
+        const { data: projEntries } = await tsQuery;
         (projEntries || []).forEach((e: { work_package_id: string | null; employee_id: string | null; hours: number | string | null; work_date: string | null }) => {
           if (e.work_package_id) {
             const h = parseFloat(String(e.hours)) || 0;
@@ -370,6 +463,7 @@ export default function ApStatusModal({ open, onClose, projectId, projectLabel, 
         setProjectBookedPerWP(projBooked);
         setProjectBookedPerWpPerMa(projBookedPerMa);
         setProjectBookedPerWpPerMaMonth(projBookedPerMaMonth);
+        setNwmApDates(nwmApDatesMap);
         setExpandedAllApRows(new Set());
       } catch (err) {
         console.error('[ApStatusModal] Fehler beim Laden der AP-Status-Daten:', err);
@@ -379,7 +473,9 @@ export default function ApStatusModal({ open, onClose, projectId, projectLabel, 
     };
     load();
     return () => { cancelled = true; };
-  }, [open, projectId]);
+  // v1.0-12: selectedYear/selectedMonth als Deps, weil bei NWM der
+  // Foerderzeitraum (und damit geplante Stunden + Buchungsfilter) wechselt.
+  }, [open, projectId, selectedYear, selectedMonth]);
 
   // --------------------------------------------------------------------------
   // Abgeleitete Werte (analog TimesheetForm)
@@ -469,8 +565,18 @@ export default function ApStatusModal({ open, onClose, projectId, projectLabel, 
         {loading ? (
           <p className="text-gray-500 text-sm">l&auml;dt...</p>
         ) : (() => {
+          // v1.0-12: Bei NWM nur die APs des aktiven Foerderzeitraums anzeigen
+          // (die, fuer die im NWM-Arbeitsplan Eintraege existieren). Sonst wie
+          // bisher alle APs mit total_person_months > 0.
+          const isNwmActive = project?.funding_format === 'ZIM_NETZWERK' && Object.keys(nwmApDates).length > 0;
           const realAPs = workPackages
-            .filter(wp => wp.total_person_months != null && wp.total_person_months > 0)
+            .filter(wp => {
+              if (isNwmActive) {
+                // AP gehoert zum aktiven FZ wenn es NWM-Plandaten oder Buchungen gibt
+                return !!nwmApDates[wp.id] || !!plannedHoursPerWpPerMa[wp.id];
+              }
+              return wp.total_person_months != null && wp.total_person_months > 0;
+            })
             .sort(compareApCode);
           if (realAPs.length === 0) {
             return (
@@ -576,9 +682,11 @@ export default function ApStatusModal({ open, onClose, projectId, projectLabel, 
                   // rechnerische Soll (total_person_months x hoursPerPM) nur, wenn
                   // fuer diesen AP gar kein MA-Planwert vorliegt.
                   const hasMaPlan = team.some(e => (pMap[e.id] || 0) > 0);
+                  // v1.0-12: Bei NWM darf der Fallback NICHT wp.total_person_months
+                  // nutzen (das ist der Gesamtwert ueber alle Jahre). Stattdessen 0.
                   const planned = hasMaPlan
                     ? r2(team.reduce((a, e) => a + r2(pMap[e.id] || 0), 0))
-                    : r2((wp.total_person_months || 0) * hoursPerPM(pmBasisWAZ));
+                    : (isNwmActive ? 0 : r2((wp.total_person_months || 0) * hoursPerPM(pmBasisWAZ)));
                   const booked = team.length > 0
                     ? r2(team.reduce((a, e) => a + r2(bMap[e.id] || 0), 0))
                     : (projectBookedPerWP[wp.id] || 0);
@@ -602,7 +710,13 @@ export default function ApStatusModal({ open, onClose, projectId, projectLabel, 
                       </td>
                       <td className="border px-2 py-1.5 align-top w-[11rem] whitespace-normal break-words leading-tight">{wp.name}</td>
                       <td className="border px-2 py-1.5 whitespace-nowrap text-xs text-gray-600 align-top">
-                        {(wp.start_date || wp.end_date) ? `${fmtMon(wp.start_date)} \u2013 ${fmtMon(wp.end_date)}` : '\u2014'}
+                        {/* v1.0-12: Bei NWM jahresspezifische Zeitraeume */}
+                        {(() => {
+                          const nwm = nwmApDates[wp.id];
+                          const sd = nwm ? nwm.start : wp.start_date;
+                          const ed = nwm ? nwm.end : wp.end_date;
+                          return (sd || ed) ? `${fmtMon(sd)} \u2013 ${fmtMon(ed)}` : '\u2014';
+                        })()}
                       </td>
                       {isDurchfuehrbarkeitsstudie && (
                         <td className="border px-2 py-1.5 text-center align-top">
