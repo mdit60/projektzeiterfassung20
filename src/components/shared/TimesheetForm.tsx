@@ -3,7 +3,25 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 8. September 2026
-// Version: 7.4.6-91
+// Version: 7.4.6-92
+// v7.4.6-92: EINGABE der Elternzeit als Zeitraum (Bereichsdialog).
+//   - Rechtsklick auf eine Tageszelle: "Elternzeit (Zeitraum) ..." bzw. an
+//     einem E-Tag "Elternzeit-Zeitraum entfernen ...". Alternativ oeffnet die
+//     Eingabe von "E" in einer AP-Tageszelle denselben Dialog.
+//   - Der Dialog fragt von/bis ab und zeigt vor dem Schreiben eine Vorschau:
+//     Zahl der Werktage, zu ersetzende Urlaubs-/Kranktage, Tage mit bereits
+//     erfassten Arbeitsstunden (werden NICHT ueberschrieben) und abgeschlossene
+//     Monate (werden uebersprungen).
+//   - Geschrieben werden alle Tage Montag bis Freitag INKLUSIVE Feiertagen;
+//     waehrend der Elternzeit gibt es keine Entgeltfortzahlung und damit auch
+//     keine bezahlten Feiertagsstunden. Wochenenden bleiben frei.
+//   - Vorhandene U/K/S-Tage im Zeitraum werden standardmaessig ersetzt (ein
+//     Urlaubstag in der Elternzeit ist kein Urlaubstag mehr, Paragraph 17
+//     BEEG); abwaehlbar.
+//   - Ruecknahme ueber denselben Dialog; ersetzte Fehlzeiten werden dabei nicht
+//     wiederhergestellt (Hinweis im Dialog).
+//   - Berechtigung: nur Berater oder Firmen-Administrator (isAdmin).
+//   Siehe KONZEPT-ELTERNZEIT-TIMESHEET-v1_0.md.
 // v7.4.6-91: FIX zu -90: An einem Elternzeit-Tag waren die Fehlzeit-Zeilen
 //   (Urlaub, Krankheit, Sonstige) weiter beschreibbar -- man konnte dort
 //   beliebige Stunden eintragen. Das verstoesst gegen die Regel "ein Code pro
@@ -1083,6 +1101,19 @@ export default function TimesheetForm({
   // den Monats-Abgleich beim Speichern verwaltet (siehe -89).
   const [elternzeitDays, setElternzeitDays] = useState<Set<number>>(new Set());
 
+  // v7.4.6-92: Bereichsdialog fuer Elternzeit
+  const [ezDialog, setEzDialog] = useState<{ mode: 'add' | 'remove'; von: string; bis: string } | null>(null);
+  const [ezErsetzen, setEzErsetzen] = useState(true);
+  const [ezVorschau, setEzVorschau] = useState<{
+    kandidaten: string[];
+    ersetzbar: Array<{ id: string; work_date: string; absence_code: string }>;
+    konfliktTage: string[];
+    gesperrteMonate: string[];
+    bereitsE: number;
+  } | null>(null);
+  const [ezBusy, setEzBusy] = useState(false);
+  const [ezFehler, setEzFehler] = useState<string | null>(null);
+
   // v7.4.6-31: Kurzarbeit -- reiner Tag-Marker (keine Stunden). Praesenz je Tag.
   const [kurzarbeitInput, setKurzarbeitInput] = useState<Record<number, { id?: string }>>({});
   // v7.4.6-31: Rechtsklick-Kontextmenue (Urlaub/Krankheit/Sonstige/Kurzarbeit)
@@ -1435,6 +1466,250 @@ export default function TimesheetForm({
 
   // v7.4.6-90: Ist dieser Tag als Elternzeit markiert?
   const isElternzeitDay = (day: number): boolean => elternzeitDays.has(day);
+
+  // ==========================================================================
+  // ELTERNZEIT-ZEITRAUM (v7.4.6-92)
+  // ==========================================================================
+  // Elternzeit wird nicht Tag fuer Tag erfasst, sondern als Zeitraum. Der
+  // Dialog schreibt E-Zeilen (0 Stunden) nach v7_employee_absences fuer alle
+  // Tage Montag bis Freitag im Zeitraum, Feiertage eingeschlossen.
+  // Berechtigung: nur Berater oder Firmen-Administrator.
+  const darfElternzeitPflegen = portal === 'berater' || isAdmin;
+
+  const ezIsoDatum = (jahr: number, monat: number, tag: number): string =>
+    `${jahr}-${String(monat).padStart(2, '0')}-${String(tag).padStart(2, '0')}`;
+
+  const ezDatumDE = (iso: string): string => {
+    const teile = iso.split('-');
+    return teile.length === 3 ? `${teile[2]}.${teile[1]}.${teile[0]}` : iso;
+  };
+
+  const ezMonatDE = (jahrMonat: string): string => {
+    const teile = jahrMonat.split('-');
+    if (teile.length < 2) return jahrMonat;
+    const idx = parseInt(teile[1], 10) - 1;
+    return `${MONTH_NAMES[idx] || teile[1]} ${teile[0]}`;
+  };
+
+  // Alle Tage Mo-Fr im Zeitraum. Feiertage sind bewusst enthalten.
+  const ezWerktage = (von: string, bis: string): string[] => {
+    const out: string[] = [];
+    if (!von || !bis) return out;
+    const start = new Date(von + 'T12:00:00');
+    const ende = new Date(bis + 'T12:00:00');
+    if (isNaN(start.getTime()) || isNaN(ende.getTime()) || ende < start) return out;
+    const cursor = new Date(start);
+    let schutz = 0;
+    while (cursor <= ende && schutz < 1500) {
+      const dow = cursor.getDay();
+      if (dow !== 0 && dow !== 6) {
+        out.push(ezIsoDatum(cursor.getFullYear(), cursor.getMonth() + 1, cursor.getDate()));
+      }
+      cursor.setDate(cursor.getDate() + 1);
+      schutz++;
+    }
+    return out;
+  };
+
+  const openElternzeitDialog = (day: number, mode: 'add' | 'remove' = 'add') => {
+    closeCtxMenu();
+    if (!darfElternzeitPflegen) {
+      setError('Elternzeit darf nur ein Berater oder ein Firmen-Administrator eintragen.');
+      return;
+    }
+    setEzDialog({ mode, von: ezIsoDatum(selectedYear, selectedMonth, day), bis: '' });
+    setEzVorschau(null);
+    setEzFehler(null);
+    setEzErsetzen(true);
+  };
+
+  const closeElternzeitDialog = () => {
+    if (ezBusy) return;
+    setEzDialog(null);
+    setEzVorschau(null);
+    setEzFehler(null);
+  };
+
+  // Vorschau: was wuerde geschrieben, was ersetzt, was bleibt unangetastet.
+  const berechneEzVorschau = async () => {
+    if (!ezDialog || !selectedEmployeeId) return;
+    const { von, bis } = ezDialog;
+    const tage = ezWerktage(von, bis);
+    if (tage.length === 0) {
+      setEzVorschau(null);
+      setEzFehler('Bitte ein gueltiges Von- und Bis-Datum angeben (Bis darf nicht vor Von liegen).');
+      return;
+    }
+    setEzBusy(true);
+    setEzFehler(null);
+    try {
+      const supabaseClient = createClient();
+      const [absRes, tsRes, compRes] = await Promise.all([
+        supabaseClient
+          .from('v7_employee_absences')
+          .select('id, work_date, absence_code')
+          .eq('employee_id', selectedEmployeeId)
+          .eq('is_active', true)
+          .gte('work_date', von)
+          .lte('work_date', bis),
+        supabaseClient
+          .from('v7_timesheets')
+          .select('work_date, hours')
+          .eq('employee_id', selectedEmployeeId)
+          .eq('is_active', true)
+          .gt('hours', 0)
+          .gte('work_date', von)
+          .lte('work_date', bis),
+        supabaseClient
+          .from('v7_timesheet_completions')
+          .select('year, month')
+          .eq('employee_id', selectedEmployeeId),
+      ]);
+
+      const absRows = (absRes.data || []) as Array<{ id: string; work_date: string; absence_code: string }>;
+      const tsRows = (tsRes.data || []) as Array<{ work_date: string; hours: number | null }>;
+      const compRows = (compRes.data || []) as Array<{ year: number; month: number }>;
+
+      const bereitsE = new Set(
+        absRows.filter(a => (a.absence_code || '').toUpperCase() === 'E').map(a => a.work_date)
+      );
+      const konflikt = new Set(tsRows.map(t => t.work_date));
+      const gesperrt = new Set(compRows.map(c => `${c.year}-${String(c.month).padStart(2, '0')}`));
+
+      const kandidaten = tage.filter(d =>
+        !bereitsE.has(d) && !konflikt.has(d) && !gesperrt.has(d.slice(0, 7))
+      );
+      const kandidatenSet = new Set(kandidaten);
+      const ersetzbar = absRows.filter(a =>
+        ['U', 'K', 'S'].includes((a.absence_code || '').toUpperCase()) && kandidatenSet.has(a.work_date)
+      );
+
+      setEzVorschau({
+        kandidaten,
+        ersetzbar,
+        konfliktTage: tage.filter(d => konflikt.has(d)),
+        gesperrteMonate: Array.from(new Set(
+          tage.filter(d => gesperrt.has(d.slice(0, 7))).map(d => d.slice(0, 7))
+        )),
+        bereitsE: tage.filter(d => bereitsE.has(d)).length,
+      });
+    } catch (err) {
+      console.error('[TimesheetForm] Elternzeit-Vorschau fehlgeschlagen:', err);
+      setEzFehler('Die Vorschau konnte nicht geladen werden.');
+    } finally {
+      setEzBusy(false);
+    }
+  };
+
+  // Lokale Anzeige des aktuell gezeigten Monats nachziehen (kein Neuladen noetig).
+  const ezStateAktualisieren = (daten: string[], modus: 'add' | 'remove') => {
+    const praefix = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-`;
+    const tageImMonat = daten
+      .filter(d => d.startsWith(praefix))
+      .map(d => parseInt(d.slice(8), 10))
+      .filter(t => !isNaN(t));
+    if (tageImMonat.length === 0) return;
+    setElternzeitDays(prev => {
+      const next = new Set(prev);
+      tageImMonat.forEach(t => { if (modus === 'add') next.add(t); else next.delete(t); });
+      return next;
+    });
+    if (modus === 'add') {
+      setAbsenceHoursInput(prev => {
+        const next = { U: { ...prev.U }, K: { ...prev.K }, S: { ...prev.S } };
+        tageImMonat.forEach(t => { delete next.U[t]; delete next.K[t]; delete next.S[t]; });
+        return next;
+      });
+    }
+  };
+
+  const speichereElternzeit = async () => {
+    if (!ezDialog || !ezVorschau || !selectedEmployeeId) return;
+    setEzBusy(true);
+    setEzFehler(null);
+    try {
+      const supabaseClient = createClient();
+      const jetzt = new Date().toISOString();
+
+      // (1) Vorhandene U/K/S im Zeitraum deaktivieren, wenn gewuenscht.
+      if (ezErsetzen && ezVorschau.ersetzbar.length > 0) {
+        const { error } = await supabaseClient
+          .from('v7_employee_absences')
+          .update({ is_active: false, updated_at: jetzt })
+          .in('id', ezVorschau.ersetzbar.map(a => a.id));
+        if (error) throw error;
+      }
+
+      // (2) E-Zeilen schreiben. Ohne Ersetzen bleiben belegte Tage ausgespart.
+      const ersetzteTage = new Set(ezVorschau.ersetzbar.map(a => a.work_date));
+      const zuSchreiben = ezErsetzen
+        ? ezVorschau.kandidaten
+        : ezVorschau.kandidaten.filter(d => !ersetzteTage.has(d));
+
+      for (let i = 0; i < zuSchreiben.length; i += 200) {
+        const teil = zuSchreiben.slice(i, i + 200).map(d => ({
+          employee_id: selectedEmployeeId,
+          client_company_id: companyId,
+          work_date: d,
+          absence_code: 'E',
+          hours: 0,
+          note: 'Elternzeit',
+          entered_by: currentUserId,
+          entered_at: jetzt,
+          is_active: true,
+        }));
+        const { error } = await supabaseClient.from('v7_employee_absences').insert(teil);
+        if (error) throw error;
+      }
+
+      ezStateAktualisieren(zuSchreiben, 'add');
+      setEzDialog(null);
+      setEzVorschau(null);
+      setSuccessMessage(`Elternzeit eingetragen: ${zuSchreiben.length} Tage.`);
+      setTimeout(() => setSuccessMessage(null), 5000);
+    } catch (err: any) {
+      console.error('[TimesheetForm] Elternzeit speichern fehlgeschlagen:', err);
+      setEzFehler('Speichern fehlgeschlagen: ' + (err?.message || 'unbekannter Fehler'));
+    } finally {
+      setEzBusy(false);
+    }
+  };
+
+  const entferneElternzeit = async () => {
+    if (!ezDialog || !selectedEmployeeId) return;
+    const { von, bis } = ezDialog;
+    if (!von || !bis) {
+      setEzFehler('Bitte Von- und Bis-Datum angeben.');
+      return;
+    }
+    setEzBusy(true);
+    setEzFehler(null);
+    try {
+      const supabaseClient = createClient();
+      const jetzt = new Date().toISOString();
+      const { data, error } = await supabaseClient
+        .from('v7_employee_absences')
+        .update({ is_active: false, updated_at: jetzt })
+        .eq('employee_id', selectedEmployeeId)
+        .eq('absence_code', 'E')
+        .eq('is_active', true)
+        .gte('work_date', von)
+        .lte('work_date', bis)
+        .select('work_date');
+      if (error) throw error;
+      const entfernt = ((data || []) as Array<{ work_date: string }>).map(r => r.work_date);
+      ezStateAktualisieren(entfernt, 'remove');
+      setEzDialog(null);
+      setEzVorschau(null);
+      setSuccessMessage(`Elternzeit entfernt: ${entfernt.length} Tage.`);
+      setTimeout(() => setSuccessMessage(null), 5000);
+    } catch (err: any) {
+      console.error('[TimesheetForm] Elternzeit entfernen fehlgeschlagen:', err);
+      setEzFehler('Entfernen fehlgeschlagen: ' + (err?.message || 'unbekannter Fehler'));
+    } finally {
+      setEzBusy(false);
+    }
+  };
 
   // v7.4.6-31: Ist dieser Tag als Kurzarbeit markiert?
   const isKurzarbeitDay = (day: number): boolean => !!kurzarbeitInput[day];
@@ -2498,6 +2773,12 @@ export default function TimesheetForm({
   };
 
   const handleCellChange = (rowIndex: number, day: number, value: string) => {
+    // v7.4.6-92: "E" in einer Tageszelle oeffnet den Elternzeit-Zeitraumdialog.
+    // Elternzeit wird nie einzeln erfasst, sondern immer als Zeitraum.
+    if (value && value.trim().toUpperCase() === 'E') {
+      openElternzeitDialog(day, 'add');
+      return;
+    }
     // v7.4.6-31: Defensiv -- an einem Kurzarbeitstag werden keine Arbeitsstunden
     // erfasst (die AP-Zellen sind dort ohnehin gesperrt).
     if (value && !isAbsenceCode(value) && isKurzarbeitDay(day)) {
@@ -5437,6 +5718,157 @@ export default function TimesheetForm({
         </div>
       )}
 
+      {/* v7.4.6-92: Elternzeit-Zeitraum erfassen oder entfernen */}
+      {ezDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center print:hidden">
+          <div className="absolute inset-0 bg-black/40" onClick={closeElternzeitDialog} />
+          <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 p-5 max-h-[90vh] overflow-y-auto">
+            <h3 className="text-base font-semibold text-gray-900 mb-1">
+              {ezDialog.mode === 'add' ? 'Elternzeit erfassen' : 'Elternzeit-Zeitraum entfernen'}
+            </h3>
+            <p className="text-xs text-gray-500 mb-4">
+              Mitarbeiter: {selectedEmployee?.display_name || '-'}
+            </p>
+
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Von</label>
+                <input
+                  type="date"
+                  value={ezDialog.von}
+                  onChange={e => { setEzDialog({ ...ezDialog, von: e.target.value }); setEzVorschau(null); }}
+                  disabled={ezBusy}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Bis</label>
+                <input
+                  type="date"
+                  value={ezDialog.bis}
+                  onChange={e => { setEzDialog({ ...ezDialog, bis: e.target.value }); setEzVorschau(null); }}
+                  disabled={ezBusy}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
+                />
+              </div>
+            </div>
+
+            {ezFehler && (
+              <div className="mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                {ezFehler}
+              </div>
+            )}
+
+            {ezDialog.mode === 'add' && (
+              <>
+                <button
+                  type="button"
+                  onClick={berechneEzVorschau}
+                  disabled={ezBusy || !ezDialog.von || !ezDialog.bis}
+                  className="mb-3 px-3 py-1.5 text-sm rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {ezBusy ? 'Pruefe ...' : 'Zeitraum pruefen'}
+                </button>
+
+                {ezVorschau && (
+                  <div className="mb-3 space-y-2 text-sm">
+                    <div className="px-3 py-2 bg-sky-50 border border-sky-200 rounded-lg">
+                      <strong>{ezVorschau.kandidaten.length}</strong> Tage werden mit E belegt
+                      (Montag bis Freitag, Feiertage eingeschlossen, Wochenenden bleiben frei).
+                      {ezVorschau.bereitsE > 0 && (
+                        <div className="text-xs text-gray-600 mt-1">
+                          {ezVorschau.bereitsE} Tage sind bereits als Elternzeit erfasst.
+                        </div>
+                      )}
+                    </div>
+
+                    {ezVorschau.ersetzbar.length > 0 && (
+                      <div className="px-3 py-2 bg-amber-50 border border-amber-300 rounded-lg text-amber-900">
+                        <label className="flex items-start gap-2">
+                          <input
+                            type="checkbox"
+                            checked={ezErsetzen}
+                            onChange={e => setEzErsetzen(e.target.checked)}
+                            className="mt-0.5"
+                          />
+                          <span>
+                            <strong>{ezVorschau.ersetzbar.length}</strong> Fehlzeit-Tage (Urlaub, Krankheit,
+                            Sonstige) liegen im Zeitraum und werden durch E ersetzt.
+                            <span className="block text-xs mt-0.5">
+                              Ein Urlaubstag, der in die Elternzeit faellt, ist kein Urlaubstag mehr.
+                              Haken entfernen, wenn diese Tage unveraendert bleiben sollen.
+                            </span>
+                          </span>
+                        </label>
+                      </div>
+                    )}
+
+                    {ezVorschau.konfliktTage.length > 0 && (
+                      <div className="px-3 py-2 bg-red-50 border border-red-300 rounded-lg text-red-800">
+                        <strong>{ezVorschau.konfliktTage.length} Tage mit erfassten Arbeitsstunden</strong> im
+                        Zeitraum. Diese Tage werden NICHT ueberschrieben.
+                        <div className="text-xs mt-0.5">
+                          {ezVorschau.konfliktTage.slice(0, 8).map(ezDatumDE).join(', ')}
+                          {ezVorschau.konfliktTage.length > 8 ? ' ...' : ''}
+                          <br />Bitte das Von-Datum pruefen.
+                        </div>
+                      </div>
+                    )}
+
+                    {ezVorschau.gesperrteMonate.length > 0 && (
+                      <div className="px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-700 text-xs">
+                        Abgeschlossene Monate werden uebersprungen:{' '}
+                        {ezVorschau.gesperrteMonate.map(ezMonatDE).join(', ')}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
+            {ezDialog.mode === 'remove' && (
+              <div className="mb-3 px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs text-gray-700">
+                Alle Elternzeit-Tage im angegebenen Zeitraum werden entfernt. Zuvor ersetzte
+                Urlaubs- oder Kranktage werden dabei NICHT wiederhergestellt und muessen bei
+                Bedarf neu erfasst werden.
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3 mt-5">
+              <button
+                type="button"
+                onClick={closeElternzeitDialog}
+                disabled={ezBusy}
+                className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg"
+              >
+                Abbrechen
+              </button>
+              {ezDialog.mode === 'add' ? (
+                <button
+                  type="button"
+                  onClick={speichereElternzeit}
+                  disabled={ezBusy || !ezVorschau || ezVorschau.kandidaten.length === 0}
+                  className="px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50"
+                  style={{ backgroundColor: '#0369a1' }}
+                >
+                  {ezBusy ? 'Speichern ...' : `${ezVorschau ? ezVorschau.kandidaten.length : 0} Tage eintragen`}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={entferneElternzeit}
+                  disabled={ezBusy || !ezDialog.von || !ezDialog.bis}
+                  className="px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50"
+                  style={{ backgroundColor: '#b91c1c' }}
+                >
+                  {ezBusy ? 'Entferne ...' : 'Zeitraum entfernen'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* v7.4.6-31: Rechtsklick-Kontextmenue (Urlaub/Krankheit/Sonstige/Kurzarbeit) */}
       {ctxMenu && (
         <div className="fixed inset-0 z-50 print:hidden" onClick={closeCtxMenu} onContextMenu={(e) => { e.preventDefault(); closeCtxMenu(); }}>
@@ -5470,6 +5902,28 @@ export default function TimesheetForm({
               Sonstige Ausfallzeit (z. B. Feiertag)
             </button>
             <div className="border-t border-gray-100 my-1"></div>
+            {darfElternzeitPflegen && (
+              <>
+                <div className="border-t border-gray-100 my-1"></div>
+                {isElternzeitDay(ctxMenu.day) ? (
+                  <button
+                    type="button"
+                    className="block w-full text-left px-3 py-1.5 hover:bg-sky-50 text-sky-800"
+                    onClick={() => openElternzeitDialog(ctxMenu.day, 'remove')}
+                  >
+                    Elternzeit-Zeitraum entfernen ...
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="block w-full text-left px-3 py-1.5 hover:bg-sky-50 text-sky-800"
+                    onClick={() => openElternzeitDialog(ctxMenu.day, 'add')}
+                  >
+                    Elternzeit (Zeitraum) ...
+                  </button>
+                )}
+              </>
+            )}
             {isKurzarbeitDay(ctxMenu.day) ? (
               <button
                 type="button"
