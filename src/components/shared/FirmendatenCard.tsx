@@ -2,8 +2,8 @@
 
 // ============================================================================
 // SHARED COMPONENT: FirmendatenCard
-// Version: 7.4.6-1
-// Datum: 20. April 2026
+// Version: 7.4.6-2
+// Datum: 8. September 2026
 //
 // Verwendung:
 //   - Berater-Portal: /v7/berater/foerderung/firma/[id] (Tab: Firmendaten)
@@ -14,6 +14,15 @@
 //   portal   : 'berater'|'firma' - steuert Farbe (blau/gruen)
 //   canEdit  : boolean        - Bearbeiten-Button sichtbar?
 //
+// v7.4.6-2: FIX Bundesland: Dropdown arbeitete mit Langnamen ('Schleswig-Holstein'),
+//            die Firmen-Neuanlage speichert aber ISO-Codes ('DE-SH'). Dadurch stand
+//            im Bearbeiten-Modal '-- Bitte auswaehlen --', obwohl ein Bundesland
+//            gesetzt war; beim Speichern wurde der Langname zurueckgeschrieben.
+//            - BUNDESLAENDER jetzt als { code, name } (ISO-Codes wie bei Neuanlage)
+//            - Vorbelegung ueber normalizeStateCode() -> Altbestand mit Langnamen
+//              wird ebenfalls korrekt vorausgewaehlt
+//            - Speichern schreibt immer den ISO-Code (federal_state)
+//            - Anzeige zeigt den Klartextnamen statt 'DE-SH'
 // v7.4.6-1: NEU: Feld holiday_region (kommunaler Feiertags-Override)
 //            - Dropdown im Modal: sichtbar nur bei Bayern/Sachsen/Thueringen
 //            - Info-Banner in Anzeige: wenn Bundesland Sonderregelung hat und
@@ -52,24 +61,37 @@ const PORTAL_PRIMARY: Record<string, string> = {
   firma: '#65A655',
 };
 
-const BUNDESLAENDER = [
-  'Baden-Wuerttemberg',
-  'Bayern',
-  'Berlin',
-  'Brandenburg',
-  'Bremen',
-  'Hamburg',
-  'Hessen',
-  'Mecklenburg-Vorpommern',
-  'Niedersachsen',
-  'Nordrhein-Westfalen',
-  'Rheinland-Pfalz',
-  'Saarland',
-  'Sachsen',
-  'Sachsen-Anhalt',
-  'Schleswig-Holstein',
-  'Thueringen',
+// v7.4.6-2: ISO-Codes als gespeicherte Werte - identisch zur Firmen-Neuanlage
+// (foerderung-page). Der Langname dient nur der Anzeige.
+const BUNDESLAENDER: Array<{ code: string; name: string }> = [
+  { code: 'DE-BW', name: 'Baden-Wuerttemberg' },
+  { code: 'DE-BY', name: 'Bayern' },
+  { code: 'DE-BE', name: 'Berlin' },
+  { code: 'DE-BB', name: 'Brandenburg' },
+  { code: 'DE-HB', name: 'Bremen' },
+  { code: 'DE-HH', name: 'Hamburg' },
+  { code: 'DE-HE', name: 'Hessen' },
+  { code: 'DE-MV', name: 'Mecklenburg-Vorpommern' },
+  { code: 'DE-NI', name: 'Niedersachsen' },
+  { code: 'DE-NW', name: 'Nordrhein-Westfalen' },
+  { code: 'DE-RP', name: 'Rheinland-Pfalz' },
+  { code: 'DE-SL', name: 'Saarland' },
+  { code: 'DE-SN', name: 'Sachsen' },
+  { code: 'DE-ST', name: 'Sachsen-Anhalt' },
+  { code: 'DE-SH', name: 'Schleswig-Holstein' },
+  { code: 'DE-TH', name: 'Thueringen' },
 ];
+
+const BUNDESLAND_NAMES: Record<string, string> = Object.fromEntries(
+  BUNDESLAENDER.map((b) => [b.code, b.name])
+);
+
+// Anzeigename fuer einen gespeicherten Wert (ISO-Code oder Altbestand-Langname).
+function bundeslandLabel(value: string | null | undefined): string {
+  if (!value) return '';
+  const code = normalizeStateCode(value);
+  return BUNDESLAND_NAMES[code] || value;
+}
 
 // ============================================================================
 // TYPEN
@@ -128,7 +150,7 @@ function companyToForm(firma: ClientCompany): EditForm {
     street: firma.street || '',
     zip_code: firma.zip_code || '',
     city: firma.city || '',
-    federal_state: firma.federal_state || '',
+    federal_state: normalizeStateCode(firma.federal_state) || '',  // v7.4.6-2: Altbestand mit Langnamen wird auf ISO-Code gemappt
     holiday_region: firma.holiday_region || '',
     contact_person: firma.contact_person || '',
     contact_email: firma.contact_email || '',
@@ -247,7 +269,7 @@ export default function FirmendatenCard({
           street: form.street.trim() || null,
           zip_code: form.zip_code.trim() || null,
           city: form.city.trim() || null,
-          federal_state: form.federal_state,
+          federal_state: stateCode,  // v7.4.6-2: immer ISO-Code speichern
           holiday_region: regionForSave,
           contact_person: form.contact_person.trim() || null,
           contact_email: form.contact_email.trim() || null,
@@ -351,7 +373,7 @@ export default function FirmendatenCard({
                   <div>{[firma.zip_code, firma.city].filter(Boolean).join(' ')}</div>
                 )}
                 {firma.federal_state && (
-                  <div className="text-gray-600">{firma.federal_state}</div>
+                  <div className="text-gray-600">{bundeslandLabel(firma.federal_state)}</div>
                 )}
                 {!firma.street && !firma.zip_code && !firma.city && !firma.federal_state && (
                   <div className="text-gray-400">-</div>
@@ -603,7 +625,7 @@ export default function FirmendatenCard({
                 >
                   <option value="">-- Bitte auswaehlen --</option>
                   {BUNDESLAENDER.map((bl) => (
-                    <option key={bl} value={bl}>{bl}</option>
+                    <option key={bl.code} value={bl.code}>{bl.name}</option>
                   ))}
                 </select>
               </div>
