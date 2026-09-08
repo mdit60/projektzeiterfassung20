@@ -3,7 +3,19 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 8. September 2026
-// Version: 7.4.6-88
+// Version: 7.4.6-89
+// v7.4.6-89: SCHUTZ fuer den kommenden Abwesenheitscode 'E' (Elternzeit).
+//   Der Monats-Abgleich beim Speichern (A-034 Etappe 2b) deaktivierte bisher
+//   JEDE aktive Zeile in v7_employee_absences des Monats, die nicht im
+//   Soll-Stand steht. Der Soll-Stand kennt nur U/K/S -- ein E-Zeitraum waere
+//   damit beim naechsten Speichern eines beliebigen Projekt-Stundennachweises
+//   still deaktiviert worden.
+//   FIX: Die Ist-Abfrage des Abgleichs filtert jetzt auf absence_code IN
+//   ('U','K','S'). E-Zeilen werden dadurch weder gelesen noch deaktiviert; sie
+//   werden ausschliesslich ueber den Elternzeit-Bereichsdialog verwaltet
+//   (KONZEPT-ELTERNZEIT-TIMESHEET-v1_0.md Paragraph 5.3).
+//   Reiner Schutz-Commit ohne sichtbare Aenderung: solange keine E-Zeilen
+//   existieren, ist das Verhalten identisch zu -88.
 // v7.4.6-88: REVERT des pWAZ-Vorrangs aus -87. Fuer alles Zeitliche
 //   (Tages-Sollstunden, Monatsgrenze, Ampeln) sind wieder ausschliesslich die
 //   MA-Stammdaten massgeblich: Teilzeit-Historie zum Monatsersten ->
@@ -3437,12 +3449,16 @@ export default function TimesheetForm({
         });
       });
 
+      // v7.4.6-89: NUR U/K/S laden. Der Abgleich unten deaktiviert alles, was
+      // hier steht und nicht im Soll-Stand ist -- ohne diesen Filter wuerde ein
+      // Elternzeit-Zeitraum (Code 'E') beim Speichern verschwinden.
       const { data: currentAbsences } = await supabase
         .from('v7_employee_absences')
         .select('id, work_date, absence_code, hours')
         .eq('employee_id', selectedEmployeeId)
         .gte('work_date', startDate)
         .lte('work_date', endDate)
+        .in('absence_code', ['U', 'K', 'S'])
         .eq('is_active', true);
 
       const desiredByDate = new Map(desiredAbsences.map(d => [d.work_date, d]));
