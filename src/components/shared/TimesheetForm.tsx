@@ -3,7 +3,24 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 8. September 2026
-// Version: 7.4.6-95
+// Version: 7.4.6-96
+// v7.4.6-96: "sonstige Arbeiten" wird auch auf LEEREN Arbeitstagen wieder
+//   gefuellt. Bisher galt in einem bereits gespeicherten Monat
+//   (monthHadData=true): nur Tage nachfuehren, in denen schon ein Wert steht;
+//   leere Tage blieben leer, um bewusste Loeschungen zu schuetzen.
+//   Folge: Stand an einem Tag zuvor die volle Tagesarbeitszeit auf dem
+//   Projekt (Auto-Wert 0 -> Feld leer) und wurden die Projektstunden spaeter
+//   reduziert, blieb die Zelle leer, statt die Differenz zu zeigen.
+//   Gemeldet am Beispiel 16.06.2026 (Projekt auf 4,67 reduziert, "sonstige"
+//   blieb leer statt 3,33).
+//   ENTSCHEIDUNG (Martin, 08.09.2026): "sonstige Arbeiten" ist immer die
+//   Differenz aus Tagesarbeitszeit und gebuchten Stunden.
+//   FIX: Die Unterscheidung neuer/gespeicherter Monat entfaellt fuer die
+//   Auto-Vorbelegung. Auf jedem reinen Arbeitstag gilt: Auto-Wert > 0 ->
+//   eintragen, Auto-Wert 0 -> Zelle leeren.
+//   UNVERAENDERT: Wochenenden, Feiertage, gesperrte Tage, Kurzarbeit und
+//   Abwesenheitstage bekommen keine Auto-Vorbelegung; dort eingetragene Werte
+//   (z.B. Dienstreise am Samstag) bleiben unangetastet.
 // v7.4.6-95: EINHEITLICHES Zahlenformat in allen Stundenzellen.
 //   Bisher standen zwei Formate nebeneinander: aus der Datenbank geladene
 //   Werte wurden roh uebernommen (JavaScript-Zahl -> "8", "4.67" mit PUNKT),
@@ -3376,22 +3393,13 @@ export default function TimesheetForm({
           const cur = prev[d]?.value || '';
           const curVal = cur ? parseHours(cur) : 0;
           const same = Math.abs(curVal - auto) < 0.005;
-          if (!monthHadData) {
-            // Neuer Monat: leere Tage auffuellen, Auto-Werte nachfuehren
-            if (auto > 0) {
-              if (!same) { next[d] = { ...(next[d] || { id: '' }), value: fmtHCell(auto) }; changed = true; }
-            } else if (cur !== '') {
-              delete next[d]; changed = true;
-            }
-          } else {
-            // Gespeicherter Monat: nur bereits gefuellte Tage nachfuehren
-            if (cur !== '') {
-              if (auto > 0) {
-                if (!same) { next[d] = { ...next[d], value: fmtHCell(auto) }; changed = true; }
-              } else {
-                delete next[d]; changed = true;
-              }
-            }
+          // v7.4.6-96: Einheitlich fuer neue und gespeicherte Monate --
+          // "sonstige" ist immer die Differenz. Auch ein leeres Feld wird
+          // wieder gefuellt, sobald die Projektstunden Platz lassen.
+          if (auto > 0) {
+            if (!same) { next[d] = { ...(next[d] || { id: '' }), value: fmtHCell(auto) }; changed = true; }
+          } else if (cur !== '') {
+            delete next[d]; changed = true;
           }
           finalNB = next[d]?.value ? parseHours(next[d].value) : 0;
         }
