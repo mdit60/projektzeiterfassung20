@@ -3,7 +3,16 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 8. September 2026
-// Version: 7.4.6-90
+// Version: 7.4.6-91
+// v7.4.6-91: FIX zu -90: An einem Elternzeit-Tag waren die Fehlzeit-Zeilen
+//   (Urlaub, Krankheit, Sonstige) weiter beschreibbar -- man konnte dort
+//   beliebige Stunden eintragen. Das verstoesst gegen die Regel "ein Code pro
+//   Tag": ein E-Tag ist weder Arbeitstag noch Urlaubs-/Kranktag.
+//   FIX: (1) An E-Tagen wird in den Zeilen U, K und S kein Eingabefeld mehr
+//   gerendert (analog Wochenende/Kurzarbeit/Feiertag); die Zelle ist hellblau
+//   hinterlegt und traegt einen Hinweistext. (2) canEdit liefert fuer die
+//   Fehlzeit-Zeilen an E-Tagen false, damit die Pfeil-/Tab-Navigation nicht in
+//   einer nicht existierenden Zelle haengen bleibt.
 // v7.4.6-90: LESEPFAD fuer den Abwesenheitscode 'E' (Elternzeit).
 //   (1) E-Tage werden aus v7_employee_absences geladen (neuer State
 //       elternzeitDays). Sie tragen 0 Stunden und fliessen daher in keine
@@ -2707,7 +2716,11 @@ export default function TimesheetForm({
       // PL-Sperre oder eine bereits eingetragene Abwesenheit disabled (siehe
       // Zell-Render) -> sie muessen erreichbar bleiben, damit der Cursor auf die
       // Fehlzeit springen und ueber sie hinweg navigieren kann.
-      if (type === 'absence-U' || type === 'absence-K' || type === 'absence-S') return true;
+      // v7.4.6-91: An Elternzeit-Tagen existiert in den Fehlzeit-Zeilen kein
+      // Eingabefeld -> auch fuer die Navigation ueberspringen.
+      if (type === 'absence-U' || type === 'absence-K' || type === 'absence-S') {
+        return !isElternzeitDay(d);
+      }
       // Arbeitszeilen (ap/nonbillable): exakt die Zell-disabled-Bedingung spiegeln,
       // sonst haengt die Navigation an einer disabled Zelle (Symptom: Pfeil/Tab
       // springt an Abwesenheitstagen nicht weiter, kein Zurueck moeglich).
@@ -4715,10 +4728,15 @@ export default function TimesheetForm({
                   const holiday = isHoliday(selectedYear, selectedMonth, day);
                   const entry = absenceHoursInput.U[day];
                   const isKA = isKurzarbeitDay(day);  // v7.4.6-31
+                  const isEZ = isElternzeitDay(day);  // v7.4.6-91
                   return (
-                    <td key={day} className={`border p-0 text-center text-[10px] ${weekend ? 'bg-gray-100' : holiday ? 'bg-orange-100' : isKA ? 'bg-amber-100 print:bg-white' : 'bg-white'}`}>
+                    <td key={day}
+                      className={`border p-0 text-center text-[10px] ${weekend ? 'bg-gray-100' : holiday ? 'bg-orange-100' : isKA ? 'bg-amber-100 print:bg-white' : isEZ ? 'bg-sky-50 print:bg-white' : 'bg-white'}`}
+                      title={isEZ ? 'Elternzeit -- an diesem Tag ist keine Fehlzeit erfassbar' : undefined}
+                    >
                       {/* v7.4.6-48 A-036: an Feiertagen kein U-Eingabefeld */}
-                      {!weekend && !isKA && !holiday && (
+                      {/* v7.4.6-91: an Elternzeit-Tagen ebenfalls kein Eingabefeld */}
+                      {!weekend && !isKA && !holiday && !isEZ && (
                         <input
                           type="text" inputMode="decimal"
                           value={entry?.value || ''}
@@ -4754,10 +4772,15 @@ export default function TimesheetForm({
                   const holiday = isHoliday(selectedYear, selectedMonth, day);  // v7.4.6-48 A-036
                   const entry = absenceHoursInput.K[day];
                   const isKA = isKurzarbeitDay(day);  // v7.4.6-31
+                  const isEZ = isElternzeitDay(day);  // v7.4.6-91
                   return (
-                    <td key={day} className={`border p-0 text-center text-[10px] ${weekend ? 'bg-gray-100' : holiday ? 'bg-orange-100' : isKA ? 'bg-amber-100 print:bg-white' : 'bg-white'}`}>
+                    <td key={day}
+                      className={`border p-0 text-center text-[10px] ${weekend ? 'bg-gray-100' : holiday ? 'bg-orange-100' : isKA ? 'bg-amber-100 print:bg-white' : isEZ ? 'bg-sky-50 print:bg-white' : 'bg-white'}`}
+                      title={isEZ ? 'Elternzeit -- an diesem Tag ist keine Fehlzeit erfassbar' : undefined}
+                    >
                       {/* v7.4.6-48 A-036: an Feiertagen kein K-Eingabefeld */}
-                      {!weekend && !isKA && !holiday && (
+                      {/* v7.4.6-91: an Elternzeit-Tagen ebenfalls kein Eingabefeld */}
+                      {!weekend && !isKA && !holiday && !isEZ && (
                         <input
                           type="text" inputMode="decimal"
                           value={entry?.value || ''}
@@ -4793,9 +4816,14 @@ export default function TimesheetForm({
                   const holiday = isHoliday(selectedYear, selectedMonth, day);
                   const entry = absenceHoursInput.S[day];
                   const isKA = isKurzarbeitDay(day);  // v7.4.6-31
+                  const isEZ = isElternzeitDay(day);  // v7.4.6-91
                   return (
-                    <td key={day} className={`border p-0 text-center text-[10px] ${weekend ? 'bg-gray-100' : holiday ? 'bg-orange-100' : isKA ? 'bg-amber-100 print:bg-white' : 'bg-white'}`}>
-                      {!weekend && !isKA && (
+                    <td key={day}
+                      className={`border p-0 text-center text-[10px] ${weekend ? 'bg-gray-100' : holiday ? 'bg-orange-100' : isKA ? 'bg-amber-100 print:bg-white' : isEZ ? 'bg-sky-50 print:bg-white' : 'bg-white'}`}
+                      title={isEZ ? 'Elternzeit -- an diesem Tag ist keine Fehlzeit erfassbar' : undefined}
+                    >
+                      {/* v7.4.6-91: an Elternzeit-Tagen kein S-Eingabefeld */}
+                      {!weekend && !isKA && !isEZ && (
                         <input
                           type="text" inputMode="decimal"
                           value={entry?.value || ''}
