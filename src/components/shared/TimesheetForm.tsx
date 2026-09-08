@@ -3,7 +3,23 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 8. September 2026
-// Version: 7.4.6-89
+// Version: 7.4.6-90
+// v7.4.6-90: LESEPFAD fuer den Abwesenheitscode 'E' (Elternzeit).
+//   (1) E-Tage werden aus v7_employee_absences geladen (neuer State
+//       elternzeitDays). Sie tragen 0 Stunden und fliessen daher in keine
+//       Summe ein.
+//   (2) getAbsenceCodeForDay liefert jetzt auch 'E'. Damit gilt an einem
+//       E-Tag automatisch die bestehende ganztaegige Sperre: weder
+//       Projektstunden noch sonstige Arbeitszeit buchbar, Zellen disabled,
+//       Auto-Vorbelegung "sonstige" raeumt den Tag.
+//   (3) Die Feiertags-Vorbelegung der S-Zeile ueberspringt E-Tage - waehrend
+//       der Elternzeit gibt es keine Entgeltfortzahlung, ein Feiertag darf
+//       dort keine bezahlten Ausfallstunden erzeugen.
+//   (4) Neue Anzeigezeile "Elternzeit" im Abschnitt Fehlzeiten, analog zur
+//       Kurzarbeit-Zeile: nur sichtbar wenn E-Tage vorhanden sind, rein
+//       informativ, zeigt 'E' je Tag und die Zahl der Tage.
+//   Das Anlegen und Entfernen von E-Zeitraeumen (Bereichsdialog) folgt in
+//   einem eigenen Build - siehe KONZEPT-ELTERNZEIT-TIMESHEET-v1_0.md.
 // v7.4.6-89: SCHUTZ fuer den kommenden Abwesenheitscode 'E' (Elternzeit).
 //   Der Monats-Abgleich beim Speichern (A-034 Etappe 2b) deaktivierte bisher
 //   JEDE aktive Zeile in v7_employee_absences des Monats, die nicht im
@@ -1053,6 +1069,11 @@ export default function TimesheetForm({
     S: Record<number, CalendarEntry>;
   }>({ U: {}, K: {}, S: {} });
 
+  // v7.4.6-90: Elternzeit-Tage (Code 'E' aus v7_employee_absences). Bewusst
+  // KEIN Teil von absenceHoursInput: E traegt 0 Stunden und wird nicht ueber
+  // den Monats-Abgleich beim Speichern verwaltet (siehe -89).
+  const [elternzeitDays, setElternzeitDays] = useState<Set<number>>(new Set());
+
   // v7.4.6-31: Kurzarbeit -- reiner Tag-Marker (keine Stunden). Praesenz je Tag.
   const [kurzarbeitInput, setKurzarbeitInput] = useState<Record<number, { id?: string }>>({});
   // v7.4.6-31: Rechtsklick-Kontextmenue (Urlaub/Krankheit/Sonstige/Kurzarbeit)
@@ -1384,7 +1405,10 @@ export default function TimesheetForm({
   // erfasst ist. Liefert den Code zurueck oder null. Grundlage fuer die Sperre,
   // damit nicht versehentlich Arbeitsstunden auf einen Urlaubs-/Kranktag gebucht
   // werden (z.B. wenn Fehlzeiten fuer den ganzen Monat vorab eingetragen wurden).
-  const getAbsenceCodeForDay = (day: number): 'U' | 'K' | 'S' | null => {
+  const getAbsenceCodeForDay = (day: number): 'U' | 'K' | 'S' | 'E' | null => {
+    // v7.4.6-90: Elternzeit zuerst pruefen. E traegt 0 Stunden, wuerde also von
+    // der Stundenpruefung unten nie erkannt - die Tagessperre gilt trotzdem.
+    if (elternzeitDays.has(day)) return 'E';
     const codes: Array<'U' | 'K' | 'S'> = ['U', 'K', 'S'];
     for (const code of codes) {
       const e = absenceHoursInput[code]?.[day];
@@ -1394,8 +1418,14 @@ export default function TimesheetForm({
   };
 
   // v7.4.6-26: Klartext-Bezeichnung der Fehlzeit fuer Hinweis-Meldungen.
-  const absenceLabel = (code: 'U' | 'K' | 'S'): string =>
-    code === 'U' ? 'Urlaub' : code === 'K' ? 'Krankheit' : 'Sonstige bezahlte Ausfallzeit';
+  const absenceLabel = (code: 'U' | 'K' | 'S' | 'E'): string =>
+    code === 'U' ? 'Urlaub'
+      : code === 'K' ? 'Krankheit'
+        : code === 'E' ? 'Elternzeit'
+          : 'Sonstige bezahlte Ausfallzeit';
+
+  // v7.4.6-90: Ist dieser Tag als Elternzeit markiert?
+  const isElternzeitDay = (day: number): boolean => elternzeitDays.has(day);
 
   // v7.4.6-31: Ist dieser Tag als Kurzarbeit markiert?
   const isKurzarbeitDay = (day: number): boolean => !!kurzarbeitInput[day];
@@ -2224,9 +2254,16 @@ export default function TimesheetForm({
       // gesetzten Alt-Werten (neue Tabelle ist die maszgebliche Quelle). Die id
       // ist hier die absence-id; Etappe 2b synchronisiert beim Speichern
       // unabhaengig von der id-Herkunft ueber (Mitarbeiter, Monat).
+      // v7.4.6-90: Elternzeit-Tage separat sammeln (0 Stunden, eigene Zeile).
+      const newElternzeit = new Set<number>();
+
       (centralAbsences || []).forEach(a => {
         const day = parseInt(a.work_date.split('-')[2]);
         const code = (a.absence_code || '').toUpperCase();
+        if (code === 'E') {
+          newElternzeit.add(day);
+          return;
+        }
         if (code === 'U' || code === 'K' || code === 'S') {
           if (!newAbsenceHours[code]) newAbsenceHours[code] = {};
           newAbsenceHours[code][day] = {
@@ -2261,6 +2298,9 @@ export default function TimesheetForm({
         for (let d = 1; d <= daysInMonth; d++) {
           const dow = new Date(selectedYear, selectedMonth - 1, d).getDay();
           if (dow === 0 || dow === 6) continue; // Wochenende ueberspringen
+          // v7.4.6-90: An Elternzeit-Tagen keine Feiertags-Vorbelegung. Ohne
+          // Entgeltfortzahlung gibt es keine bezahlten Feiertagsstunden.
+          if (newElternzeit.has(d)) continue;
           const ds = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
           const isHol = monthHolidays.has(ds);
           const hasExisting = !!newAbsenceHours.S[d]?.value;
@@ -2284,6 +2324,8 @@ export default function TimesheetForm({
 
       // v7.4.6-16: Fehlzeiten-Stunden in State laden
       setAbsenceHoursInput(newAbsenceHours);
+      // v7.4.6-90: Elternzeit-Tage in State laden
+      setElternzeitDays(newElternzeit);
       // v7.4.6-31: Kurzarbeit-Marker in State laden
       setKurzarbeitInput(newKurzarbeit);
 
@@ -3019,7 +3061,9 @@ export default function TimesheetForm({
       }
       return changed ? next : prev;
     });
-  }, [apRows, nonBillableManual, employeeDailyHours, weeklyHoursAtMonth, otherProjectHours, selectedYear, selectedMonth, blockedDays, kurzarbeitInput, absenceHoursInput, monthHadData, isCompleted]);
+  // v7.4.6-90: elternzeitDays in die Abhaengigkeiten -- die Auto-Vorbelegung
+  // liest sie ueber getAbsenceCodeForDay.
+  }, [apRows, nonBillableManual, employeeDailyHours, weeklyHoursAtMonth, otherProjectHours, selectedYear, selectedMonth, blockedDays, kurzarbeitInput, absenceHoursInput, elternzeitDays, monthHadData, isCompleted]);
 
   const calculateTotalBillable = (): number => {
     return apRows.reduce((sum, row) => sum + calculateRowSum(row), 0);
@@ -4797,6 +4841,26 @@ export default function TimesheetForm({
                     {Object.keys(kurzarbeitInput).length} Tg.
                   </td>
                   <td className="border p-1 bg-amber-50 print:hidden"></td>
+                </tr>
+              )}
+              {/* v7.4.6-90: Elternzeit -- nur wenn vorhanden. Keine Stunden, */}
+              {/* daher keine Stundensumme, sondern die Zahl der Tage. */}
+              {elternzeitDays.size > 0 && (
+                <tr>
+                  <td className="border p-1 text-[10px]" colSpan={isDurchfuehrbarkeitsstudie ? 4 : 3}>Elternzeit (E, keine Arbeitszeit)</td>
+                  {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
+                    const weekend = isWeekend(selectedYear, selectedMonth, day);
+                    const isEZ = isElternzeitDay(day);
+                    return (
+                      <td key={day} className={`border p-1 text-center text-[10px] font-semibold ${weekend ? 'bg-gray-100' : isEZ ? 'bg-sky-100 text-sky-800 print:bg-white' : 'bg-white'}`}>
+                        {!weekend && isEZ ? 'E' : ''}
+                      </td>
+                    );
+                  })}
+                  <td className="border p-1 text-center font-semibold">
+                    {elternzeitDays.size} Tg.
+                  </td>
+                  <td className="border p-1 bg-sky-50 print:hidden"></td>
                 </tr>
               )}
             </tbody>
