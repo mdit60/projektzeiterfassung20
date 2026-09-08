@@ -3,7 +3,19 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 8. September 2026
-// Version: 7.4.6-94
+// Version: 7.4.6-95
+// v7.4.6-95: EINHEITLICHES Zahlenformat in allen Stundenzellen.
+//   Bisher standen zwei Formate nebeneinander: aus der Datenbank geladene
+//   Werte wurden roh uebernommen (JavaScript-Zahl -> "8", "4.67" mit PUNKT),
+//   automatisch berechnete Werte deutsch formatiert ("2,00"). In derselben
+//   Zeile stand dadurch mal "8", mal "2,00", mal "4.67".
+//   FIX: Neue Hilfsfunktion fmtHCell -- ganze Zahlen ohne Nachkommastellen
+//   ("8"), gebrochene mit zwei Stellen und Komma ("4,67"). Sie wird an allen
+//   Stellen verwendet, die einen Stundenwert in eine Eingabezelle schreiben:
+//   AP-Zeilen, "sonstige Arbeiten", Fehlzeiten aus der zentralen Tabelle,
+//   Feiertags-Vorbelegung, Fehlzeit aus dem Kontextmenue und die
+//   Auto-Vorbelegung.
+//   Reine Anzeigeaenderung -- gespeichert wird unveraendert die Zahl.
 // v7.4.6-94: FIX "sonstige Arbeiten" folgen den Projektstunden wieder.
 //   URSACHE: Beim Laden eines gespeicherten Monats wurde jeder Tag als
 //   "manuell geaendert" markiert, dessen gespeicherter Wert nicht exakt
@@ -1778,6 +1790,14 @@ export default function TimesheetForm({
   // v7.4.6-27: Stundenformat mit Komma fuer Meldungen.
   const fmtH = (h: number): string => h.toFixed(2).replace('.', ',');
 
+  // v7.4.6-95: Einheitliches Format fuer Werte IN den Eingabezellen.
+  // Ganze Zahlen ohne Nachkommastellen ("8"), sonst zwei Stellen mit Komma
+  // ("4,67"). Verhindert das Nebeneinander von "8", "2,00" und "4.67".
+  const fmtHCell = (h: number): string => {
+    const r = Math.round(h * 100) / 100;
+    return Number.isInteger(r) ? String(r) : r.toFixed(2).replace('.', ',');
+  };
+
   // v7.4.6-63: Reiner Arbeitstag? (kein Wochenende/Feiertag/Abwesenheit/
   // Kurzarbeit/gesperrter Tag) -- Grundlage fuer Auto-Vorbelegung + Save-Hinweis.
   const isPlainWorkday = (day: number): boolean => {
@@ -2546,13 +2566,13 @@ export default function TimesheetForm({
             if (!newAbsenceHours[code]) newAbsenceHours[code] = {};
             newAbsenceHours[code][day] = {
               id: entry.id,
-              value: entry.hours > 0 ? entry.hours.toString() : ''
+              value: entry.hours > 0 ? fmtHCell(entry.hours) : ''
             };
           }
           console.log('[TimesheetForm] Fehlzeit-/KA-Eintrag gefunden:', { day, absence_code: entry.absence_code });
         } else if (!entry.is_billable && !entry.work_package_id && !entry.absence_code) {
           // Sonstige nicht zuschussfaehige Arbeiten (ohne absence_code)
-          newNonBillable[day] = { id: entry.id, value: entry.hours > 0 ? entry.hours.toString() : '' };
+          newNonBillable[day] = { id: entry.id, value: entry.hours > 0 ? fmtHCell(entry.hours) : '' };
           console.log('[TimesheetForm] Sonstige-Eintrag gefunden:', { day, hours: entry.hours });
         } else {
           console.log('[TimesheetForm] Eintrag NICHT zugeordnet:', { 
@@ -2583,7 +2603,7 @@ export default function TimesheetForm({
           if (!newAbsenceHours[code]) newAbsenceHours[code] = {};
           newAbsenceHours[code][day] = {
             id: a.id,
-            value: (typeof a.hours === 'number' && a.hours > 0) ? a.hours.toString() : '',
+            value: (typeof a.hours === 'number' && a.hours > 0) ? fmtHCell(a.hours) : '',
           };
         }
       });
@@ -2623,7 +2643,7 @@ export default function TimesheetForm({
             console.log(`[TimesheetForm] FEIERTAG Tag ${d}: ${monthHolidays.get(ds)}, existingS=${hasExisting}, newAbsenceHours.S[${d}]=`, newAbsenceHours.S[d]);
           }
           if (isHol && !hasExisting) {
-            newAbsenceHours.S[d] = { id: '', value: dailyHrs.toString() };
+            newAbsenceHours.S[d] = { id: '', value: fmtHCell(dailyHrs) };
             autoFilledCount++;
             console.log(`[TimesheetForm] Feiertag auto-fill: Tag ${d} (${monthHolidays.get(ds)}) = ${dailyHrs}h`);
           }
@@ -2832,7 +2852,7 @@ export default function TimesheetForm({
         });
         next[code] = {
           ...next[code],
-          [day]: { id: prev[code][day]?.id || '', value: employeeDailyHours.toString() },
+          [day]: { id: prev[code][day]?.id || '', value: fmtHCell(employeeDailyHours) },
         };
         return next;
       });
@@ -3359,7 +3379,7 @@ export default function TimesheetForm({
           if (!monthHadData) {
             // Neuer Monat: leere Tage auffuellen, Auto-Werte nachfuehren
             if (auto > 0) {
-              if (!same) { next[d] = { ...(next[d] || { id: '' }), value: fmtH(auto) }; changed = true; }
+              if (!same) { next[d] = { ...(next[d] || { id: '' }), value: fmtHCell(auto) }; changed = true; }
             } else if (cur !== '') {
               delete next[d]; changed = true;
             }
@@ -3367,7 +3387,7 @@ export default function TimesheetForm({
             // Gespeicherter Monat: nur bereits gefuellte Tage nachfuehren
             if (cur !== '') {
               if (auto > 0) {
-                if (!same) { next[d] = { ...next[d], value: fmtH(auto) }; changed = true; }
+                if (!same) { next[d] = { ...next[d], value: fmtHCell(auto) }; changed = true; }
               } else {
                 delete next[d]; changed = true;
               }
