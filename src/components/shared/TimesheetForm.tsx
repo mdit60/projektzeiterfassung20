@@ -2,8 +2,22 @@
 // ============================================================================
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
-// Datum: 27. August 2026
-// Version: 7.4.6-86
+// Datum: 8. September 2026
+// Version: 7.4.6-88
+// v7.4.6-88: REVERT des pWAZ-Vorrangs aus -87. Fuer alles Zeitliche
+//   (Tages-Sollstunden, Monatsgrenze, Ampeln) sind wieder ausschliesslich die
+//   MA-Stammdaten massgeblich: Teilzeit-Historie zum Monatsersten ->
+//   v7_employees.weekly_hours -> Firmenstandard. Begruendung: die pWAZ in
+//   v7_project_assignments ist der Nenner der Anlage-6.1-Stundensatz-
+//   kalkulation (Jahresbrutto / (pWAZ x 52)) und an Antrag/Bescheid gebunden.
+//   Sie darf sich bei einer spaeteren Vertragsaenderung des MA NICHT
+//   mitaendern, sonst weicht die ZA vom Bescheid ab. Weicht der Stammsatz von
+//   der pWAZ ab, ist das ein Datenthema und wird im Team-Dialog
+//   (ProjectTeamManager) als Hinweis sichtbar gemacht.
+//   Aus -87 bleibt erhalten: der State wazQuelle und der Quellen-Zusatz an der
+//   Anzeige "x h/Woche" ("lt. Historie" / "lt. Stammdaten" / "Firmenstandard").
+// v7.4.6-87: (ueberholt durch -88) pWAZ des Projekts hatte Vorrang vor dem
+//   Stammsatz. Zurueckgenommen, siehe -88.
 // v7.4.6-86: NWM-Jahres-Anpassung fuer Modale und Bearbeitungsstand.
 //   (1) "Meine AP"-Modal zeigt jetzt jahresspezifische Zeitraeume (nwmApDates)
 //       statt der Gesamt-Projektdaten aus v7_work_packages.
@@ -1075,6 +1089,8 @@ export default function TimesheetForm({
   // ARBEITSZEITGRENZEN STATE (v7.4.6-12)
   // ============================================================================
   const [weeklyHoursAtMonth, setWeeklyHoursAtMonth] = useState<number>(40);
+  // v7.4.6-88: Quelle der wirksamen Wochenarbeitszeit (nur fuer den UI-Hinweis).
+  const [wazQuelle, setWazQuelle] = useState<'historie' | 'stammsatz' | 'firma'>('firma');
   const [positionTitle, setPositionTitle] = useState<string | null>(null);
 
   // Abgeleitete Werte
@@ -1457,8 +1473,8 @@ export default function TimesheetForm({
   }, [selectedYear, selectedMonth, holidays]);
 
   // ============================================================================
-  // ARBEITSZEITGRENZEN: MA-Daten laden (v7.4.6-11)
-  // Laedt position_title + weekly_hours aus Historie fuer aktuellen MA/Monat
+  // ARBEITSZEITGRENZEN: MA-Daten laden (v7.4.6-11, Rangfolge v7.4.6-88)
+  // Laedt position_title + die wirksame Wochenarbeitszeit fuer MA/Projekt/Monat
   // ============================================================================
   useEffect(() => {
     const loadMaData = async () => {
@@ -1473,7 +1489,9 @@ export default function TimesheetForm({
           .maybeSingle();
         setPositionTitle(empData?.position_title ?? null);
 
-        // weekly_hours aus Teilzeit-Historie fuer den ersten Tag des Monats
+        // v7.4.6-88: weekly_hours aus Teilzeit-Historie fuer den ersten Tag des
+        // Monats. Die pWAZ des Projekts wird hier bewusst NICHT herangezogen
+        // (siehe Kopfkommentar -88).
         const monatErster = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
         const { data: histEntry } = await supabaseClient
           .from('v7_employee_hours_history')
@@ -1486,16 +1504,26 @@ export default function TimesheetForm({
 
         if (histEntry?.weekly_hours) {
           setWeeklyHoursAtMonth(Number(histEntry.weekly_hours));
+          setWazQuelle('historie');
         } else {
           // v7.4.6-52: Fallback ist der FIRMENSTANDARD (standard_weekly_hours),
           // nicht hart 40. Eine MA ohne eigene WAZ erbt damit die Firmen-WAZ
           // (z.B. 37,5 -> 7,5 h/Tag), konsistent mit der Feiertags-Logik.
           // Hartes 40 fuehrte sonst bei Fehlzeiten zu 8 statt 7,5 h/Tag.
-          setWeeklyHoursAtMonth(Number(empData?.weekly_hours ?? company?.standard_weekly_hours ?? 40));
+          // v7.4.6-88: Quelle mitfuehren (Stammsatz vs. Firmenstandard).
+          const stammsatz = Number(empData?.weekly_hours ?? 0);
+          if (stammsatz > 0) {
+            setWeeklyHoursAtMonth(stammsatz);
+            setWazQuelle('stammsatz');
+          } else {
+            setWeeklyHoursAtMonth(Number(company?.standard_weekly_hours ?? 40));
+            setWazQuelle('firma');
+          }
         }
       } catch (err) {
         console.error('[TimesheetForm] Fehler beim Laden MA-Arbeitszeitdaten:', err);
         setWeeklyHoursAtMonth(company?.standard_weekly_hours ?? 40);
+        setWazQuelle('firma');
       }
     };
     loadMaData();
@@ -4019,12 +4047,26 @@ export default function TimesheetForm({
                   <option key={emp.id} value={emp.id}>{emp.display_name}</option>
                 ))}
               </select>
-              {/* v7.4.6-62: persoenliche Wochenarbeitszeit des MA (aus Teilzeit-Historie) */}
+              {/* v7.4.6-62: persoenliche Wochenarbeitszeit des MA */}
+              {/* v7.4.6-88: nennt zusaetzlich die Quelle des Wertes */}
               <span
                 className="text-sm text-gray-600 whitespace-nowrap"
-                title="Persoenliche Wochenarbeitszeit des Mitarbeiters (aus der Teilzeit-Historie)"
+                title={
+                  wazQuelle === 'historie'
+                    ? 'Wochenarbeitszeit aus der Teilzeit-Historie des Mitarbeiters (gueltig zum Monatsersten).'
+                    : wazQuelle === 'stammsatz'
+                      ? 'Wochenarbeitszeit aus den Stammdaten des Mitarbeiters (keine Historie hinterlegt).'
+                      : 'Regelarbeitszeit des Unternehmens (keine MA-Wochenstunden hinterlegt).'
+                }
               >
                 {weeklyHoursAtMonth.toLocaleString('de-DE', { maximumFractionDigits: 2 })} h/Woche
+                <span className="text-gray-400">
+                  {wazQuelle === 'historie'
+                    ? ' (lt. Historie)'
+                    : wazQuelle === 'stammsatz'
+                      ? ' (lt. Stammdaten)'
+                      : ' (Firmenstandard)'}
+                </span>
               </span>
             </div>
 

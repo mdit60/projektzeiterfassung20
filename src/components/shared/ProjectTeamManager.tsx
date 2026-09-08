@@ -2,8 +2,23 @@
 // ============================================================================
 // PZE V7 - Projekt-Team Management
 // ============================================================================
-// Datum: 6. Mai 2026
-// Version: 7.4.4-19
+// Datum: 8. September 2026
+// Version: 7.4.4-20
+// AENDERUNGEN v7.4.4-20:
+// - NEU: Divergenz-Hinweis bei der pWAZ. Weicht die im Projekt erfasste pWAZ
+//   von den aktuellen Wochenstunden der MA-Stammdaten
+//   (v7_employees.weekly_hours) ab, erscheint unter dem pWAZ/bWAZ-Block ein
+//   Hinweisfeld mit beiden Werten (Add- und Edit-Dialog).
+// - Bewusst nur ein HINWEIS, keine Uebernahme: die pWAZ ist der Nenner der
+//   Anlage-6.1-Stundensatzkalkulation (Jahresbrutto / (pWAZ x 52)) und an
+//   Antrag/Bescheid gebunden. Sie darf sich bei einer spaeteren
+//   Vertragsaenderung des MA nicht rueckwirkend mitaendern, sonst weicht die
+//   ZA vom Bescheid ab.
+// - Fuer die Zeiterfassung (Tages-Sollstunden, Monatsgrenze, Ampeln) sind
+//   ausschliesslich die Stammdaten inkl. Wochenstunden-Historie massgeblich
+//   (siehe TimesheetForm v7.4.6-88). Eine falsche Wochenarbeitszeit gehoert
+//   deshalb in die MA-Stammdaten, nicht hierher.
+//
 // AENDERUNGEN v7.4.4-19:
 // - AddMemberDialog: Beim Auswaehlen eines Mitarbeiters werden dessen in den
 //   Stammdaten (v7_employees) hinterlegte Anlage-6.1-Vorgabewerte automatisch
@@ -209,6 +224,44 @@ interface AddMemberDialogProps {
   availableEmployees: Employee[];
   existingNumbers: number[];
   portal: 'berater' | 'firma';
+}
+
+// ============================================================================
+// HINWEIS: pWAZ weicht von den MA-Stammdaten ab (v7.4.4-20)
+// ============================================================================
+// Reine Sichtbarmachung. Die pWAZ bleibt der Antragswert (Anlage 6.1); die
+// Zeiterfassung rechnet mit den Stammdaten (v7_employees.weekly_hours bzw.
+// v7_employee_hours_history). Divergenzen sind deshalb ein Datenthema und
+// werden hier nur gemeldet, nicht automatisch ausgeglichen.
+function PWazDivergenzHinweis({
+  stammWAZ,
+  pWAZInput,
+}: {
+  stammWAZ: number | null | undefined;
+  pWAZInput: string;
+}) {
+  const stamm = Number(stammWAZ ?? 0);
+  const pWAZ = parseFloat((pWAZInput || '').replace(',', '.'));
+  if (!stamm || !pWAZ || Number.isNaN(pWAZ)) return null;
+  // Toleranz gegen Rundungsartefakte (z.B. 37,50 vs. 37,5)
+  if (Math.abs(stamm - pWAZ) < 0.01) return null;
+
+  const fmt = (v: number) => v.toLocaleString('de-DE', { maximumFractionDigits: 2 });
+
+  return (
+    <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-300 rounded-lg text-xs text-amber-800">
+      <div className="font-semibold">pWAZ weicht von den Stammdaten ab</div>
+      <div className="mt-0.5">
+        Stammdaten: {fmt(stamm)} h/Woche &middot; hier erfasst: {fmt(pWAZ)} h/Woche.
+        Die pWAZ ist der Antragswert (Anlage 6.1) und bleibt bewusst stehen - sie
+        ist der Nenner der Stundensatzberechnung. Die Zeiterfassung
+        (Tages-Sollstunden, Monatsgrenze, Ampeln) rechnet dagegen immer mit den
+        Stammdaten. Ist dort die falsche Wochenarbeitszeit hinterlegt, bitte in
+        den Mitarbeiter-Stammdaten korrigieren (Wochenstunden-Historie, gueltig
+        ab dem passenden Monatsersten).
+      </div>
+    </div>
+  );
 }
 
 function AddMemberDialog({
@@ -551,6 +604,12 @@ function AddMemberDialog({
                     <p className="text-xs text-gray-500 mt-1">Betriebsueblich (Vollzeit)</p>
                   </div>
                 </div>
+
+                {/* v7.4.4-20: Divergenz-Hinweis pWAZ vs. MA-Stammdaten */}
+                <PWazDivergenzHinweis
+                  stammWAZ={selectedEmployee?.weekly_hours}
+                  pWAZInput={personalWeeklyHours}
+                />
 
                 {monthlyGrossSalary && personalWeeklyHours && (
                   <div className="bg-white border border-gray-200 rounded-lg p-3 mb-3 text-sm">
@@ -981,6 +1040,12 @@ function EditMemberDialog({
                 <p className="text-xs text-gray-500 mt-1">Betriebsueblich (Vollzeit)</p>
               </div>
             </div>
+
+            {/* v7.4.4-20: Divergenz-Hinweis pWAZ vs. MA-Stammdaten */}
+            <PWazDivergenzHinweis
+              stammWAZ={member?.employee?.weekly_hours}
+              pWAZInput={personalWeeklyHours}
+            />
 
             {monthlyGrossSalary && personalWeeklyHours && (
               <div className="bg-white border border-gray-200 rounded-lg p-3 mb-3 text-sm">
