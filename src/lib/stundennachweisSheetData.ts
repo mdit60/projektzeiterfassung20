@@ -2,8 +2,15 @@
 // ============================================================================
 // PZE V7 - Helfer: Stundennachweis-Anzeigemodell
 // ============================================================================
-// Version: 1.0.1
-// Datum: 13. Juni 2026
+// Version: 1.0.2
+// Datum: 8. September 2026
+// Aenderung v1.0.2: Elternzeit (absence_code 'E', 0 Stunden) wird als reiner
+//   Tag-Marker eingelesen (elternzeitByDay) und als Tageszahl summiert
+//   (elternzeitDays) -- analog zur Kurzarbeit. Frueher fielen E-Zeilen durch.
+//   Zusaetzlich: an Elternzeit-Tagen unterbleibt die Feiertags-Vorbelegung der
+//   S-Zeile. Ohne Entgeltfortzahlung gibt es waehrend der Elternzeit keine
+//   bezahlten Feiertagsstunden.
+//   Siehe KONZEPT-ELTERNZEIT-TIMESHEET-v1_0.md.
 // Aenderung v1.0.1: Kurzarbeit (absence_code 'KA', 0 Stunden) wird als reiner
 //   Tag-Marker eingelesen (kurzarbeitByDay) und als Tageszahl summiert
 //   (kurzarbeitDays). Keine Stunden, rein informativ. Frueher fielen
@@ -124,6 +131,9 @@ export interface StundennachweisSheetData {
   // v1.0.1: Kurzarbeit -- reiner Tag-Marker (keine Stunden), rein informativ
   kurzarbeitByDay: Record<number, boolean>;
   kurzarbeitDays: number;
+  // v1.0.2: Elternzeit -- reiner Tag-Marker (keine Stunden), rein informativ
+  elternzeitByDay: Record<number, boolean>;
+  elternzeitDays: number;
   daySumBillable: Record<number, number>;
   totalBillable: number;
   techDaySum: Record<number, number>;
@@ -215,6 +225,8 @@ export function buildStundennachweisSheetData(
   };
   // v1.0.1: Kurzarbeit-Tage (reiner Marker, keine Stunden)
   const kurzarbeitByDay: Record<number, boolean> = {};
+  // v1.0.2: Elternzeit-Tage (reiner Marker, keine Stunden)
+  const elternzeitByDay: Record<number, boolean> = {};
 
   rows.forEach(r => {
     const parts = r.work_date.split('-');
@@ -233,6 +245,9 @@ export function buildStundennachweisSheetData(
       } else if (code === 'KA') {
         // v1.0.1: Kurzarbeit -- nur Markierung, Stunden werden ignoriert
         kurzarbeitByDay[day] = true;
+      } else if (code === 'E') {
+        // v1.0.2: Elternzeit -- nur Markierung, keine Stunden
+        elternzeitByDay[day] = true;
       }
     } else if (!r.is_billable && !r.work_package_id && !r.absence_code) {
       nonBillableByDay[day] = (nonBillableByDay[day] || 0) + (h > 0 ? h : 0);
@@ -244,6 +259,8 @@ export function buildStundennachweisSheetData(
   const companyDailyHours = round2((company.standard_weekly_hours || 40) / 5);
   for (let d = 1; d <= daysInMonth; d++) {
     if (isWeekend(year, month, d)) continue;
+    // v1.0.2: An Elternzeit-Tagen keine Feiertags-Vorbelegung.
+    if (elternzeitByDay[d]) continue;
     const isHol = holidays.has(dateKey(year, month, d));
     const hasExisting = (absenceByDay.S[d] || 0) > 0;
     if (isHol && !hasExisting) {
@@ -338,6 +355,8 @@ export function buildStundennachweisSheetData(
     absenceSums,
     kurzarbeitByDay,
     kurzarbeitDays: Object.keys(kurzarbeitByDay).length,
+    elternzeitByDay,
+    elternzeitDays: Object.keys(elternzeitByDay).length,
     daySumBillable,
     totalBillable: round2(totalBillable),
     techDaySum,
