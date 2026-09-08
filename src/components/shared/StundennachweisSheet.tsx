@@ -2,7 +2,7 @@
 // ============================================================================
 // PZE V7 - Shared Component: Stundennachweis-Blatt (Anzeige/Druck)
 // ============================================================================
-// Version: 1.0.3
+// Version: 1.0.4
 // Datum: 30. Juni 2026
 // Aenderung v1.0.3: Zeile "sonstige Arbeiten" bekommt bg-white auf den
 //   Normalzellen (analog Fehlzeiten-Zeilen). Behebt fehlenden oberen Rahmen
@@ -23,6 +23,10 @@
 // Aenderung v1.0.1: Bedingte Kurzarbeit-Zeile in Abschnitt 3 (Fehlzeiten).
 //   Erscheint NUR, wenn der Monat mindestens einen Kurzarbeitstag hat
 //   (data.kurzarbeitDays > 0). Markiert die Tage mit "KA", Summe = Tageszahl.
+// v1.0.4: Zusaetzliche Zeile "Elternzeit" -- nur wenn E-Tage vorhanden sind
+//   (data.elternzeitDays > 0). Markiert die Tage mit "E", Summe = Tageszahl,
+//   keine Stunden. Erfordert stundennachweisSheetData ab v1.0.2.
+//   Siehe KONZEPT-ELTERNZEIT-TIMESHEET-v1_0.md.
 //   Rein informativ, keine Stunden.
 // Zweck: Reine Anzeige-Komponente fuer EIN Stundennachweis-Blatt. Rendert das
 //   offizielle Layout statisch (keine Eingabefelder, keine DB, kein State) aus
@@ -81,6 +85,7 @@ export default function StundennachweisSheet({
     daysInMonth, isNetzwerk, isDurchfuehrbarkeitsstudie, days, apRows,
     nonBillableByDay, nonBillableSum, absenceByDay, absenceSums,
     kurzarbeitByDay, kurzarbeitDays,
+    elternzeitByDay, elternzeitDays,
     daySumBillable, totalBillable, techDaySum, ntDaySum, techTotal, ntTotal,
     signatureDate,
   } = data;
@@ -330,6 +335,23 @@ export default function StundennachweisSheet({
                   );
                 })}
                 <td className="border p-1 text-center font-semibold">{kurzarbeitDays} Tg.</td>
+              </tr>
+            )}
+            {/* v1.0.4: Elternzeit -- nur wenn vorhanden. Keine Stunden. */}
+            {elternzeitDays > 0 && (
+              <tr>
+                <td className="border p-1 text-[10px]" colSpan={labelCols}>Elternzeit (E, keine Arbeitszeit)</td>
+                {dayList.map(day => {
+                  const d = days[day - 1];
+                  const weekend = d?.weekend;
+                  const isEZ = !!elternzeitByDay[day];
+                  return (
+                    <td key={day} className={`border p-1 text-center text-[10px] ${weekend ? 'bg-gray-100' : isEZ ? 'bg-sky-100' : 'bg-white'}`}>
+                      {weekend ? '' : (isEZ ? 'E' : '')}
+                    </td>
+                  );
+                })}
+                <td className="border p-1 text-center font-semibold">{elternzeitDays} Tg.</td>
               </tr>
             )}
           </tbody>
