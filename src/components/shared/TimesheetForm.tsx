@@ -3,7 +3,17 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 8. September 2026
-// Version: 7.4.6-92
+// Version: 7.4.6-93
+// v7.4.6-93: FIX Rechtsklick auf Abwesenheitstagen (inkl. Elternzeit).
+//   Das deaktivierte Eingabefeld einer gesperrten Zelle liegt ueber der
+//   Tabellenzelle und verschluckt das contextmenu-Ereignis -- es erschien das
+//   Browser-Menue statt des PZE-Menues. Fuer Kurzarbeit war das bereits mit
+//   'pointer-events-none' geloest; fuer Abwesenheitstage (U/K/S und ab -90
+//   auch E) fehlte es. Damit war der Menuepunkt "Elternzeit-Zeitraum
+//   entfernen" nicht erreichbar.
+//   FIX: Auch im Fall dayAbsence bekommt das disabled-Input
+//   'pointer-events-none' -- in der AP-Zeile und in der Zeile "sonstige
+//   Arbeiten". Der Rechtsklick landet dadurch auf der Zelle.
 // v7.4.6-92: EINGABE der Elternzeit als Zeitraum (Bereichsdialog).
 //   - Rechtsklick auf eine Tageszelle: "Elternzeit (Zeitraum) ..." bzw. an
 //     einem E-Tag "Elternzeit-Zeitraum entfernen ...". Alternativ oeffnet die
@@ -4808,7 +4818,7 @@ export default function TimesheetForm({
                               weekend || !!holiday ? 'bg-transparent cursor-not-allowed' :
                               isBlocked ? 'bg-red-100 cursor-not-allowed' :
                               isKA ? 'bg-amber-100 cursor-not-allowed pointer-events-none print:bg-transparent' :
-                              dayAbsence ? 'bg-blue-50 cursor-not-allowed text-blue-400 print:bg-transparent' :
+                              dayAbsence ? 'bg-blue-50 cursor-not-allowed pointer-events-none text-blue-400 print:bg-transparent' :
                               !row.workPackageId ? 'bg-gray-50 cursor-not-allowed' :
                               isAbsence ? 'bg-blue-100 font-bold text-black' : 'bg-white'
                             } focus:ring-1 ${colors.ring} print:bg-transparent`}
@@ -4982,7 +4992,7 @@ export default function TimesheetForm({
                           !!holiday ? 'bg-transparent cursor-not-allowed' :
                           isBlocked ? 'bg-red-100 cursor-not-allowed' :
                           isKA ? 'bg-amber-100 cursor-not-allowed pointer-events-none print:bg-transparent' :
-                          dayAbsence ? 'bg-blue-50 cursor-not-allowed text-blue-400 print:bg-transparent' :
+                          dayAbsence ? 'bg-blue-50 cursor-not-allowed pointer-events-none text-blue-400 print:bg-transparent' :
                           weekend ? 'bg-transparent' : 'bg-white'
                         } focus:ring-1 focus:ring-yellow-500 print:bg-transparent`}
                       />
