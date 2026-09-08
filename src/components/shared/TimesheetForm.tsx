@@ -3,7 +3,28 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 8. September 2026
-// Version: 7.4.6-93
+// Version: 7.4.6-94
+// v7.4.6-94: FIX "sonstige Arbeiten" folgen den Projektstunden wieder.
+//   URSACHE: Beim Laden eines gespeicherten Monats wurde jeder Tag als
+//   "manuell geaendert" markiert, dessen gespeicherter Wert nicht exakt
+//   (Tagesstunden - Projektstunden - andere Projekte) entsprach. Die
+//   Auto-Vorbelegung rechnet aber zusaetzlich mit einem WOCHEN-Deckel
+//   (v7.4.6-74) und liefert dadurch legitim kleinere Werte. Ein so
+//   entstandener Wert passte beim naechsten Laden nicht zur Tagesformel,
+//   galt als manuell und wurde nie wieder nachgefuehrt -- die Zeile
+//   "sonstige Arbeiten" blieb auf einem alten Stand stehen, waehrend die
+//   Projektstunden sich aenderten.
+//   ENTSCHEIDUNG (Martin, 08.09.2026): "sonstige Arbeiten" ist immer die
+//   Differenz und wird nie eingefroren.
+//   FIX: (1) Beim Laden werden keine manuellen Overrides mehr abgeleitet
+//   (nonBillableManual bleibt leer). (2) Eine Eingabe in der Zeile setzt
+//   den Tag nicht mehr auf "manuell". Der Wert eines reinen Arbeitstages
+//   folgt damit immer der Berechnung.
+//   UNVERAENDERT: Wochenenden, Feiertage und gesperrte Tage bekommen keine
+//   Auto-Vorbelegung -- dort eingetragene Werte (z.B. Dienstreise am
+//   Samstag) bleiben erhalten. In einem gespeicherten Monat werden weiterhin
+//   nur bereits gefuellte Tage nachgefuehrt; bewusst geleerte Tage bleiben
+//   leer.
 // v7.4.6-93: FIX Rechtsklick auf Abwesenheitstagen (inkl. Elternzeit).
 //   Das deaktivierte Eingabefeld einer gesperrten Zelle liegt ueber der
 //   Tabellenzelle und verschluckt das contextmenu-Ereignis -- es erschien das
@@ -2722,23 +2743,14 @@ export default function TimesheetForm({
       const hadData = (entries?.length || 0) > 0;
       setMonthHadData(hadData);
       setSaveHint('');
-      // Manuelle Overrides aus gespeicherten Werten ableiten: eine gespeicherte
-      // "sonstige"-Zahl, die nicht der Auto-Differenz entspricht (z.B. bewusst
-      // reduziert), gilt als manuell und wird spaeter nicht ueberschrieben.
-      const manualInit: Record<number, boolean> = {};
-      Object.entries(newNonBillable).forEach(([dStr, e]) => {
-        const d = parseInt(dStr);
-        const v = e?.value ? parseHours(e.value) : 0;
-        if (v <= 0) return;
-        let projD = 0;
-        newRows.forEach(r => {
-          const en = r.entries[d];
-          if (en?.value && !isAbsenceCode(en.value)) projD += parseHours(en.value);
-        });
-        const auto = Math.max(0, employeeDailyHours - projD - (otherProjectHours[d] || 0));
-        if (Math.abs(v - auto) >= 0.005) manualInit[d] = true;
-      });
-      setNonBillableManual(manualInit);
+      // v7.4.6-94: KEINE manuellen Overrides mehr ableiten. Die fruehere
+      // Heuristik verglich den gespeicherten Wert mit der reinen Tagesformel
+      // (Tagesstunden - Projekt - andere Projekte), waehrend die
+      // Auto-Vorbelegung zusaetzlich den Wochendeckel anwendet. Jeder vom
+      // Wochendeckel gesenkte Wert galt dadurch faelschlich als manuell und
+      // wurde eingefroren -- die Zeile folgte spaeteren Aenderungen der
+      // Projektstunden nicht mehr.
+      setNonBillableManual({});
       // v7.4.6-61: gespeicherten Monatsstand je AP als Live-Basis schnappschussen
       const snapMonth: Record<string, number> = {};
       newRows.forEach(r => {
@@ -2927,8 +2939,11 @@ export default function TimesheetForm({
       }
       return newEntries;
     });
-    // v7.4.6-63: Zelle ist jetzt manuell -> Auto-Vorbelegung laesst sie in Ruhe
-    setNonBillableManual(prev => ({ ...prev, [day]: true }));
+    // v7.4.6-94: Der Tag wird NICHT mehr als manuell markiert. "sonstige
+    // Arbeiten" ist an einem reinen Arbeitstag immer die Differenz aus
+    // Tagesarbeitszeit und gebuchten Stunden und folgt jeder Aenderung.
+    // Wochenenden, Feiertage und gesperrte Tage bleiben von der
+    // Auto-Vorbelegung ohnehin unberuehrt -- dort Eingetragenes bleibt stehen.
     setHasChanges(true);
   };
 
