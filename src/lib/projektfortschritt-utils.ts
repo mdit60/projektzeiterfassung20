@@ -2,6 +2,18 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Berechnungslogik (Shared Utility)
 // ============================================================================
+// Version: 7.4.9-16
+// v7.4.9-16: "Verschenkt" korrigiert. Bisher wurde die Prognose gegen die
+//   BEWILLIGTE SUMME gemessen, obwohl sie zuvor auf die Plankosten gedeckelt
+//   wurde. Liegt die Plansumme unter der Bewilligung (Beispiel SmartMarina:
+//   Plan 121.062 EUR x 70% = 84.743 EUR gegen 87.440 EUR bewilligt), stand
+//   auch bei 100% Erreichungsgrad dauerhaft "Verschenkt: 2.697 EUR" - ein
+//   Widerspruch in sich. NEU: Massstab fuer "verschenkt" ist das, was der
+//   Arbeitsplan bei voller Erfuellung hergibt; bei 100% ist "verschenkt"
+//   damit 0. Die Differenz zwischen Bewilligung und Arbeitsplan wird als
+//   eigenes Feld planungsluecke (+ planungslueckeKosten,
+//   bewilligteSummeGesetzt) ausgewiesen und im Panel getrennt benannt.
+//   Prognose-, Szenarien- und Bedarfslogik bleiben unveraendert.
 // Version: 7.4.9-15
 // Datum: 11. August 2026
 // v7.4.9-15: DREISTUFIGE Zielerreichungs-Sicht. Neben (1) "Weiter wie bisher" und
@@ -362,6 +374,12 @@ export interface ProjectAnalysis {
   foerderbarPlan: number;
   verschenktProg: number;
   verschenktZiel: number;
+  // v7.4.9-16: Planungsluecke = bewilligte Summe minus dem, was der
+  // Arbeitsplan bei voller Erfuellung ueberhaupt hergibt. Strukturelle
+  // Luecke, unabhaengig vom Erreichungsgrad; 0 wenn keine besteht.
+  planungsluecke: number;         // Foerderanteil der Luecke (EUR)
+  planungslueckeKosten: number;   // zugehoerige foerderfaehige Kosten (EUR)
+  bewilligteSummeGesetzt: boolean;
   prognostizierteGesamtKosten: number;
   // Team-Daten
   aktivCount: number;
@@ -1127,10 +1145,21 @@ export function calculateProjectAnalysis(
   // "verschenkt" misst sich daran. abrufbar bei Prognose bleibt auf foerderMaximum
   // gedeckelt (mehr als bewilligt ist nie abrufbar).
   const foerderMaximum = bewilligteSumme ?? foerderbarRechnerischPlan;
-  const foerderbarProg = Math.min(foerderbarRechnerischProg, foerderMaximum);
-  const foerderbarPlan = foerderMaximum;
-  const verschenktProg = Math.max(0, foerderMaximum - foerderbarProg);
+  // v7.4.9-16: "verschenkt" misst sich jetzt an dem, was der ARBEITSPLAN bei
+  // voller Erfuellung hergibt, nicht mehr an der bewilligten Summe. Grund:
+  // liegt die Plansumme unter der Bewilligung, blieb "verschenkt" auch bei
+  // 100% Erreichungsgrad stehen - ein Widerspruch, denn wer den Plan voll
+  // erfuellt, verschenkt per Definition nichts. Die Differenz zwischen
+  // Bewilligung und Arbeitsplan ist eine PLANUNGSluecke und wird ab v7.4.9-16
+  // getrennt ausgewiesen (planungsluecke).
+  const foerderbarPlanErfuellt = Math.min(foerderbarRechnerischPlan, foerderMaximum);
+  const foerderbarProg = Math.min(foerderbarRechnerischProg, foerderbarPlanErfuellt);
+  const foerderbarPlan = foerderbarPlanErfuellt;
+  const verschenktProg = Math.max(0, foerderbarPlanErfuellt - foerderbarProg);
   const verschenktZiel = 0;
+  const planungsluecke = Math.max(0, foerderMaximum - foerderbarPlanErfuellt);
+  const planungslueckeKosten = fs > 0 ? planungsluecke / fs : 0;
+  const bewilligteSummeGesetzt = bewilligteSumme !== null && bewilligteSumme !== undefined;
 
   // ---- Zieltempo ----
   // v7.4.9-10: reales Restpotential (Ebene 1) statt Pauschale.
@@ -1281,6 +1310,9 @@ export function calculateProjectAnalysis(
     foerderbarPlan,
     verschenktProg,
     verschenktZiel,
+    planungsluecke,
+    planungslueckeKosten,
+    bewilligteSummeGesetzt,
     prognostizierteGesamtKosten,
     aktivCount,
     gesamtMACount,
