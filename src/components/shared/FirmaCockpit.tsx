@@ -3,6 +3,13 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
+// Version: 7.4.9-36-15
+// v7.4.9-36-15: Monatsverlauf im Firma-Cockpit an das Fortschritts-Panel
+//   angeglichen (ProjektFortschrittPanel v7.4.5-34): die gestrichelten Linien
+//   "Soll kumuliert" und "Zieltempo" entfernt, es bleiben "Ist kumuliert"
+//   (durchgezogen) und "Prognose" (gestrichelt). Beschriftung entsprechend
+//   angepasst. Das Cockpit haelt eine eigene Kopie des Diagramms, die bei der
+//   Aenderung in v7.4.5-34 zunaechst uebersehen wurde. Keine Logikaenderung.
 // Version: 7.4.9-36-14
 // v7.4.9-36-14: NWM-Jahreskenntnis (Bereich 2). Laedt fuer ZIM_NETZWERK-Projekte
 //   die Foerderzeitraeume (v7_nwm_foerderzeitraeume) und die jahresspezifischen
@@ -1692,7 +1699,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                 Monatsverlauf Projektstunden
               </h3>
               <p className="text-[10px] text-gray-500 mb-3">
-                Saeulen: Soll vs. Ist je Monat &middot; Linien: kumulierter Verlauf
+                Saeulen: Soll vs. Ist je Monat &middot; Linie: kumulierter Ist-Verlauf
                 {analysis.prognoseAktiv && (
                   <>
                     {' '}&middot;{' '}
@@ -1748,16 +1755,9 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                     maxBarSize={14}
                   />
 
-                  <Line
-                    yAxisId="kumuliert"
-                    type="monotone"
-                    dataKey="SollKumuliert"
-                    stroke="#94a3b8"
-                    strokeWidth={2}
-                    strokeDasharray="6 3"
-                    dot={false}
-                    name="Soll kumuliert"
-                  />
+                  {/* v7.4.9-36-15: "Soll kumuliert" und "Zieltempo" entfernt -
+                      analog ProjektFortschrittPanel v7.4.5-34. Drei gestrichelte
+                      Linien im selben Diagramm waren nicht unterscheidbar. */}
                   <Line
                     yAxisId="kumuliert"
                     type="monotone"
@@ -1783,19 +1783,6 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                     />
                   )}
 
-                  {analysis.prognoseAktiv && analysis.zielErreichbar && (
-                    <Line
-                      yAxisId="kumuliert"
-                      type="monotone"
-                      dataKey="ZielProjektion"
-                      stroke="#16a34a"
-                      strokeWidth={2}
-                      strokeDasharray="4 4"
-                      dot={false}
-                      name="Zieltempo"
-                      connectNulls={true}
-                    />
-                  )}
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
