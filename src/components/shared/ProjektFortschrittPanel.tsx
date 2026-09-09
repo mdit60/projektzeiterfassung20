@@ -2,6 +2,21 @@
 // ============================================================================
 // PZE V7 - Projekt-Fortschritt Grafische Auswertung
 // ============================================================================
+// Version: 7.4.5-34
+// v7.4.5-34: Drei Korrekturen an der Fortschritts-/Prognose-Darstellung:
+//   (1) "Verschenkt" bezieht sich jetzt auf das, was der Arbeitsplan hergibt
+//       (Utility v7.4.9-16); bei 100% Erreichungsgrad steht dort 0 EUR. Die
+//       Differenz zwischen Bewilligung und Arbeitsplan erscheint neu als
+//       eigener Block "Planungsluecke im Arbeitsplan" - nur wenn vorhanden.
+//   (2) Monatsverlauf: die gestrichelten Linien "Soll kumuliert" und
+//       "Zieltempo kumuliert" entfernt; es bleiben "Ist kumuliert"
+//       (durchgezogen) und "Prognose kumuliert" (gestrichelt).
+//   (3) Fussnote benennt, was die Saeulen zeigen: Ist nach Buchungsmonat,
+//       Soll gleichmaessig ueber die AP-Laufzeit. Ein AP kann spaeter gebucht
+//       werden als geplant, weshalb einzelne Monate abweichen, obwohl das AP
+//       im AP-Status vollstaendig ist (SmartMarina AP 1: 260 h Plan im April,
+//       gebucht 134,67 h im April + 125,00 h im Mai).
+//   Prognose-Algorithmus selbst unveraendert.
 // Version: 7.4.5-33
 // v7.4.5-33: NWM-Jahreskenntnis (Bereich 2). Bei ZIM_NETZWERK-Projekten zeigt das
 //   Panel einen Jahresselektor. Default = aktuelles Netzwerkjahr (anhand today vs.
@@ -850,7 +865,7 @@ export default function ProjektFortschrittPanel({
                 </h4>
                 <p className="text-xs text-gray-700 mt-0.5">
                   Saeulen: geplante vs. erfasste Stunden je Monat &nbsp;&middot;&nbsp;
-                  Linien: kumulierter Soll- und Ist-Verlauf
+                  Linie: kumulierter Ist-Verlauf
                   {analysis.prognoseAktiv && (
                     <> &nbsp;&middot;&nbsp;
                       <span style={{ color: analysis.pFarbe.stroke }}>
@@ -885,20 +900,24 @@ export default function ProjektFortschrittPanel({
                 <Bar yAxisId="monat" dataKey="Soll" fill="#cbd5e1" radius={[2, 2, 0, 0]} name="Soll (Monat)" maxBarSize={16} />
                 <Bar yAxisId="monat" dataKey="Ist" fill={accentColor} fillOpacity={0.8} radius={[2, 2, 0, 0]} name="Ist (Monat)" maxBarSize={16} />
 
-                <Line yAxisId="kumuliert" type="monotone" dataKey="SollKumuliert" stroke="#94a3b8" strokeWidth={2} strokeDasharray="6 3" dot={false} name="Soll kumuliert" />
+                {/* v7.4.5-34: "Soll kumuliert" und "Zieltempo kumuliert" entfernt.
+                    Drei gestrichelte Linien im selben Diagramm waren nicht mehr
+                    unterscheidbar; es bleiben der Ist-Verlauf (durchgezogen) und
+                    die Prognose (gestrichelt). */}
                 <Line yAxisId="kumuliert" type="monotone" dataKey="IstKumuliert" stroke={accentColor} strokeWidth={2.5} dot={false} name="Ist kumuliert" connectNulls={false} />
 
                 {analysis.prognoseAktiv && (
                   <Line yAxisId="kumuliert" type="monotone" dataKey="IstProjektion" stroke={analysis.pFarbe.stroke} strokeWidth={2} strokeDasharray="4 4" dot={false} name="Prognose kumuliert" connectNulls={true} />
                 )}
-
-                {analysis.prognoseAktiv && analysis.zielErreichbar && (
-                  <Line yAxisId="kumuliert" type="monotone" dataKey="ZielProjektion" stroke="#16a34a" strokeWidth={2} strokeDasharray="4 4" dot={false} name="Zieltempo kumuliert" connectNulls={true} />
-                )}
               </ComposedChart>
             </ResponsiveContainer>
             <p className="text-xs text-gray-700 mt-2">
-              Nur foerderbare Projektstunden. Soll-Verteilung gleichmaessig ueber AP-Laufzeit je Arbeitspaket.
+              Nur foerderbare Projektstunden. <strong>Ist</strong> = Stunden nach Buchungsmonat,
+              <strong> Soll</strong> = Planstunden gleichmaessig ueber die AP-Laufzeit verteilt.
+              Ein Arbeitspaket kann spaeter gebucht werden als geplant - einzelne Monate weichen
+              deshalb regelmaessig ab, auch wenn das Arbeitspaket vollstaendig gebucht ist.
+              Massgeblich ist der kumulierte Verlauf, nicht der einzelne Monat; der Stand je
+              Arbeitspaket steht im AP-Status.
             </p>
           </div>
         )}
@@ -1177,6 +1196,33 @@ export default function ProjektFortschrittPanel({
                           </div>
                         </div>
                       </div>
+
+                      {/* v7.4.5-34: Planungsluecke - der Arbeitsplan schoepft die
+                          Bewilligung nicht aus. Fruehere Versionen zeigten diese
+                          strukturelle Differenz faelschlich als "Verschenkt", auch
+                          bei 100% Erreichungsgrad. */}
+                      {analysis.planungsluecke > 0 && analysis.bewilligteSummeGesetzt && (
+                        <div className="pt-2 border-t border-amber-200">
+                          <div className="flex items-center gap-1 mb-1">
+                            <AlertCircle size={12} className="text-amber-500" />
+                            <span className="text-xs text-gray-700">Planungsluecke im Arbeitsplan</span>
+                          </div>
+                          <div className="text-xs space-y-0.5">
+                            <div className="flex justify-between">
+                              <span className="text-gray-700">Nicht ausgeschoepft:</span>
+                              <span className="font-semibold text-amber-700">
+                                {fmtEur(Math.round(analysis.planungsluecke))}
+                              </span>
+                            </div>
+                            <p className="text-gray-700 mt-1">
+                              Der Arbeitsplan plant {fmtEur(Math.round(analysis.planungslueckeKosten))} weniger
+                              foerderfaehige Kosten, als bewilligt wurden. Diese Foerderung ist auch bei
+                              vollstaendiger Planerfuellung nicht abrufbar - nur eine Anpassung des
+                              Arbeitsplans schliesst die Luecke.
+                            </p>
+                          </div>
+                        </div>
+                      )}
 
                       <div className="text-xs text-gray-700 pt-1 border-t border-gray-100">
                         Foerdersatz: {analysis.foerdersatz}% &nbsp;&middot;&nbsp; Basis: echte Stundensaetze
