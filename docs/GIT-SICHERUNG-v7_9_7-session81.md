@@ -188,8 +188,9 @@ einzeln per Merge v7-dev -> main (--no-ff), push origin + cubintec.
 - **Kapazitaetsplanung** (`/v7/berater/multiprojekt`) beruecksichtigt E-Tage nicht.
 - **Warnung bei verplanten Arbeitsplan-PM** im E-Zeitraum.
 - Anleitungen (Admin, PL) um das Kapitel Elternzeit ergaenzen.
-- Doku-Lueckenschluss im Repository: docs/ enthaelt bis Session 75/PH v5.36; die
-  Aenderungsbloecke v5.37/v5.38 und GIT-SICHERUNG v7_9_4/v7_9_5 fehlen dort.
+- Doku im Repository: ERLEDIGT am 09.09.2026. docs/ enthaelt jetzt die
+  Aenderungsbloecke v5.37 bis v5.40 sowie alle GIT-Sicherungen bis V7.9.7
+  (82 Dateien, main = a7d2fce auf origin und cubintec).
 - Uebernommen aus frueheren Sessions: Restanzeige-Modus "monatsende" mit
   projektweiter Zahl im Zell-Tooltip; automatisierte Stundenvorschlaege; KMU-innovativ
   PDF-Import; Enum-Vereinheitlichung v7_funding_format DEV/PROD; Manuals-Nachzug;
