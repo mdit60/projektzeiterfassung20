@@ -3,6 +3,15 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 8. September 2026
+// Version: 7.4.6-97
+// v7.4.6-97: PDF-Dateiname Einzeldruck auf das neue Schema umgestellt:
+//   "<Nachname>_<FKZ>_Stundennachweis_<YYMM>" (Bsp.
+//   "Sarac_16DS251601_Stundennachweis_2510"). Ersetzt das Schema aus
+//   v7.4.6-59 ("<NN><VV> <YYMM> <FKZ> <Vorname> <Nachname>"). Nur der
+//   Nachname wird verwendet, erster Token, ASCII-gewandelt; ohne Namen
+//   Fallback "<FKZ>_Stundennachweis_<YYMM>". KEIN .pdf im document.title -
+//   der Browser haengt die Endung beim Speichern selbst an. Enthaelt
+//   v7.4.6-96.
 // Version: 7.4.6-96
 // v7.4.6-96: "sonstige Arbeiten" wird auch auf LEEREN Arbeitstagen wieder
 //   gefuellt. Bisher galt in einem bereits gespeicherten Monat
@@ -414,12 +423,14 @@
 //   jetzt ueber den toleranten Helfer istGeschaeftsfuehrerTitle() aus v7-types
 //   (deckt Umlaut+ASCII und die weibliche Form ab). Enthaelt v7.4.6-59.
 // Datum: 30. Juni 2026
-// Version: 7.4.6-59
+// Version: 7.4.6-59 (durch v7.4.6-97 ersetzt)
 // v7.4.6-59: PDF-Dateiname Einzeldruck auf finales Schema umgestellt -
 //   Leerzeichen statt Unterstrich, ohne Wort "Stundenerfassung":
 //   "<NN><VV> <YYMM> <FKZ> <Vorname> <Nachname>" (Bsp. "SF 2510 16DS251601
 //   Ferat Sarac"); Fallback ohne Name "<YYMM> <FKZ>". KEIN .pdf im
 //   document.title - der Browser haengt die Endung beim Speichern selbst an.
+//   (Schema seit v7.4.6-97 ersetzt durch
+//   "<Nachname>_<FKZ>_Stundennachweis_<YYMM>".)
 //   Enthaelt v7.4.6-58 (Feiertag folgt MA-WAZ).
 // Datum: 30. Juni 2026
 // Version: 7.4.6-58
@@ -3991,11 +4002,12 @@ export default function TimesheetForm({
   };
 
   const handlePrint = () => {
-    // v7.4.6-59: Dateiname-Schema (Einzeldruck), Leerzeichen-getrennt, ohne
-    //   "Stundenerfassung": <NN><VV> <YYMM> <FKZ> <Vorname> <Nachname>
-    //   Bsp.: SF 2510 16DS251601 Ferat Sarac (Browser haengt .pdf selbst an).
-    //   NN/VV = 1. Buchstabe 1. Nachname / 1. Vorname; mehrteilige Namen -> nur
-    //   erster Token; Sonderzeichen -> ASCII (Jose, Sarac, ss fuer scharfes s).
+    // v7.4.6-97: Dateiname-Schema (Einzeldruck) vereinheitlicht auf
+    //   "<Nachname>_<FKZ>_Stundennachweis_<YYMM>"
+    //   Bsp.: Sarac_16DS251601_Stundennachweis_2510
+    //   (Browser haengt die Endung .pdf beim Speichern selbst an).
+    //   Nachname: nur erster Token, Sonderzeichen -> ASCII (Sarac, Loewe,
+    //   ss fuer scharfes s). Ohne Namen greift der Fallback ohne Namensteil.
     const toAscii = (s: string): string =>
       (s || '')
         .normalize('NFD')
@@ -4004,13 +4016,11 @@ export default function TimesheetForm({
         .replace(/[^A-Za-z0-9]/g, '');
     const firstToken = (s: string): string => (s || '').trim().split(/\s+/)[0] || '';
     const lastAscii = toAscii(firstToken(selectedEmployee?.last_name || ''));
-    const firstAscii = toAscii(firstToken(selectedEmployee?.first_name || ''));
-    const initials = `${lastAscii.charAt(0)}${firstAscii.charAt(0)}`.toUpperCase();
     const yymm = `${String(selectedYear).slice(-2)}${String(selectedMonth).padStart(2, '0')}`;
     const fkz = (selectedProject?.funding_reference || selectedProject?.short_name || 'Projekt').replace(/[\/\s]+/g, '_');
-    const fileName = (initials && firstAscii && lastAscii)
-      ? `${initials} ${yymm} ${fkz} ${firstAscii} ${lastAscii}`
-      : `${yymm} ${fkz}`;
+    const fileName = lastAscii
+      ? `${lastAscii}_${fkz}_Stundennachweis_${yymm}`
+      : `${fkz}_Stundennachweis_${yymm}`;
     const prevTitle = document.title;
     document.title = fileName;
     const restore = replaceSelectsForPrint();
