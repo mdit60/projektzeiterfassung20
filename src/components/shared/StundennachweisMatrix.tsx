@@ -2,6 +2,14 @@
 // ============================================================================
 // PZE V7 - Shared Component: Stundennachweis-Matrix
 // ============================================================================
+// Version: 7.4.6-16
+// v7.4.6-16: PDF-Dateiname Sammeldruck auf das neue, einheitliche Schema
+//   umgestellt (identisch zum Einzeldruck in TimesheetForm v7.4.6-97):
+//   1 MA  -> "<Nachname>_<FKZ>_Stundennachweis_<Zeitraum>"
+//   >1 MA -> "<FKZ>_Stundennachweis_<Zeitraum>" (ohne Namensteil)
+//   Zeitraum bleibt YYMM bzw. YYMM-YYMM bei mehrmonatiger Auswahl.
+//   Ersetzt das Schema aus v7.4.6-9 ("<NN><VV> <Zeitraum> <FKZ> <Vorname>
+//   <Nachname>" bzw. "<Zeitraum> <FKZ>"). Enthaelt v7.4.6-15.
 // Version: 7.4.6-15
 // v7.4.6-15: A-Variante Refactor - Ruecksprung in die AP-Status-Uebersicht. Beim
 //   Sprung aus dem AP-Status ins Timesheet wird ein Marker gesetzt
@@ -44,6 +52,7 @@
 //   Leerzeichen statt Unterstrich, ohne Wort "Stundenerfassung" und ohne
 //   Praefix "Stundennachweise": 1 MA "<NN><VV> <Zeitraum> <FKZ> <Vorname>
 //   <Nachname>", mehrere MA "<Zeitraum> <FKZ>". Kein .pdf im document.title
+//   (Schema seit v7.4.6-16 ersetzt, siehe unten.)
 //   (Browser haengt die Endung selbst an).
 // Version: 7.4.6-8
 // v7.4.6-8: Sammeldruck-PDF bekommt einen sprechenden Dateinamen (analog
@@ -667,10 +676,10 @@ export default function StundennachweisMatrix({
         });
       });
 
-      // v7.4.6-9: PDF-Dateiname Sammeldruck, Leerzeichen-getrennt, ohne
-      //   "Stundenerfassung":
-      //   1 MA  -> <NN><VV> <Zeitraum> <FKZ> <Vorname> <Nachname>
-      //   >1 MA -> <Zeitraum> <FKZ>
+      // v7.4.6-16: PDF-Dateiname Sammeldruck vereinheitlicht auf das Schema
+      //   des Einzeldrucks (TimesheetForm v7.4.6-97):
+      //   1 MA  -> <Nachname>_<FKZ>_Stundennachweis_<Zeitraum>
+      //   >1 MA -> <FKZ>_Stundennachweis_<Zeitraum>   (kein Namensteil)
       //   Zeitraum: YYMM (ein Monat) bzw. YYMM-YYMM (min/max der Auswahl).
       //   Kein .pdf im document.title (Browser haengt die Endung selbst an).
       {
@@ -686,14 +695,12 @@ export default function StundennachweisMatrix({
         const maxYYMM = yymmList.reduce((a, b) => (b > a ? b : a), yymmList[0]);
         const timePart = minYYMM === maxYYMM ? minYYMM : `${minYYMM}-${maxYYMM}`;
         const fkz = (proj.funding_reference || proj.short_name || 'Projekt').replace(/[\/\s]+/g, '_');
-        let fileName = `${timePart} ${fkz}`;
+        let fileName = `${fkz}_Stundennachweis_${timePart}`;
         if (empIds.length === 1) {
           const emp = emps.find(e => e.id === empIds[0]);
           const lastAscii = toAscii(firstToken(emp?.last_name || ''));
-          const firstAscii = toAscii(firstToken(emp?.first_name || ''));
-          const initials = `${lastAscii.charAt(0)}${firstAscii.charAt(0)}`.toUpperCase();
-          if (initials && firstAscii && lastAscii) {
-            fileName = `${initials} ${timePart} ${fkz} ${firstAscii} ${lastAscii}`;
+          if (lastAscii) {
+            fileName = `${lastAscii}_${fkz}_Stundennachweis_${timePart}`;
           }
         }
         printTitleRef.current = fileName;
