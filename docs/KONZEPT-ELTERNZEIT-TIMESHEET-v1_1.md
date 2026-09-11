@@ -284,6 +284,7 @@ Arbeitstage"). Beide Zahlen sind richtig; sie beantworten verschiedene Fragen.
 - „Sonstige bezahlte Ausfallzeiten" = 0,00 — die Feiertagsregel greift in der
   Praxis
 - Projektstunden ab dem 23.04. blieben unberührt
+- zweiter Zeitraum desselben MA: 23.07.–21.08.2026 (bestätigt 11.09.2026)
 
 **Kapazitätsplanung, 11.09.2026:** siehe §12.3.
 
@@ -367,5 +368,8 @@ ein Feiertag doppelt abgezogen.
   und per SQL, Werte danach wieder im Ausgangszustand.
 - **PROD (Flensburger Yacht-Service, April 2026):** 160 h Monatskapazität,
   14 E-Arbeitstage (16 E-Tage abzüglich Karfreitag und Ostermontag), −112 h,
-  verfügbar 48 h, verbucht 48 h. Im Juli 2026 zusätzlich 7 E-Arbeitstage, verfügbar
-  und verbucht je 128 h.
+  verfügbar 48 h, verbucht 48 h.
+- **PROD, zweiter Zeitraum 23.07.–21.08.2026** (von Martin als korrekt bestätigt):
+  Juli 7 E-Arbeitstage, verfügbar und verbucht je 128 h; August 15 E-Arbeitstage
+  (−120 h), verfügbar und verbucht je 48 h.
+- In allen drei Monaten decken sich verfügbar und verbucht auf die Stunde.
