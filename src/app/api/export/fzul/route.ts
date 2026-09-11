@@ -1,11 +1,27 @@
 // src/app/api/export/fzul/route.ts
-// VERSION: v2.3 - Header-Felder (Vorhaben, FKZ, Tätigkeit) werden in Excel geschrieben
-// ÄNDERUNGEN v2.3:
+// VERSION: v2.5 - Unterer Teil der BSFZ-Vorlage korrekt befuellt (A-069)
+// Datum: 11. September 2026 (Session 83)
+// Basis: deployter Stand v2.3 aus src (die Archivkopie v2.4 mit fzulData wurde nie
+//        deployt und ist NICHT Grundlage dieser Version).
+// AENDERUNGEN v2.5:
+// - FIX: Wochenarbeitszeit nach E38 und vertraglicher Urlaubsanspruch nach O39 - die
+//   Eingabezellen, mit denen die Formeln der Vorlage rechnen. Bis v2.3 wurde nach
+//   C38 / F39 / J39 geschrieben; diese Zellen liegen in verbundenen Beschriftungsfeldern
+//   und werden nicht gelesen. E38 und O39 behielten dadurch immer die Vorgabewerte
+//   der Vorlage (40 h / 30 Tage).
+// - NEU: optionale Felder sickDays -> O40 (Krankheitstage), specialLeaveDays -> O41
+//   (Sonderurlaub), parentalLeaveDays -> O43 (Kurzarbeit, Erziehungsurlaub u. ae.).
+//   Erwartet werden ARBEITSTAGE (Mo-Fr, ohne Feiertage); die Stunden je Zeile
+//   (AA40..AA43) und die Feiertage (O42) berechnet die Vorlage selbst.
+//   Fehlen die Felder, bleiben die Zeilen 0 (rueckwaertskompatibel).
+// - Datei ASCII-konform (Umlaute in Laufzeit-Strings als \u-Escapes).
+// VERSION: v2.3 - Header-Felder (Vorhaben, FKZ, Taetigkeit) werden in Excel geschrieben
+// AENDERUNGEN v2.3:
 // - NEU: projectTitle, projectFkz, positionTitle aus Request lesen
 // - NEU: Diese Felder in die entsprechenden Excel-Zellen schreiben
-// ÄNDERUNGEN v2.2:
-// - Bundesland-Name wird in Excel-Zelle geschrieben (nicht nur für Feiertage)
-// - stateCode aus Request für korrekte Feiertage UND Anzeige
+// AENDERUNGEN v2.2:
+// - Bundesland-Name wird in Excel-Zelle geschrieben (nicht nur fuer Feiertage)
+// - stateCode aus Request fuer korrekte Feiertage UND Anzeige
 
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
@@ -65,12 +81,12 @@ const getGermanHolidays = (year: number, stateCode: string = 'DE-NW'): Set<strin
   // Landesspezifische Feiertage
   const state = stateCode || 'DE-NW';
   
-  // Heilige Drei Könige (6. Januar): BW, BY, ST
+  // Heilige Drei Koenige (6. Januar): BW, BY, ST
   if (['DE-BW', 'DE-BY', 'DE-ST'].includes(state)) {
     holidays.add(`${year}-01-06`);
   }
   
-  // Internationaler Frauentag (8. März): BE, MV
+  // Internationaler Frauentag (8. Maerz): BE, MV
   if (['DE-BE', 'DE-MV'].includes(state)) {
     holidays.add(`${year}-03-08`);
   }
@@ -80,7 +96,7 @@ const getGermanHolidays = (year: number, stateCode: string = 'DE-NW'): Set<strin
     holidays.add(addDays(easter, 60));
   }
   
-  // Mariä Himmelfahrt (15. August): SL (und BY nur in kath. Gemeinden)
+  // Mariae Himmelfahrt (15. August): SL (und BY nur in kath. Gemeinden)
   if (['DE-SL'].includes(state)) {
     holidays.add(`${year}-08-15`);
   }
@@ -100,7 +116,7 @@ const getGermanHolidays = (year: number, stateCode: string = 'DE-NW'): Set<strin
     holidays.add(`${year}-11-01`);
   }
   
-  // Buß- und Bettag (Mittwoch vor dem 23. November): SN
+  // Buss- und Bettag (Mittwoch vor dem 23. November): SN
   if (['DE-SN'].includes(state)) {
     const nov23 = new Date(year, 10, 23);
     const dayOfWeek = nov23.getDay();
@@ -113,9 +129,9 @@ const getGermanHolidays = (year: number, stateCode: string = 'DE-NW'): Set<strin
   return holidays;
 };
 
-// NEU v2.2: Bundesland-Namen für Excel-Ausgabe
+// NEU v2.2: Bundesland-Namen fuer Excel-Ausgabe
 const BUNDESLAND_NAMEN: Record<string, string> = {
-  'DE-BW': 'Baden-Württemberg',
+  'DE-BW': 'Baden-W\u00fcrttemberg',
   'DE-BY': 'Bayern',
   'DE-BE': 'Berlin',
   'DE-BB': 'Brandenburg',
@@ -130,7 +146,7 @@ const BUNDESLAND_NAMEN: Record<string, string> = {
   'DE-SN': 'Sachsen',
   'DE-ST': 'Sachsen-Anhalt',
   'DE-SH': 'Schleswig-Holstein',
-  'DE-TH': 'Thüringen'
+  'DE-TH': 'Th\u00fcringen'
 };
 
 export async function POST(request: NextRequest) {
@@ -138,10 +154,12 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     // NEU v2.3: Header-Felder aus Request lesen
     const { empName, year, dayData, settings, stateCode, projectTitle, projectFkz, positionTitle } = body;
+    // NEU v2.5: Abwesenheits-Arbeitstage fuer den unteren Teil der Vorlage (optional)
+    const { sickDays, specialLeaveDays, parentalLeaveDays } = body;
     
     // NEU v2.1: Bundesland aus Request verwenden (Fallback: NRW)
     const effectiveStateCode = stateCode || 'DE-NW';
-    console.log('[API] Excel-Export für Bundesland:', effectiveStateCode);
+    console.log('[API] Excel-Export f\u00fcr Bundesland:', effectiveStateCode);
     console.log('[API] Header-Felder:', { projectTitle, projectFkz, positionTitle });
     
     const maxDaily = settings.weekly_hours / 5;
@@ -185,10 +203,10 @@ export async function POST(request: NextRequest) {
     sheet.cell('B6').value(lastName);
     sheet.cell('M6').value(firstName);
     
-    // NEU v2.3: FuE-Tätigkeit (Zeile 6, nach Vorname)
+    // NEU v2.3: FuE-Taetigkeit (Zeile 6, nach Vorname)
     if (positionTitle) {
       sheet.cell('AD6').value(positionTitle);
-      console.log('[API] FuE-Tätigkeit geschrieben:', positionTitle);
+      console.log('[API] FuE-T\u00e4tigkeit geschrieben:', positionTitle);
     }
     
     // Jahr
@@ -225,7 +243,7 @@ export async function POST(request: NextRequest) {
         const isHoliday = holidays.has(dateStr);
         const dayInfo = dayData?.[m]?.[d];
         
-        // Keine Stunden für Wochenenden, Feiertage oder Abwesenheiten
+        // Keine Stunden fuer Wochenenden, Feiertage oder Abwesenheiten
         if (!isWeekend && !isHoliday && !dayInfo?.absence) {
           const bookedHours = dayInfo?.hours || 0;
           const freeHours = maxDaily - bookedHours;
@@ -236,14 +254,28 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // KEINE Summen überschreiben - die Formeln in der Vorlage berechnen das!
+    // KEINE Summen ueberschreiben - die Formeln in der Vorlage berechnen das!
     
-    // === UNTERER BEREICH ===
-    const urlaubsStunden = settings.annual_leave_days * maxDaily;
-    
-    sheet.cell('C38').value(settings.weekly_hours);
-    sheet.cell('F39').value(settings.annual_leave_days);
-    sheet.cell('J39').value(urlaubsStunden);
+    // === UNTERER BEREICH: 1. Ermittlung der massgeblichen Jahresarbeitszeit ===
+    // v2.5: Eingabezellen der Vorlage sind E38 (Wochenarbeitszeit) und O39..O43 (Tage).
+    // Die Stunden je Zeile (AA39..AA43 = Tage x E38/5), die Feiertage (O42) und die
+    // massgebliche Jahresarbeitszeit (AA44) berechnen die Formeln der Vorlage.
+    const tageWert = (v: unknown): number => {
+      const n = Number(v);
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    };
+    sheet.cell('E38').value(settings.weekly_hours);
+    sheet.cell('O39').value(tageWert(settings.annual_leave_days));
+    sheet.cell('O40').value(tageWert(sickDays));
+    sheet.cell('O41').value(tageWert(specialLeaveDays));
+    sheet.cell('O43').value(tageWert(parentalLeaveDays));
+    console.log('[API] Jahresarbeitszeit-Eingaben:', {
+      wochenstunden: settings.weekly_hours,
+      urlaubstage: tageWert(settings.annual_leave_days),
+      krankheitstage: tageWert(sickDays),
+      sonderurlaubstage: tageWert(specialLeaveDays),
+      elternzeittage: tageWert(parentalLeaveDays),
+    });
     
     // Buffer erstellen
     const buffer = await workbook.outputAsync();
