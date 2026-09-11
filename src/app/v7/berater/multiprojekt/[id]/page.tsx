@@ -4,7 +4,59 @@
 // ============================================================================
 // PZE V7 - Multiprojekt-Tool: Vorhaben-Detailseite
 // ============================================================================
-// Version: 7.4.8-17
+// Version: 7.4.8-20
+// v7.4.8-20: A-069 - BSFZ-Export fuellt den unteren Teil der Vorlage (massgebliche
+//            Jahresarbeitszeit) vollstaendig. Benoetigt Route /api/export/fzul v2.5.
+//            Datum: 11. September 2026 (Session 83)
+//            (1) Export zaehlt je Code die ABWESENHEITS-ARBEITSTAGE im Exportjahr
+//                (Mo-Fr, kein Feiertag - tagesgenau, keine Summen-Differenz) und
+//                uebergibt K -> sickDays (Zeile 40), S -> specialLeaveDays (Zeile 41),
+//                E -> parentalLeaveDays (Zeile 43). U wird NICHT uebergeben: die
+//                Vorlage zieht den vertraglichen Anspruch ab (annual_leave_days, O39).
+//                S-Eintraege auf Feiertagen fallen durch die Tagespruefung heraus,
+//                Feiertage berechnet die Vorlage selbst (Zeile 42).
+//            (2) Export-Tab: je MA Zeile mit U/K/S/E-Arbeitstagen und Urlaubsanspruch;
+//                Hinweis, wenn erfasste U-Arbeitstage den vertraglichen Anspruch
+//                uebersteigen (Resturlaub Vorjahr oder Sonderurlaub?) - KEINE
+//                automatische Umbuchung (Entscheidung Martin 11.09.2026).
+// v7.4.8-19: A-068 - "gefoerdert" zaehlt nur noch zuschussfaehige Stunden
+//            (v7_timesheets.is_billable = true, d. h. Zeilen auf Arbeitspaketen).
+//            Datum: 11. September 2026 (Session 83)
+//            Bisher galten ALLE Stunden in Foerderprojekten als gefoerdert, auch die
+//            Zeile "Nicht zuschussfaehige Arbeiten" (ohne AP, is_billable = false).
+//            Seit der Auto-Vorbelegung dieser Zeile (TimesheetForm, V7.9.7) ergab das
+//            fuer jeden gespeicherten Monat verfuegbar = 0. PROD-Bestand 11.09.2026:
+//            6.070,8 h nicht zuschussfaehig in ZIM/ZIM_DS/ZIM_KOOP/ZIM_NETZWERK.
+//            Datenpruefung DEV + PROD: work_package_id IS NOT NULL <=> is_billable =
+//            true in allen Foerderformaten, keine Mischfaelle. Gilt fuer alle vier
+//            Lesepfade: Uebersicht, Import, Jahreskalender, BSFZ-Export.
+// v7.4.8-18: A-067 - zentrale Abwesenheiten (v7_employee_absences, Codes U/K/S/E)
+//            werden beruecksichtigt. Bisher las die Seite nur v7_timesheets; an
+//            Urlaubs-, Krank-, Sonstige- und Elternzeit-Tagen wurden volle
+//            FZul-Stunden angeboten und gelangten in den BSFZ-Export.
+//            Datum: 11. September 2026 (Session 83)
+//            (1) ladeAbwesenheiten(): aktive Abwesenheiten je MA und Zeitraum,
+//                .limit(10000). MITARBEITERBEZOGEN - bewusst OHNE Filter auf das
+//                Projekt-Zuordnungsfenster (anders als lib/employeeAbsences), weil
+//                die FZul an der Person haengt, nicht an einem Projekt. Ladefehler
+//                werden geworfen statt verschluckt (sonst stille Falschwerte).
+//            (2) Wirksam nur an Arbeitstagen (Mo-Fr, kein Feiertag). E steht laut
+//                Bereichsdialog auch auf Feiertagen; dort geht der Feiertag vor.
+//            (3) Uebersicht: Max./Verf. h minus Abwesenheits-Arbeitstage x
+//                Tagesarbeitszeit (alle Codes; Entscheidung Martin 11.09.2026).
+//            (4) Import: an Abwesenheitstagen fue = verfuegbar = 0; urlaub_hours /
+//                krank_hours / sonderurlaub_hours aus der Abwesenheitszeile (E: 0).
+//            (5) Jahreskalender: Abwesenheitstag verfuegbar = 0, Zelle mit Kuerzel
+//                statt Eingabefeld (E hellblau wie TimesheetForm, U/K/S violett).
+//                Gespeicherte FZul-Stunden an einem Abwesenheitstag (Altdaten):
+//                rote Zelle, Eingabe setzt auf 0, Hinweis mit Anzahl und Stunden;
+//                keine automatische DB-Aenderung (Entscheidung Martin).
+//            (6) Export: Abwesenheitstage mit dayData[m][d].absence = true - die
+//                Route /api/export/fzul (v2.4, Alt-Verhalten) laesst sie leer.
+//            (7) Beifang: loadVorhaben nutzte als Enddatum fest "-31"; bei Vorhaben
+//                mit Ende Feb/Apr/Jun/Sep/Nov lehnt Postgres das Datum ab, der
+//                Fehler wurde nicht ausgewertet -> gefoerdert 0, MA in Gruppe B.
+//                Jetzt tatsaechlicher Monatsletzter.
 // v7.4.8-17: Zurueck-Button korrigiert. Der Breadcrumb hiess "Multiprojekt-Tool"
 //            (veralteter Begriff, laengst durch "Kapazitaetsplanung" ersetzt) und
 //            sprang fest auf die Uebersicht. Neu: einheitlicher "Zurueck"-Button, der
@@ -118,6 +170,9 @@ interface EmployeeWithStats extends Employee {
   timesheet_vorhanden: boolean;
   ausgewaehlt: boolean;
   taetigkeitsbezeichnung: string;
+  max_stunden: number;          // v7.4.8-18: WAZ/40 x 173,33 x Monate minus Abwesenheit
+  abwesenheit_tage: number;     // v7.4.8-18: Abwesenheits-Arbeitstage (U/K/S/E) im Zeitraum
+  abwesenheit_stunden: number;  // v7.4.8-18: abwesenheit_tage x Tagesarbeitszeit
 }
 
 interface ClientCompany {
@@ -142,6 +197,7 @@ interface KalenderTag {
   urlaub: number;
   krank: number;
   sonderurlaub: number;
+  abwesenheit: AbwesenheitsCode | null; // v7.4.8-18: Code aus v7_employee_absences (nur Arbeitstage)
   gespeichert: boolean;    // Eintrag existiert in v7_fzul_timesheets
   geaendert: boolean;      // Lokale Aenderung, noch nicht gespeichert
 }
@@ -185,6 +241,106 @@ function getEffectiveWeeklyHours(
   const sorted = [...history].sort((a, b) => b.gueltig_ab.localeCompare(a.gueltig_ab));
   const eintrag = sorted.find((e) => e.gueltig_ab <= stichtag);
   return eintrag ? eintrag.weekly_hours : fallback;
+}
+
+// ============================================================================
+// v7.4.8-18: ABWESENHEITEN (zentrale Tabelle v7_employee_absences)
+// ============================================================================
+
+type AbwesenheitsCode = 'U' | 'K' | 'S' | 'E';
+
+interface Abwesenheit {
+  code: AbwesenheitsCode;
+  hours: number;           // U/K/S: Tagesstunden; E: 0
+}
+
+// employee_id -> work_date (YYYY-MM-DD) -> Abwesenheit
+type AbwesenheitenMap = Record<string, Record<string, Abwesenheit>>;
+
+// v7.4.8-20: Abwesenheits-Arbeitstage je Code
+type AbwesenheitsTage = Record<AbwesenheitsCode, number>;
+
+interface ExportAbwesenheit {
+  tage: AbwesenheitsTage;
+  anspruch: number;        // v7_employees.annual_leave_days
+}
+
+const ABWESENHEIT_LABEL: Record<AbwesenheitsCode, string> = {
+  U: 'Urlaub',
+  K: 'Krankheit',
+  S: 'Sonstige Abwesenheit',
+  E: 'Elternzeit',
+};
+
+function letzterTagImMonat(jahr: number, monat: number): string {
+  return formatDatum(new Date(jahr, monat, 0));
+}
+
+// Mo-Fr und kein Feiertag laut getGermanHolidays
+function istArbeitstag(
+  datum: string,
+  holidayMap: ReturnType<typeof getGermanHolidays>,
+): boolean {
+  const j = parseInt(datum.slice(0, 4), 10);
+  const m = parseInt(datum.slice(5, 7), 10);
+  const d = parseInt(datum.slice(8, 10), 10);
+  const wochentag = new Date(j, m - 1, d).getDay();
+  if (wochentag === 0 || wochentag === 6) return false;
+  return !holidayMap.get(datum);
+}
+
+// v7.4.8-20: zaehlt die Abwesenheiten eines MA je Code, nur an Arbeitstagen
+function zaehleAbwesenheitsArbeitstage(
+  abwJeDatum: Record<string, Abwesenheit>,
+  holidayMap: ReturnType<typeof getGermanHolidays>,
+): AbwesenheitsTage {
+  const tage: AbwesenheitsTage = { U: 0, K: 0, S: 0, E: 0 };
+  Object.keys(abwJeDatum).forEach((datum) => {
+    if (istArbeitstag(datum, holidayMap)) tage[abwJeDatum[datum].code] += 1;
+  });
+  return tage;
+}
+
+// Laedt die aktiven Abwesenheiten (U/K/S/E) der MA im Zeitraum (inklusive).
+// Mitarbeiterbezogen, ohne Projekt-Zuordnungsfenster. Wirft bei Ladefehler.
+async function ladeAbwesenheiten(
+  supabase: ReturnType<typeof createClient>,
+  employeeIds: string[],
+  vonDatum: string,
+  bisDatum: string,
+): Promise<AbwesenheitenMap> {
+  const result: AbwesenheitenMap = {};
+  if (employeeIds.length === 0) return result;
+  const { data, error } = await supabase
+    .from('v7_employee_absences')
+    .select('employee_id, work_date, absence_code, hours')
+    .in('employee_id', employeeIds)
+    .eq('is_active', true)
+    .gte('work_date', vonDatum)
+    .lte('work_date', bisDatum)
+    .limit(10000);
+  if (error) {
+    throw new Error('Abwesenheiten konnten nicht geladen werden: ' + error.message);
+  }
+  (data || []).forEach((row: {
+    employee_id: string;
+    work_date: string;
+    absence_code: string;
+    hours: number | string | null;
+  }) => {
+    const code = row.absence_code;
+    if (code !== 'U' && code !== 'K' && code !== 'S' && code !== 'E') return;
+    const datum = String(row.work_date).slice(0, 10);
+    if (!result[row.employee_id]) result[row.employee_id] = {};
+    // Unique-Index erlaubt je (MA, Tag) nur eine aktive Zeile - Schutz gegen Dubletten
+    if (result[row.employee_id][datum]) return;
+    const h = Number(row.hours);
+    result[row.employee_id][datum] = {
+      code: code as AbwesenheitsCode,
+      hours: Number.isFinite(h) ? h : 0,
+    };
+  });
+  return result;
 }
 
 // ============================================================================
@@ -416,6 +572,49 @@ function Jahreskalender({
                         </td>
                       );
                     }
+                    // v7.4.8-18: Abwesenheitstag (U/K/S/E) - kein FZul-Eingabefeld
+                    if (tag.abwesenheit) {
+                      const abwLabel = ABWESENHEIT_LABEL[tag.abwesenheit];
+                      if (tag.fue > 0) {
+                        // Altdaten: gespeicherte FZul-Stunden an einem Abwesenheitstag.
+                        // Eingabe setzt den Wert auf 0; gespeichert wird per Monats-Button.
+                        return (
+                          <td key={t} className="bg-red-100 border border-red-400 align-middle"
+                              style={{ width: '40px', padding: '2px 1px' }}
+                              title={`${abwLabel}: gespeicherte FZul-Stunden an einem Abwesenheitstag - Wert auf 0 setzen und Monat speichern`}>
+                            <div className="flex flex-col items-center justify-center gap-0.5">
+                              <div className="text-red-700 font-bold" style={{ fontSize: '10px' }}>
+                                {tag.wochentag} {tag.abwesenheit}
+                              </div>
+                              <input
+                                inputMode="decimal"
+                                value={tag.fue}
+                                onChange={() => onFueChange(tag.datum, 0)}
+                                className="text-center border border-red-400 rounded bg-white outline-none font-bold text-red-700 focus:ring-2 focus:ring-red-400"
+                                style={{ fontSize: '13px', width: '36px', padding: '1px 2px' }}
+                              />
+                            </div>
+                          </td>
+                        );
+                      }
+                      const istE = tag.abwesenheit === 'E';
+                      return (
+                        <td key={t}
+                            className={`${istE ? 'bg-sky-100' : 'bg-violet-100'} border border-gray-400 text-center align-middle ${tag.geaendert ? 'ring-2 ring-inset ring-blue-400' : ''}`}
+                            style={{ width: '40px', padding: '2px 1px' }}
+                            title={tag.geaendert ? `${abwLabel} - FZul-Stunden auf 0 gesetzt, Monat noch nicht gespeichert` : abwLabel}>
+                          <div className="flex flex-col items-center justify-center gap-0.5">
+                            <div className="text-gray-500 font-medium" style={{ fontSize: '10px' }}>
+                              {tag.wochentag}
+                            </div>
+                            <div className={`font-bold ${istE ? 'text-sky-800' : 'text-violet-800'}`} style={{ fontSize: '13px' }}>
+                              {tag.abwesenheit}
+                            </div>
+                          </div>
+                        </td>
+                      );
+                    }
+
                     // Arbeitstag - eine Zahl: verfuegbare FZul-Stunden (gruen)
                     // Hintergrund hellrot wenn gefoerderte Stunden vorhanden
                     return (
@@ -524,6 +723,14 @@ function Jahreskalender({
           <span className="w-3 h-3 rounded bg-gray-300 inline-block"></span>
           Wochenende
         </span>
+        <span className="flex items-center gap-1">
+          <span className="w-3 h-3 rounded bg-violet-100 border border-violet-300 inline-block"></span>
+          U / K / S = Urlaub / Krankheit / Sonstige
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="w-3 h-3 rounded bg-sky-100 border border-sky-300 inline-block"></span>
+          E = Elternzeit
+        </span>
         <span className="text-gray-400 italic">| Platzhalter = verfuegbare Stunden</span>
       </div>
     </div>
@@ -563,6 +770,10 @@ export default function MultiprojektDetailPage() {
   const [kalenderLoading, setKalenderLoading] = useState(false);
   const [savingMonat, setSavingMonat] = useState<number | null>(null);
   const [exportingMA, setExportingMA] = useState<string | null>(null);
+  const [kalenderFehler, setKalenderFehler] = useState<string | null>(null); // v7.4.8-18
+  // v7.4.8-20: Abwesenheits-Arbeitstage und Urlaubsanspruch je MA fuer den Export-Tab
+  const [exportAbwesenheit, setExportAbwesenheit] = useState<Record<string, ExportAbwesenheit>>({});
+  const [exportAbwesenheitFehler, setExportAbwesenheitFehler] = useState<string | null>(null);
 
   // ============================================================================
   // DATEN LADEN
@@ -637,7 +848,9 @@ export default function MultiprojektDetailPage() {
 
       // Gefoerderte Stunden aus v7_timesheets pro MA (fuer dieses Wirtschaftsjahr)
       const startDatum = `${vh.wirtschaftsjahr}-${String(vh.start_monat).padStart(2, '0')}-01`;
-      const endeDatum = `${vh.wirtschaftsjahr}-${String(vh.ende_monat).padStart(2, '0')}-31`;
+      // v7.4.8-18: tatsaechlicher Monatsletzter (bisher fest "-31" -> ungueltiges Datum
+      // bei Ende Feb/Apr/Jun/Sep/Nov, Query-Fehler unbemerkt, gefoerdert = 0)
+      const endeDatum = letzterTagImMonat(vh.wirtschaftsjahr, vh.ende_monat);
 
       // Alle gefoerderten Projekte der Firma
       const { data: projekteRaw } = await supabase
@@ -663,6 +876,7 @@ export default function MultiprojektDetailPage() {
           .gte('work_date', startDatum)
           .lte('work_date', endeDatum)
           .eq('is_active', true)
+          .eq('is_billable', true) // v7.4.8-19: nur zuschussfaehige Stunden (A-068)
           .not('day_type', 'in', '("vacation","sick","special_leave","holiday")')
           .limit(10000);
 
@@ -697,6 +911,20 @@ export default function MultiprojektDetailPage() {
         }
       }
 
+      // v7.4.8-18: Abwesenheits-Arbeitstage (U/K/S/E) je MA im Vorhaben-Zeitraum.
+      // Nur Mo-Fr ohne Feiertag; sie mindern die pauschale Kapazitaet (Max./Verf. h).
+      const abwesenheitenMap = await ladeAbwesenheiten(supabase, employeeIds, startDatum, endeDatum);
+      const feiertageUebersicht = getGermanHolidays(
+        vh.wirtschaftsjahr,
+        normalizeStateCode(comp.federal_state),
+        comp.holiday_region as (import('@/lib/holidays/germanHolidays').HolidayRegion),
+      );
+      const abwesenheitsTageMap: Record<string, number> = {};
+      Object.keys(abwesenheitenMap).forEach((empId) => {
+        abwesenheitsTageMap[empId] = Object.keys(abwesenheitenMap[empId])
+          .filter((datum) => istArbeitstag(datum, feiertageUebersicht)).length;
+      });
+
       // MA-Liste mit Stats zusammenbauen
       const maListe: EmployeeWithStats[] = (employees || []).map((emp: Employee) => {
         const effWH = getEffectiveWeeklyHours(
@@ -707,7 +935,10 @@ export default function MultiprojektDetailPage() {
         const gefoerdert = gefoerdertStundenMap[emp.id] || 0;
         const fue = fueStundenMap[emp.id] || 0;
         const monate = vh.ende_monat - vh.start_monat + 1;
-        const maxStunden = (effWH / 40) * 173.33 * monate;
+        // v7.4.8-18: Abwesenheits-Arbeitstage x Tagesarbeitszeit abziehen
+        const abwesenheitTage = abwesenheitsTageMap[emp.id] || 0;
+        const abwesenheitStunden = abwesenheitTage * (effWH / 5);
+        const maxStunden = Math.max(0, (effWH / 40) * 173.33 * monate - abwesenheitStunden);
         const verfuegbar = Math.max(0, maxStunden - gefoerdert - fue);
 
         return {
@@ -720,6 +951,9 @@ export default function MultiprojektDetailPage() {
           timesheet_vorhanden: vorhandenMap[emp.id] || false,
           ausgewaehlt: vorhandenMap[emp.id] || false,
           taetigkeitsbezeichnung: emp.position_title || '',
+          max_stunden: maxStunden,
+          abwesenheit_tage: abwesenheitTage,
+          abwesenheit_stunden: abwesenheitStunden,
         };
       });
 
@@ -781,6 +1015,7 @@ export default function MultiprojektDetailPage() {
           .gte('work_date', startDatum)
           .lte('work_date', endeDatum)
           .eq('is_active', true)
+          .eq('is_billable', true) // v7.4.8-19: nur zuschussfaehige Stunden (A-068)
           .not('day_type', 'in', '("vacation","sick","special_leave","holiday")')
           .limit(10000);
 
@@ -790,6 +1025,9 @@ export default function MultiprojektDetailPage() {
           });
         }
       }
+
+      // v7.4.8-18: Abwesenheiten (U/K/S/E) dieses MA im Zeitraum
+      const abwImport = (await ladeAbwesenheiten(supabase, [ma.id], startDatum, endeDatum))[ma.id] || {};
 
       // Alle Tage des Zeitraums durchiterieren und FZul-Eintraege bauen
       const eintraege: V7FzulTimesheetInsert[] = [];
@@ -808,7 +1046,9 @@ export default function MultiprojektDetailPage() {
         else if (istWE) dayType = 'weekend';
 
         const gefoerdert = tagesStunden[datumStr] || 0;
-        const verfuegbar = istWE || istFeiertag
+        // v7.4.8-18: Abwesenheit wirkt nur an Arbeitstagen (WE/Feiertag gehen vor)
+        const abw = !istWE && !istFeiertag ? (abwImport[datumStr] || null) : null;
+        const verfuegbar = istWE || istFeiertag || abw
           ? 0
           : Math.max(0, tagesArbeitszeit - gefoerdert);
         const fue = verfuegbar; // Invertierung: alle verfuegbaren Stunden als Vorschlag
@@ -823,9 +1063,9 @@ export default function MultiprojektDetailPage() {
           taetigkeitsbezeichnung: ma.taetigkeitsbezeichnung || ma.position_title || null,
           day_type: dayType,
           holiday_label: feiertagLabel,
-          urlaub_hours: 0,
-          krank_hours: 0,
-          sonderurlaub_hours: 0,
+          urlaub_hours: abw?.code === 'U' ? abw.hours : 0,
+          krank_hours: abw?.code === 'K' ? abw.hours : 0,
+          sonderurlaub_hours: abw?.code === 'S' ? abw.hours : 0,
         });
 
         cursor.setDate(cursor.getDate() + 1);
@@ -863,6 +1103,7 @@ export default function MultiprojektDetailPage() {
     const vh = vorhabenOverride ?? vorhaben;
     if (!vh || !company) return;
     setKalenderLoading(true);
+    setKalenderFehler(null);
     setAusgewaehlterMA(ma);
 
     try {
@@ -915,12 +1156,16 @@ export default function MultiprojektDetailPage() {
           .gte('work_date', jahrStart)
           .lte('work_date', jahrEnde)
           .eq('is_active', true)
+          .eq('is_billable', true) // v7.4.8-19: nur zuschussfaehige Stunden (A-068)
           .not('day_type', 'in', '("vacation","sick","special_leave","holiday")')
           .limit(10000);
         (tsGef || []).forEach((r: { work_date: string; hours: number }) => {
           gefoerdertProTag[r.work_date] = (gefoerdertProTag[r.work_date] || 0) + (r.hours || 0);
         });
       }
+
+      // v7.4.8-18: Abwesenheiten (U/K/S/E) dieses MA im angezeigten Jahr
+      const abwKalender = (await ladeAbwesenheiten(supabase, [ma.id], jahrStart, jahrEnde))[ma.id] || {};
 
       // Monatsweise aufbauen
       const monatsListe: MonatDaten[] = [];
@@ -939,7 +1184,9 @@ export default function MultiprojektDetailPage() {
 
           const ts = tsMap[datumStr];
           const gefoerdert = gefoerdertProTag[datumStr] || 0;
-          const verfuegbar = istWE || istFeiertag
+          // v7.4.8-18: Abwesenheit wirkt nur an Arbeitstagen (WE/Feiertag gehen vor)
+          const abw = !istWE && !istFeiertag ? (abwKalender[datumStr] || null) : null;
+          const verfuegbar = istWE || istFeiertag || abw
             ? 0
             : Math.max(0, tagesArbeitszeit - gefoerdert);
           const fue = ts ? ts.fue_hours : 0;
@@ -954,9 +1201,11 @@ export default function MultiprojektDetailPage() {
             gefoerdert,
             verfuegbar,
             fue,
-            urlaub: ts ? ts.urlaub_hours : 0,
-            krank: ts ? ts.krank_hours : 0,
-            sonderurlaub: ts ? ts.sonderurlaub_hours : 0,
+            // v7.4.8-18: live aus v7_employee_absences (bisher stets 0 gespeichert)
+            urlaub: abw?.code === 'U' ? abw.hours : 0,
+            krank: abw?.code === 'K' ? abw.hours : 0,
+            sonderurlaub: abw?.code === 'S' ? abw.hours : 0,
+            abwesenheit: abw ? abw.code : null,
             gespeichert: !!ts,
             geaendert: false,
           });
@@ -979,6 +1228,9 @@ export default function MultiprojektDetailPage() {
       setKalenderDaten(monatsListe);
     } catch (err) {
       console.error('Fehler beim Laden des Kalenders:', err);
+      // v7.4.8-18: Fehler sichtbar machen statt veraltete Werte stehen zu lassen
+      setKalenderDaten([]);
+      setKalenderFehler(err instanceof Error ? err.message : 'Fehler beim Laden des Kalenders.');
     } finally {
       setKalenderLoading(false);
     }
@@ -1097,7 +1349,7 @@ export default function MultiprojektDetailPage() {
         )
         .map((p: { id: string }) => p.id);
 
-      const dayData: Record<number, Record<number, { hours: number }>> = {};
+      const dayData: Record<number, Record<number, { hours: number; absence?: boolean }>> = {};
       if (gefoerderteProjektIds.length > 0) {
         const { data: tsGef } = await supabase
           .from('v7_timesheets')
@@ -1107,6 +1359,7 @@ export default function MultiprojektDetailPage() {
           .gte('work_date', jahrStart)
           .lte('work_date', jahrEnde)
           .eq('is_active', true)
+          .eq('is_billable', true) // v7.4.8-19: nur zuschussfaehige Stunden (A-068)
           .not('day_type', 'in', '("vacation","sick","special_leave","holiday")')
           .limit(10000);
         (tsGef || []).forEach((r: { work_date: string; hours: number }) => {
@@ -1119,6 +1372,17 @@ export default function MultiprojektDetailPage() {
         });
       }
 
+      // v7.4.8-18: Abwesenheitstage (U/K/S/E) markieren. Die Route laesst Tage mit
+      // absence = true leer - keine FZul-Stunden an Urlaubs-, Krank-, Sonstige- und
+      // Elternzeit-Tagen. Wochenenden und Feiertage bleiben dort ohnehin leer.
+      const abwExport = (await ladeAbwesenheiten(supabase, [ma.id], jahrStart, jahrEnde))[ma.id] || {};
+      Object.keys(abwExport).forEach((datum) => {
+        const mm = Number(datum.slice(5, 7));
+        const dd = Number(datum.slice(8, 10));
+        if (!dayData[mm]) dayData[mm] = {};
+        dayData[mm][dd] = { hours: dayData[mm][dd]?.hours || 0, absence: true };
+      });
+
       // Urlaubstage fuer die Jahresarbeitszeit-Berechnung in der Vorlage
       const { data: emp } = await supabase
         .from('v7_employees')
@@ -1127,6 +1391,16 @@ export default function MultiprojektDetailPage() {
         .single();
 
       const stateCode = normalizeStateCode(company.federal_state);
+
+      // v7.4.8-20: Abwesenheits-Arbeitstage je Code fuer den unteren Teil der Vorlage
+      // (Zeilen 40/41/43). Tagesgenau: nur Mo-Fr ohne Feiertag - Feiertage zaehlt die
+      // Vorlage in Zeile 42 selbst, sonst wuerden E-/S-Tage auf Feiertagen doppelt abgezogen.
+      const feiertageExport = getGermanHolidays(
+        jahr,
+        stateCode,
+        company.holiday_region as (import('@/lib/holidays/germanHolidays').HolidayRegion),
+      );
+      const abwTageExport = zaehleAbwesenheitsArbeitstage(abwExport, feiertageExport);
 
       const res = await fetch('/api/export/fzul', {
         method: 'POST',
@@ -1139,6 +1413,10 @@ export default function MultiprojektDetailPage() {
             weekly_hours: ma.effective_weekly_hours,
             annual_leave_days: emp?.annual_leave_days ?? 0,
           },
+          // v7.4.8-20: Arbeitstage fuer Zeile 40 (K), 41 (S), 43 (E) - Route v2.5
+          sickDays: abwTageExport.K,
+          specialLeaveDays: abwTageExport.S,
+          parentalLeaveDays: abwTageExport.E,
           stateCode,
           projectTitle: vorhaben.title,
           projectFkz: vorhaben.vorhaben_id || '',
@@ -1168,6 +1446,54 @@ export default function MultiprojektDetailPage() {
       setExportingMA(null);
     }
   }, [vorhaben, company, supabase, anzeigeJahr]);
+
+  // ============================================================================
+  // v7.4.8-20: EXPORT-TAB - Abwesenheits-Arbeitstage und Urlaubsanspruch je MA
+  // ============================================================================
+
+  useEffect(() => {
+    if (aktuellerTab !== 'export' || !company || alleMA.length === 0) return;
+    let abgebrochen = false;
+    (async () => {
+      try {
+        setExportAbwesenheitFehler(null);
+        const ids = alleMA.map((m) => m.id);
+        const abwMap = await ladeAbwesenheiten(
+          supabase, ids, `${anzeigeJahr}-01-01`, `${anzeigeJahr}-12-31`,
+        );
+        const feiertage = getGermanHolidays(
+          anzeigeJahr,
+          normalizeStateCode(company.federal_state),
+          company.holiday_region as (import('@/lib/holidays/germanHolidays').HolidayRegion),
+        );
+        const { data: empData, error: empErr } = await supabase
+          .from('v7_employees')
+          .select('id, annual_leave_days')
+          .in('id', ids);
+        if (empErr) {
+          throw new Error('Urlaubsanspruch konnte nicht geladen werden: ' + empErr.message);
+        }
+        const anspruchMap: Record<string, number> = {};
+        (empData || []).forEach((e: { id: string; annual_leave_days: number | null }) => {
+          anspruchMap[e.id] = e.annual_leave_days ?? 0;
+        });
+        const result: Record<string, ExportAbwesenheit> = {};
+        ids.forEach((id) => {
+          result[id] = {
+            tage: zaehleAbwesenheitsArbeitstage(abwMap[id] || {}, feiertage),
+            anspruch: anspruchMap[id] ?? 0,
+          };
+        });
+        if (!abgebrochen) setExportAbwesenheit(result);
+      } catch (err: unknown) {
+        if (!abgebrochen) {
+          setExportAbwesenheit({});
+          setExportAbwesenheitFehler(err instanceof Error ? err.message : 'Abwesenheiten konnten nicht geladen werden.');
+        }
+      }
+    })();
+    return () => { abgebrochen = true; };
+  }, [aktuellerTab, anzeigeJahr, company, alleMA, supabase]);
 
   // ============================================================================
   // RENDER
@@ -1218,6 +1544,12 @@ export default function MultiprojektDetailPage() {
 
   const maGruppeA = alleMA.filter((m) => m.hat_gefoerderte_projekte);
   const maGruppeB = alleMA.filter((m) => !m.hat_gefoerderte_projekte);
+
+  // v7.4.8-18: gespeicherte FZul-Stunden an Abwesenheitstagen (Altdaten) im Kalender
+  const konfliktTage = kalenderDaten
+    .flatMap((m) => m.tage)
+    .filter((t) => t.abwesenheit !== null && t.fue > 0);
+  const konfliktStunden = konfliktTage.reduce((s, t) => s + t.fue, 0);
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -1358,6 +1690,12 @@ export default function MultiprojektDetailPage() {
                           </td>
                           <td className="px-4 py-3 text-right text-gray-500">
                             {ma.verfuegbar_stunden_gesamt.toFixed(1)}
+                            {ma.abwesenheit_tage > 0 && (
+                              <div className="text-[10px] text-gray-400"
+                                   title="Abwesenheits-Arbeitstage (U/K/S/E) x Tagesarbeitszeit">
+                                abzgl. {ma.abwesenheit_stunden.toFixed(1)} h Abw. ({ma.abwesenheit_tage} AT)
+                              </div>
+                            )}
                           </td>
                           <td className="px-4 py-3 text-right text-gray-400 text-xs">
                             {ma.effective_weekly_hours} h/W
@@ -1415,8 +1753,8 @@ export default function MultiprojektDetailPage() {
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {maGruppeB.map((ma) => {
-                        const monate = vorhaben.ende_monat - vorhaben.start_monat + 1;
-                        const maxH = (ma.effective_weekly_hours / 40) * 173.33 * monate;
+                        // v7.4.8-18: aus loadVorhaben, inkl. Abzug der Abwesenheits-Arbeitstage
+                        const maxH = ma.max_stunden;
                         return (
                           <tr key={ma.id} className="hover:bg-gray-50">
                             <td className="px-4 py-3">
@@ -1427,6 +1765,12 @@ export default function MultiprojektDetailPage() {
                             </td>
                             <td className="px-4 py-3 text-right text-green-600 font-medium">
                               {maxH.toFixed(1)}
+                              {ma.abwesenheit_tage > 0 && (
+                                <div className="text-[10px] text-gray-400 font-normal"
+                                     title="Abwesenheits-Arbeitstage (U/K/S/E) x Tagesarbeitszeit">
+                                  abzgl. {ma.abwesenheit_stunden.toFixed(1)} h Abw. ({ma.abwesenheit_tage} AT)
+                                </div>
+                              )}
                             </td>
                             <td className="px-4 py-3 text-right text-gray-400 text-xs">
                               {ma.effective_weekly_hours} h/W
@@ -1513,8 +1857,34 @@ export default function MultiprojektDetailPage() {
               </div>
             )}
 
+            {/* v7.4.8-18: Ladefehler (z. B. Abwesenheiten) sichtbar machen */}
+            {!kalenderLoading && kalenderFehler && (
+              <div className="max-w-7xl mx-auto px-2 mb-4">
+                <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  {kalenderFehler}
+                </div>
+              </div>
+            )}
+
             {!kalenderLoading && ausgewaehlterMA && kalenderDaten.length > 0 && (
               <div>
+                {/* v7.4.8-18: Hinweis auf FZul-Stunden an Abwesenheitstagen (Altdaten) */}
+                {konfliktTage.length > 0 && (
+                  <div className="flex items-start gap-2 mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+                    <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <strong>
+                        {konfliktTage.length} Abwesenheitstag{konfliktTage.length === 1 ? '' : 'e'} mit
+                        gespeicherten FZul-Stunden ({konfliktStunden.toFixed(1)} h).
+                      </strong>{' '}
+                      An Urlaubs-, Krank-, Sonstige- und Elternzeit-Tagen sind keine FZul-Stunden
+                      zul&auml;ssig. Wert in der rot markierten Zelle auf 0 setzen und den Monat
+                      speichern. Der BSFZ-Export l&auml;sst diese Tage bereits leer.
+                    </div>
+                  </div>
+                )}
+
                 {/* Legende */}
                 <div className="flex items-center gap-4 mb-4 text-xs text-gray-500">
                   <span className="flex items-center gap-1">
@@ -1532,6 +1902,14 @@ export default function MultiprojektDetailPage() {
                   <span className="flex items-center gap-1">
                     <span className="w-3 h-3 rounded bg-gray-50 border border-gray-200 inline-block"></span>
                     WE / Feiertag
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-3 h-3 rounded bg-violet-100 border border-violet-300 inline-block"></span>
+                    Urlaub / Krankheit / Sonstige (U/K/S)
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-3 h-3 rounded bg-sky-100 border border-sky-300 inline-block"></span>
+                    Elternzeit (E)
                   </span>
                 </div>
 
@@ -1594,10 +1972,27 @@ export default function MultiprojektDetailPage() {
                 Pro Mitarbeiter wird die amtliche BSFZ-Excel fuer das Jahr{' '}
                 <span className="font-semibold">{anzeigeJahr}</span> erzeugt. Eingetragen
                 werden die je Tag maximal fuer die FZul verfuegbaren Stunden
-                (Tagesarbeitszeit minus an dem Tag in Foerderprojekten gebuchte Stunden).
+                (Tagesarbeitszeit minus an dem Tag in Foerderprojekten zuschussf&auml;hig gebuchte
+                Stunden; nicht zuschussf&auml;hige Arbeiten mindern die FZul-Stunden nicht).
+                Tage mit Abwesenheit (Urlaub, Krankheit, Sonstige, Elternzeit) bleiben leer.
                 Jahresarbeitszeit, FuE-Anteil und Hoechstgrenze berechnet die Vorlage selbst.
               </p>
+              <p className="text-sm text-blue-800 mt-2">
+                F&uuml;r die Jahresarbeitszeit werden Wochenarbeitszeit, vertraglicher
+                Urlaubsanspruch sowie die Arbeitstage mit Krankheit (K), Sonstiger Abwesenheit
+                (S, Zeile Sonderurlaub) und Elternzeit (E, Zeile Erziehungsurlaub) eingetragen.
+                Gez&auml;hlt werden nur Montag bis Freitag ohne Feiertage; die Feiertage
+                berechnet die Vorlage selbst.
+              </p>
             </div>
+
+            {/* v7.4.8-20: Ladefehler Abwesenheiten / Urlaubsanspruch */}
+            {exportAbwesenheitFehler && (
+              <div className="flex items-center gap-2 p-3 mb-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                {exportAbwesenheitFehler}
+              </div>
+            )}
 
             <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
               {alleMA.length === 0 ? (
@@ -1613,6 +2008,27 @@ export default function MultiprojektDetailPage() {
                         {ma.taetigkeitsbezeichnung || ma.position_title || '\u2014'}
                         {' \u00b7 '}{ma.effective_weekly_hours} h/Woche
                       </p>
+                      {/* v7.4.8-20: Abwesenheits-Arbeitstage und Urlaubsanspruch */}
+                      {exportAbwesenheit[ma.id] && (
+                        <p className="text-xs text-gray-400 truncate">
+                          Arbeitstage {anzeigeJahr}: U {exportAbwesenheit[ma.id].tage.U}
+                          {' \u00b7 '}K {exportAbwesenheit[ma.id].tage.K}
+                          {' \u00b7 '}S {exportAbwesenheit[ma.id].tage.S}
+                          {' \u00b7 '}E {exportAbwesenheit[ma.id].tage.E}
+                          {' \u00b7 '}Urlaubsanspruch {exportAbwesenheit[ma.id].anspruch}
+                        </p>
+                      )}
+                      {exportAbwesenheit[ma.id]
+                        && exportAbwesenheit[ma.id].tage.U > exportAbwesenheit[ma.id].anspruch && (
+                        <p className="text-xs text-amber-700 mt-0.5 flex items-start gap-1">
+                          <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-px" />
+                          <span>
+                            {exportAbwesenheit[ma.id].tage.U} Urlaubs-Arbeitstage erfasst, vertraglicher
+                            Anspruch {exportAbwesenheit[ma.id].anspruch}. Resturlaub aus dem Vorjahr oder
+                            Sonderurlaub? Bitte pr&uuml;fen &ndash; in die Vorlage geht der vertragliche Anspruch.
+                          </span>
+                        </p>
+                      )}
                     </div>
                     <button
                       type="button"
