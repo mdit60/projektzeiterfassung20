@@ -157,12 +157,14 @@ fuer -28 und -29.
 - Reimers, Kai, April 2026: Monatskapazitaet 160.0 h, Elternzeit 14 Arbeitstage
   -112.0 h, verfuegbar 48.0 h, SmartMarina verbucht 48.0 h, frei 0.0 h (0 Prozent).
   Entspricht der Vorhersage (16 E-Tage 01.-22.04. inkl. Karfreitag und Ostermontag).
-- Reimers, Kai, Juli 2026: Monatskapazitaet 184.0 h, Elternzeit 7 Arbeitstage -56.0 h,
-  verfuegbar 128.0 h, verbucht 128.0 h. Diese E-Tage im Juli sind im
-  KONZEPT-ELTERNZEIT (nur April dokumentiert) nicht erwaehnt - Datenstand in PROD,
-  hier nur festgehalten.
-- In beiden Monaten decken sich verfuegbar und verbucht auf die Stunde - unabhaengige
-  Bestaetigung des Abzugs von der Seite der Zeiterfassung.
+- Reimers, Kai, zweite Elternzeit **23.07.-21.08.2026** (von Martin am 11.09.2026 als
+  korrekt bestaetigt):
+  - Juli 2026: Monatskapazitaet 184.0 h, Elternzeit 7 Arbeitstage (Do 23.07. bis
+    Fr 31.07.) -56.0 h, verfuegbar 128.0 h, verbucht 128.0 h.
+  - August 2026: Monatskapazitaet 168.0 h, Elternzeit 15 Arbeitstage (03.-21.08.)
+    -120.0 h, verfuegbar 48.0 h (6 Arbeitstage 24.-31.08.), verbucht 48.0 h.
+- In allen drei Monaten decken sich verfuegbar und verbucht auf die Stunde -
+  unabhaengige Bestaetigung des Abzugs von der Seite der Zeiterfassung.
 - Tooltip-Abstand korrekt.
 
 ---
@@ -209,8 +211,9 @@ fuer -28 und -29.
 
 **DB:** keine Aenderung.
 
-**Git:** `main` = `ec2b101` auf origin und cubintec, Tag `v7.9.10`; `v7-dev` = `94bf6b2`
-auf origin.
+**Git:** `main` = `ec2b101` auf origin und cubintec (Code-Stand, Tag `v7.9.10`); danach
+nur Doku-Commits (Merge `3d6d133` "Doku V7.9.10" sowie der Nachtrag zum
+Reimers-Zeitraum). `v7-dev` = `94bf6b2` (Code), danach Doku-Commits.
 
 **Doku:** PFLICHTENHEFT-v5_43-AENDERUNGSBLOCK.md; GIT-SICHERUNG-v7_9_10-session82.md
 (diese Datei); KONZEPT-ELTERNZEIT-TIMESHEET-v1_1.md; DEPLOY-PROZESS-PZE.md (unveraendert
