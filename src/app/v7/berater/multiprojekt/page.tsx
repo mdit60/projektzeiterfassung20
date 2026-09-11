@@ -4,7 +4,35 @@
 // ============================================================================
 // PZE V7 - Kapazitaetsplanungs-Tool (Berater-Portal)
 // ============================================================================
-// Version: 7.4.8-27
+// Version: 7.4.8-29
+// v7.4.8-29: Tooltip-Zeile "Elternzeit (E)": fester Abstand (gap-2) und kein
+//            Zeilenumbruch im Stundenwert. Bei langem Text ("22 Arbeitstage") stiess
+//            der Wert ohne Leerzeichen an ("Arbeitstage:-176.0 h"). Reine Optik.
+//            DEV-Test von -28 (11.09.2026, AS System) bestaetigt: Voll-E-Monat,
+//            Teil-E-Monat (80 h / 45 Prozent), Jahressummen, rotes E bei verplanten
+//            Arbeitsplan-PM, Tooltips.
+// v7.4.8-28: Elternzeit (Abwesenheitscode E) in der Kapazitaetsmatrix beruecksichtigt.
+//            Vorher wurden Abwesenheiten gar nicht gelesen: ein MA in Elternzeit
+//            erschien mit voller Monatskapazitaet (Echtfall April 2026: 160 h statt
+//            48 h). Neu:
+//            (1) E-Tage aus v7_employee_absences laden (absence_code 'E', is_active,
+//                3-Jahres-Fenster, .limit(10000)).
+//            (2) Gezaehlt werden nur E-Tage, die auch Arbeitstage sind (Mo-Fr, kein
+//                Feiertag laut getGermanHolidays). Hintergrund: der Bereichsdialog
+//                schreibt E auch auf Feiertage (KONZEPT-ELTERNZEIT-TIMESHEET Paragraph 6.2);
+//                countWorkdaysInMonth zaehlt Feiertage aber nicht mit.
+//            (3) Monatskapazitaet = (Arbeitstage - E-Arbeitstage) x (WAZ / 5).
+//            (4) Ampel-Prozent bezieht sich auf die VOLLE Monatskapazitaet ohne
+//                Elternzeit (Entscheidung Martin, 11.09.2026). Fuer MA ohne E-Tage
+//                sind beide Basen identisch - Werte bit-genau wie in -27.
+//            (5) Monat vollstaendig in Elternzeit: hellblaue Zelle mit "E" statt
+//                Ampel (vorher waere Kapazitaet 0 als "100 % frei" gruen erschienen).
+//                Sind in diesem Monat trotzdem Stunden geplant/verbucht, ist das E rot
+//                und der Tooltip nennt die Stunden.
+//            (6) Tooltip: Zeile "Elternzeit (E)" mit Arbeitstagen und Stunden;
+//                Legende um "E = Elternzeit" ergaenzt.
+//            Geplante/verbuchte Stunden, WAZ-Historie, Feiertage, Jahressummen,
+//            MA-Klick, Druck und FZul-Vorhabenliste unveraendert.
 // v7.4.8-27: Panel-Titel "FuE-Vorhaben" -> "FZul-Vorhaben". Da an dieser Stelle nur
 //            noch FZul-Vorhaben angelegt/gelistet werden (siehe -26), ist der Titel
 //            "FZul-Vorhaben" eindeutiger als der Oberbegriff "FuE-Vorhaben".
@@ -84,7 +112,7 @@
 //   Zusaetzlich: v7_employee_hours_history fuer unterjaerige WAZ-Aenderungen.
 // v7.4.8-13: CRITICAL FIX: .limit(10000) auf v7_timesheets-Query (Supabase 1000-Zeilen-Limit)
 // v7.4.8-12: Dashboard-Link im App-Modus (pze_mode='app') ausgeblendet
-// Datum: 24. April 2026
+// Datum: 11. September 2026 (-28); 24. April 2026 (bis -14)
 //
 // Layout:
 //   - Kontrollleiste oben: Firma + Jahresfenster horizontal
@@ -117,7 +145,7 @@ import {
   V7FzulVorhaben,
   V7FzulVorhabenInsert,
 } from '@/types/v7-types';
-import { countWorkdaysInMonth, normalizeStateCode } from '@/lib/holidays/germanHolidays';
+import { countWorkdaysInMonth, getGermanHolidays, normalizeStateCode } from '@/lib/holidays/germanHolidays';
 import type { HolidayRegion } from '@/lib/holidays/germanHolidays';
 
 // ============================================================================
@@ -160,7 +188,14 @@ interface ProjektBeitrag {
 interface MonatKapazitaet {
   monat: number;
   jahr: number;
+  /** Verfuegbare Monatskapazitaet (ab -28: nach Abzug der Elternzeit-Arbeitstage) */
   gesamt: number;
+  /** v7.4.8-28: volle Monatskapazitaet ohne Elternzeit - Basis der Ampel-Prozente */
+  gesamtOhneElternzeit: number;
+  /** v7.4.8-28: Elternzeit-Tage (Code E), die Arbeitstage sind (Mo-Fr, kein Feiertag) */
+  elternzeitTage: number;
+  /** v7.4.8-28: durch Elternzeit entfallende Stunden */
+  elternzeitStunden: number;
   geplant: number;
   verbucht: number;
   frei: number;
@@ -314,6 +349,23 @@ function Jahresmatrix({ jahr, maListe, loading, companyId }: JahresmatrixProps) 
                       </td>
                     );
                   }
+                  // v7.4.8-28: Monat vollstaendig in Elternzeit -> "E" statt Ampel.
+                  // Rot, wenn trotzdem Stunden geplant oder verbucht sind.
+                  if (md.elternzeitTage > 0 && md.gesamt === 0) {
+                    const trotzdemVerplant = md.geplant + md.verbucht > 0;
+                    return (
+                      <td key={monat}
+                          className="border-l border-gray-200 text-center cursor-pointer bg-sky-100 border border-sky-200"
+                          style={{ width: '44px', padding: '4px 2px' }}
+                          onMouseEnter={e => setTooltip({ ma, monat: md, x: e.clientX, y: e.clientY })}
+                          onMouseMove={e => setTooltip(prev => prev ? { ...prev, x: e.clientX, y: e.clientY } : null)}
+                      >
+                        <div className={`font-bold ${trotzdemVerplant ? 'text-red-600' : 'text-sky-800'}`} style={{ fontSize: '12px' }}>
+                          E
+                        </div>
+                      </td>
+                    );
+                  }
                   return (
                     <td key={monat}
                         className={`border-l border-gray-200 text-center cursor-pointer ${getAmpelBg(md.freiProzent)} border`}
@@ -361,8 +413,26 @@ function Jahresmatrix({ jahr, maListe, loading, companyId }: JahresmatrixProps) 
           </div>
           <div className="flex justify-between text-gray-600 mb-2">
             <span className="text-gray-400">Monatskapazitaet:</span>
-            <span className="font-medium">{tooltip.monat.gesamt.toFixed(1)} h</span>
+            <span className="font-medium">{tooltip.monat.gesamtOhneElternzeit.toFixed(1)} h</span>
           </div>
+          {/* v7.4.8-28: Elternzeit-Abzug */}
+          {tooltip.monat.elternzeitTage > 0 && (
+            <div className="bg-sky-50 rounded px-2 py-1 mb-2">
+              <div className="flex justify-between gap-2 text-sky-800">
+                <span>Elternzeit (E), {tooltip.monat.elternzeitTage} Arbeitstag{tooltip.monat.elternzeitTage === 1 ? '' : 'e'}:</span>
+                <span className="font-medium whitespace-nowrap">-{tooltip.monat.elternzeitStunden.toFixed(1)} h</span>
+              </div>
+              <div className="flex justify-between text-gray-600 mt-0.5">
+                <span className="text-gray-400">Verf&uuml;gbar:</span>
+                <span className="font-medium">{tooltip.monat.gesamt.toFixed(1)} h</span>
+              </div>
+              {tooltip.monat.gesamt === 0 && tooltip.monat.geplant + tooltip.monat.verbucht > 0 && (
+                <div className="text-red-600 font-medium mt-0.5">
+                  Achtung: im Elternzeit-Monat sind Stunden eingeplant.
+                </div>
+              )}
+            </div>
+          )}
           {tooltip.monat.projekte.length > 0 && (
             <div className="space-y-1 mb-2">
               <div className="text-gray-400 font-medium uppercase tracking-wide mb-1" style={{ fontSize: '10px' }}>Projekte</div>
@@ -689,6 +759,46 @@ export default function MultiprojektPage() {
         });
       }
 
+      // v7.4.8-28: Elternzeit-Tage (Code E) je MA/Jahr/Monat zaehlen - nur Tage, die
+      // auch Arbeitstage sind (Mo-Fr, kein Feiertag). E wird vom Bereichsdialog auch
+      // auf Feiertage geschrieben; countWorkdaysInMonth zaehlt Feiertage nicht mit,
+      // deshalb muessen sie hier ebenfalls herausfallen.
+      const elternzeitMap: Record<string, Record<number, Record<number, number>>> = {};
+      const { data: eData, error: eErr } = await supabase
+        .from('v7_employee_absences')
+        .select('employee_id, work_date')
+        .in('employee_id', employeeIds)
+        .eq('absence_code', 'E')
+        .eq('is_active', true)
+        .gte('work_date', startDatum)
+        .lte('work_date', endeDatum)
+        .limit(10000);
+      if (eErr) {
+        console.error('Kapazitaetsplanung: Elternzeit-Tage konnten nicht geladen werden:', eErr);
+      }
+      if (eData && eData.length > 0) {
+        const feiertageJeJahr: Record<number, ReturnType<typeof getGermanHolidays>> = {};
+        jahreRange.forEach(j => {
+          feiertageJeJahr[j] = getGermanHolidays(j, stateCode, holidayRegion as HolidayRegion);
+        });
+        const gezaehlt = new Set<string>();
+        eData.forEach((row: { employee_id: string; work_date: string }) => {
+          const datum = String(row.work_date).slice(0, 10);
+          const key = row.employee_id + '|' + datum;
+          if (gezaehlt.has(key)) return;
+          gezaehlt.add(key);
+          const j = parseInt(datum.slice(0, 4), 10);
+          const m = parseInt(datum.slice(5, 7), 10);
+          const d = parseInt(datum.slice(8, 10), 10);
+          const wochentag = new Date(j, m - 1, d).getDay();
+          if (wochentag === 0 || wochentag === 6) return;
+          if (feiertageJeJahr[j] && feiertageJeJahr[j].get(datum)) return;
+          if (!elternzeitMap[row.employee_id]) elternzeitMap[row.employee_id] = {};
+          if (!elternzeitMap[row.employee_id][j]) elternzeitMap[row.employee_id][j] = {};
+          elternzeitMap[row.employee_id][j][m] = (elternzeitMap[row.employee_id][j][m] || 0) + 1;
+        });
+      }
+
       const { data: projekte } = await supabase
         .from('v7_projects')
         .select('id, name, short_name, funding_format, start_date, end_date')
@@ -844,14 +954,22 @@ export default function MultiprojektPage() {
             // A-022: Echte Arbeitstage dieses Monats (Werktage minus Feiertage)
             const arbeitstage = countWorkdaysInMonth(j, m, stateCode, holidayRegion);
             // A-022: Monatskapazitaet = Arbeitstage x Tagesstunden
-            const gesamt = Math.round(arbeitstage * (effWAZ / 5) * 10) / 10;
+            const gesamtOhneElternzeit = Math.round(arbeitstage * (effWAZ / 5) * 10) / 10;
+            // v7.4.8-28: Elternzeit-Arbeitstage abziehen (nie mehr als die Arbeitstage)
+            const elternzeitTage = Math.min(elternzeitMap[emp.id]?.[j]?.[m] || 0, arbeitstage);
+            const gesamt = elternzeitTage > 0
+              ? Math.round((arbeitstage - elternzeitTage) * (effWAZ / 5) * 10) / 10
+              : gesamtOhneElternzeit;
+            const elternzeitStunden = Math.round((gesamtOhneElternzeit - gesamt) * 10) / 10;
 
             const geplantProjekte = geplant[emp.id]?.[j]?.[m] || {};
             const verbuchtProjekte = verbucht[emp.id]?.[j]?.[m] || {};
             const g = Math.round(Object.values(geplantProjekte).reduce((s, v) => s + v, 0) * 10) / 10;
             const v = Math.round(Object.values(verbuchtProjekte).reduce((s, h) => s + h, 0) * 10) / 10;
             const frei = Math.max(0, Math.round((gesamt - g - v) * 10) / 10);
-            const freiProzent = gesamt > 0 ? (frei / gesamt) * 100 : 100;
+            // v7.4.8-28: Basis = volle Monatskapazitaet ohne Elternzeit (Entscheidung
+            // Martin, 11.09.2026). Ohne E-Tage identisch mit der bisherigen Formel.
+            const freiProzent = gesamtOhneElternzeit > 0 ? (frei / gesamtOhneElternzeit) * 100 : 100;
 
             const alleProjektIds = new Set([...Object.keys(geplantProjekte), ...Object.keys(verbuchtProjekte)]);
             const projBeitraege: ProjektBeitrag[] = Array.from(alleProjektIds).map(pid => ({
@@ -862,7 +980,7 @@ export default function MultiprojektPage() {
               verbucht: Math.round((verbuchtProjekte[pid] || 0) * 10) / 10,
             }));
 
-            monatsDaten.push({ monat: m, jahr: j, gesamt, geplant: g, verbucht: v, frei, freiProzent, projekte: projBeitraege });
+            monatsDaten.push({ monat: m, jahr: j, gesamt, gesamtOhneElternzeit, elternzeitTage, elternzeitStunden, geplant: g, verbucht: v, frei, freiProzent, projekte: projBeitraege });
           }
         });
 
@@ -1086,6 +1204,8 @@ export default function MultiprojektPage() {
               <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-yellow-400 inline-block"></span> 20-50%</span>
               <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-orange-500 inline-block"></span> 5-20%</span>
               <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block"></span> &lt;5% frei</span>
+              {/* v7.4.8-28: Elternzeit */}
+              <span className="flex items-center gap-1"><span className="inline-block px-1 rounded bg-sky-100 text-sky-800 font-bold" style={{ fontSize: '10px' }}>E</span> Elternzeit</span>
               <div className="w-px h-4 bg-gray-200 mx-1"></div>
               <button
                 onClick={() => window.print()}
