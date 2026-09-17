@@ -2,6 +2,16 @@
 // ============================================================================
 // PZE V7 - Mein Status (Firmen-Portal)
 // ============================================================================
+// Version: 7.4.4-19
+// v7.4.4-19: Monatsstatus analog Stundennachweis-Matrix v7.4.6-20.
+//   - Dunkelgruen 'Abgeschlossen' (complete) NUR per 'Monat abschliessen'.
+//   - Hellgruen 'Erfasst' (recorded, NEU): vergangener Monat, alle Netto-
+//     Werktage mit Eintrag UND foerderbare Stunden > 0, nicht abgeschlossen.
+//   - Laufender Monat wird nie automatisch gruen (bleibt orange/rot).
+//   - Nur 'sonstige Arbeiten' ohne foerderbare Stunden -> orange.
+//   - Tagesabdeckung zaehlt nur Mo-Fr ohne Feiertage; zentrale Abwesenheiten
+//     (v7_employee_absences, loadEmployeeAbsencesAsTimesheets) zaehlen mit.
+//   - Timesheet-Query liest zusaetzlich is_billable.
 // Version: 7.4.4-18
 // v7.4.4-18: Foerder-Badge BMBF_KMU -> 'KMU-innovativ'; Fall 'OTHER' -> 'Sonstige'.
 // v7.4.4-17: ASCII-Konformitaet - Umlaute in Kommentaren als ae/oe/ue
@@ -61,6 +71,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { loadEmployeeAbsencesAsTimesheets } from '@/lib/employeeAbsences'; // v7.4.4-19
 import PortalHeader from '@/components/shared/PortalHeader';
 import PortalNav from '@/components/shared/PortalNav';
 import {
@@ -118,6 +129,7 @@ interface TimesheetEntry {
   work_date: string;
   hours: number;
   day_type: string | null;
+  is_billable?: boolean | null; // v7.4.4-19
 }
 
 interface ProjectAssignment {
@@ -132,7 +144,7 @@ interface Employee {
   id: string;
 }
 
-type MonthStatus = 'complete' | 'partial' | 'missing' | 'future' | 'outside';
+type MonthStatus = 'complete' | 'recorded' | 'partial' | 'missing' | 'future' | 'outside';
 
 interface MonthData {
   year: number;
@@ -148,6 +160,7 @@ interface ProjectStatus {
   months: MonthData[];
   totalMonths: number;
   completeMonths: number;
+  recordedMonths: number; // v7.4.4-19
   partialMonths: number;
   missingMonths: number;
 }
@@ -316,6 +329,8 @@ export default function MeinStatusPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [assignments, setAssignments] = useState<ProjectAssignment[]>([]);
   const [timesheets, setTimesheets] = useState<TimesheetEntry[]>([]);
+  // v7.4.4-19: zentrale Abwesenheiten (je Projekt synthetisch) fuer die Tagesabdeckung
+  const [absenceRows, setAbsenceRows] = useState<Array<{ project_id: string; work_date: string; hours: number }>>([]);
   // Fuer ZA-Ampel: alle MA der Firma + deren Projektbelegungen
   const [allProjectEmployees, setAllProjectEmployees] = useState<Record<string, string[]>>({});
   // Fuer ZA-Ampel: eingereichte/bewilligte ZAs pro Projekt
@@ -429,13 +444,23 @@ export default function MeinStatusPage() {
           // 7. Eigene Zeiterfassungen
           const { data: timesheetData } = await supabase
             .from('v7_timesheets')
-            .select('id, project_id, employee_id, work_date, hours, day_type')
+            .select('id, project_id, employee_id, work_date, hours, day_type, is_billable')
             .eq('employee_id', userEmployeeId)
             .eq('is_active', true)
             .in('project_id', projectIds)
             .limit(10000);
 
           setTimesheets(timesheetData || []);
+
+          // v7.4.4-19: zentrale Abwesenheiten dieses MA laden
+          try {
+            const absSynth = await loadEmployeeAbsencesAsTimesheets(projectIds, {
+              employeeIds: [userEmployeeId],
+            });
+            setAbsenceRows(absSynth.map(a => ({ project_id: a.project_id, work_date: a.work_date, hours: a.hours || 0 })));
+          } catch {
+            setAbsenceRows([]);
+          }
 
           // Completions fuer diesen MA laden
           if (projectIds.length > 0) {
@@ -578,6 +603,7 @@ export default function MeinStatusPage() {
 
       const months: MonthData[] = [];
       let completeCount = 0;
+      let recordedCount = 0; // v7.4.4-19
       let partialCount = 0;
       let missingCount = 0;
 
@@ -604,10 +630,28 @@ export default function MeinStatusPage() {
             return d.getFullYear() === y && d.getMonth() + 1 === m;
           });
 
-          const hoursRecorded = monthTimesheets.reduce((sum, t) => sum + (t.hours || 0), 0);
-          const daysRecorded = new Set(
-            monthTimesheets.filter((t) => (t.hours || 0) > 0).map((t) => t.work_date)
-          ).size;
+          // v7.4.4-19: zentrale Abwesenheiten des Monats fuer dieses Projekt
+          const monthPrefix = `${y}-${String(m).padStart(2, '0')}-`;
+          const monthAbsences = (absenceRows || []).filter(
+            (a) => a.project_id === project.id && a.work_date.startsWith(monthPrefix)
+          );
+          const hoursRecorded = monthTimesheets.reduce((sum, t) => sum + (t.hours || 0), 0)
+            + monthAbsences.reduce((sum, a) => sum + (a.hours || 0), 0);
+          const billableHours = monthTimesheets.reduce(
+            (sum, t) => sum + (t.is_billable === true ? (t.hours || 0) : 0), 0
+          );
+          // v7.4.4-19: nur Netto-Werktage (Mo-Fr, kein Feiertag) zaehlen
+          const isNetWorkday = (ds: string): boolean => {
+            const [yy, mm, dd] = ds.split('-').map(Number);
+            const dow = new Date(yy, mm - 1, dd).getDay();
+            if (dow === 0 || dow === 6) return false;
+            return !holidays.has(ds);
+          };
+          const daysRecorded = new Set([
+            ...monthTimesheets.filter((t) => (t.hours || 0) > 0).map((t) => String(t.work_date).slice(0, 10)),
+            ...monthAbsences.filter((a) => (a.hours || 0) > 0).map((a) => a.work_date.slice(0, 10)),
+          ].filter(isNetWorkday)).size;
+          const isCurrentMonth = y === currentYear && m === currentMonth;
 
           // Completion-Flag aus v7_timesheet_completions hat Prioritaet
           const isCompleted = completions.some(c =>
@@ -624,9 +668,10 @@ export default function MeinStatusPage() {
           } else if (isCompleted) {
             status = 'complete';
             completeCount++;
-          } else if (hoursRecorded > 0 && daysRecorded >= workingDays) {
-            status = 'complete';
-            completeCount++;
+          } else if (!isCurrentMonth && billableHours > 0 && daysRecorded >= workingDays) {
+            // v7.4.4-19: automatisch nur 'recorded' (hellgruen), nie 'complete'
+            status = 'recorded';
+            recordedCount++;
           } else if (hoursRecorded > 0) {
             status = 'partial';
             partialCount++;
@@ -646,11 +691,12 @@ export default function MeinStatusPage() {
         months,
         totalMonths: pastMonths,
         completeMonths: completeCount,
+        recordedMonths: recordedCount,
         partialMonths: partialCount,
         missingMonths: missingCount,
       };
     });
-  }, [projects, assignments, timesheets, company, currentEmployeeId, completions, employmentStart, employmentEnd]);
+  }, [projects, assignments, timesheets, company, currentEmployeeId, completions, employmentStart, employmentEnd, absenceRows]);
 
   // ============================================================================
   // GESAMT-STATISTIK
@@ -962,8 +1008,14 @@ export default function MeinStatusPage() {
                       <div className="flex items-center gap-3 ml-2">
                         <span className="flex items-center gap-1 text-xs text-green-700 font-medium">
                           <CheckCircle className="w-3.5 h-3.5" />
-                          {ps.completeMonths} vollstaendig
+                          {ps.completeMonths} abgeschlossen
                         </span>
+                        {ps.recordedMonths > 0 && (
+                          <span className="flex items-center gap-1 text-xs text-green-600 font-medium">
+                            <CheckCircle className="w-3.5 h-3.5" />
+                            {ps.recordedMonths} erfasst, nicht abgeschlossen
+                          </span>
+                        )}
                         {ps.partialMonths > 0 && (
                           <span className="flex items-center gap-1 text-xs text-orange-600 font-medium">
                             <AlertTriangle className="w-3.5 h-3.5" />
@@ -993,8 +1045,13 @@ export default function MeinStatusPage() {
                                 let borderStyle = '';
                                 switch (md.status) {
                                   case 'complete':
+                                    bgColor = 'bg-green-700 text-white hover:bg-green-800';
+                                    title = `${getMonthNameFull(md.month)} ${md.year}: Abgeschlossen (${md.hoursRecorded.toFixed(1)}h an ${md.daysRecorded} Tagen)`;
+                                    borderStyle = 'border border-green-800';
+                                    break;
+                                  case 'recorded':
                                     bgColor = 'bg-green-200 text-green-800 hover:bg-green-300';
-                                    title = `${getMonthNameFull(md.month)} ${md.year}: Vollstaendig (${md.hoursRecorded.toFixed(1)}h an ${md.daysRecorded} Tagen)`;
+                                    title = `${getMonthNameFull(md.month)} ${md.year}: Erfasst, noch nicht abgeschlossen (${md.hoursRecorded.toFixed(1)}h an ${md.daysRecorded} von ${md.workingDays} Tagen)`;
                                     borderStyle = 'border border-green-400';
                                     break;
                                   case 'partial':
@@ -1035,7 +1092,7 @@ export default function MeinStatusPage() {
                                     `}
                                   >
                                     <span className="leading-none">{getMonthName(md.month)}</span>
-                                    {md.status === 'complete' && <CheckCircle className="w-3 h-3 mt-0.5" />}
+                                    {(md.status === 'complete' || md.status === 'recorded') && <CheckCircle className="w-3 h-3 mt-0.5" />}
                                     {md.status === 'partial' && <AlertTriangle className="w-3 h-3 mt-0.5" />}
                                     {md.status === 'missing' && <XCircle className="w-3 h-3 mt-0.5" />}
                                   </button>
@@ -1234,10 +1291,16 @@ export default function MeinStatusPage() {
             <div className="flex flex-wrap items-center gap-4 text-sm">
               <span className="text-xs font-medium text-gray-700 mr-1">Legende:</span>
               <div className="flex items-center gap-1.5">
+                <div className="w-5 h-5 rounded bg-green-700 border border-green-800 flex items-center justify-center">
+                  <CheckCircle className="w-3 h-3 text-white" />
+                </div>
+                <span className="text-xs text-gray-700">Abgeschlossen</span>
+              </div>
+              <div className="flex items-center gap-1.5">
                 <div className="w-5 h-5 rounded bg-green-200 border border-green-400 flex items-center justify-center">
                   <CheckCircle className="w-3 h-3 text-green-800" />
                 </div>
-                <span className="text-xs text-gray-700">Vollstaendig</span>
+                <span className="text-xs text-gray-700">Erfasst (nicht abgeschlossen)</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="w-5 h-5 rounded bg-orange-200 border border-orange-400 flex items-center justify-center">
