@@ -2,6 +2,15 @@
 // ============================================================================
 // PZE V7 - Shared Component: Stundennachweis-Matrix
 // ============================================================================
+// Version: 7.4.6-17
+// v7.4.6-17: FIX Ampel-Status. Ein Monat wurde automatisch als 'Vollstaendig'
+//   (gruen) gewertet, sobald alle Arbeitstage irgendeinen Eintrag hatten - auch
+//   wenn das nur 'sonstige Arbeiten' (nicht foerderbar) waren und 0 Projekt-
+//   stunden gebucht sind (Fall AS System / HEATS / Schulz Juni 2026). Jetzt:
+//   automatisch gruen nur bei vollstaendiger Tagesabdeckung UND foerderbaren
+//   Stunden > 0. Voll erfasst ohne foerderbare Stunden -> 'partial' (orange),
+//   Tooltip 'keine foerderbaren Stunden'. Ein per 'Monat abschliessen'
+//   abgeschlossener Monat bleibt unveraendert gruen. Enthaelt v7.4.6-16.
 // Version: 7.4.6-16
 // v7.4.6-16: PDF-Dateiname Sammeldruck auf das neue, einheitliche Schema
 //   umgestellt (identisch zum Einzeldruck in TimesheetForm v7.4.6-97):
@@ -477,7 +486,8 @@ export default function StundennachweisMatrix({
         if (isOutside) status = 'outside';
         else if (isFuture) status = 'future';
         else if (isCompleted) status = 'complete';
-        else if (hoursRecorded > 0 && daysRecorded >= workingDays) status = 'complete';
+        // v7.4.6-17: automatisch 'complete' nur mit foerderbaren Stunden > 0
+        else if (billableHours > 0 && daysRecorded >= workingDays) status = 'complete';
         else if (hoursRecorded > 0) status = 'partial';
         cells.push({ employeeId: emp.id, year, month, hoursRecorded, billableHours, status });
       });
@@ -981,6 +991,8 @@ export default function StundennachweisMatrix({
                       ? `${monthName} ${year}: Noch nicht erfasst`
                       : status === 'complete'
                       ? `${monthName} ${year}: ${billable.toFixed(1)}h gebucht -Vollstaendig`
+                      : status === 'partial' && billable === 0
+                      ? `${monthName} ${year}: 0.0h gebucht -Keine foerderbaren Stunden erfasst`
                       : status === 'partial'
                       ? `${monthName} ${year}: ${billable.toFixed(1)}h gebucht -In Bearbeitung`
                       : `${monthName} ${year}: Keine Erfassung`)
