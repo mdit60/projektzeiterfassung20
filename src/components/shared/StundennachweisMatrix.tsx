@@ -2,6 +2,13 @@
 // ============================================================================
 // PZE V7 - Shared Component: Stundennachweis-Matrix
 // ============================================================================
+// Version: 7.4.6-20
+// v7.4.6-20: Tagesabdeckung zaehlt nur noch Werktage (Mo-Fr) ohne Feiertage.
+//   Eintraege an Wochenenden/Feiertagen glichen bisher rechnerisch Luecken unter
+//   der Woche aus. Ausserdem wurde holidayCount zusaetzlich addiert, obwohl
+//   countWorkdaysInMonth bereits Netto-Werktage (ohne Feiertage) liefert ->
+//   Feiertage zaehlten doppelt. Jetzt: daysRecorded = Anzahl Netto-Werktage mit
+//   Eintrag; Vergleich gegen workingDays (netto). Enthaelt v7.4.6-19.
 // Version: 7.4.6-19
 // v7.4.6-19: FIX Ampel-Status beruecksichtigt zentrale Abwesenheiten (A-034).
 //   Urlaub/Krankheit/Sonstige liegen in v7_employee_absences und fehlten in der
@@ -512,20 +519,18 @@ export default function StundennachweisMatrix({
         // "sonstige Arbeiten" aus (relevant v.a. bei GF mit 50%-Regel).
         const billableHours = monthTimesheets.reduce((sum, t) => sum + (t.is_billable === true ? (t.hours || 0) : 0), 0);
         const workingDays = countWorkdaysInMonth(year, month, company?.federal_state ?? null, holidayRegion);
-        const daysWithEntries = new Set([
+        const holidays = holidaysByYear[year] || new Map();
+        // v7.4.6-20: nur Netto-Werktage (Mo-Fr, kein Feiertag) zaehlen
+        const isNetWorkday = (ds: string): boolean => {
+          const [yy, mm, dd] = ds.split('-').map(Number);
+          const dow = new Date(yy, mm - 1, dd).getDay();
+          if (dow === 0 || dow === 6) return false;
+          return !holidays.has(ds);
+        };
+        const daysRecorded = new Set([
           ...monthTimesheets.filter(t => (t.hours || 0) > 0).map(t => String(t.work_date).slice(0, 10)),
           ...monthAbsences.filter(a => (a.hours || 0) > 0).map(a => a.work_date.slice(0, 10)),
-        ]).size;
-        const holidays = holidaysByYear[year] || new Map();
-        let holidayCount = 0;
-        const daysInMon = new Date(year, month, 0).getDate();
-        for (let d = 1; d <= daysInMon; d++) {
-          const dow = new Date(year, month-1, d).getDay();
-          if (dow === 0 || dow === 6) continue;
-          const ds = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-          if (holidays.has(ds)) holidayCount++;
-        }
-        const daysRecorded = daysWithEntries + holidayCount;
+        ].filter(isNetWorkday)).size;
         const isCurrentMonth = year === currentYear && month === currentMonth; // v7.4.6-18
         const isCompleted = completions.some(
           c => c.employee_id === emp.id && c.year === year && c.month === month
