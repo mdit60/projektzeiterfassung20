@@ -2,6 +2,16 @@
 // ============================================================================
 // PZE V7 - Shared Component: Stundennachweis-Matrix
 // ============================================================================
+// Version: 7.4.6-18
+// v7.4.6-18: Abschluss-Status getrennt von automatischer Wertung.
+//   - Dunkelgruen 'Abgeschlossen' (complete): NUR per Button 'Monat abschliessen'
+//     (Eintrag in completions).
+//   - Hellgruen 'Erfasst' (recorded, NEU): vergangener Monat, alle Arbeitstage
+//     erfasst und foerderbare Stunden > 0, aber nicht abgeschlossen.
+//   - Der LAUFENDE Monat wird nie automatisch gruen/hellgruen (vorausgefuellte
+//     Tage bis Monatsende fuehrten sonst zu falschem 'Vollstaendig'), sondern
+//     bleibt orange bzw. rot, bis er manuell abgeschlossen wird.
+//   Textfarbe jetzt je Status (Icon auf Hellgruen dunkel). Enthaelt v7.4.6-17.
 // Version: 7.4.6-17
 // v7.4.6-17: FIX Ampel-Status. Ein Monat wurde automatisch als 'Vollstaendig'
 //   (gruen) gewertet, sobald alle Arbeitstage irgendeinen Eintrag hatten - auch
@@ -268,7 +278,7 @@ interface MatrixCell {
   month: number;
   hoursRecorded: number;   // alle erfassten Stunden (fuer Vollstaendigkeits-Status)
   billableHours: number;   // v7.4.6-12: nur foerderbare (is_billable) Stunden -> Anzeige-Zahl
-  status: 'complete' | 'partial' | 'missing' | 'future' | 'outside';
+  status: 'complete' | 'recorded' | 'partial' | 'missing' | 'future' | 'outside';
 }
 
 interface StundennachweisMatrixProps {
@@ -479,6 +489,7 @@ export default function StundennachweisMatrix({
           if (holidays.has(ds)) holidayCount++;
         }
         const daysRecorded = daysWithEntries + holidayCount;
+        const isCurrentMonth = year === currentYear && month === currentMonth; // v7.4.6-18
         const isCompleted = completions.some(
           c => c.employee_id === emp.id && c.year === year && c.month === month
         );
@@ -486,8 +497,9 @@ export default function StundennachweisMatrix({
         if (isOutside) status = 'outside';
         else if (isFuture) status = 'future';
         else if (isCompleted) status = 'complete';
-        // v7.4.6-17: automatisch 'complete' nur mit foerderbaren Stunden > 0
-        else if (billableHours > 0 && daysRecorded >= workingDays) status = 'complete';
+        // v7.4.6-18: automatische Wertung nur fuer VERGANGENE Monate und nur als
+        //   'recorded' (hellgruen); 'complete' ausschliesslich per Monatsabschluss.
+        else if (!isCurrentMonth && billableHours > 0 && daysRecorded >= workingDays) status = 'recorded';
         else if (hoursRecorded > 0) status = 'partial';
         cells.push({ employeeId: emp.id, year, month, hoursRecorded, billableHours, status });
       });
@@ -813,7 +825,10 @@ export default function StundennachweisMatrix({
         {/* Legende */}
         <div className="flex items-center gap-3 text-xs text-gray-500">
           <span className="flex items-center gap-1">
-            <span className="w-3 h-3 rounded-sm bg-green-500 inline-block"></span>Vollstaendig
+            <span className="w-3 h-3 rounded-sm bg-green-700 inline-block"></span>Abgeschlossen
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-3 h-3 rounded-sm bg-green-300 inline-block"></span>Erfasst (nicht abgeschlossen)
           </span>
           <span className="flex items-center gap-1">
             <span className="w-3 h-3 rounded-sm bg-orange-400 inline-block"></span>Teilweise
@@ -974,11 +989,12 @@ export default function StundennachweisMatrix({
                     const hours = cell?.hoursRecorded || 0;
                     const billable = cell?.billableHours || 0; // v7.4.6-12: Anzeige-Zahl = foerderbar gebucht
                     const colorMap: Record<string, string> = {
-                      complete: 'bg-green-500 hover:bg-green-600 cursor-pointer',
-                      partial:  'bg-orange-400 hover:bg-orange-500 cursor-pointer',
-                      missing:  'bg-red-400 hover:bg-red-500 cursor-pointer',
-                      future:   'bg-gray-200 cursor-default',
-                      outside:  'bg-gray-100 cursor-default',
+                      complete: 'bg-green-700 hover:bg-green-800 text-white cursor-pointer',
+                      recorded: 'bg-green-300 hover:bg-green-400 text-green-900 cursor-pointer',
+                      partial:  'bg-orange-400 hover:bg-orange-500 text-white cursor-pointer',
+                      missing:  'bg-red-400 hover:bg-red-500 text-white cursor-pointer',
+                      future:   'bg-gray-200 text-white cursor-default',
+                      outside:  'bg-gray-100 text-white cursor-default',
                     };
                     const isClickable = status !== 'future' && status !== 'outside';
                     // NEU v7.4.4-3: Offene Notiz pruefen
@@ -990,7 +1006,9 @@ export default function StundennachweisMatrix({
                     const tooltip = (status === 'future'
                       ? `${monthName} ${year}: Noch nicht erfasst`
                       : status === 'complete'
-                      ? `${monthName} ${year}: ${billable.toFixed(1)}h gebucht -Vollstaendig`
+                      ? `${monthName} ${year}: ${billable.toFixed(1)}h gebucht -Abgeschlossen`
+                      : status === 'recorded'
+                      ? `${monthName} ${year}: ${billable.toFixed(1)}h gebucht -Erfasst, noch nicht abgeschlossen`
                       : status === 'partial' && billable === 0
                       ? `${monthName} ${year}: 0.0h gebucht -Keine foerderbaren Stunden erfasst`
                       : status === 'partial'
@@ -1009,13 +1027,13 @@ export default function StundennachweisMatrix({
                         <div className="flex flex-col items-center">
                           <div className="relative w-8 h-7">
                             <div
-                              className={`w-full h-full rounded flex items-center justify-center text-white font-bold transition-colors ${colorMap[status] || 'bg-gray-100'} ${druckModus && isClickable && isSelected(emp.id, year, month) ? 'ring-2 ring-offset-1 ring-blue-700' : ''}`}
+                              className={`w-full h-full rounded flex items-center justify-center font-bold transition-colors ${colorMap[status] || 'bg-gray-100'} ${druckModus && isClickable && isSelected(emp.id, year, month) ? 'ring-2 ring-offset-1 ring-blue-700' : ''}`}
                               onClick={() => {
                                 if (druckModus) { if (isClickable) toggleCell(emp.id, year, month); }
                                 else if (isClickable) onNavigateToZE(emp.id, year, month, activeProjectId);
                               }}
                             >
-                              {status === 'complete' && <CheckCircle size={14} />}
+                              {(status === 'complete' || status === 'recorded') && <CheckCircle size={14} />}
                               {status === 'partial'  && <AlertTriangle size={14} />}
                               {status === 'missing'  && <XCircle size={14} />}
                               {status === 'future'   && <span className="text-gray-400 text-xs">-</span>}
