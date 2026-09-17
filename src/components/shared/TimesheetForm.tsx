@@ -3,6 +3,15 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 8. September 2026
+// Version: 7.4.6-98
+// v7.4.6-98: FIX 'Monat abschliessen' speichert IMMER vorher.
+//   Die Auto-Vorbelegung 'sonstige Arbeiten' aendert nur den Anzeige-State und
+//   setzt hasChanges nicht. Bisher speicherte handleToggleComplete nur bei
+//   hasChanges. Ein Monat ohne manuelle Eingabe (z.B. 0 foerderbare Stunden,
+//   kein AP geplant) wurde daher abgeschlossen, ohne dass die angezeigten
+//   'sonstigen Arbeiten' in der DB landeten; nach dem Abschluss laeuft die
+//   Auto-Vorbelegung nicht mehr -> Zeile leer (Fall Duehrkop, AURA, Juli 2026).
+//   Jetzt: vor dem Abschluss wird immer gespeichert. Enthaelt v7.4.6-97.
 // Version: 7.4.6-97
 // v7.4.6-97: PDF-Dateiname Einzeldruck auf das neue Schema umgestellt:
 //   "<Nachname>_<FKZ>_Stundennachweis_<YYMM>" (Bsp.
@@ -3569,7 +3578,9 @@ export default function TimesheetForm({
     setLoadingCompletion(true);
     try {
       // v7.4.3-16: Falls ungespeicherte Aenderungen vorhanden, erst speichern
-      if (!isCompleted && hasChanges) {
+      // v7.4.6-98: immer speichern (auch ohne hasChanges), damit die
+      //   Auto-Vorbelegung "sonstige Arbeiten" persistiert wird.
+      if (!isCompleted) {
         await handleSave();
       }
       const supabaseClient = createClient();
