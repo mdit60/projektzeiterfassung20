@@ -2,6 +2,15 @@
 // ============================================================================
 // PZE V7 - Shared Component: Stundennachweis-Matrix
 // ============================================================================
+// Version: 7.4.6-19
+// v7.4.6-19: FIX Ampel-Status beruecksichtigt zentrale Abwesenheiten (A-034).
+//   Urlaub/Krankheit/Sonstige liegen in v7_employee_absences und fehlten in der
+//   Tagesabdeckung (nur im Sammeldruck ergaenzt). Folge: Monat mit Urlaub +
+//   Projektstunden an allen uebrigen Tagen blieb orange statt hellgruen (Fall
+//   Schulz August 2026). Jetzt werden die Abwesenheiten des aktiven Projekts
+//   (loadEmployeeAbsencesAsTimesheets, Projektlaufzeit) geladen und fuer
+//   daysRecorded/hoursRecorded mitgezaehlt (Dedup je Tag ueber Set).
+//   billableHours bleibt unveraendert. Enthaelt v7.4.6-18.
 // Version: 7.4.6-18
 // v7.4.6-18: Abschluss-Status getrennt von automatischer Wertung.
 //   - Dunkelgruen 'Abgeschlossen' (complete): NUR per Button 'Monat abschliessen'
@@ -383,6 +392,27 @@ export default function StundennachweisMatrix({
     router.push(`${base}?projektId=${activeProjectId}&returnTo=${rt}`);
   };
 
+  // v7.4.6-19: zentrale Abwesenheiten (A-034) fuer die Tagesabdeckung laden.
+  const [absenceRows, setAbsenceRows] = useState<Array<{ employee_id: string; work_date: string; hours: number }>>([]);
+  const absStart = activeProject?.start_date || null;
+  const absEnd = activeProject?.end_date || null;
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeProjectId) { setAbsenceRows([]); return; }
+    loadEmployeeAbsencesAsTimesheets([activeProjectId], {
+      fromDate: absStart ? absStart.slice(0, 10) : undefined,
+      toDate: absEnd ? absEnd.slice(0, 10) : undefined,
+    })
+      .then(rows => {
+        if (cancelled) return;
+        setAbsenceRows(rows
+          .filter(r => r.project_id === activeProjectId)
+          .map(r => ({ employee_id: r.employee_id, work_date: r.work_date, hours: r.hours || 0 })));
+      })
+      .catch(() => { if (!cancelled) setAbsenceRows([]); });
+    return () => { cancelled = true; };
+  }, [activeProjectId, absStart, absEnd]);
+
   const matrixData = useMemo(() => {
     if (!activeProjectId) return null;
     const project = projects.find(p => p.id === activeProjectId);
@@ -471,14 +501,21 @@ export default function StundennachweisMatrix({
           const d = new Date(t.work_date);
           return d.getFullYear() === year && d.getMonth() + 1 === month;
         });
-        const hoursRecorded = monthTimesheets.reduce((sum, t) => sum + (t.hours || 0), 0);
+        // v7.4.6-19: zentrale Abwesenheiten des MA in diesem Monat
+        const monthPrefix = `${year}-${String(month).padStart(2, '0')}-`;
+        const monthAbsences = absenceRows.filter(
+          a => a.employee_id === emp.id && a.work_date.startsWith(monthPrefix)
+        );
+        const hoursRecorded = monthTimesheets.reduce((sum, t) => sum + (t.hours || 0), 0)
+          + monthAbsences.reduce((sum, a) => sum + (a.hours || 0), 0);
         // v7.4.6-12: nur foerderbare (gebuchte) Stunden - schliesst nicht-foerderbare
         // "sonstige Arbeiten" aus (relevant v.a. bei GF mit 50%-Regel).
         const billableHours = monthTimesheets.reduce((sum, t) => sum + (t.is_billable === true ? (t.hours || 0) : 0), 0);
         const workingDays = countWorkdaysInMonth(year, month, company?.federal_state ?? null, holidayRegion);
-        const daysWithEntries = new Set(
-          monthTimesheets.filter(t => (t.hours || 0) > 0).map(t => t.work_date)
-        ).size;
+        const daysWithEntries = new Set([
+          ...monthTimesheets.filter(t => (t.hours || 0) > 0).map(t => String(t.work_date).slice(0, 10)),
+          ...monthAbsences.filter(a => (a.hours || 0) > 0).map(a => a.work_date.slice(0, 10)),
+        ]).size;
         const holidays = holidaysByYear[year] || new Map();
         let holidayCount = 0;
         const daysInMon = new Date(year, month, 0).getDate();
@@ -506,7 +543,7 @@ export default function StundennachweisMatrix({
     });
 
     return { project, months, years, employees: matrixEmployees, cells };
-  }, [activeProjectId, projects, workPackages, wpAssignments, projectAssignments, employees, timesheets, company, completions]);
+  }, [activeProjectId, projects, workPackages, wpAssignments, projectAssignments, employees, timesheets, company, completions, absenceRows]);
 
   // ==========================================================================
   // v7.4.6-3: SAMMELDRUCK
