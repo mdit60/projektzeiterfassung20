@@ -4,6 +4,11 @@
 // ============================================================================
 // PZE V7 - VN-Modul (Verwendungsnachweis), De-minimis-Varianten
 // Version: 1.2-2
+// v1.2-4: FIX Konventionsverstoss in der Fussnote zu Abschnitt C: dort
+//   standen \u-Escapes in reinem JSX-TEXT und wurden woertlich ausgegeben
+//   ("gem\\u00e4\\u00df"). \u-Escapes gelten nur in JS-String-Literalen;
+//   JSX-Text braucht HTML-Entities (&auml;, &szlig;, &uuml;) - so steht es
+//   auch im Konventions-Hinweis im Kopf dieser Datei. Keine Logikaenderung.
 // v1.2-3: Abschnitt B um EIGENANTEIL und Kontrollzeile "Summe" erweitert,
 //   NEU Abschnitt C mit den kumulierten Personenstunden je Mitarbeiter.
 //   B ist damit in sich geschlossen: Zuwendung + Eigenanteil = Summe A. Die
@@ -405,7 +410,7 @@ export default function VerwendungsnachweisPanel({
               </table>
             )}
             <div className="mt-2 text-xs text-gray-500">
-              Geleistete Projektbearbeitungsstunden gem\u00e4\u00df Stundennachweisen, aggregiert \u00fcber
+              Geleistete Projektbearbeitungsstunden gem&auml;&szlig; Stundennachweisen, aggregiert &uuml;ber
               die {result.anzahlZas} Zahlungsanforderungen im Berichtszeitraum &mdash; dieselbe Abgrenzung
               wie in Abschnitt A.
             </div>
