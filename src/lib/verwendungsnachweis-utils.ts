@@ -1,6 +1,24 @@
 // ============================================================================
-// verwendungsnachweis-utils-v1_2-1.ts
-// Version: 1.2-1
+// verwendungsnachweis-utils-v1_2-2.ts
+// Version: 1.2-2
+// v1.2-2: TAGGENAUER ABRECHNUNGSFILTER (Fix Monatslogik).
+//   BEFUND: computeDSPersonalkosten hat die Zeiterfassung ueber GANZE
+//   Kalendermonate gefiltert (monthsInRange). Aus einem ZA-Zeitraum
+//   01.07.-30.08. wurde damit "Juli und August komplett" -> Buchungen vom
+//   31.08. wurden mitgerechnet, obwohl sie ausserhalb des Bewilligungs-
+//   zeitraums liegen und nicht zuwendungsfaehig sind.
+//   FIX: Filterung jetzt taggenau ueber ISO-String-Vergleich (work_date ist
+//   'YYYY-MM-DD', lexikografische Ordnung = chronologische Ordnung). Kein
+//   new Date() mehr -> zugleich weg mit der Zeitzonen-Falle, dass
+//   new Date('2026-08-31') als UTC-Mitternacht geparst, aber mit
+//   getFullYear()/getMonth() in Ortszeit ausgewertet wurde.
+//   ZUSAETZLICH: harte Kappung auf den Bewilligungszeitraum des Projekts
+//   (v7_projects.start_date / end_date). Ein ZA-Zeitraum, der darueber
+//   hinausragt, kann keine Kosten mehr ausserhalb der Laufzeit erzeugen.
+//   Die beiden Helfer abrechnungsFenster() und istImFenster() sind bewusst
+//   EXPORTIERT: ZAPanel importiert exakt dieselbe Logik, damit ZA und VN
+//   nicht erneut auseinanderlaufen koennen.
+//   monthsInRange() entfaellt ersatzlos (wurde nur hier benutzt).
 // v1.2-1: NWM-VARIANTE (Netzwerk-Management) implementiert - Phase 1 + Phase 2.
 //   Der NWM-VN aggregiert die bereits in den ZA gespeicherten NWM-Werte
 //   (nwm_personalkosten, nwm_kosten_dritte, nwm_kosten_uebrige, nwm_kosten_gesamt,
@@ -148,6 +166,48 @@ export interface VNResult {
 }
 
 
+// -------------------- Abrechnungsfenster (v1.2-2, zentral) ------------------
+// EINZIGE Quelle der Wahrheit fuer "welche Zeitbuchung gehoert in diese
+// Abrechnung". Auch von ZAPanel importiert - nicht duplizieren.
+//
+// Regel: das abrechenbare Fenster ist der Schnitt aus
+//   [ZA-Zeitraum] und [Bewilligungszeitraum des Projekts].
+// Liegt kein Schnitt vor (leeres Fenster), wird null geliefert.
+//
+// Datumsformat: ISO 'YYYY-MM-DD'. Der Vergleich erfolgt bewusst als
+// String-Vergleich - bei ISO-Daten ist die lexikografische Ordnung identisch
+// zur chronologischen, und es entstehen keine Zeitzonen-Verschiebungen.
+
+export function toIsoDay(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const s = String(value).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+}
+
+export function abrechnungsFenster(
+  zaVon: string | null | undefined,
+  zaBis: string | null | undefined,
+  projektStart: string | null | undefined,
+  projektEnde: string | null | undefined,
+): { von: string; bis: string } | null {
+  const von0 = toIsoDay(zaVon);
+  const bis0 = toIsoDay(zaBis);
+  if (!von0 || !bis0) return null;
+  const pStart = toIsoDay(projektStart);
+  const pEnde = toIsoDay(projektEnde);
+  const von = pStart && pStart > von0 ? pStart : von0;
+  const bis = pEnde && pEnde < bis0 ? pEnde : bis0;
+  if (von > bis) return null;
+  return { von, bis };
+}
+
+export function istImFenster(workDate: string | null | undefined, von: string, bis: string): boolean {
+  const d = toIsoDay(workDate);
+  if (!d) return false;
+  return d >= von && d <= bis;
+}
+
+
 // ------------------------------ Hilfsfunktionen -----------------------------
 function round2(n: number): number { return Math.round(n * 100) / 100; }
 
@@ -163,42 +223,40 @@ export function getHourlyRate(pa: VNProjectAssignment | undefined, project: VNPr
   return null;
 }
 
-function monthsInRange(vonStr: string, bisStr: string): { year: number; month: number }[] {
-  const von = new Date(vonStr); const bis = new Date(bisStr);
-  const out: { year: number; month: number }[] = [];
-  const cur = new Date(von.getFullYear(), von.getMonth(), 1);
-  while (cur <= bis) { out.push({ year: cur.getFullYear(), month: cur.getMonth() + 1 }); cur.setMonth(cur.getMonth() + 1); }
-  return out;
-}
-
-// Personalkosten technisch/nichttechnisch fuer einen Zeitraum (1:1 ZAPanel).
-// Bei Nicht-DS-Projekten (isDS=false) landen ALLE Stunden in pkT, pkNT=0.
+// Personalkosten technisch/nichttechnisch fuer einen Zeitraum.
+// v1.2-2: taggenau statt monatsweise, zusaetzlich auf den Bewilligungs-
+// zeitraum des Projekts gekappt. Bei Nicht-DS-Projekten (isDS=false) landen
+// ALLE Stunden in pkT, pkNT=0.
 export function computeDSPersonalkosten(
   projectId: string, vonStr: string, bisStr: string, data: VNData,
 ): { pkT: number; pkNT: number } {
   const project = data.projects.find(p => p.id === projectId);
   if (!project || !vonStr || !bisStr) return { pkT: 0, pkNT: 0 };
+
+  const fenster = abrechnungsFenster(vonStr, bisStr, project.start_date, project.end_date);
+  if (!fenster) return { pkT: 0, pkNT: 0 };
+  const { von, bis } = fenster;
+
   const isDS = String(project.funding_format || '').toUpperCase().trim() === 'ZIM_DS';
-  const months = monthsInRange(vonStr, bisStr);
   const technicalWPIds = isDS
     ? data.workPackages.filter(wp => wp.project_id === projectId && wp.is_technical === true).map(wp => wp.id)
     : [];
   const empIds = [...new Set(data.projectAssignments.filter(pa => pa.project_id === projectId).map(pa => pa.employee_id))];
+
   let pkT = 0, pkNT = 0;
   for (const empId of empIds) {
     const pa = data.projectAssignments.find(a => a.employee_id === empId && a.project_id === projectId);
     const rate = getHourlyRate(pa, project) || 0;
+    const entries = data.timesheets.filter(ts =>
+      ts.project_id === projectId && ts.employee_id === empId &&
+      ts.is_active && ts.is_billable &&
+      istImFenster(ts.work_date, von, bis));
     let hoursT = 0, hoursNT = 0;
-    for (const m of months) {
-      const entries = data.timesheets.filter(ts =>
-        ts.project_id === projectId && ts.employee_id === empId && ts.is_active && ts.is_billable &&
-        (() => { const d = new Date(ts.work_date); return d.getFullYear() === m.year && (d.getMonth() + 1) === m.month; })());
-      if (isDS) {
-        hoursT += entries.filter(ts => technicalWPIds.includes(ts.work_package_id || '')).reduce((s, ts) => s + ts.hours, 0);
-        hoursNT += entries.filter(ts => !technicalWPIds.includes(ts.work_package_id || '')).reduce((s, ts) => s + ts.hours, 0);
-      } else {
-        hoursT += entries.reduce((s, ts) => s + ts.hours, 0);
-      }
+    if (isDS) {
+      hoursT = entries.filter(ts => technicalWPIds.includes(ts.work_package_id || '')).reduce((s, ts) => s + ts.hours, 0);
+      hoursNT = entries.filter(ts => !technicalWPIds.includes(ts.work_package_id || '')).reduce((s, ts) => s + ts.hours, 0);
+    } else {
+      hoursT = entries.reduce((s, ts) => s + ts.hours, 0);
     }
     pkT += hoursT * rate; pkNT += hoursNT * rate;
   }
@@ -255,6 +313,19 @@ export function computeVNSchluss(
     .filter(za => za.project_id === projectId)
     .filter(za => zaImZeitraum(za, von, bis));
   if (zas.length === 0) warnungen.push('Keine Zahlungsanforderungen im Berichtszeitraum gefunden.');
+
+  // v1.2-2: Hinweis, wenn ein ZA-Zeitraum ueber den Bewilligungszeitraum
+  // hinausragt - die Kosten werden dann gekappt und weichen bewusst von der
+  // eingereichten ZA ab.
+  const pStart = toIsoDay(project?.start_date);
+  const pEnde = toIsoDay(project?.end_date);
+  for (const za of zas) {
+    const zv = toIsoDay(za.zeitraum_von);
+    const zb = toIsoDay(za.zeitraum_bis);
+    if ((pStart && zv && zv < pStart) || (pEnde && zb && zb > pEnde)) {
+      warnungen.push('ZA ' + (za.za_nummer || '?') + ': Abrechnungszeitraum ragt \u00fcber den Bewilligungszeitraum hinaus - Kosten wurden auf die Laufzeit gekappt.');
+    }
+  }
 
   const overheadT = project?.overhead_t || 0;
   const overheadNT = (project?.overhead_nt ?? project?.overhead_t) || 0;
