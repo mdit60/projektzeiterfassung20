@@ -1,6 +1,27 @@
 // ============================================================================
 // verwendungsnachweis-utils-v1_2-2.ts
-// Version: 1.2-3
+// Version: 1.2-4
+// v1.2-4: ABSCHNITT B IN SICH GESCHLOSSEN + ABSCHNITT C (Personenstunden).
+//   B BISHER FALSCH: gesamtZuwendung war die Summe der je ZA eingefrorenen
+//   foerderbetrag_gesamt. Das sind ANFORDERUNGEN, nicht der endgueltige
+//   Zuwendungsanspruch. Weil Abschnitt A die Kosten aus den aktuellen Stunden
+//   und Saetzen neu rechnet, liefen A und B auseinander, sobald nach dem
+//   Einreichen einer ZA etwas an den Stunden geaendert wurde. Folge: der
+//   Eigenanteil war je nach Rechenweg verschieden - ein Widerspruch, denn
+//   Kosten - Zuwendung und Kosten x (1 - Foerdersatz) muessen identisch sein.
+//   FIX (nur DS/EP; NWM behaelt seine Jahres-Mischsaetze):
+//     Zuwendung gesamt = Foerdersatz x Summe A
+//     bisher erhalten  = Summe der Zahlungseingaenge
+//     Schlusszahlung   = Zuwendung gesamt - bisher erhalten
+//     Eigenanteil      = Summe A - Zuwendung gesamt
+//     Summe            = Zuwendung gesamt + Eigenanteil  (muss Summe A sein)
+//   Die Abweichung zu den tatsaechlich angeforderten Betraegen wird als
+//   Warnung ausgewiesen (angefordertLautZa), nicht in B versteckt.
+//   NEU Abschnitt C: kumulierte Personenstunden je Mitarbeiter (technisch /
+//   nichttechnisch) ueber den Berichtszeitraum. Die DS-Schlussabrechnung
+//   verlangt diese Gesamtzahlen; sie entstehen aus derselben taggenauen
+//   Filterung wie die Kosten in A und sind damit gegen Zeile (1) und (4)
+//   pruefbar. Sortierung nach employee_number (lfd. Nr. gemaess Antrag).
 // v1.2-3: round2() wird EXPORTIERT. Hintergrund: ZAPanel hat den Foerder-
 //   betrag mit Math.round() auf GANZE EURO gekappt, waehrend die Kosten
 //   centgenau gefuehrt werden - das Formular verlangt in allen Spalten
@@ -151,7 +172,19 @@ export interface VNFinanzierung {
   bisherErhalten: number;
   gesamtZuwendung: number;
   schlusszahlung: number;
-  eigenanteil?: number; // nur NWM: Eigenanteil des Netzwerkpartners
+  eigenanteil: number;          // v1.2-4: immer gesetzt (Summe A - Zuwendung)
+  summeFinanzierung: number;    // v1.2-4: Kontrollzeile, muss summeKosten sein
+  angefordertLautZa: number;    // v1.2-4: Summe der eingereichten ZA-Betraege
+}
+
+// v1.2-4: Abschnitt C - kumulierte Personenstunden je Mitarbeiter
+export interface VNStundenZeile {
+  nr: number;
+  empId: string;
+  empName: string;
+  stdT: number;
+  stdNT: number;
+  stdGesamt: number;
 }
 
 export interface VNResult {
@@ -167,6 +200,9 @@ export interface VNResult {
   berichtszeitraumBis: string | null;
   kostenZeilen: VNKostenZeile[];
   summeKosten: number;
+  stundenZeilen: VNStundenZeile[];   // v1.2-4
+  summeStdT: number;                 // v1.2-4
+  summeStdNT: number;                // v1.2-4
   finanzierung: VNFinanzierung;
   anzahlZas: number;
   warnungen: string[];
@@ -269,6 +305,38 @@ export function computeDSPersonalkosten(
     pkT += hoursT * rate; pkNT += hoursNT * rate;
   }
   return { pkT, pkNT };
+}
+
+// v1.2-4: Personenstunden technisch/nichttechnisch je Mitarbeiter fuer einen
+// Zeitraum - gleiche Filterung wie computeDSPersonalkosten, nur ohne Satz.
+export function computeDSPersonenstunden(
+  projectId: string, vonStr: string, bisStr: string, data: VNData,
+): Array<{ empId: string; stdT: number; stdNT: number }> {
+  const project = data.projects.find(p => p.id === projectId);
+  if (!project || !vonStr || !bisStr) return [];
+  const fenster = abrechnungsFenster(vonStr, bisStr, project.start_date, project.end_date);
+  if (!fenster) return [];
+  const { von, bis } = fenster;
+
+  const isDS = String(project.funding_format || '').toUpperCase().trim() === 'ZIM_DS';
+  const technicalWPIds = isDS
+    ? data.workPackages.filter(wp => wp.project_id === projectId && wp.is_technical === true).map(wp => wp.id)
+    : [];
+  const empIds = [...new Set(data.projectAssignments.filter(pa => pa.project_id === projectId).map(pa => pa.employee_id))];
+
+  return empIds.map(empId => {
+    const entries = data.timesheets.filter(ts =>
+      ts.project_id === projectId && ts.employee_id === empId &&
+      ts.is_active && ts.is_billable &&
+      istImFenster(ts.work_date, von, bis));
+    const stdT = isDS
+      ? entries.filter(ts => technicalWPIds.includes(ts.work_package_id || '')).reduce((s, ts) => s + ts.hours, 0)
+      : entries.reduce((s, ts) => s + ts.hours, 0);
+    const stdNT = isDS
+      ? entries.filter(ts => !technicalWPIds.includes(ts.work_package_id || '')).reduce((s, ts) => s + ts.hours, 0)
+      : 0;
+    return { empId, stdT, stdNT };
+  });
 }
 
 // Variante aus Foerderformat + (bei Netzwerk) Phase bestimmen.
@@ -414,9 +482,57 @@ export function computeVNSchluss(
   const kostenZeilen: VNKostenZeile[] = labels.map((label, i) => ({ nr: i + 1, label, betrag: betraege[i] }));
   const summeKosten = round2(betraege.reduce((s, v) => s + v, 0));
 
+  // ------------------------- Abschnitt C: Stunden ---------------------------
+  // Ueber dieselben ZA aggregiert wie die Kosten -> Stunden x Satz muss Zeile
+  // (1) bzw. (4) ergeben.
+  const stdMap = new Map<string, { stdT: number; stdNT: number }>();
+  for (const za of zas) {
+    for (const r of computeDSPersonenstunden(projectId, za.zeitraum_von || '', za.zeitraum_bis || '', data)) {
+      const cur = stdMap.get(r.empId) || { stdT: 0, stdNT: 0 };
+      cur.stdT += r.stdT; cur.stdNT += r.stdNT;
+      stdMap.set(r.empId, cur);
+    }
+  }
+  const nummerVon = (empId: string): number =>
+    data.projectAssignments.find(pa => pa.project_id === projectId && pa.employee_id === empId)?.employee_number ?? 999;
+  const stundenZeilen: VNStundenZeile[] = [...stdMap.entries()]
+    .map(([empId, v]) => ({
+      nr: 0, empId,
+      empName: data.employees.find(e => e.id === empId)?.display_name || empId,
+      stdT: round2(v.stdT), stdNT: round2(v.stdNT), stdGesamt: round2(v.stdT + v.stdNT),
+    }))
+    .filter(r => r.stdGesamt > 0)
+    .sort((a, b) => (nummerVon(a.empId) - nummerVon(b.empId)) || a.empName.localeCompare(b.empName))
+    .map((r, i) => ({ ...r, nr: i + 1 }));
+  const summeStdT = round2(stundenZeilen.reduce((s, r) => s + r.stdT, 0));
+  const summeStdNT = round2(stundenZeilen.reduce((s, r) => s + r.stdNT, 0));
+
+  // ---------------------- Abschnitt B: Finanzierung -------------------------
   const bisherErhalten = round2(zas.reduce((s, za) => s + (za.zahlungseingang_betrag || 0), 0));
-  const gesamtZuwendung = round2(zas.reduce((s, za) => s + (za.foerderbetrag_gesamt || 0), 0));
-  const schlusszahlung = round2(Math.max(0, gesamtZuwendung - bisherErhalten));
+  const angefordertLautZa = round2(zas.reduce((s, za) => s + (za.foerderbetrag_gesamt || 0), 0));
+
+  // NWM traegt je Laufzeitjahr einen eigenen Foerdersatz; dort bleibt die
+  // Summe der ZA-Betraege massgeblich (eigenanteil kommt aus dem NWM-Zweig).
+  const istNWM = variante === 'NW_PH1' || variante === 'NW_PH2';
+  const gesamtZuwendung = istNWM
+    ? angefordertLautZa
+    : round2(summeKosten * foerdersatz / 100);
+  // eigenanteil ist im NWM-Zweig bereits gesetzt; sonst Residuum aus A.
+  const eigenanteilWert: number = eigenanteil != null ? eigenanteil : round2(summeKosten - gesamtZuwendung);
+  const summeFinanzierung = round2(gesamtZuwendung + eigenanteilWert);
+  const schlusszahlung = round2(gesamtZuwendung - bisherErhalten);
+
+  if (!istNWM && Math.abs(angefordertLautZa - gesamtZuwendung) > 0.005) {
+    const diff = round2(angefordertLautZa - gesamtZuwendung);
+    warnungen.push(
+      'Mit den Zahlungsanforderungen wurden ' + angefordertLautZa.toFixed(2) +
+      ' EUR angefordert, der Anspruch aus Abschnitt A betr\u00e4gt ' + gesamtZuwendung.toFixed(2) +
+      ' EUR (Differenz ' + (diff > 0 ? '+' : '') + diff.toFixed(2) +
+      ' EUR). Ma\u00dfgeblich ist der Anspruch; die Differenz gleicht die Schlusszahlung aus.');
+  }
+  if (schlusszahlung < 0) {
+    warnungen.push('Die bisher erhaltenen Zuwendungen \u00fcbersteigen den Anspruch - es ergibt sich eine R\u00fcckforderung.');
+  }
 
   return {
     variante, varianteLabel: meta.label, formularVersion: meta.version,
@@ -427,7 +543,8 @@ export function computeVNSchluss(
     foerdersatz,
     berichtszeitraumVon: von, berichtszeitraumBis: bis,
     kostenZeilen, summeKosten,
-    finanzierung: { bisherErhalten, gesamtZuwendung, schlusszahlung, eigenanteil },
+    stundenZeilen, summeStdT, summeStdNT,
+    finanzierung: { bisherErhalten, gesamtZuwendung, schlusszahlung, eigenanteil: eigenanteilWert, summeFinanzierung, angefordertLautZa },
     anzahlZas: zas.length, warnungen,
   };
 }
