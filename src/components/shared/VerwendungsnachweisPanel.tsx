@@ -4,6 +4,18 @@
 // ============================================================================
 // PZE V7 - VN-Modul (Verwendungsnachweis), De-minimis-Varianten
 // Version: 1.2-2
+// v1.2-3: Abschnitt B um EIGENANTEIL und Kontrollzeile "Summe" erweitert,
+//   NEU Abschnitt C mit den kumulierten Personenstunden je Mitarbeiter.
+//   B ist damit in sich geschlossen: Zuwendung + Eigenanteil = Summe A. Die
+//   Werte kommen aus verwendungsnachweis-utils v1.2-4, wo die Zuwendung jetzt
+//   aus Abschnitt A abgeleitet statt aus den eingefrorenen ZA-Betraegen
+//   summiert wird. Weicht die Kontrollzeile von Summe A ab, wird sie rot
+//   markiert - das darf rechnerisch nicht vorkommen und waere ein Hinweis auf
+//   einen Fehler in der Aggregation.
+//   Abschnitt C liefert die fuer die DS-Schlussabrechnung benoetigten
+//   Gesamtstunden je Mitarbeiter (technisch/nichttechnisch) und steht bewusst
+//   hier statt im Cockpit: nur hier ist der Berichtszeitraum definiert, gegen
+//   den die Stunden aggregiert werden, und nur hier landen sie im Ausdruck.
 // v1.2-2: LAYOUT-FIX Kopfbereich. Das Berichtszeitraum-Feld (zwei Datumsfelder)
 //   war breiter als eine Rasterspalte und ueberlappte mit "Foerdersatz". Es
 //   spannt jetzt zwei Spalten (md:col-span-2) und darf umbrechen (flex-wrap),
@@ -219,6 +231,13 @@ export default function VerwendungsnachweisPanel({
     setTimeout(() => { document.title = prev; }, 500);
   };
 
+  // v1.2-3: Anzeige-Hilfen fuer Abschnitt B
+  const isNWM = result ? (result.variante === 'NW_PH1' || result.variante === 'NW_PH2') : false;
+  const eigenanteilQuote = result ? Math.round((100 - result.foerdersatz) * 100) / 100 : 0;
+  const summeStimmt = result
+    ? Math.abs(result.finanzierung.summeFinanzierung - result.summeKosten) < 0.005
+    : true;
+
   if (!mounted) return <div className="text-sm text-gray-400 py-10">&hellip;</div>;
 
   return (
@@ -322,15 +341,74 @@ export default function VerwendungsnachweisPanel({
                   <td className="px-2 py-1 border border-gray-200">Zuwendung gesamt</td>
                   <td className="px-2 py-1 border border-gray-200 text-right font-mono">{fmtEur(result.finanzierung.gesamtZuwendung)}</td>
                 </tr>
-                {/* v1.2-1: NWM - Eigenanteil des Netzwerkpartners */}
-                {result.finanzierung.eigenanteil != null && (
-                  <tr>
-                    <td className="px-2 py-1 border border-gray-200">Eigenanteil Netzwerkpartner</td>
-                    <td className="px-2 py-1 border border-gray-200 text-right font-mono">{fmtEur(result.finanzierung.eigenanteil)}</td>
-                  </tr>
-                )}
+                {/* v1.2-3: Eigenanteil - bei NWM der des Netzwerkpartners,
+                    sonst der des Zuwendungsempfaengers (Residuum aus A). */}
+                <tr>
+                  <td className="px-2 py-1 border border-gray-200">
+                    {isNWM
+                      ? 'Eigenanteil Netzwerkpartner'
+                      : `Eigenanteil des Zuwendungsempf\u00e4ngers (${eigenanteilQuote} %)`}
+                  </td>
+                  <td className="px-2 py-1 border border-gray-200 text-right font-mono">{fmtEur(result.finanzierung.eigenanteil)}</td>
+                </tr>
+                <tr className={`font-semibold ${summeStimmt ? 'bg-gray-50' : 'bg-red-50 text-red-700'}`}>
+                  <td className="px-2 py-1 border border-gray-200">
+                    Summe der Finanzierung {summeStimmt ? '(= Summe A)' : '(weicht von Summe A ab!)'}
+                  </td>
+                  <td className="px-2 py-1 border border-gray-200 text-right font-mono">{fmtEur(result.finanzierung.summeFinanzierung)}</td>
+                </tr>
               </tbody>
             </table>
+            {!isNWM && Math.abs(result.finanzierung.angefordertLautZa - result.finanzierung.gesamtZuwendung) > 0.005 && (
+              <div className="mt-2 text-xs text-gray-500">
+                Mit den {result.anzahlZas} Zahlungsanforderungen angefordert: {fmtEur(result.finanzierung.angefordertLautZa)} EUR.
+                Die Differenz zum Anspruch gleicht die Schlusszahlung aus.
+              </div>
+            )}
+          </div>
+
+          {/* C. Kumulierte Personenstunden */}
+          <div className="px-4 py-3 border-t border-gray-100">
+            <div className="text-sm font-semibold text-gray-700 mb-2">
+              C. Nachweis der Personenstunden im Berichtszeitraum (kumuliert)
+            </div>
+            {result.stundenZeilen.length === 0 ? (
+              <div className="text-sm text-gray-500">Keine Personenstunden im Berichtszeitraum.</div>
+            ) : (
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="text-gray-500">
+                    <th className="text-left px-2 py-1 border border-gray-200 w-8">Nr.</th>
+                    <th className="text-left px-2 py-1 border border-gray-200">Projektmitarbeiter(in)</th>
+                    <th className="text-right px-2 py-1 border border-gray-200 w-32">Std. technisch</th>
+                    <th className="text-right px-2 py-1 border border-gray-200 w-36">Std. nichttechnisch</th>
+                    <th className="text-right px-2 py-1 border border-gray-200 w-28">Summe [h]</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.stundenZeilen.map(z => (
+                    <tr key={z.empId}>
+                      <td className="px-2 py-1 border border-gray-200 text-center text-gray-500">({z.nr})</td>
+                      <td className="px-2 py-1 border border-gray-200">{z.empName}</td>
+                      <td className="px-2 py-1 border border-gray-200 text-right font-mono">{fmtEur(z.stdT)}</td>
+                      <td className="px-2 py-1 border border-gray-200 text-right font-mono">{z.stdNT > 0 ? fmtEur(z.stdNT) : '\u2013'}</td>
+                      <td className="px-2 py-1 border border-gray-200 text-right font-mono">{fmtEur(z.stdGesamt)}</td>
+                    </tr>
+                  ))}
+                  <tr className="font-semibold bg-gray-50">
+                    <td className="px-2 py-1 border border-gray-200" colSpan={2}>Summe</td>
+                    <td className="px-2 py-1 border border-gray-200 text-right font-mono">{fmtEur(result.summeStdT)}</td>
+                    <td className="px-2 py-1 border border-gray-200 text-right font-mono">{fmtEur(result.summeStdNT)}</td>
+                    <td className="px-2 py-1 border border-gray-200 text-right font-mono">{fmtEur(result.summeStdT + result.summeStdNT)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            )}
+            <div className="mt-2 text-xs text-gray-500">
+              Geleistete Projektbearbeitungsstunden gem\u00e4\u00df Stundennachweisen, aggregiert \u00fcber
+              die {result.anzahlZas} Zahlungsanforderungen im Berichtszeitraum &mdash; dieselbe Abgrenzung
+              wie in Abschnitt A.
+            </div>
           </div>
 
           {/* Speichern-Leiste */}
