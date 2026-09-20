@@ -3,7 +3,33 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 8. September 2026
-// Version: 7.4.6-98
+// Version: 7.4.6-100
+// v7.4.6-100: EINGABESPERRE FUER PROJEKTSTUNDEN NACH ENDE DES BEWILLIGUNGS-
+//   ZEITRAUMS (taggenau). Ersetzt den verworfenen Entwurf -99, der zu weit
+//   griff.
+//   BEFUND: allowedRange/isMonthAllowed kappten nur auf MONATSEBENE. Aus
+//   project.end_date = 2026-08-30 wurde "August 2026 erlaubt" -> der 31.08.
+//   blieb fuer Projektstunden bebuchbar. Zusammen mit dem ebenfalls monats-
+//   weisen Abrechnungsfilter (behoben in v7.4.4-70) wurden diese Stunden sogar
+//   abgerechnet.
+//   FIX: allowedRange liefert zusaetzlich die EXAKTEN Grenzdaten firstDate/
+//   lastDate; daraus dayLimits + isDayAllowed(day) fuer den gewaehlten Monat.
+//   GESPERRT WIRD NUR DIE ERFASSUNG FOERDERBARER PROJEKTSTUNDEN, nicht der
+//   Tag: die AP-Zellen sind grau und disabled, die Tastaturnavigation
+//   ueberspringt sie in den AP-Zeilen.
+//   BEWUSST OFFEN bleiben Zeile "sonstige, nicht zuschussfaehige Arbeiten",
+//   Fehlzeiten U/K/S, Rechtsklick-Menue (Kurzarbeit/Elternzeit) und die
+//   Auto-Vorbelegung. Grund: der Stundennachweis ist ein MONATSnachweis und
+//   soll die gesamte Arbeitszeit des Mitarbeiters plausibel abbilden. Wer am
+//   31.08. gearbeitet hat, aber nicht mehr am Projekt, gehoert mit nicht
+//   foerderbarer Zeit im Nachweis - diese Stunden fliessen in keine
+//   Abrechnung ein.
+//   EBENFALLS UNVERAENDERT: die Monatslaenge (der August behaelt 31 Spalten -
+//   ein Monat mit 30 Spalten liest sich wie fehlende Daten), die Kopfzeile
+//   (grau wuerde suggerieren, der ganze Tag sei gesperrt), Soll-/Vertrags-
+//   rechnungen sowie Lade- und Speicherpfad.
+//   Die Sperre wirkt symmetrisch, also auch vor Beginn (z. B. wenn eine
+//   Projektzuordnung erst zum 15. eines Monats beginnt).
 // v7.4.6-98: FIX 'Monat abschliessen' speichert IMMER vorher.
 //   Die Auto-Vorbelegung 'sonstige Arbeiten' aendert nur den Anzeige-State und
 //   setzt hasChanges nicht. Bisher speicherte handleToggleComplete nur bei
@@ -1411,8 +1437,10 @@ export default function TimesheetForm({
     // Fruehestes erlaubtes Datum (hoechstes Start-Datum)
     let firstYear = 2020;
     let firstMonth = 1;
+    let firstDate: string | null = null;   // v7.4.6-100: exaktes Startdatum
     if (startDates.length > 0) {
       const latestStart = startDates.sort().pop()!; // alphabetisch sortiert = chronologisch bei ISO-Daten
+      firstDate = latestStart;
       const parts = latestStart.split('-');
       firstYear = parseInt(parts[0]);
       firstMonth = parseInt(parts[1]);
@@ -1421,15 +1449,49 @@ export default function TimesheetForm({
     // Spaetestes erlaubtes Datum (niedrigstes End-Datum)
     let lastYear = 2030;
     let lastMonth = 12;
+    let lastDate: string | null = null;    // v7.4.6-100: exaktes Enddatum
     if (endDates.length > 0) {
       const earliestEnd = endDates.sort()[0]; // frueheSTES End-Datum
+      lastDate = earliestEnd;
       const parts = earliestEnd.split('-');
       lastYear = parseInt(parts[0]);
       lastMonth = parseInt(parts[1]);
     }
 
-    return { firstYear, firstMonth, lastYear, lastMonth };
+    return { firstYear, firstMonth, lastYear, lastMonth, firstDate, lastDate };
   }, [selectedEmployee, assignmentStart, assignmentEnd, selectedProject]);
+
+  // ==========================================================================
+  // v7.4.6-100: Taggenaue Grenzen im GEWAEHLTEN Monat
+  // ==========================================================================
+  // Nur der Rand-Monat wird beschnitten: liegt das exakte Start-/Enddatum in
+  // diesem Monat, gilt dessen Tag als Grenze, sonst der volle Monat. Gilt
+  // ausschliesslich fuer foerderbare Projektstunden (AP-Zeilen).
+  const dayLimits = useMemo(() => {
+    const ym = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`;
+    const dim = new Date(selectedYear, selectedMonth, 0).getDate();
+    let first = 1;
+    let last = dim;
+    if (allowedRange.firstDate && allowedRange.firstDate.slice(0, 7) === ym) {
+      first = parseInt(allowedRange.firstDate.slice(8, 10), 10) || 1;
+    }
+    if (allowedRange.lastDate && allowedRange.lastDate.slice(0, 7) === ym) {
+      last = parseInt(allowedRange.lastDate.slice(8, 10), 10) || dim;
+    }
+    return { first, last };
+  }, [allowedRange, selectedYear, selectedMonth]);
+
+  // Darf an diesem Tag PROJEKTZEIT gebucht werden? (nicht: darf ueberhaupt
+  // etwas erfasst werden - sonstige Arbeiten und Fehlzeiten bleiben offen)
+  const isProjectDayAllowed = useCallback((day: number): boolean => {
+    return day >= dayLimits.first && day <= dayLimits.last;
+  }, [dayLimits]);
+
+  const outOfPeriodTitle = useCallback((day: number): string => {
+    return day < dayLimits.first
+      ? 'Vor Beginn des Bewilligungs-/Zuordnungszeitraums -- keine Projektstunden erfassbar'
+      : 'Nach Ende des Bewilligungs-/Zuordnungszeitraums -- keine Projektstunden erfassbar';
+  }, [dayLimits]);
 
   // Hilfsfunktion: Ist ein Monat/Jahr im erlaubten Bereich?
   const isMonthAllowed = useCallback((year: number, month: number): boolean => {
@@ -2932,6 +2994,7 @@ export default function TimesheetForm({
         for (let d = day + 1; d <= totalDays; d++) {
           if (isWeekend(selectedYear, selectedMonth, d)) continue;
           if (isHoliday(selectedYear, selectedMonth, d)) continue;
+          if (!isProjectDayAllowed(d)) continue;   // v7.4.6-100: AP-Zelle nicht bebuchbar
           if (blockedDays.has(d)) continue;
           if (isKurzarbeitDay(d)) continue;
           if (getAbsenceCodeForDay(d)) continue;
@@ -3087,6 +3150,7 @@ export default function TimesheetForm({
       // Arbeitszeilen (ap/nonbillable): exakt die Zell-disabled-Bedingung spiegeln,
       // sonst haengt die Navigation an einer disabled Zelle (Symptom: Pfeil/Tab
       // springt an Abwesenheitstagen nicht weiter, kein Zurueck moeglich).
+      if (type === 'ap' && !isProjectDayAllowed(d)) return false;  // v7.4.6-100: ausserhalb Bewilligungszeitraum
       if (blockedDays.has(d)) return false;                 // PL-Sperre (NWM)
       if (getAbsenceCodeForDay(d)) return false;            // v7.4.6-52: Abwesenheitstag -> Arbeitszelle disabled
       if (type === 'ap' && !apRows[r]?.workPackageId) return false;
@@ -4844,11 +4908,14 @@ export default function TimesheetForm({
                       const isAbsence = entry?.value && isAbsenceCode(entry.value);
                       // A-021: Sperren + Cross-Projekt
                       const isBlocked = blockedDays.has(day);
+                      const outOfPeriod = !isProjectDayAllowed(day);  // v7.4.6-100
                       const isKA = isKurzarbeitDay(day);  // v7.4.6-31
                       // A-034 Etappe 2c: projektuebergreifende Abwesenheit an dem Tag
                       const dayAbsence = getAbsenceCodeForDay(day);
                       const otherHrs = otherProjectHours[day] || 0;
-                      const cellTitle = isKA
+                      const cellTitle = outOfPeriod
+                        ? outOfPeriodTitle(day)
+                        : isKA
                         ? 'Kurzarbeit (Rechtsklick zum Entfernen)'
                         : isBlocked
                         ? (blockedDayReasons[day] || 'Gesperrt')
@@ -4862,7 +4929,7 @@ export default function TimesheetForm({
                         <td
                           key={day}
                           className={`border p-0 text-center ${
-                            weekend ? 'bg-gray-200' : holiday ? 'bg-orange-100' : isBlocked ? 'bg-red-100' : isKA ? 'bg-amber-100 print:bg-white' : ''
+                            outOfPeriod ? 'bg-gray-300 text-gray-400' : weekend ? 'bg-gray-200' : holiday ? 'bg-orange-100' : isBlocked ? 'bg-red-100' : isKA ? 'bg-amber-100 print:bg-white' : ''
                           }`}
                           title={cellTitle}
                           onContextMenu={(e) => handleContextMenu(e, rowIndex, day)}
@@ -4876,9 +4943,10 @@ export default function TimesheetForm({
                             onChange={(e) => handleCellChange(rowIndex, day, e.target.value)}
                             onKeyDown={(e) => handleKeyDown(e, rowIndex, day, 'ap')}
                             onFocus={handleCellFocus}
-                            disabled={weekend || !!holiday || !row.workPackageId || isBlocked || isKA || !!dayAbsence}
+                            disabled={outOfPeriod || weekend || !!holiday || !row.workPackageId || isBlocked || isKA || !!dayAbsence}
                             maxLength={4}
                             className={`w-full h-8 text-center text-xs border-0 ${
+                              outOfPeriod ? 'bg-gray-300 text-gray-400 cursor-not-allowed' :
                               weekend || !!holiday ? 'bg-transparent cursor-not-allowed' :
                               isBlocked ? 'bg-red-100 cursor-not-allowed' :
                               isKA ? 'bg-amber-100 cursor-not-allowed pointer-events-none print:bg-transparent' :
