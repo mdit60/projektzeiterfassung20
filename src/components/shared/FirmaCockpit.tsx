@@ -3,7 +3,16 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-36-15
+// Version: 7.4.9-36-16
+// v7.4.9-36-16: ZA-Tabelle zeigt den ABRECHNUNGSZEITRAUM je Zahlungsanforderung.
+//   Zweck: auf einen Blick pruefen, ob die Nummerierung stimmt und ob die
+//   Zeitraeume die Projektlaufzeit luecklos abdecken. Genau daran ist bei
+//   ANOVIA aufgefallen, dass Mai und Juni 2026 von keiner ZA erfasst sind.
+//   Zusaetzlich eine kompakte Pruefung unter der Tabelle, die Luecken,
+//   Ueberlappungen, Nummernspruenge und einen nicht abgedeckten Rand der
+//   Projektlaufzeit meldet - sie erscheint nur, wenn es etwas zu melden gibt.
+//   Spaltenaufteilung angepasst: Mitte 6 -> 5, rechts 4 -> 5 (von 12), damit
+//   die zusaetzliche Spalte Platz hat.
 // v7.4.9-36-15: Monatsverlauf im Firma-Cockpit an das Fortschritts-Panel
 //   angeglichen (ProjektFortschrittPanel v7.4.5-34): die gestrichelten Linien
 //   "Soll kumuliert" und "Zieltempo" entfernt, es bleiben "Ist kumuliert"
@@ -325,6 +334,70 @@ function formatDateShort(dateStr: string | null): string {
 function formatEuro(betrag: number | null): string {
   if (betrag == null) return '-';
   return betrag.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' EUR';
+}
+
+// v7.4.9-36-16: sehr kompakt (TT.MM.JJ) fuer die ZA-Zeitraumspalte
+function formatDateTiny(dateStr: string | null): string {
+  if (!dateStr) return '-';
+  const d = new Date(dateStr);
+  return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' });
+}
+
+// v7.4.9-36-16: Zeitraeume der ZA auf Vollstaendigkeit pruefen.
+// Erwartet die ZA bereits nach za_nummer sortiert. Liefert Klartext-Befunde.
+function pruefeZaZeitraeume(
+  zas: Array<{ za_nummer: number; zeitraum_von: string | null; zeitraum_bis: string | null }>,
+  projektStart: string | null,
+  projektEnde: string | null,
+): string[] {
+  const befunde: string[] = [];
+  const tag = (s: string | null) => (s ? String(s).slice(0, 10) : null);
+  const verschiebe = (iso: string, tage: number) => {
+    const d = new Date(iso + 'T12:00:00');
+    d.setDate(d.getDate() + tage);
+    return d.toISOString().slice(0, 10);
+  };
+  const plusEinTag = (iso: string) => verschiebe(iso, 1);
+  const minusEinTag = (iso: string) => verschiebe(iso, -1);
+
+  // Nummerierung: erwartet 1..n ohne Sprung und ohne Dublette
+  zas.forEach((za, i) => {
+    if (za.za_nummer !== i + 1) {
+      befunde.push('Nummerierung: ZA ' + za.za_nummer + ' steht an Position ' + (i + 1) + '.');
+    }
+  });
+
+  const mitZeitraum = zas.filter(z => tag(z.zeitraum_von) && tag(z.zeitraum_bis));
+  if (mitZeitraum.length !== zas.length) {
+    befunde.push('Bei mindestens einer ZA fehlt der Abrechnungszeitraum.');
+  }
+
+  const sortiert = [...mitZeitraum].sort((a, b) => (tag(a.zeitraum_von)! < tag(b.zeitraum_von)! ? -1 : 1));
+  for (let i = 1; i < sortiert.length; i++) {
+    const vorBis = tag(sortiert[i - 1].zeitraum_bis)!;
+    const aktVon = tag(sortiert[i].zeitraum_von)!;
+    if (aktVon > plusEinTag(vorBis)) {
+      befunde.push('L\u00fccke zwischen ZA ' + sortiert[i - 1].za_nummer + ' und ZA ' + sortiert[i].za_nummer
+        + ': ' + formatDateTiny(plusEinTag(vorBis)) + ' bis ' + formatDateTiny(minusEinTag(aktVon)));
+    } else if (aktVon <= vorBis) {
+      befunde.push('\u00dcberlappung zwischen ZA ' + sortiert[i - 1].za_nummer + ' und ZA ' + sortiert[i].za_nummer + '.');
+    }
+  }
+
+  // Raender gegen die Projektlaufzeit
+  if (sortiert.length > 0) {
+    const pStart = tag(projektStart);
+    const pEnde = tag(projektEnde);
+    const ersteVon = tag(sortiert[0].zeitraum_von)!;
+    const letzteBis = tag(sortiert[sortiert.length - 1].zeitraum_bis)!;
+    if (pStart && ersteVon > pStart) {
+      befunde.push('Projektbeginn nicht abgedeckt: ' + formatDateTiny(pStart) + ' bis ' + formatDateTiny(minusEinTag(ersteVon)));
+    }
+    if (pEnde && letzteBis < pEnde) {
+      befunde.push('Projektende nicht abgedeckt: ' + formatDateTiny(plusEinTag(letzteBis)) + ' bis ' + formatDateTiny(pEnde));
+    }
+  }
+  return befunde;
 }
 
 function formatLaufzeit(start: string | null, end: string | null): string {
@@ -1493,9 +1566,9 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
         </div>
 
         {/* ================================================================ */}
-        {/* MITTLERE SPALTE: Projekte mit Monatsverlauf (6 von 12 Spalten)  */}
+        {/* MITTLERE SPALTE: Projekte mit Monatsverlauf (5 von 12 Spalten)  */}
         {/* ================================================================ */}
-        <div className="lg:col-span-6 space-y-6">
+        <div className="lg:col-span-5 space-y-6">
 
           {/* --- Projekt-Karte mit Dropdown --- */}
           <div id="cockpit-projekte" className="bg-white rounded-xl border border-gray-200 p-5">
@@ -1860,9 +1933,9 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
         </div>
 
         {/* ================================================================ */}
-        {/* RECHTE SPALTE: ZA-Tabelle (4 von 12 Spalten)                    */}
+        {/* RECHTE SPALTE: ZA-Tabelle (5 von 12 Spalten)                    */}
         {/* ================================================================ */}
-        <div id="cockpit-right" className="lg:col-span-4 space-y-6">
+        <div id="cockpit-right" className="lg:col-span-5 space-y-6">
 
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <div className="flex items-center justify-between mb-4">
@@ -1928,6 +2001,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                   <thead>
                     <tr className="bg-gray-50 text-gray-500">
                       <th className="text-center py-1.5 px-2 font-medium">ZA</th>
+                      <th className="text-center py-1.5 px-2 font-medium">Zeitraum</th>
                       <th className="text-center py-1.5 px-2 font-medium">Eingereicht</th>
                       <th className="text-center py-1.5 px-2 font-medium">Anforderung</th>
                       <th className="text-center py-1.5 px-2 font-medium">Zahlung</th>
@@ -1952,6 +2026,11 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                             title="ZA bearbeiten"
                           >
                             {za.za_nummer}
+                          </td>
+                          <td className="py-1.5 px-2 text-center text-gray-600 whitespace-nowrap">
+                            {za.zeitraum_von && za.zeitraum_bis
+                              ? formatDateTiny(za.zeitraum_von) + '\u2013' + formatDateTiny(za.zeitraum_bis)
+                              : '-'}
                           </td>
                           <td className="py-1.5 px-2 text-center text-gray-600">
                             {za.eingereicht_am ? formatDate(za.eingereicht_am) : '-'}
@@ -1983,6 +2062,28 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                 </table>
               </div>
             )}
+
+            {/* v7.4.9-36-16: Vollstaendigkeitspruefung der Abrechnungszeitraeume */}
+            {(() => {
+              if (filteredZA.length === 0) return null;
+              const sortiert = [...filteredZA].sort((a, b) => a.za_nummer - b.za_nummer);
+              const befunde = pruefeZaZeitraeume(
+                sortiert,
+                selectedProjekt?.start_date ?? null,
+                selectedProjekt?.end_date ?? null,
+              );
+              if (befunde.length === 0) return null;
+              return (
+                <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
+                  <div className="text-[10px] font-semibold text-amber-700 uppercase tracking-wider mb-1">
+                    Pr&uuml;fung der Abrechnungszeitr&auml;ume
+                  </div>
+                  <ul className="text-[11px] text-amber-800 space-y-0.5">
+                    {befunde.map((b, i) => <li key={i}>&bull; {b}</li>)}
+                  </ul>
+                </div>
+              );
+            })()}
           </div>
 
         </div>
