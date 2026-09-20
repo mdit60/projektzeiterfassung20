@@ -1,6 +1,18 @@
 // ============================================================================
 // verwendungsnachweis-utils-v1_2-2.ts
-// Version: 1.2-4
+// Version: 1.2-5
+// v1.2-5: RUNDUNGSTOLERANZ fuer die Abweichungswarnung in Abschnitt B.
+//   BEFUND: die Warnung sprang schon bei 0,01 EUR an. Das ist keine echte
+//   Abweichung, sondern unvermeidbar: jede ZA rundet ihren Foerderbetrag
+//   einzeln auf Cent, der Anspruch wird dagegen einmal aus der Gesamtsumme
+//   gerundet. Die Summe gerundeter Betraege ist nicht die gerundete Summe.
+//   FIX: Toleranz = (Anzahl ZA + 1) x 0,005 EUR - das rechnerische Maximum
+//   dieses Effekts (je ZA hoechstens 0,005, plus 0,005 fuer die Rundung der
+//   Gesamtsumme). Bewusst keine willkuerliche Bagatellgrenze: eine echte
+//   Abweichung, etwa durch nachtraeglich geaenderte Stunden, liegt immer
+//   deutlich darueber und wird weiterhin gemeldet.
+//   Das Ergebnis steht als finanzierung.abweichungRelevant im Result, damit
+//   die Anzeige nicht dieselbe Schwelle noch einmal implementieren muss.
 // v1.2-4: ABSCHNITT B IN SICH GESCHLOSSEN + ABSCHNITT C (Personenstunden).
 //   B BISHER FALSCH: gesamtZuwendung war die Summe der je ZA eingefrorenen
 //   foerderbetrag_gesamt. Das sind ANFORDERUNGEN, nicht der endgueltige
@@ -175,6 +187,7 @@ export interface VNFinanzierung {
   eigenanteil: number;          // v1.2-4: immer gesetzt (Summe A - Zuwendung)
   summeFinanzierung: number;    // v1.2-4: Kontrollzeile, muss summeKosten sein
   angefordertLautZa: number;    // v1.2-4: Summe der eingereichten ZA-Betraege
+  abweichungRelevant: boolean;  // v1.2-5: true = mehr als Rundungstoleranz
 }
 
 // v1.2-4: Abschnitt C - kumulierte Personenstunden je Mitarbeiter
@@ -522,7 +535,12 @@ export function computeVNSchluss(
   const summeFinanzierung = round2(gesamtZuwendung + eigenanteilWert);
   const schlusszahlung = round2(gesamtZuwendung - bisherErhalten);
 
-  if (!istNWM && Math.abs(angefordertLautZa - gesamtZuwendung) > 0.005) {
+  // Strukturelle Rundungstoleranz (siehe Kopfkommentar v1.2-5).
+  const rundungstoleranz = 0.005 * (zas.length + 1);
+  const abweichungRelevant = !istNWM
+    && Math.abs(angefordertLautZa - gesamtZuwendung) > rundungstoleranz;
+
+  if (abweichungRelevant) {
     const diff = round2(angefordertLautZa - gesamtZuwendung);
     warnungen.push(
       'Mit den Zahlungsanforderungen wurden ' + angefordertLautZa.toFixed(2) +
@@ -544,7 +562,7 @@ export function computeVNSchluss(
     berichtszeitraumVon: von, berichtszeitraumBis: bis,
     kostenZeilen, summeKosten,
     stundenZeilen, summeStdT, summeStdNT,
-    finanzierung: { bisherErhalten, gesamtZuwendung, schlusszahlung, eigenanteil: eigenanteilWert, summeFinanzierung, angefordertLautZa },
+    finanzierung: { bisherErhalten, gesamtZuwendung, schlusszahlung, eigenanteil: eigenanteilWert, summeFinanzierung, angefordertLautZa, abweichungRelevant },
     anzahlZas: zas.length, warnungen,
   };
 }
