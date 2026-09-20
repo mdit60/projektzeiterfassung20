@@ -1,6 +1,13 @@
 // ============================================================================
 // verwendungsnachweis-utils-v1_2-2.ts
-// Version: 1.2-2
+// Version: 1.2-3
+// v1.2-3: round2() wird EXPORTIERT. Hintergrund: ZAPanel hat den Foerder-
+//   betrag mit Math.round() auf GANZE EURO gekappt, waehrend die Kosten
+//   centgenau gefuehrt werden - das Formular verlangt in allen Spalten
+//   [EUR, Cent]. Zudem rundet Math.round auch auf, wodurch mehr als der
+//   Foerdersatz angefordert werden konnte. ZAPanel rundet ab v7.4.4-71
+//   kaufmaennisch auf zwei Dezimalen und nutzt dafuer genau diese Funktion,
+//   damit ZA und VN identisch runden.
 // v1.2-2: TAGGENAUER ABRECHNUNGSFILTER (Fix Monatslogik).
 //   BEFUND: computeDSPersonalkosten hat die Zeiterfassung ueber GANZE
 //   Kalendermonate gefiltert (monthsInRange). Aus einem ZA-Zeitraum
@@ -209,7 +216,8 @@ export function istImFenster(workDate: string | null | undefined, von: string, b
 
 
 // ------------------------------ Hilfsfunktionen -----------------------------
-function round2(n: number): number { return Math.round(n * 100) / 100; }
+// v1.2-3: exportiert - ZAPanel nutzt dieselbe Rundung (kaufmaennisch, 2 Dez.)
+export function round2(n: number): number { return Math.round(n * 100) / 100; }
 
 export function getHourlyRate(pa: VNProjectAssignment | undefined, project: VNProject | undefined): number | null {
   if (!pa) return null;
