@@ -4,6 +4,10 @@
 // ============================================================================
 // PZE V7 - VN-Modul (Verwendungsnachweis), De-minimis-Varianten
 // Version: 1.2-2
+// v1.2-5: Fussnote zur Abweichung nur noch, wenn sie relevant ist. Die
+//   Schwelle kommt jetzt als finanzierung.abweichungRelevant aus der Lib
+//   (v1.2-5) statt hier lokal mit 0,005 nachgebaut zu werden - sonst haetten
+//   Warnung und Fussnote getrennt gepflegt werden muessen.
 // v1.2-4: FIX Konventionsverstoss in der Fussnote zu Abschnitt C: dort
 //   standen \u-Escapes in reinem JSX-TEXT und wurden woertlich ausgegeben
 //   ("gem\\u00e4\\u00df"). \u-Escapes gelten nur in JS-String-Literalen;
@@ -364,7 +368,7 @@ export default function VerwendungsnachweisPanel({
                 </tr>
               </tbody>
             </table>
-            {!isNWM && Math.abs(result.finanzierung.angefordertLautZa - result.finanzierung.gesamtZuwendung) > 0.005 && (
+            {result.finanzierung.abweichungRelevant && (
               <div className="mt-2 text-xs text-gray-500">
                 Mit den {result.anzahlZas} Zahlungsanforderungen angefordert: {fmtEur(result.finanzierung.angefordertLautZa)} EUR.
                 Die Differenz zum Anspruch gleicht die Schlusszahlung aus.
