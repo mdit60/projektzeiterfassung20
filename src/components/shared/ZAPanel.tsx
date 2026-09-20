@@ -2,7 +2,21 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-69
+// Version: 7.4.4-70
+// v7.4.4-70: TAGGENAUER ABRECHNUNGSFILTER (Fix Monatslogik).
+//   BEFUND: getZAPersonenstunden hat die Zeiterfassung ueber GANZE Kalender-
+//   monate gefiltert. Aus einem ZA-Zeitraum 01.07.-30.08. wurde damit "Juli
+//   und August komplett" -> Buchungen vom 31.08. wurden mitgerechnet, obwohl
+//   sie ausserhalb des Bewilligungszeitraums liegen und nicht zuwendungs-
+//   faehig sind. Betroffen war ueber computeArchivFoerderbetrag auch der
+//   gespeicherte foerderbetrag_gesamt.
+//   FIX: Filterung taggenau ueber die ZENTRALEN Helfer abrechnungsFenster()
+//   und istImFenster() aus @/lib/verwendungsnachweis-utils. Bewusst Import
+//   statt lokaler Kopie, damit ZA und VN nicht erneut auseinanderlaufen.
+//   Das Fenster ist der Schnitt aus ZA-Zeitraum und Bewilligungszeitraum
+//   (v7_projects.start_date / end_date).
+//   Die Monatsspalten der Anlage 1a bleiben unveraendert - sie zeigen nur
+//   noch die Stunden, die im Fenster liegen.
 // v7.4.4-69: FZ-Grenzueberschreitung verhindern: ZA-Abrechnungszeitraum darf
 //   nicht ueber die Grenze zwischen zwei Foerderzeitraeumen (Netzwerkjahren)
 //   gehen, da unterschiedliche Foerderquoten gelten. Rote Warnung + Speichersperre.
@@ -191,6 +205,8 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { FileText } from 'lucide-react';
+// v7.4.4-70: zentrales Abrechnungsfenster (identisch mit dem VN-Modul)
+import { abrechnungsFenster, istImFenster } from '@/lib/verwendungsnachweis-utils';
 
 
 // Foerderformat-Labels (entspricht ProjectCreateForm)
@@ -690,17 +706,29 @@ export default function ZAPanel({
       )
     ];
 
-    const vonDate = new Date(vonStr);
-    const bisDate = new Date(bisStr);
+    // v7.4.4-70: abrechenbares Fenster = Schnitt aus ZA-Zeitraum und
+    // Bewilligungszeitraum. Kein Schnitt -> keine abrechenbaren Stunden.
+    const fenster = abrechnungsFenster(vonStr, bisStr, project.start_date, project.end_date);
+    if (!fenster) return [];
+    const fVon = fenster.von;
+    const fBis = fenster.bis;
+
+    // Monatsspalten aus dem Fenster ableiten - bewusst ohne new Date() auf den
+    // ISO-String (das parst als UTC, wird aber in Ortszeit ausgewertet und
+    // verschiebt in negativen Zeitzonen den Tag).
     const months: { year: number; month: number; label: string }[] = [];
-    const cur = new Date(vonDate.getFullYear(), vonDate.getMonth(), 1);
-    while (cur <= bisDate) {
+    let curY = parseInt(fVon.slice(0, 4), 10);
+    let curM = parseInt(fVon.slice(5, 7), 10);
+    const endY = parseInt(fBis.slice(0, 4), 10);
+    const endM = parseInt(fBis.slice(5, 7), 10);
+    while (curY * 12 + curM <= endY * 12 + endM) {
       months.push({
-        year: cur.getFullYear(),
-        month: cur.getMonth() + 1,
-        label: cur.toLocaleString('de-DE', { month: 'short', year: '2-digit' }),
+        year: curY,
+        month: curM,
+        label: new Date(curY, curM - 1, 1).toLocaleString('de-DE', { month: 'short', year: '2-digit' }),
       });
-      cur.setMonth(cur.getMonth() + 1);
+      curM += 1;
+      if (curM > 12) { curM = 1; curY += 1; }
     }
 
     const technicalWPIds = isDS
@@ -712,15 +740,16 @@ export default function ZAPanel({
       const empName = emp ? emp.display_name : empId;
 
       const monthData = months.map(m => {
+        // v7.4.4-70: erst auf den Monat der Spalte, dann TAGGENAU auf das
+        // Abrechnungsfenster. Beides als ISO-String-Vergleich.
+        const monthPrefix = String(m.year) + '-' + String(m.month).padStart(2, '0');
         const monthEntries = timesheets.filter(ts =>
           ts.project_id === pid &&
           ts.employee_id === empId &&
           ts.is_active &&
           ts.is_billable &&
-          (() => {
-            const d = new Date(ts.work_date);
-            return d.getFullYear() === m.year && (d.getMonth() + 1) === m.month;
-          })()
+          String(ts.work_date).slice(0, 7) === monthPrefix &&
+          istImFenster(ts.work_date, fVon, fBis)
         );
         const hoursT = isDS
           ? monthEntries.filter(ts => technicalWPIds.includes(ts.work_package_id || '')).reduce((s, ts) => s + ts.hours, 0)
