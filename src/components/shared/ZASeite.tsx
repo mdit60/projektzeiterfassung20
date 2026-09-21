@@ -6,7 +6,10 @@
 // ============================================================================
 // Datum: 9. Mai 2026
 // Datum: 3. Juli 2026
-// Version: 1.0.10
+// Version: 1.0.11
+// v1.0.11: URL-Parameter tab=archiv oeffnet das ZAPanel direkt im Archiv-Tab
+//   (Archiv-Link im Cockpit, FirmaCockpit 36-20). Gelesen per useSearchParams
+//   (Import war bereits vorhanden); an ZAPanel als initialTab uebergeben.
 // v1.0.10: zurueckUrl honoriert jetzt einen konkreten Zielpfad in returnTo
 //   (beginnt mit "/"). Damit fuehrt der Zurueck-Button aus der ZA wieder auf
 //   die Ausgangsseite (Stundenerfassung bzw. Stundennachweis-Matrix) statt
@@ -69,6 +72,11 @@ export default function ZASeite({
   initialZaId,
   returnTo,
 }: ZASeiteProps) {
+
+  // v1.0.11: Start-Tab aus der URL (?tab=archiv)
+  const searchParams = useSearchParams();
+  const tabParam = searchParams?.get('tab');
+  const initialTab = tabParam === 'archiv' ? 'archiv' as const : undefined;
 
   // Daten laden via shared hook
   const {
@@ -205,6 +213,7 @@ export default function ZASeite({
             projectAssignments={projectAssignments}
             initialProjectId={initialProjektId}
             initialZaId={initialZaId}
+            initialTab={initialTab}
           />
         )}
 

@@ -3,7 +3,23 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-36-18
+// Version: 7.4.9-36-21
+// v7.4.9-36-21: Reihenfolge im Kopf der ZA-Karte "+ Neue ZA | Archiv" - gleich
+//   wie oben rechts auf der ZA-Seite (ZAPanel 7.4.4-79).
+// v7.4.9-36-20: Link "Archiv" im Kopf der ZA-Karte neben "+ Neue ZA"
+//   (Wunsch Martin 21.09.2026: ins Archiv kam man nur ueber eine einzelne ZA).
+//   Fuehrt zur ZASeite des gewaehlten Projekts mit ?tab=archiv (ZASeite
+//   1.0.11 / ZAPanel 7.4.4-78 oeffnen dann direkt den Archiv-Tab).
+// v7.4.9-36-19: ZAHLUNGSEINGAENGE AUS v7_za_zahlungen (KONZEPT-ZA-KORREKTUR-
+//   ZAHLUNGEN v1.1, Teil B, Etappe 2). Die alten Spalten zahlungseingang_*
+//   der ZA werden nicht mehr gelesen. Je ZA-Nummer eines Projekts gilt:
+//   Betrag = Summe der aktiven Zahlungen, Zahlungsdatum = juengstes Datum,
+//   Kommentar = Anmerkungen der Zahlungen (bei mehreren mit Datum davor).
+//   Die Felder zahlungseingang_* in ZAData bleiben als abgeleitete Werte
+//   bestehen, damit Karte "Ausgezahlt", Differenz und Tabelle unveraendert
+//   rechnen. Spalte "Betrag": bei mehreren Zahlungen "8.275,00 EUR (2)";
+//   bei mehreren Zahlungen oder Anteil einer Sammelueberweisung Popup mit
+//   den Einzelzahlungen ("Teil von 12.128,00 EUR, Ueberw. 13.03.26").
 // v7.4.9-36-18: Kommentar-Popup statt Browser-Tooltip. Rueckmeldung Martin: der
 //   Standard-Tooltip (title-Attribut, -17) ist zu klein und klebt am rechten Rand.
 //   Neu: eigene Komponente KommentarZelle mit Popup in 16 px, weisser Kasten mit
@@ -314,6 +330,15 @@ interface MitarbeiterData {
   projekte: { id: string; name: string; ausgeschieden: boolean; nummer: number | null }[];
 }
 
+// v7.4.9-36-19: Einzelzahlung aus v7_za_zahlungen (haengt an project_id + za_nummer)
+interface ZAZahlungInfo {
+  datum: string;
+  betrag: number;
+  referenz: string | null;
+  kommentar: string | null;
+  gruppenSumme: number | null;  // Summe der Sammelueberweisung, falls referenz gesetzt
+}
+
 interface ZAData {
   id: string;
   project_id: string;
@@ -326,6 +351,7 @@ interface ZAData {
   zahlungseingang_betrag: number | null;
   zahlungseingang_kommentar: string | null;
   eingereicht_am: string | null;
+  zahlungen?: ZAZahlungInfo[];  // v7.4.9-36-19: Einzelzahlungen aus v7_za_zahlungen
   projekt_name?: string;
   projekt_fkz?: string;
 }
@@ -456,6 +482,72 @@ function KommentarZelle({ text }: { text: string | null }) {
           }}
         >
           {text}
+        </div>,
+        document.body,
+      )}
+    </td>
+  );
+}
+
+// v7.4.9-36-19: Betragszelle der ZA-Tabelle. Bei mehreren Zahlungen oder
+// Anteil einer Sammelueberweisung: Anzahl "(n)" und Popup mit Einzelzahlungen
+// (gleiches Popup-Verhalten wie KommentarZelle).
+function ZahlungZelle({ za }: { za: ZAData }) {
+  const [pos, setPos] = useState<{ top: number; left: number; oben: boolean } | null>(null);
+  const liste = za.zahlungen || [];
+  const betrag = za.zahlungseingang_betrag;
+  if (betrag == null || betrag <= 0) {
+    return <td className="py-1.5 px-2 text-center text-green-700 font-medium">-</td>;
+  }
+  const mitPopup = liste.length > 1 || liste.some(z => z.referenz);
+  if (!mitPopup) {
+    return <td className="py-1.5 px-2 text-center text-green-700 font-medium">{formatEuro(betrag)}</td>;
+  }
+  const zeigen = (el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    const breite = Math.min(KOMMENTAR_POPUP_BREITE, window.innerWidth - 32);
+    const left = Math.max(16, Math.min(r.right - breite, window.innerWidth - breite - 16));
+    const oben = window.innerHeight - r.bottom < 200;
+    setPos({ top: oben ? r.top - 8 : r.bottom + 8, left, oben });
+  };
+  return (
+    <td
+      className="py-1.5 px-2 text-center text-green-700 font-medium whitespace-nowrap cursor-help underline decoration-dotted"
+      onMouseEnter={e => zeigen(e.currentTarget)}
+      onMouseLeave={() => setPos(null)}
+      onClick={e => (pos ? setPos(null) : zeigen(e.currentTarget))}
+    >
+      {formatEuro(betrag)}{liste.length > 1 ? ' (' + liste.length + ')' : ''}
+      {pos && typeof document !== 'undefined' && createPortal(
+        <div
+          role="tooltip"
+          className="bg-white border border-gray-300 rounded-lg shadow-xl px-4 py-3 text-gray-800 text-left whitespace-normal pointer-events-none"
+          style={{
+            position: 'fixed',
+            top: pos.top,
+            left: pos.left,
+            width: Math.min(KOMMENTAR_POPUP_BREITE, window.innerWidth - 32),
+            transform: pos.oben ? 'translateY(-100%)' : undefined,
+            fontSize: 16,
+            lineHeight: 1.5,
+            fontWeight: 'normal',
+            zIndex: 1000,
+          }}
+        >
+          <div className="font-semibold mb-1">Zahlungseing&auml;nge ZA {za.za_nummer}</div>
+          {liste.map((z, i) => (
+            <div key={i}>
+              {formatDate(z.datum)}: {formatEuro(z.betrag)}
+              {z.referenz && (
+                <span className="text-gray-500">
+                  {' (Teil von ' + formatEuro(z.gruppenSumme) + ', ' + z.referenz + ')'}
+                </span>
+              )}
+            </div>
+          ))}
+          {liste.length > 1 && (
+            <div className="border-t border-gray-200 mt-1 pt-1 font-semibold">Summe: {formatEuro(betrag)}</div>
+          )}
         </div>,
         document.body,
       )}
@@ -877,14 +969,44 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
         // 5. ZA-Uebersicht
         const { data: zaDB } = await supabase
           .from('v7_zahlungsanforderungen')
-          .select('id, project_id, za_nummer, zeitraum_von, zeitraum_bis, status, foerderbetrag_gesamt, zahlungseingang_datum, zahlungseingang_betrag, zahlungseingang_kommentar, eingereicht_am')
+          .select('id, project_id, za_nummer, zeitraum_von, zeitraum_bis, status, foerderbetrag_gesamt, eingereicht_am')
           .in('project_id', alleProjektIds)
           .order('za_nummer', { ascending: true });
 
-        const zaWithProjekt = (zaDB || []).map(za => {
+        // v7.4.9-36-19: Zahlungseingaenge aus v7_za_zahlungen
+        const { data: zahlDB, error: zahlErr } = await supabase
+          .from('v7_za_zahlungen')
+          .select('project_id, za_nummer, datum, betrag, referenz, kommentar')
+          .in('project_id', alleProjektIds)
+          .eq('is_active', true)
+          .order('datum', { ascending: true })
+          .order('created_at', { ascending: true });
+        if (zahlErr) console.error('Cockpit v7_za_zahlungen:', zahlErr.message);
+        const zahlRows = (zahlDB || []).map((z: any) => ({ ...z, betrag: Number(z.betrag) }));
+        const gruppenKey = (z: any) => z.project_id + '|' + z.datum + '|' + z.referenz;
+        const gruppenSummen: Record<string, number> = {};
+        zahlRows.forEach((z: any) => {
+          if (z.referenz) gruppenSummen[gruppenKey(z)] = (gruppenSummen[gruppenKey(z)] || 0) + z.betrag;
+        });
+
+        const zaWithProjekt = (zaDB || []).map((za: any) => {
           const proj = alleProjekte.find(p => p.id === za.project_id);
+          const eigene: ZAZahlungInfo[] = zahlRows
+            .filter((z: any) => z.project_id === za.project_id && z.za_nummer === za.za_nummer)
+            .map((z: any) => ({
+              datum: z.datum, betrag: z.betrag, referenz: z.referenz, kommentar: z.kommentar,
+              gruppenSumme: z.referenz ? Math.round(gruppenSummen[gruppenKey(z)] * 100) / 100 : null,
+            }));
+          const summe = Math.round(eigene.reduce((s, z) => s + z.betrag, 0) * 100) / 100;
+          const kommentare = eigene.filter(z => z.kommentar);
           return {
             ...za,
+            zahlungen: eigene,
+            zahlungseingang_betrag: eigene.length > 0 ? summe : null,
+            zahlungseingang_datum: eigene.length > 0 ? eigene.map(z => z.datum).sort()[eigene.length - 1] : null,
+            zahlungseingang_kommentar: kommentare.length === 0 ? null
+              : eigene.length === 1 ? kommentare[0].kommentar
+              : kommentare.map(z => formatDateTiny(z.datum) + ': ' + z.kommentar).join(' | '),
             projekt_name: proj?.short_name || proj?.name || '-',
             projekt_fkz: proj?.funding_reference || '-',
           };
@@ -1204,6 +1326,21 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
         projektId: selectedProjektId,
         returnTo: 'cockpit',
       });
+      router.push('/v7/firma/za?' + params.toString());
+    }
+  }
+
+  // v7.4.9-36-20: Archiv der Zahlungsanforderungen direkt oeffnen
+  function handleZAArchiv() {
+    if (!selectedProjektId) return;
+    const params = new URLSearchParams({
+      projektId: selectedProjektId,
+      returnTo: 'cockpit',
+      tab: 'archiv',
+    });
+    if (portal === 'berater') {
+      router.push('/v7/berater/foerderung/firma/' + firmaIdLocal + '/za?' + params.toString());
+    } else {
       router.push('/v7/firma/za?' + params.toString());
     }
   }
@@ -2009,14 +2146,24 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                 <Banknote className="w-4 h-4" />
                 Zahlungsanforderungen
               </h2>
-              <button
-                onClick={handleNeueZA}
-                className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 transition-colors"
-                title="Neue Zahlungsanforderung erstellen"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Neue ZA
-              </button>
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={handleNeueZA}
+                  className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 transition-colors"
+                  title="Neue Zahlungsanforderung erstellen"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Neue ZA
+                </button>
+                {/* v7.4.9-36-20: Archiv-Link */}
+                <button
+                  onClick={handleZAArchiv}
+                  className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 transition-colors"
+                  title="Archiv aller Zahlungsanforderungen mit Zahlungseing&auml;ngen"
+                >
+                  Archiv
+                </button>
+              </div>
             </div>
 
             {/* Summen-Karten */}
@@ -2104,9 +2251,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                           <td className="py-1.5 px-2 text-center text-gray-600">
                             {za.zahlungseingang_datum ? formatDate(za.zahlungseingang_datum) : '-'}
                           </td>
-                          <td className="py-1.5 px-2 text-center text-green-700 font-medium">
-                            {hatAuszahlung ? formatEuro(za.zahlungseingang_betrag) : '-'}
-                          </td>
+                          <ZahlungZelle za={za} />{/* v7.4.9-36-19 */}
                           <td className={'py-1.5 px-2 text-center font-medium ' + (
                             !hatAuszahlung ? 'text-gray-400' :
                             differenz > 0 ? 'text-amber-600' : 'text-gray-400'

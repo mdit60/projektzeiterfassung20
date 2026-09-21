@@ -2,7 +2,68 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-72
+// Version: 7.4.4-79
+// v7.4.4-79: ARCHIV IN DIE ZA-AUSWAHL OBEN RECHTS (Vorschlag Martin 21.09.2026).
+//   Deckblatt/Anlage 1a/1b sind Seiten EINER ZA, das Archiv ist die Uebersicht
+//   ueber ALLE ZA. Deshalb: Reihe oben rechts "ZA 1 | ZA 2 | ... | + Neue ZA |
+//   Archiv" (gleiche Reihenfolge wie im Cockpit 36-21). Der Archiv-Tab in der
+//   Seitenleiste entfaellt. Im Archiv ist der Knopf "Archiv" hervorgehoben,
+//   keine ZA; Klick auf eine ZA, "+ Neue ZA" oder eine Seite fuehrt zurueck
+//   zur ZA. Drucken nur fuer eine ZA - im Archiv ausgeblendet.
+// v7.4.4-78: Neuer optionaler Prop initialTab ('deckblatt' | 'anlage1a' |
+//   'anlage1b' | 'archiv'). Damit oeffnet der neue Archiv-Link im Cockpit
+//   (FirmaCockpit 36-20, ueber ZASeite 1.0.11) direkt den Archiv-Tab.
+//   Ohne Prop unveraendert Deckblatt.
+// v7.4.4-77: ZAHLUNG AENDERT NIE DEN ANGEFORDERTEN BETRAG (ZA-06, historische
+//   Werte). BEFUND DEV 21.09.2026: Sammelueberweisung auf ZA 2/3 von HEATS
+//   hat foerderbetrag_gesamt neu berechnet und ueberschrieben (26.387,72 ->
+//   24.218,00; 27.482,33 -> 25.688,00). Ursache: Regel aus v7.4.4-41
+//   ("beim Sichern im Archiv Foerderbetrag immer neu berechnen"), von -73 auf
+//   alle Zahlungswege uebertragen. Die Regel sollte nur LEERE Betraege fuellen.
+//   FIX: nachZahlungsAenderung speichert foerderbetrag_gesamt nur noch, wenn
+//   er NULL ist; ein gespeicherter Betrag bleibt unveraendert und dient als
+//   Massstab fuer den Status. Aendern laesst er sich nur bewusst ueber
+//   "ZA speichern" im Deckblatt.
+// v7.4.4-76: Absicherungen nach DEV-Test (Martin 21.09.2026: ZA 1 versehentlich
+//   geloescht, Zahlung versehentlich bei Entwurf ZA 4 erfasst).
+//   1. Zahlungseingaenge nur bei eingereichten ZA erfassbar. Bei Entwuerfen
+//      zeigt die Archivzeile "erst nach Einreichung"; eine bereits vorhandene
+//      Zahlung bleibt sichtbar und kann entfernt werden.
+//   2. Zahlungsliste: Knopf "Zahlung entfernen" grau statt rot "Entfernen" -
+//      klar unterscheidbar vom Loeschen der ganzen ZA.
+//   3. Loeschen einer eingereichten ZA verlangt die Eingabe der ZA-Nummer
+//      (window.prompt) statt einer einfachen Rueckfrage.
+// v7.4.4-75: Eingabezeile fuer eine weitere Zahlung eindeutig beschriftet
+//   (Rueckmeldung Martin: Speichern nicht erkennbar). Die Zeile traegt links
+//   "Neue Zahlung:", der Knopf heisst "Hinzuf\u00fcgen" statt "+ weitere Zahlung"
+//   (war zum Verwechseln mit dem Link, der die Liste oeffnet).
+// v7.4.4-74: Feinschliff Zahlungsliste nach erstem DEV-Test (Martin 21.09.2026).
+//   - Liste schliesst sich automatisch, wenn keine Zahlung mehr uebrig ist
+//     (vorher blieb sie nach "Entfernen" der letzten Zahlung leer offen).
+//   - Liste kompakt: Spalten nicht mehr ueber die volle Breite verteilt,
+//     Datum, Betrag, Anmerkung und Knoepfe stehen direkt nebeneinander.
+// v7.4.4-73: ZAHLUNGSEINGAENGE ALS LISTE (KONZEPT-ZA-KORREKTUR-ZAHLUNGEN v1.1,
+//   Teil B, Etappe 2). Quelle ist die neue Tabelle v7_za_zahlungen; die alten
+//   Spalten zahlungseingang_datum/_betrag/_kommentar werden weder gelesen noch
+//   geschrieben. Zahlungen haengen an (project_id, za_nummer), nicht an der
+//   id der ZA-Zeile (Konzept 4.2).
+//   - Standardfall unveraendert: eine ZA, eine Zahlung - Datum/Betrag/Anmerkung
+//     in der Archivzeile, "Sichern" legt genau eine Zahlung an bzw. aendert sie.
+//     Felder leeren + Sichern entfernt die Zahlung (weiches Loeschen is_active).
+//   - "+ weitere Zahlung" unter dem Betrag (ab einer Zahlung): oeffnet die
+//     Zahlungsliste der ZA. Bei mehr als einer Zahlung ist die Liste immer
+//     offen; die Archivzeile zeigt dann Summe "(n)" und juengstes Datum.
+//   - Neu: "Sammelueberweisung erfassen" - Datum, Gesamtbetrag, Referenz,
+//     Aufteilung auf eingereichte ZA. Speichern nur bei exakter Aufteilung.
+//     Jeder Anteil wird eine Zahlung mit gleichem Datum und gleicher Referenz.
+//   - calcStatus unveraendert, erhaelt jetzt Summe und juengstes Datum.
+//     Nach jeder Zahlungsaenderung werden Status und Foerderbetrag der ZA wie
+//     bisher (v7.4.4-41) neu gespeichert und lokal sofort aktualisiert.
+//   - ZA loeschen: Zahlungen der ZA-Nummer werden mit deaktiviert, sofern
+//     keine weitere Zeile dieser Nummer besteht (vorbereitet fuer Etappe 3).
+//   - ZA-Nummer einer gespeicherten ZA geaendert: Zahlungen ziehen mit um.
+//   - Fehler beim Schreiben (z. B. RLS) werden gemeldet statt verschluckt.
+//   - Betragseingabe akzeptiert "12.128,00" und "12128.00" (parseBetrag).
 // v7.4.4-72: KORREKTUR zu -71 - Foerderbetrag wieder auf GANZE EURO, kauf-
 //   maennisch, wie im Originalformular der Zahlungsanforderung (Vorgabe Martin
 //   21.09.2026, geprueft an ANOVIA ZA 1: 8.274,63 -> 8.275). Alle vier Stellen
@@ -322,11 +383,33 @@ interface ZahlungsanforderungDB {
   nwm_kosten_gesamt: number | null;
   laufzeitjahr: number | null;
   foerdersatz_percent: number | null;
-  zahlungseingang_datum: string | null;
-  zahlungseingang_betrag: number | null;
-  zahlungseingang_kommentar: string | null;
   foerderbetrag_gesamt: number | null;
 }
+
+// v7.4.4-73: Zahlungseingang aus v7_za_zahlungen (haengt an der ZA-Nummer)
+interface ZAZahlungDB {
+  id: string;
+  project_id: string;
+  za_nummer: number;
+  datum: string;
+  betrag: number;
+  referenz: string | null;
+  kommentar: string | null;
+}
+
+// v7.4.4-73: Betragseingabe. Mit Komma: deutsches Format ("12.128,00"),
+// Punkte sind Tausendertrenner. Ohne Komma: Punkt ist Dezimaltrenner.
+const parseBetrag = (s: string): number => {
+  const t = (s || '').trim().replace(/\s/g, '');
+  if (t === '') return NaN;
+  const norm = t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t;
+  return parseFloat(norm);
+};
+const cent = (n: number): number => Math.round(n * 100);
+const fmtEUR = (n: number): string =>
+  n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtDatumKurz = (d: string | null): string =>
+  d ? new Date(d).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '--';
 
 // Status-Hilfsfunktionen
 const ZA_STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; border: string }> = {
@@ -448,6 +531,7 @@ interface ZAPanelProps {
   projectAssignments: ZAProjectAssignment[];
   initialProjectId?: string;
   initialZaId?: string;      // Auto-selektiert diese ZA nach Laden (von Cockpit-Navigation)
+  initialTab?: 'deckblatt' | 'anlage1a' | 'anlage1b' | 'archiv';  // v7.4.4-78
 }
 
 // ============================================================================
@@ -464,6 +548,7 @@ export default function ZAPanel({
   projectAssignments,
   initialProjectId,
   initialZaId,
+  initialTab,
 }: ZAPanelProps) {
   const supabase = createClient();
   const colors = PORTAL_COLORS[portal];
@@ -484,7 +569,7 @@ export default function ZAPanel({
   const [projectId, setProjectId] = useState<string>(
     initialProjectId || zimProjects[0]?.id || ''
   );
-  const [zaTab, setZATab] = useState<'deckblatt' | 'anlage1a' | 'anlage1b' | 'archiv'>('deckblatt');
+  const [zaTab, setZATab] = useState<'deckblatt' | 'anlage1a' | 'anlage1b' | 'archiv'>(initialTab || 'deckblatt'); // v7.4.4-78
   const [zaList, setZAList] = useState<ZahlungsanforderungDB[]>([]);
   const [zaSelectedId, setZASelectedId] = useState<string | null>(null);
 
@@ -499,6 +584,20 @@ export default function ZAPanel({
   const [archivEdits, setArchivEdits] = useState<Record<string, {
     datum: string; betrag: string; kommentar: string; saving: boolean; saved: boolean;
   }>>({});
+  // v7.4.4-73: Zahlungen (v7_za_zahlungen) und Zustand der Zahlungslisten
+  const [zahlungen, setZahlungen] = useState<ZAZahlungDB[]>([]);
+  const [weitereOffen, setWeitereOffen] = useState<Record<number, boolean>>({});
+  const [zahlungEdits, setZahlungEdits] = useState<Record<string, {
+    datum: string; betrag: string; kommentar: string; saving: boolean;
+  }>>({});
+  const [neueZahlung, setNeueZahlung] = useState<Record<number, {
+    datum: string; betrag: string; kommentar: string; saving: boolean;
+  }>>({});
+  const [sammelOffen, setSammelOffen] = useState(false);
+  const [sammel, setSammel] = useState<{
+    datum: string; gesamt: string; referenz: string; referenzManuell: boolean;
+    kommentar: string; anteile: Record<number, string>; saving: boolean;
+  }>({ datum: '', gesamt: '', referenz: '', referenzManuell: false, kommentar: '', anteile: {}, saving: false });
   const [eingereichtAmEdit, setEingereichtAmEdit] = useState<string>(
     '' // v7.4.4-56: leer als Default (vorher heute) -> Entwurf bleibt Entwurf
   );
@@ -526,6 +625,81 @@ export default function ZAPanel({
     notizen: '',
     nwm_kosten_dritte: '',
   });
+
+  // ---- v7.4.4-73: Zahlungen (v7_za_zahlungen) ----
+  const ladeZahlungen = async (pid: string): Promise<ZAZahlungDB[]> => {
+    const { data, error } = await supabase
+      .from('v7_za_zahlungen')
+      .select('id, project_id, za_nummer, datum, betrag, referenz, kommentar')
+      .eq('project_id', pid)
+      .eq('is_active', true)
+      .order('datum', { ascending: true })
+      .order('created_at', { ascending: true });
+    if (error) {
+      alert('Fehler beim Laden der Zahlungseing\u00e4nge: ' + error.message);
+      return [];
+    }
+    return (data || []).map((z: any) => ({ ...z, betrag: Number(z.betrag) }));
+  };
+  const zahlungenFuer = (nr: number, liste: ZAZahlungDB[] = zahlungen) =>
+    liste.filter(z => z.za_nummer === nr);
+  const summeZahlungen = (nr: number, liste: ZAZahlungDB[] = zahlungen): number =>
+    cent(zahlungenFuer(nr, liste).reduce((s, z) => s + z.betrag, 0)) / 100;
+  const letztesZahlungsdatum = (nr: number, liste: ZAZahlungDB[] = zahlungen): string | null => {
+    const ds = zahlungenFuer(nr, liste).map(z => z.datum).sort();
+    return ds.length > 0 ? ds[ds.length - 1] : null;
+  };
+  const bildeArchivEdits = (liste: ZahlungsanforderungDB[], zs: ZAZahlungDB[]) => {
+    const edits: Record<string, { datum: string; betrag: string; kommentar: string; saving: boolean; saved: boolean }> = {};
+    liste.forEach(za => {
+      const eigene = zahlungenFuer(za.za_nummer, zs);
+      const einzel = eigene.length === 1 ? eigene[0] : null;
+      edits[za.id] = {
+        datum: einzel ? einzel.datum : '',
+        betrag: einzel ? String(einzel.betrag).replace('.', ',') : '',
+        kommentar: einzel?.kommentar || '',
+        saving: false,
+        saved: false,
+      };
+    });
+    return edits;
+  };
+
+  // Nach jeder Zahlungsaenderung: Zahlungen neu laden, Archivzeilen neu belegen,
+  // Foerderbetrag + Status der betroffenen ZA-Nummern neu speichern (wie v7.4.4-41).
+  const nachZahlungsAenderung = async (nummern: number[]) => {
+    const neu = await ladeZahlungen(projectId);
+    setZahlungen(neu);
+    setArchivEdits(prev => {
+      const frisch = bildeArchivEdits(zaList, neu);
+      const n = { ...prev };
+      zaList.forEach(za => { if (nummern.includes(za.za_nummer)) n[za.id] = frisch[za.id]; });
+      return n;
+    });
+    const patches: Record<string, { foerderbetrag_gesamt: number; status: string }> = {};
+    for (const za of zaList.filter(z => nummern.includes(z.za_nummer))) {
+      // v7.4.4-77: gespeicherten Betrag NIE ueberschreiben, nur leeren fuellen
+      const fbGespeichert = za.foerderbetrag_gesamt != null;
+      const fb = fbGespeichert
+        ? (za.foerderbetrag_gesamt as number)
+        : computeArchivFoerderbetrag({ ...za, foerderbetrag_gesamt: null });
+      const st = calcStatus(
+        za.eingereicht_am || null,
+        letztesZahlungsdatum(za.za_nummer, neu),
+        summeZahlungen(za.za_nummer, neu) || null,
+        fb
+      );
+      const patch: Record<string, any> = { status: st, updated_at: new Date().toISOString() };
+      if (!fbGespeichert) patch.foerderbetrag_gesamt = fb;
+      const { error } = await supabase.from('v7_zahlungsanforderungen')
+        .update(patch)
+        .eq('id', za.id);
+      if (error) throw new Error(error.message);
+      patches[za.id] = { foerderbetrag_gesamt: fb, status: st };
+    }
+    setZAList(prev => prev.map(z => patches[z.id] ? { ...z, ...patches[z.id] } : z));
+    return neu;
+  };
 
   // ---- Panel beim ersten Rendern laden ----
   const openPanel = useCallback(async (pid: string) => {
@@ -561,23 +735,19 @@ export default function ZAPanel({
 
     const { data: existingZAs } = await supabase
       .from('v7_zahlungsanforderungen')
-      .select('id, project_id, za_nummer, zeitraum_von, zeitraum_bis, auftraege_dritte_t, auftraege_dritte_nt, fue_unterauftrag, zeitw_personalaufnahme, status, notizen, eingereicht_am, bewilligt_am, nwm_personalkosten, nwm_kosten_dritte, nwm_kosten_uebrige, nwm_kosten_gesamt, laufzeitjahr, foerdersatz_percent, zahlungseingang_datum, zahlungseingang_betrag, zahlungseingang_kommentar, foerderbetrag_gesamt')
+      .select('id, project_id, za_nummer, zeitraum_von, zeitraum_bis, auftraege_dritte_t, auftraege_dritte_nt, fue_unterauftrag, zeitw_personalaufnahme, status, notizen, eingereicht_am, bewilligt_am, nwm_personalkosten, nwm_kosten_dritte, nwm_kosten_uebrige, nwm_kosten_gesamt, laufzeitjahr, foerdersatz_percent, foerderbetrag_gesamt')
       .eq('project_id', pid)
       .order('za_nummer', { ascending: true });
 
     const zaListLoaded: ZahlungsanforderungDB[] = existingZAs || [];
     setZAList(zaListLoaded);
-    const initEdits: Record<string, { datum: string; betrag: string; kommentar: string; saving: boolean; saved: boolean }> = {};
-    zaListLoaded.forEach(za => {
-      initEdits[za.id] = {
-        datum: za.zahlungseingang_datum || '',
-        betrag: za.zahlungseingang_betrag != null ? String(za.zahlungseingang_betrag) : '',
-        kommentar: za.zahlungseingang_kommentar || '',
-        saving: false,
-        saved: false,
-      };
-    });
-    setArchivEdits(initEdits);
+    // v7.4.4-73: Zahlungen laden; Archivzeile zeigt die Einzelzahlung (falls genau eine)
+    const zahlungenLoaded = await ladeZahlungen(pid);
+    setZahlungen(zahlungenLoaded);
+    setWeitereOffen({});
+    setZahlungEdits({});
+    setNeueZahlung({});
+    setArchivEdits(bildeArchivEdits(zaListLoaded, zahlungenLoaded));
 
     const nextNummer = zaListLoaded.length > 0
       ? Math.max(...zaListLoaded.map(z => z.za_nummer)) + 1
@@ -683,14 +853,26 @@ export default function ZAPanel({
 
       // Status auto-ableiten aus Datumsfeldern + Betraegen
       const existingZA = zaSelectedId ? zaList.find(z => z.id === zaSelectedId) : null;
+      // v7.4.4-73: Zahlungen aus v7_za_zahlungen (Summe, juengstes Datum) der bisherigen Nummer
       payload.status = calcStatus(
         eingereichtAmEdit || null,
-        existingZA?.zahlungseingang_datum || null,
-        existingZA?.zahlungseingang_betrag || null,
+        existingZA ? letztesZahlungsdatum(existingZA.za_nummer) : null,
+        existingZA ? (summeZahlungen(existingZA.za_nummer) || null) : null,
         payload.foerderbetrag_gesamt
       );
       if (zaSelectedId) {
-        await supabase.from('v7_zahlungsanforderungen').update(payload).eq('id', zaSelectedId);
+        const { error: updErr } = await supabase.from('v7_zahlungsanforderungen').update(payload).eq('id', zaSelectedId);
+        if (updErr) throw new Error(updErr.message);
+        // v7.4.4-73: ZA-Nummer geaendert -> Zahlungen ziehen mit um
+        if (existingZA && existingZA.za_nummer !== payload.za_nummer
+            && zahlungenFuer(existingZA.za_nummer).length > 0) {
+          const { error: movErr } = await supabase.from('v7_za_zahlungen')
+            .update({ za_nummer: payload.za_nummer, updated_at: new Date().toISOString() })
+            .eq('project_id', projectId)
+            .eq('za_nummer', existingZA.za_nummer)
+            .eq('is_active', true);
+          if (movErr) throw new Error(movErr.message);
+        }
       } else {
         const { data: newZA } = await supabase.from('v7_zahlungsanforderungen').insert(payload).select().single();
         if (newZA) setZASelectedId((newZA as any).id);
@@ -925,9 +1107,28 @@ export default function ZAPanel({
     const msg = isOfficial
       ? 'ACHTUNG: Diese ZA hat Status "' + sc.label + '".\nWirklich unwiderruflich l\u00f6schen?'
       : 'ZA ' + za.za_nummer + ' wirklich l\u00f6schen?\nDieser Vorgang kann nicht r\u00fcckg\u00e4ngig gemacht werden.';
-    if (!window.confirm(msg)) return;
+    // v7.4.4-76: eingereichte ZA nur nach Eingabe der ZA-Nummer loeschen
+    if (isOfficial) {
+      const eingabe = window.prompt(msg + '\n\nZur Best\u00e4tigung bitte die ZA-Nummer (' + za.za_nummer + ') eingeben:');
+      if (eingabe === null) return;
+      if (eingabe.trim() !== String(za.za_nummer)) {
+        alert('Die eingegebene Nummer stimmt nicht. Die ZA wurde nicht gel\u00f6scht.');
+        return;
+      }
+    } else if (!window.confirm(msg)) return;
     try {
       await supabase.from('v7_zahlungsanforderungen').delete().eq('id', za.id);
+      // v7.4.4-73: Zahlungen der Nummer mit deaktivieren, wenn keine weitere Zeile dieser Nummer bleibt
+      const gleicheNummer = zaList.filter(z => z.za_nummer === za.za_nummer && z.id !== za.id);
+      if (gleicheNummer.length === 0 && zahlungenFuer(za.za_nummer).length > 0) {
+        const { error: zErr } = await supabase.from('v7_za_zahlungen')
+          .update({ is_active: false, updated_at: new Date().toISOString() })
+          .eq('project_id', za.project_id)
+          .eq('za_nummer', za.za_nummer)
+          .eq('is_active', true);
+        if (zErr) throw new Error(zErr.message);
+        setZahlungen(prev => prev.filter(z => z.za_nummer !== za.za_nummer));
+      }
       setZAList(prev => prev.filter(z => z.id !== za.id));
       setArchivEdits(prev => { const n = { ...prev }; delete n[za.id]; return n; });
       if (zaSelectedId === za.id) {
@@ -939,56 +1140,185 @@ export default function ZAPanel({
     }
   };
 
+  // v7.4.4-73: Standardfall - genau eine Zahlung je ZA, Eingabe in der Archivzeile.
+  // Legt die Zahlung an, aendert sie oder entfernt sie (alle Felder leer).
   const handleSaveZahlungseingang = async (zaId: string) => {
     const edit = archivEdits[zaId];
-    if (!edit) return;
+    const za = zaList.find(z => z.id === zaId);
+    if (!edit || !za) return;
+    const eigene = zahlungenFuer(za.za_nummer);
+    if (eigene.length > 1) return; // Liste zustaendig
+    const einzel = eigene.length === 1 ? eigene[0] : null;
 
-    // Validierung: Zahlungsdatum erfordert Betrag > 0
-    if (edit.datum && (!edit.betrag || parseFloat(edit.betrag.replace(',', '.')) <= 0)) {
-      alert('Bitte den Zahlungsbetrag eingeben wenn ein Zahlungsdatum gesetzt wird.');
+    const leer = !edit.datum && edit.betrag.trim() === '';
+    // v7.4.4-76: neue Zahlung nur bei eingereichter ZA
+    if (!einzel && !leer && !za.eingereicht_am) {
+      alert('Zahlungseing\u00e4nge k\u00f6nnen erst nach Einreichung der ZA erfasst werden.');
       return;
+    }
+    if (leer && !einzel) {
+      if (edit.kommentar.trim()) {
+        alert('Eine Anmerkung kann nur zusammen mit einem Zahlungseingang (Datum und Betrag) gespeichert werden.');
+      }
+      return;
+    }
+    const betrag = parseBetrag(edit.betrag);
+    if (!leer) {
+      // Validierung: Datum und Betrag > 0 gehoeren zusammen
+      if (!edit.datum) {
+        alert('Bitte das Datum des Zahlungseingangs eingeben.');
+        return;
+      }
+      if (isNaN(betrag) || betrag <= 0) {
+        alert('Bitte den Zahlungsbetrag eingeben wenn ein Zahlungsdatum gesetzt wird.');
+        return;
+      }
     }
 
     setArchivEdits(prev => ({ ...prev, [zaId]: { ...prev[zaId], saving: true, saved: false } }));
     try {
-      const zahlungsBetrag = edit.betrag !== '' ? parseFloat(edit.betrag.replace(',', '.')) : null;
-      const patch: Record<string, any> = {
-        zahlungseingang_datum: edit.datum || null,
-        zahlungseingang_betrag: zahlungsBetrag,
-        zahlungseingang_kommentar: edit.kommentar.trim() || null,
-        updated_at: new Date().toISOString(),
-      };
-
-      // v7.4.4-41: Foerderbetrag immer mitberechnen und speichern
-      const za = zaList.find(z => z.id === zaId);
-      if (za) {
-        const zaForCompute = { ...za, foerderbetrag_gesamt: null as number | null };
-        patch.foerderbetrag_gesamt = computeArchivFoerderbetrag(zaForCompute);
-
-        // Status auto-ableiten
-        patch.status = calcStatus(
-          za.eingereicht_am || null,
-          edit.datum || null,
-          zahlungsBetrag,
-          patch.foerderbetrag_gesamt
-        );
+      const jetzt = new Date().toISOString();
+      if (leer && einzel) {
+        const { error } = await supabase.from('v7_za_zahlungen')
+          .update({ is_active: false, updated_at: jetzt }).eq('id', einzel.id);
+        if (error) throw new Error(error.message);
+      } else if (einzel) {
+        const { error } = await supabase.from('v7_za_zahlungen')
+          .update({ datum: edit.datum, betrag: cent(betrag) / 100, kommentar: edit.kommentar.trim() || null, updated_at: jetzt })
+          .eq('id', einzel.id);
+        if (error) throw new Error(error.message);
+      } else {
+        const { error } = await supabase.from('v7_za_zahlungen').insert({
+          project_id: za.project_id, za_nummer: za.za_nummer, datum: edit.datum,
+          betrag: cent(betrag) / 100, kommentar: edit.kommentar.trim() || null,
+        });
+        if (error) throw new Error(error.message);
       }
-
-      await supabase.from('v7_zahlungsanforderungen').update(patch).eq('id', zaId);
-
-      // Lokalen State aktualisieren damit Archiv-Tab sofort korrekt anzeigt
-      if (za && patch.foerderbetrag_gesamt != null) {
-        setZAList(prev => prev.map(z => z.id === zaId
-          ? { ...z, foerderbetrag_gesamt: patch.foerderbetrag_gesamt }
-          : z
-        ));
-      }
-
+      await nachZahlungsAenderung([za.za_nummer]);
       setArchivEdits(prev => ({ ...prev, [zaId]: { ...prev[zaId], saving: false, saved: true } }));
       setTimeout(() => setArchivEdits(prev => ({ ...prev, [zaId]: { ...prev[zaId], saved: false } })), 2500);
     } catch (err: any) {
       alert('Fehler beim Speichern: ' + err.message);
       setArchivEdits(prev => ({ ...prev, [zaId]: { ...prev[zaId], saving: false } }));
+    }
+  };
+
+  // v7.4.4-73: Zahlungsliste - einzelne Zahlung aendern
+  const handleSaveListenZahlung = async (z: ZAZahlungDB) => {
+    const e = zahlungEdits[z.id];
+    if (!e) return;
+    const betrag = parseBetrag(e.betrag);
+    if (!e.datum || isNaN(betrag) || betrag <= 0) {
+      alert('Bitte Datum und einen Betrag gr\u00f6\u00dfer 0 eingeben.');
+      return;
+    }
+    setZahlungEdits(prev => ({ ...prev, [z.id]: { ...prev[z.id], saving: true } }));
+    try {
+      const { error } = await supabase.from('v7_za_zahlungen')
+        .update({ datum: e.datum, betrag: cent(betrag) / 100, kommentar: e.kommentar.trim() || null, updated_at: new Date().toISOString() })
+        .eq('id', z.id);
+      if (error) throw new Error(error.message);
+      await nachZahlungsAenderung([z.za_nummer]);
+      setZahlungEdits(prev => { const n = { ...prev }; delete n[z.id]; return n; });
+    } catch (err: any) {
+      alert('Fehler beim Speichern: ' + err.message);
+      setZahlungEdits(prev => ({ ...prev, [z.id]: { ...prev[z.id], saving: false } }));
+    }
+  };
+
+  // v7.4.4-73: Zahlungsliste - Zahlung entfernen (weich, is_active = false)
+  const handleEntferneZahlung = async (z: ZAZahlungDB) => {
+    const text = 'Zahlung vom ' + fmtDatumKurz(z.datum) + ' \u00fcber ' + fmtEUR(z.betrag) + ' EUR entfernen?'
+      + (z.referenz ? '\nHinweis: Teil der Sammel\u00fcberweisung "' + z.referenz + '". Die \u00fcbrigen Teile bleiben bestehen.' : '');
+    if (!window.confirm(text)) return;
+    try {
+      const { error } = await supabase.from('v7_za_zahlungen')
+        .update({ is_active: false, updated_at: new Date().toISOString() }).eq('id', z.id);
+      if (error) throw new Error(error.message);
+      await nachZahlungsAenderung([z.za_nummer]);
+    } catch (err: any) {
+      alert('Fehler beim Entfernen: ' + err.message);
+    }
+  };
+
+  // v7.4.4-73: Zahlungsliste - weitere Zahlung hinzufuegen
+  const handleNeueZahlung = async (za: ZahlungsanforderungDB) => {
+    if (!za.eingereicht_am) { // v7.4.4-76
+      alert('Zahlungseing\u00e4nge k\u00f6nnen erst nach Einreichung der ZA erfasst werden.');
+      return;
+    }
+    const e = neueZahlung[za.za_nummer];
+    const betrag = e ? parseBetrag(e.betrag) : NaN;
+    if (!e || !e.datum || isNaN(betrag) || betrag <= 0) {
+      alert('Bitte Datum und einen Betrag gr\u00f6\u00dfer 0 eingeben.');
+      return;
+    }
+    setNeueZahlung(prev => ({ ...prev, [za.za_nummer]: { ...prev[za.za_nummer], saving: true } }));
+    try {
+      const { error } = await supabase.from('v7_za_zahlungen').insert({
+        project_id: za.project_id, za_nummer: za.za_nummer, datum: e.datum,
+        betrag: cent(betrag) / 100, kommentar: e.kommentar.trim() || null,
+      });
+      if (error) throw new Error(error.message);
+      await nachZahlungsAenderung([za.za_nummer]);
+      setNeueZahlung(prev => { const n = { ...prev }; delete n[za.za_nummer]; return n; });
+    } catch (err: any) {
+      alert('Fehler beim Speichern: ' + err.message);
+      setNeueZahlung(prev => ({ ...prev, [za.za_nummer]: { ...prev[za.za_nummer], saving: false } }));
+    }
+  };
+
+  // v7.4.4-73: Sammelueberweisung
+  const sammelReferenzVorschlag = (datum: string) =>
+    datum ? '\u00dcberw. ' + fmtDatumKurz(datum) : '';
+  const oeffneSammel = () => {
+    setSammel({ datum: '', gesamt: '', referenz: '', referenzManuell: false, kommentar: '', anteile: {}, saving: false });
+    setSammelOffen(true);
+  };
+  // Aufteilung pruefen: liefert Fehlertext oder null (dann speicherbar)
+  const sammelPruefung = (): { fehler: string | null; gesamtCent: number; verteiltCent: number } => {
+    const gesamt = parseBetrag(sammel.gesamt);
+    const gesamtCent = isNaN(gesamt) ? 0 : cent(gesamt);
+    let verteiltCent = 0;
+    let ungueltig = false;
+    let anzahl = 0;
+    Object.values(sammel.anteile).forEach(v => {
+      if (!v || v.trim() === '') return;
+      const b = parseBetrag(v);
+      if (isNaN(b) || b < 0) { ungueltig = true; return; }
+      if (b > 0) anzahl += 1;
+      verteiltCent += cent(b);
+    });
+    let fehler: string | null = null;
+    if (!sammel.datum) fehler = 'Datum der \u00dcberweisung fehlt.';
+    else if (isNaN(gesamt) || gesamt <= 0) fehler = 'Gesamtbetrag fehlt.';
+    else if (ungueltig) fehler = 'Ung\u00fcltiger Betrag in der Aufteilung.';
+    else if (anzahl === 0) fehler = 'Bitte den Betrag auf mindestens eine ZA aufteilen.';
+    else if (verteiltCent !== gesamtCent) fehler = 'Die Aufteilung muss genau dem Gesamtbetrag entsprechen.';
+    if (!fehler && !sammel.referenz.trim()) fehler = 'Referenz fehlt.';
+    return { fehler, gesamtCent, verteiltCent };
+  };
+  const handleSaveSammel = async () => {
+    const { fehler } = sammelPruefung();
+    if (fehler) { alert(fehler); return; }
+    const zeilen = Object.entries(sammel.anteile)
+      .map(([nr, v]) => ({ nr: parseInt(nr), b: parseBetrag(v) }))
+      .filter(x => !isNaN(x.b) && x.b > 0)
+      .map(x => ({
+        project_id: projectId, za_nummer: x.nr, datum: sammel.datum,
+        betrag: cent(x.b) / 100, referenz: sammel.referenz.trim(),
+        kommentar: sammel.kommentar.trim() || null,
+      }));
+    setSammel(prev => ({ ...prev, saving: true }));
+    try {
+      const { error } = await supabase.from('v7_za_zahlungen').insert(zeilen);
+      if (error) throw new Error(error.message);
+      await nachZahlungsAenderung(zeilen.map(z => z.za_nummer));
+      setSammelOffen(false);
+    } catch (err: any) {
+      alert('Fehler beim Speichern der Sammel\u00fcberweisung: ' + err.message);
+    } finally {
+      setSammel(prev => ({ ...prev, saving: false }));
     }
   };
 
@@ -1202,9 +1532,9 @@ export default function ZAPanel({
             {zaList.map(za => {
               const sc = getStatusConfig(za.status);
               return (
-                <button key={za.id} onClick={() => checkUnsavedChanges(() => loadZAIntoForm(za))}
+                <button key={za.id} onClick={() => checkUnsavedChanges(() => { loadZAIntoForm(za); if (zaTab === 'archiv') setZATab('deckblatt'); })}
                   className={`text-xs px-2 py-1 rounded border transition-colors flex items-center gap-1.5
-                    ${zaSelectedId === za.id
+                    ${zaSelectedId === za.id && zaTab !== 'archiv'
                       ? colors.btnZaSelected
                       : `bg-white text-gray-700 border-gray-300 ${colors.btnZaHover}`}`}>
                   ZA {za.za_nummer}
@@ -1215,9 +1545,19 @@ export default function ZAPanel({
               );
             })}
             <button
-              onClick={() => checkUnsavedChanges(() => { setZASelectedId(null); openPanel(projectId); })}
+              onClick={() => checkUnsavedChanges(() => { setZASelectedId(null); openPanel(projectId); if (zaTab === 'archiv') setZATab('deckblatt'); })}
               className={`text-xs px-2 py-1 rounded border ${colors.btnNeueZA}`}>
               + Neue ZA
+            </button>
+            {/* v7.4.4-79: Archiv als Uebersicht aller ZA, rechts neben "+ Neue ZA" */}
+            <button
+              onClick={() => setZATab('archiv')}
+              title="&Uuml;bersicht aller Zahlungsanforderungen mit Zahlungseing&auml;ngen"
+              className={`text-xs px-2 py-1 rounded border transition-colors
+                ${zaTab === 'archiv'
+                  ? colors.btnZaSelected
+                  : `bg-white text-gray-700 border-gray-300 ${colors.btnZaHover}`}`}>
+              Archiv
             </button>
           </div>
         )}
@@ -1226,7 +1566,7 @@ export default function ZAPanel({
       {/* Tab-Navigation */}
       <div className="flex items-center border-b border-gray-200 bg-white">
         <div className="flex flex-1">
-          {(['deckblatt', 'anlage1a', 'anlage1b', 'archiv'] as const).map(tab => (
+          {(['deckblatt', 'anlage1a', 'anlage1b'] as const).map(tab => ( /* v7.4.4-79: Archiv oben rechts */
             <button key={tab} onClick={() => setZATab(tab)}
               className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors
                 ${zaTab === tab ? colors.tabActive : colors.tabInactive}`}>
@@ -1237,6 +1577,7 @@ export default function ZAPanel({
             </button>
           ))}
         </div>
+        {zaTab !== 'archiv' && ( /* v7.4.4-79: Drucken nur fuer eine ZA */
         <button onClick={handlePrint}
           className="flex items-center gap-1.5 mx-3 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded transition-colors"
           title="Dieses Formblatt drucken">
@@ -1247,6 +1588,7 @@ export default function ZAPanel({
           </svg>
           Drucken
         </button>
+        )}
       </div>
 
       {zaLoading ? (
@@ -1891,7 +2233,17 @@ export default function ZAPanel({
             <div className="space-y-4">
               <div className="flex items-center justify-between mb-2 px-4 pt-4">
                 <h3 className="text-sm font-semibold text-gray-700">Alle Zahlungsanforderungen</h3>
-                <span className="text-xs text-gray-400">{zaList.length} ZA gespeichert</span>
+                <div className="flex items-center gap-3">
+                  {/* v7.4.4-73: Sammelueberweisung */}
+                  {zaList.some(z => !!z.eingereicht_am) && (
+                    <button
+                      onClick={oeffneSammel}
+                      className="text-xs px-2.5 py-1 rounded border bg-white text-gray-600 border-gray-300 hover:border-blue-400 transition-colors">
+                      Sammel&uuml;berweisung erfassen
+                    </button>
+                  )}
+                  <span className="text-xs text-gray-400">{zaList.length} ZA gespeichert</span>
+                </div>
               </div>
               {zaList.length === 0 ? (
                 <div className="text-center py-12 text-gray-400 text-sm">
@@ -1925,8 +2277,15 @@ export default function ZAPanel({
                           : null;
                         const edit = archivEdits[za.id] || { datum: '', betrag: '', kommentar: '', saving: false, saved: false };
                         const isSelected = zaSelectedId === za.id;
+                        // v7.4.4-73: Zahlungen der ZA-Nummer; Liste bei >1 Zahlung oder auf Wunsch
+                        const eigeneZahlungen = zahlungenFuer(za.za_nummer);
+                        const listenModus = eigeneZahlungen.length > 1
+                          || (eigeneZahlungen.length > 0 && !!weitereOffen[za.za_nummer]); // v7.4.4-74
+                        const zahlungsSumme = summeZahlungen(za.za_nummer);
+                        const neu = neueZahlung[za.za_nummer] || { datum: '', betrag: '', kommentar: '', saving: false };
                         return (
-                          <tr key={za.id} className={`transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
+                          <React.Fragment key={za.id}>
+                          <tr className={`transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
                             <td className="px-3 py-2 font-semibold text-gray-900 whitespace-nowrap">ZA {za.za_nummer}</td>
                             <td className="px-3 py-2 text-gray-700 text-xs whitespace-nowrap">
                               {vonDate}<br/><span className="text-gray-400">bis</span> {bisDate}
@@ -1937,6 +2296,27 @@ export default function ZAPanel({
                                 ? foerderbetrag
                                 : <span className="text-gray-400">noch nicht gespeichert</span>}
                             </td>
+                            {listenModus ? (
+                              <>
+                                <td className="px-3 py-2 text-gray-700 text-xs whitespace-nowrap">
+                                  {fmtDatumKurz(letztesZahlungsdatum(za.za_nummer))}
+                                </td>
+                                <td className="px-3 py-2 text-right font-mono text-gray-700 text-xs whitespace-nowrap">
+                                  {eigeneZahlungen.length > 0
+                                    ? fmtEUR(zahlungsSumme) + ' (' + eigeneZahlungen.length + ')'
+                                    : '--'}
+                                </td>
+                                <td className="px-3 py-2 text-gray-400 text-xs italic">siehe Zahlungen</td>
+                              </>
+                            ) : (!za.eingereicht_am && eigeneZahlungen.length === 0) ? (
+                              <>
+                                {/* v7.4.4-76: Entwurf - keine Zahlungserfassung */}
+                                <td className="px-3 py-2 text-gray-400 text-xs italic whitespace-nowrap">erst nach Einreichung</td>
+                                <td className="px-3 py-2 text-right text-gray-400 text-xs">--</td>
+                                <td className="px-3 py-2 text-gray-400 text-xs">--</td>
+                              </>
+                            ) : (
+                              <>
                             <td className="px-3 py-2">
                               <input
                                 type="date"
@@ -1954,6 +2334,18 @@ export default function ZAPanel({
                                 onChange={e => setArchivEdits(prev => ({ ...prev, [za.id]: { ...prev[za.id], betrag: e.target.value } }))}
                                 className="text-xs border border-gray-300 rounded px-2 py-1 w-28 text-right font-mono focus:outline-none focus:border-blue-400"
                               />
+                              {eigeneZahlungen.length === 1 && !!za.eingereicht_am && (
+                                <div className="mt-1">
+                                  <button
+                                    onClick={() => setWeitereOffen(prev => ({ ...prev, [za.za_nummer]: true }))}
+                                    className="text-xs text-blue-600 hover:underline">
+                                    + weitere Zahlung
+                                  </button>
+                                </div>
+                              )}
+                              {eigeneZahlungen.length === 1 && eigeneZahlungen[0].referenz && (
+                                <div className="mt-0.5 text-xs text-gray-400 text-right">{eigeneZahlungen[0].referenz}</div>
+                              )}
                             </td>
                             <td className="px-3 py-2">
                               <input
@@ -1964,6 +2356,8 @@ export default function ZAPanel({
                                 className="text-xs border border-gray-300 rounded px-2 py-1 w-40 focus:outline-none focus:border-blue-400"
                               />
                             </td>
+                              </>
+                            )}
                             <td className="px-3 py-2 whitespace-nowrap">
                               <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${statusCfg.bg} ${statusCfg.text} ${statusCfg.border}`}>
                                 {statusCfg.label}
@@ -1971,12 +2365,14 @@ export default function ZAPanel({
                             </td>
                             <td className="px-3 py-2 whitespace-nowrap">
                               <div className="flex items-center gap-1.5">
+                                {!listenModus && (!!za.eingereicht_am || eigeneZahlungen.length > 0) && (
                                 <button
                                   onClick={() => handleSaveZahlungseingang(za.id)}
                                   disabled={edit.saving}
                                   className={`text-xs px-2.5 py-1 rounded border transition-colors ${edit.saved ? 'bg-green-50 text-green-700 border-green-300' : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'}`}>
                                   {edit.saving ? '...' : edit.saved ? 'OK' : 'Sichern'}
                                 </button>
+                                )}
                                 <button
                                   onClick={() => checkUnsavedChanges(() => { loadZAIntoForm(za); setZATab('deckblatt'); })}
                                   className={`text-xs px-2.5 py-1 rounded border transition-colors ${colors.btnZaHover} bg-white text-gray-600 border-gray-300`}>
@@ -1990,6 +2386,123 @@ export default function ZAPanel({
                               </div>
                             </td>
                           </tr>
+                          {/* v7.4.4-73: Zahlungsliste der ZA */}
+                          {listenModus && (
+                            <tr className="bg-gray-50">
+                              <td></td>
+                              <td colSpan={8} className="px-3 pb-3 pt-1">
+                                <div className="border border-gray-200 rounded bg-white">
+                                  <div className="flex items-center justify-between px-3 py-1.5 border-b border-gray-100">
+                                    <span className="text-xs font-semibold text-gray-600">
+                                      Zahlungseing&auml;nge ZA {za.za_nummer}
+                                    </span>
+                                    {eigeneZahlungen.length <= 1 && (
+                                      <button
+                                        onClick={() => setWeitereOffen(prev => ({ ...prev, [za.za_nummer]: false }))}
+                                        className="text-xs text-gray-500 hover:underline">
+                                        Liste schlie&szlig;en
+                                      </button>
+                                    )}
+                                  </div>
+                                  <table className="text-xs">{/* v7.4.4-74: kompakt, nicht volle Breite */}
+                                    <tbody className="divide-y divide-gray-100">
+                                      {eigeneZahlungen.map(z => {
+                                        const ze = zahlungEdits[z.id] || {
+                                          datum: z.datum, betrag: String(z.betrag).replace('.', ','),
+                                          kommentar: z.kommentar || '', saving: false,
+                                        };
+                                        const setZe = (patch: Partial<typeof ze>) =>
+                                          setZahlungEdits(prev => ({ ...prev, [z.id]: { ...ze, ...patch } }));
+                                        const geaendert = !!zahlungEdits[z.id];
+                                        const gruppe = z.referenz
+                                          ? zahlungen.filter(x => x.referenz === z.referenz && x.datum === z.datum)
+                                          : [];
+                                        const gruppenSumme = gruppe.reduce((s2, x) => s2 + x.betrag, 0);
+                                        return (
+                                          <tr key={z.id}>
+                                            <td className="px-3 py-1.5">
+                                              <input type="date" value={ze.datum}
+                                                onChange={e => setZe({ datum: e.target.value })}
+                                                className="text-xs border border-gray-300 rounded px-2 py-1 w-36 focus:outline-none focus:border-blue-400" />
+                                            </td>
+                                            <td className="px-3 py-1.5 text-right">
+                                              <input type="text" inputMode="decimal" value={ze.betrag}
+                                                onChange={e => setZe({ betrag: e.target.value })}
+                                                className="text-xs border border-gray-300 rounded px-2 py-1 w-28 text-right font-mono focus:outline-none focus:border-blue-400" />
+                                            </td>
+                                            <td className="px-3 py-1.5">
+                                              <input type="text" placeholder="Anmerkung..." value={ze.kommentar}
+                                                onChange={e => setZe({ kommentar: e.target.value })}
+                                                className="text-xs border border-gray-300 rounded px-2 py-1 w-40 focus:outline-none focus:border-blue-400" />
+                                            </td>
+                                            <td className="px-3 py-1.5 text-gray-500">
+                                              {z.referenz
+                                                ? 'Teil von ' + fmtEUR(gruppenSumme) + ', ' + z.referenz
+                                                : ''}
+                                            </td>
+                                            <td className="px-3 py-1.5 whitespace-nowrap text-right">
+                                              <div className="flex items-center justify-end gap-1.5">
+                                                <button
+                                                  onClick={() => handleSaveListenZahlung(z)}
+                                                  disabled={!geaendert || ze.saving}
+                                                  className={`text-xs px-2.5 py-1 rounded border transition-colors ${geaendert ? 'bg-white text-gray-600 border-gray-300 hover:border-blue-400' : 'bg-gray-50 text-gray-300 border-gray-200'}`}>
+                                                  {ze.saving ? '...' : 'Sichern'}
+                                                </button>
+                                                <button
+                                                  onClick={() => handleEntferneZahlung(z)}
+                                                  className="text-xs px-2.5 py-1 rounded border border-gray-300 bg-white text-gray-600 hover:border-gray-500 transition-colors">
+                                                  Zahlung entfernen
+                                                </button>
+                                              </div>
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                      {/* neue Zahlung - v7.4.4-76: nur bei eingereichter ZA */}
+                                      {!!za.eingereicht_am && (
+                                      <tr className="bg-blue-50/40">
+                                        <td className="px-3 py-1.5 whitespace-nowrap">
+                                          <span className="text-xs font-semibold text-blue-700 mr-2">Neue Zahlung:</span>
+                                          <input type="date" value={neu.datum}
+                                            onChange={e => setNeueZahlung(prev => ({ ...prev, [za.za_nummer]: { ...neu, datum: e.target.value } }))}
+                                            className="text-xs border border-gray-300 rounded px-2 py-1 w-36 focus:outline-none focus:border-blue-400" />
+                                        </td>
+                                        <td className="px-3 py-1.5 text-right">
+                                          <input type="text" inputMode="decimal" placeholder="0,00" value={neu.betrag}
+                                            onChange={e => setNeueZahlung(prev => ({ ...prev, [za.za_nummer]: { ...neu, betrag: e.target.value } }))}
+                                            className="text-xs border border-gray-300 rounded px-2 py-1 w-28 text-right font-mono focus:outline-none focus:border-blue-400" />
+                                        </td>
+                                        <td className="px-3 py-1.5">
+                                          <input type="text" placeholder="Anmerkung..." value={neu.kommentar}
+                                            onChange={e => setNeueZahlung(prev => ({ ...prev, [za.za_nummer]: { ...neu, kommentar: e.target.value } }))}
+                                            className="text-xs border border-gray-300 rounded px-2 py-1 w-40 focus:outline-none focus:border-blue-400" />
+                                        </td>
+                                        <td></td>
+                                        <td className="px-3 py-1.5 text-right">
+                                          <button
+                                            onClick={() => handleNeueZahlung(za)}
+                                            disabled={neu.saving}
+                                            className="text-xs px-2.5 py-1 rounded border bg-white text-blue-600 border-blue-300 hover:bg-blue-50 transition-colors">
+                                            {neu.saving ? '...' : 'Hinzuf\u00fcgen'}
+                                          </button>
+                                        </td>
+                                      </tr>
+                                      )}
+                                    </tbody>
+                                  </table>
+                                  <div className="px-3 py-1.5 border-t border-gray-100 text-xs text-gray-600 text-right">
+                                    Summe: <span className="font-mono">{fmtEUR(zahlungsSumme)} EUR</span>
+                                    {computedBetrag > 0 && (
+                                      <span className="text-gray-400">
+                                        {' '}von {fmtEUR(computedBetrag)} EUR angefordert
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                          </React.Fragment>
                         );
                       })}
                     </tbody>
@@ -2014,6 +2527,101 @@ export default function ZAPanel({
         </div>
       )}
     </div>
+
+      {/* v7.4.4-73: Sammelueberweisung erfassen */}
+      {sammelOffen && (() => {
+        const pr = sammelPruefung();
+        const restCent = pr.gesamtCent - pr.verteiltCent;
+        const eingereichte = zaList.filter(z => !!z.eingereicht_am);
+        return (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 print:hidden">
+            <div className="bg-white rounded-lg shadow-xl p-6 max-w-lg w-full mx-4">
+              <h3 className="text-lg font-semibold text-gray-900 mb-1">Sammel&uuml;berweisung erfassen</h3>
+              <p className="text-sm text-gray-500 mb-4">
+                Eine &Uuml;berweisung des Projekttr&auml;gers, die mehrere ZA betrifft. Jeder Anteil wird als eigene Zahlung der ZA gespeichert.
+              </p>
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">Datum Zahlungseingang</div>
+                  <input type="date" value={sammel.datum}
+                    onChange={e => {
+                      const d = e.target.value;
+                      setSammel(prev => ({ ...prev, datum: d, referenz: prev.referenzManuell ? prev.referenz : sammelReferenzVorschlag(d) }));
+                    }}
+                    className="w-full text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">Gesamtbetrag (EUR)</div>
+                  <input type="text" inputMode="decimal" placeholder="0,00" value={sammel.gesamt}
+                    onChange={e => setSammel(prev => ({ ...prev, gesamt: e.target.value }))}
+                    className="w-full text-sm border border-gray-300 rounded px-2 py-1 text-right font-mono focus:outline-none focus:border-blue-400" />
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">Referenz</div>
+                  <input type="text" value={sammel.referenz}
+                    onChange={e => setSammel(prev => ({ ...prev, referenz: e.target.value, referenzManuell: true }))}
+                    className="w-full text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">Anmerkung (optional)</div>
+                  <input type="text" value={sammel.kommentar}
+                    onChange={e => setSammel(prev => ({ ...prev, kommentar: e.target.value }))}
+                    className="w-full text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
+                </div>
+              </div>
+              <div className="text-xs font-semibold text-gray-600 mb-1">Aufteilung auf die ZA</div>
+              <div className="border border-gray-200 rounded divide-y divide-gray-100 mb-3 max-h-64 overflow-y-auto">
+                {eingereichte.map(z => {
+                  const angefordert = computeArchivFoerderbetrag(z);
+                  const bisher = summeZahlungen(z.za_nummer);
+                  return (
+                    <div key={z.id} className="flex items-center justify-between px-3 py-1.5 gap-3">
+                      <div className="text-sm text-gray-700">
+                        <span className="font-semibold">ZA {z.za_nummer}</span>
+                        <span className="text-xs text-gray-400 ml-2">
+                          angefordert {fmtEUR(angefordert)}, bisher gezahlt {fmtEUR(bisher)}
+                        </span>
+                      </div>
+                      <input type="text" inputMode="decimal" placeholder="0,00"
+                        value={sammel.anteile[z.za_nummer] || ''}
+                        onChange={e => {
+                          const v = e.target.value;
+                          setSammel(prev => ({ ...prev, anteile: { ...prev.anteile, [z.za_nummer]: v } }));
+                        }}
+                        className="text-sm border border-gray-300 rounded px-2 py-1 w-32 text-right font-mono focus:outline-none focus:border-blue-400" />
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex items-center justify-between text-sm mb-4">
+                <span className="text-gray-600">
+                  Aufgeteilt: <span className="font-mono">{fmtEUR(pr.verteiltCent / 100)}</span>
+                  {' '}von <span className="font-mono">{fmtEUR(pr.gesamtCent / 100)}</span> EUR
+                </span>
+                <span className={`font-mono ${restCent === 0 ? 'text-green-700' : 'text-red-600'}`}>
+                  Rest {fmtEUR(restCent / 100)}
+                </span>
+              </div>
+              {pr.fehler && (
+                <div className="text-sm text-red-600 mb-3">{pr.fehler}</div>
+              )}
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setSammelOffen(false)}
+                  className="px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200">
+                  Abbrechen
+                </button>
+                <button
+                  onClick={handleSaveSammel}
+                  disabled={!!pr.fehler || sammel.saving}
+                  className={`px-4 py-2 text-white rounded-lg font-medium ${colors.btnPrimary} ${pr.fehler || sammel.saving ? 'opacity-40 cursor-not-allowed' : ''}`}>
+                  {sammel.saving ? 'Speichere...' : 'Speichern'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Ungespeicherte Aenderungen Dialog - identisch TimesheetForm */}
       {showUnsavedDialog && (
