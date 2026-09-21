@@ -2,7 +2,14 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-71
+// Version: 7.4.4-72
+// v7.4.4-72: KORREKTUR zu -71 - Foerderbetrag wieder auf GANZE EURO, kauf-
+//   maennisch, wie im Originalformular der Zahlungsanforderung (Vorgabe Martin
+//   21.09.2026, geprueft an ANOVIA ZA 1: 8.274,63 -> 8.275). Alle vier Stellen
+//   (antZuwendung, computeArchivFoerderbetrag beide Zweige, nwmFoerderbetrag)
+//   nutzen roundEuro() aus @/lib/verwendungsnachweis-utils. Gegenueber dem
+//   Stand vor -71 (Math.round direkt) mit Schutz gegen Gleitkomma-Rauschen.
+//   Die Kostenzeilen bleiben centgenau.
 // v7.4.4-71: FOERDERBETRAG CENTGENAU statt auf ganze Euro gekappt.
 //   BEFUND: antZuwendung, computeArchivFoerderbetrag (beide Zweige) und
 //   nwmFoerderbetrag rundeten mit Math.round(x) auf GANZE EURO, obwohl die
@@ -217,7 +224,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { FileText } from 'lucide-react';
 // v7.4.4-70: zentrales Abrechnungsfenster (identisch mit dem VN-Modul)
-import { abrechnungsFenster, istImFenster, round2 } from '@/lib/verwendungsnachweis-utils';
+import { abrechnungsFenster, istImFenster, roundEuro } from '@/lib/verwendungsnachweis-utils';
 
 
 // Foerderformat-Labels (entspricht ProjectCreateForm)
@@ -993,7 +1000,7 @@ export default function ZAPanel({
     const psRows = getZAPersonenstunden(za.project_id, za.zeitraum_von, za.zeitraum_bis);
     if (zaIsNWM) {
       const pk = psRows.reduce((s, r) => s + r.totalAll * (getHourlyRate(r.empId, za.project_id) || 0), 0);
-      return round2(pk * (za.foerdersatz_percent || 0) / 100); // v7.4.4-71: Cent statt ganze Euro
+      return roundEuro(pk * (za.foerdersatz_percent || 0) / 100); // v7.4.4-72: ganze Euro wie Formular
     }
     const pkT = psRows.reduce((s, r) => s + r.totalT * (getHourlyRate(r.empId, za.project_id) || 0), 0);
     const pkNT = psRows.reduce((s, r) => s + r.totalNT * (getHourlyRate(r.empId, za.project_id) || 0), 0);
@@ -1010,7 +1017,7 @@ export default function ZAPanel({
     const summe = zaIsDS
       ? pkT + gkT + aufT + pkNT + gkNT + aufNT + fueUA + zeitwPA
       : pkG + gkT + aufT + fueUA + zeitwPA;
-    return round2(summe * fs / 100); // v7.4.4-71: Cent statt ganze Euro
+    return roundEuro(summe * fs / 100); // v7.4.4-72: ganze Euro wie Formular
   };
 
   const handlePrint = () => {
@@ -1111,7 +1118,7 @@ export default function ZAPanel({
   const nwmKostenUebrige = nwmPersonalkosten; // = 100% der Personalkosten lt. Richtlinie
   const nwmKostenGesamt = nwmPersonalkosten + nwmKostenDritte + nwmKostenUebrige;
   const nwmEigenanteilsquote = 100 - nwmFoerdersatz;
-  const nwmFoerderbetrag = round2(nwmKostenGesamt * nwmFoerdersatz / 100); // v7.4.4-71
+  const nwmFoerderbetrag = roundEuro(nwmKostenGesamt * nwmFoerdersatz / 100); // v7.4.4-72
   const nwmEigenanteil = nwmKostenGesamt - nwmFoerderbetrag;
 
   const pkT = psData.reduce((sum, row) => sum + row.totalT * (getHourlyRate(row.empId, projectId) || 0), 0);
@@ -1134,7 +1141,7 @@ export default function ZAPanel({
   const summeGesamt = isDS
     ? summeT + summeNT + fueUA + zeitwPA
     : pkGesamt + gkT + auftraegeT + fueUA + zeitwPA;
-  const antZuwendung = round2(summeGesamt * foerdersatz / 100); // v7.4.4-71
+  const antZuwendung = roundEuro(summeGesamt * foerdersatz / 100); // v7.4.4-72
 
   // ============================================================================
   // RENDER - NUR PANEL-INHALT (kein Button, kein show/hide)
