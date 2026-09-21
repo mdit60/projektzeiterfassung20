@@ -4,6 +4,14 @@
 // ============================================================================
 // PZE V7 - VN-Modul (Verwendungsnachweis), De-minimis-Varianten
 // Version: 1.2-2
+// v1.2-6: BERICHTSZEITRAUM FEST AUS DEN PROJEKTDATEN (start_date/end_date),
+//   nicht mehr editierbar. Vorgabe Martin 21.09.2026: ein Verwendungsnachweis
+//   ist immer der Schlussnachweis ueber die gesamte Laufzeit.
+//   BEFUND: bisher wurde der Zeitraum aus dem GESPEICHERTEN VN-Datensatz
+//   genommen. Nach der Korrektur des Projektendes (30.08. -> 31.08.2026) blieb
+//   der VN auf dem alten Datum stehen, ZA 5 fiel heraus.
+//   Der gespeicherte Zeitraum dient nur noch als Pruefung: weicht er von der
+//   Projektlaufzeit ab, erscheint ein Hinweis, den VN neu zu speichern.
 // v1.2-5: Fussnote zur Abweichung nur noch, wenn sie relevant ist. Die
 //   Schwelle kommt jetzt als finanzierung.abweichungRelevant aus der Lib
 //   (v1.2-5) statt hier lokal mit 0,005 nachgebaut zu werden - sonst haetten
@@ -139,6 +147,9 @@ export default function VerwendungsnachweisPanel({
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [vonEdit, setVonEdit] = useState<string>('');
   const [bisEdit, setBisEdit] = useState<string>('');
+  // v1.2-6: Zeitraum des zuletzt gespeicherten VN - nur zum Vergleich
+  const [savedVon, setSavedVon] = useState<string | null>(null);
+  const [savedBis, setSavedBis] = useState<string | null>(null);
 
   // Aktuelles Projekt laden: ZAs + gespeicherter VN-Satz (Meta).
   const ladeProjekt = useCallback(async (pid: string) => {
@@ -160,16 +171,19 @@ export default function VerwendungsnachweisPanel({
       .eq('project_id', pid)
       .eq('art', 'schluss')
       .maybeSingle();
+    // v1.2-6: Berichtszeitraum IMMER aus den Projektdaten.
+    setVonEdit(proj?.start_date || '');
+    setBisEdit(proj?.end_date || '');
     if (vnDB) {
       setSavedStatus(vnDB.status || null);
       setSavedAt(vnDB.aktualisiert_am || null);
-      setVonEdit(vnDB.berichtszeitraum_von || proj?.start_date || '');
-      setBisEdit(vnDB.berichtszeitraum_bis || proj?.end_date || '');
+      setSavedVon(vnDB.berichtszeitraum_von || null);
+      setSavedBis(vnDB.berichtszeitraum_bis || null);
     } else {
       setSavedStatus(null);
       setSavedAt(null);
-      setVonEdit(proj?.start_date || '');
-      setBisEdit(proj?.end_date || '');
+      setSavedVon(null);
+      setSavedBis(null);
     }
     setLoading(false);
   }, [supabase, projects]);
@@ -286,17 +300,21 @@ export default function VerwendungsnachweisPanel({
               <div><span className="text-gray-500">Zuwendungsbescheid vom:</span> <span className="font-medium">{fmtDate(result.bescheidDatum)}</span></div>
               <div className="flex items-center gap-1 flex-wrap md:col-span-2">
                 <span className="text-gray-500">Berichtszeitraum:</span>
-                <input type="date" value={vonEdit} onChange={e => { setVonEdit(e.target.value); setSaved(false); }}
-                  className={`vn-no-print border border-gray-300 rounded px-1 py-0.5 text-xs ${colors.inputFocus}`} />
-                <span className="text-gray-400">bis</span>
-                <input type="date" value={bisEdit} onChange={e => { setBisEdit(e.target.value); setSaved(false); }}
-                  className={`vn-no-print border border-gray-300 rounded px-1 py-0.5 text-xs ${colors.inputFocus}`} />
-                <span className="hidden print:inline font-medium">{fmtDate(vonEdit)} bis {fmtDate(bisEdit)}</span>
+                <span className="font-medium">{fmtDate(vonEdit)} bis {fmtDate(bisEdit)}</span>
+                <span className="text-xs text-gray-400 vn-no-print">(Projektlaufzeit)</span>
               </div>
               <div><span className="text-gray-500">F&ouml;rdersatz:</span> <span className="font-medium">{result.foerdersatz} %</span></div>
               <div><span className="text-gray-500">Zahlungsanforderungen:</span> <span className="font-medium">{result.anzahlZas}</span></div>
             </div>
           </div>
+
+          {/* v1.2-6: gespeicherter VN bezieht sich auf einen anderen Zeitraum */}
+          {savedAt && (savedVon !== (vonEdit || null) || savedBis !== (bisEdit || null)) && (
+            <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-xs text-amber-800 vn-no-print">
+              &bull; Der zuletzt gespeicherte Verwendungsnachweis bezieht sich auf {fmtDate(savedVon)} bis {fmtDate(savedBis)}.
+              Die Projektlaufzeit wurde seitdem ge&auml;ndert &ndash; bitte neu speichern.
+            </div>
+          )}
 
           {result.warnungen.length > 0 && (
             <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-xs text-amber-800">
