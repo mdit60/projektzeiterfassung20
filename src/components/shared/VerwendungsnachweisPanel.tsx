@@ -3,7 +3,13 @@
 // src/components/shared/VerwendungsnachweisPanel.tsx
 // ============================================================================
 // PZE V7 - VN-Modul (Verwendungsnachweis), De-minimis-Varianten
-// Version: 1.2-2
+// Version: 1.2-7
+// v1.2-7: "Bisher erhaltene Zuwendungen" aus v7_za_zahlungen (KONZEPT-ZA-
+//   KORREKTUR-ZAHLUNGEN v1.1, Teil B, Etappe 2). Die alte Spalte
+//   zahlungseingang_betrag wird nicht mehr gelesen. Der Loader befuellt das
+//   Feld zahlungseingang_betrag der VN-Struktur je ZA mit der Summe der
+//   aktiven Zahlungen dieser ZA-Nummer; verwendungsnachweis-utils rechnet
+//   unveraendert damit. (Kopfzeile "Version" war auf 1.2-2 stehen geblieben.)
 // v1.2-6: BERICHTSZEITRAUM FEST AUS DEN PROJEKTDATEN (start_date/end_date),
 //   nicht mehr editierbar. Vorgabe Martin 21.09.2026: ein Verwendungsnachweis
 //   ist immer der Schlussnachweis ueber die gesamte Laufzeit.
@@ -160,10 +166,30 @@ export default function VerwendungsnachweisPanel({
 
     const { data: zaDB } = await supabase
       .from('v7_zahlungsanforderungen')
-      .select('id, project_id, za_nummer, zeitraum_von, zeitraum_bis, auftraege_dritte_t, auftraege_dritte_nt, fue_unterauftrag, zeitw_personalaufnahme, foerderbetrag_gesamt, zahlungseingang_betrag, nwm_personalkosten, nwm_kosten_dritte, nwm_kosten_uebrige, nwm_kosten_gesamt, foerdersatz_percent, laufzeitjahr')
+      .select('id, project_id, za_nummer, zeitraum_von, zeitraum_bis, auftraege_dritte_t, auftraege_dritte_nt, fue_unterauftrag, zeitw_personalaufnahme, foerderbetrag_gesamt, nwm_personalkosten, nwm_kosten_dritte, nwm_kosten_uebrige, nwm_kosten_gesamt, foerdersatz_percent, laufzeitjahr')
       .eq('project_id', pid)
       .order('za_nummer', { ascending: true });
-    setZas((zaDB as VNZahlungsanforderung[]) || []);
+
+    // v1.2-7: Zahlungseingaenge je ZA-Nummer aus v7_za_zahlungen summieren
+    const { data: zahlDB, error: zahlErr } = await supabase
+      .from('v7_za_zahlungen')
+      .select('za_nummer, betrag')
+      .eq('project_id', pid)
+      .eq('is_active', true);
+    if (zahlErr) console.error('VN v7_za_zahlungen:', zahlErr.message);
+    const summeJeNummer = new Map<number, number>();
+    (zahlDB || []).forEach((z: any) => {
+      const nr = Number(z.za_nummer);
+      summeJeNummer.set(nr, (summeJeNummer.get(nr) || 0) + Number(z.betrag));
+    });
+    const zasMitZahlungen = ((zaDB as any[]) || []).map(za => {
+      const summe = summeJeNummer.get(Number(za.za_nummer));
+      return {
+        ...za,
+        zahlungseingang_betrag: summe != null ? Math.round(summe * 100) / 100 : null,
+      } as VNZahlungsanforderung;
+    });
+    setZas(zasMitZahlungen);
 
     const { data: vnDB } = await supabase
       .from('v7_verwendungsnachweise')
