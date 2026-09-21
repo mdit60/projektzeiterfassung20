@@ -3,7 +3,13 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-36-16
+// Version: 7.4.9-36-17
+// v7.4.9-36-17: Kommentar in der ZA-Tabelle per Tooltip lesbar. Die Zelle kuerzt
+//   den Text (truncate, max. 120 px); bisher war der volle Kommentar nirgends im
+//   Cockpit zu sehen. Jetzt title-Attribut mit dem vollstaendigen Text und
+//   cursor-help als Hinweis, dass es mehr zu lesen gibt. Anlass: Brueckenkommentare
+//   zur ZA-Korrektur bei Steuerkanzlei Freund (KONZEPT-ZA-KORREKTUR-ZAHLUNGEN v1.1,
+//   Abschnitt 7).
 // v7.4.9-36-16: ZA-Tabelle zeigt den ABRECHNUNGSZEITRAUM je Zahlungsanforderung.
 //   Zweck: auf einen Blick pruefen, ob die Nummerierung stimmt und ob die
 //   Zeitraeume die Projektlaufzeit luecklos abdecken. Genau daran ist bei
@@ -2052,7 +2058,10 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                               ? (differenz !== 0 ? formatEuro(differenz) : '0,00 EUR')
                               : '-'}
                           </td>
-                          <td className="py-1.5 px-2 text-center text-gray-500 italic max-w-[120px] truncate">
+                          <td
+                            className={'py-1.5 px-2 text-center text-gray-500 italic max-w-[120px] truncate' + (za.zahlungseingang_kommentar ? ' cursor-help' : '')}
+                            title={za.zahlungseingang_kommentar || undefined}
+                          >
                             {za.zahlungseingang_kommentar || '-'}
                           </td>
                         </tr>
