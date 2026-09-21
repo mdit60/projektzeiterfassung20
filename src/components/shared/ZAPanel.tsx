@@ -2,7 +2,13 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-79
+// Version: 7.4.4-80
+// v7.4.4-80: Anmerkung im Archiv per Popup lesbar (Wunsch Martin 21.09.2026).
+//   Das Eingabefeld ist schmal und schneidet laengere Texte ab. Bei Mauskontakt
+//   erscheint derselbe Kasten wie im Cockpit (FirmaCockpit KommentarZelle):
+//   16 px, weiss, 400 px breit, nach links oeffnend, per createPortal. Gilt fuer
+//   die Anmerkung der Archivzeile und der Zahlungsliste. Beim Tippen (Fokus)
+//   verschwindet der Kasten, damit er nicht stoert.
 // v7.4.4-79: ARCHIV IN DIE ZA-AUSWAHL OBEN RECHTS (Vorschlag Martin 21.09.2026).
 //   Deckblatt/Anlage 1a/1b sind Seiten EINER ZA, das Archiv ist die Uebersicht
 //   ueber ALLE ZA. Deshalb: Reihe oben rechts "ZA 1 | ZA 2 | ... | + Neue ZA |
@@ -282,6 +288,7 @@
 'use client';
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';  // v7.4.4-80: Anmerkungs-Popup
 import { createClient } from '@/lib/supabase/client';
 import { FileText } from 'lucide-react';
 // v7.4.4-70: zentrales Abrechnungsfenster (identisch mit dem VN-Modul)
@@ -297,6 +304,50 @@ const FUNDING_FORMAT_LABELS: Record<string, string> = {
   'BMBF':          'BMBF F\u00f6rderung',
   'BMBF_DS':       'BMBF Durchf\u00fchrbarkeitsstudie',
 };
+// v7.4.4-80: Popup fuer die Anmerkung (gleiches Verhalten wie im Cockpit)
+const ANMERKUNG_POPUP_BREITE = 400;
+function AnmerkungPopup({ text, children }: { text: string; children: React.ReactNode }) {
+  const [pos, setPos] = useState<{ top: number; left: number; oben: boolean } | null>(null);
+  const zeigen = (el: HTMLElement) => {
+    if (!text || !text.trim()) return;
+    if (el.contains(document.activeElement)) return; // beim Tippen nicht einblenden
+    const r = el.getBoundingClientRect();
+    const breite = Math.min(ANMERKUNG_POPUP_BREITE, window.innerWidth - 32);
+    const left = Math.max(16, Math.min(r.right - breite, window.innerWidth - breite - 16));
+    const oben = window.innerHeight - r.bottom < 200;
+    setPos({ top: oben ? r.top - 8 : r.bottom + 8, left, oben });
+  };
+  return (
+    <div
+      className="inline-block"
+      onMouseEnter={e => zeigen(e.currentTarget)}
+      onMouseLeave={() => setPos(null)}
+      onFocus={() => setPos(null)}
+    >
+      {children}
+      {pos && typeof document !== 'undefined' && createPortal(
+        <div
+          role="tooltip"
+          className="bg-white border border-gray-300 rounded-lg shadow-xl px-4 py-3 text-gray-800 text-left whitespace-normal pointer-events-none"
+          style={{
+            position: 'fixed',
+            top: pos.top,
+            left: pos.left,
+            width: Math.min(ANMERKUNG_POPUP_BREITE, window.innerWidth - 32),
+            transform: pos.oben ? 'translateY(-100%)' : undefined,
+            fontSize: 16,
+            lineHeight: 1.5,
+            zIndex: 1000,
+          }}
+        >
+          {text}
+        </div>,
+        document.body,
+      )}
+    </div>
+  );
+}
+
 const getFundingLabel = (format: string | null | undefined): string =>
   format ? (FUNDING_FORMAT_LABELS[format] || format) : '';
 
@@ -2348,6 +2399,7 @@ export default function ZAPanel({
                               )}
                             </td>
                             <td className="px-3 py-2">
+                              <AnmerkungPopup text={edit.kommentar}>{/* v7.4.4-80 */}
                               <input
                                 type="text"
                                 placeholder="Anmerkung..."
@@ -2355,6 +2407,7 @@ export default function ZAPanel({
                                 onChange={e => setArchivEdits(prev => ({ ...prev, [za.id]: { ...prev[za.id], kommentar: e.target.value } }))}
                                 className="text-xs border border-gray-300 rounded px-2 py-1 w-40 focus:outline-none focus:border-blue-400"
                               />
+                              </AnmerkungPopup>
                             </td>
                               </>
                             )}
@@ -2431,9 +2484,11 @@ export default function ZAPanel({
                                                 className="text-xs border border-gray-300 rounded px-2 py-1 w-28 text-right font-mono focus:outline-none focus:border-blue-400" />
                                             </td>
                                             <td className="px-3 py-1.5">
+                                              <AnmerkungPopup text={ze.kommentar}>{/* v7.4.4-80 */}
                                               <input type="text" placeholder="Anmerkung..." value={ze.kommentar}
                                                 onChange={e => setZe({ kommentar: e.target.value })}
                                                 className="text-xs border border-gray-300 rounded px-2 py-1 w-40 focus:outline-none focus:border-blue-400" />
+                                              </AnmerkungPopup>
                                             </td>
                                             <td className="px-3 py-1.5 text-gray-500">
                                               {z.referenz
