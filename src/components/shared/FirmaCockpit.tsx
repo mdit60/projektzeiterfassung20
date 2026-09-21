@@ -3,7 +3,15 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-36-17
+// Version: 7.4.9-36-18
+// v7.4.9-36-18: Kommentar-Popup statt Browser-Tooltip. Rueckmeldung Martin: der
+//   Standard-Tooltip (title-Attribut, -17) ist zu klein und klebt am rechten Rand.
+//   Neu: eigene Komponente KommentarZelle mit Popup in 16 px, weisser Kasten mit
+//   Rahmen und Schatten, 400 px breit, rechtsbuendig unter der Zelle - oeffnet
+//   also nach links Richtung Bildmitte; bei zu wenig Platz unten oberhalb der
+//   Zelle. Oeffnet bei Mauskontakt und per Klick (Umschalten), schliesst beim
+//   Verlassen. Gerendert per createPortal in document.body, damit das Popup
+//   nicht vom overflow-Container der Tabelle abgeschnitten wird.
 // v7.4.9-36-17: Kommentar in der ZA-Tabelle per Tooltip lesbar. Die Zelle kuerzt
 //   den Text (truncate, max. 120 px); bisher war der volle Kommentar nirgends im
 //   Cockpit zu sehen. Jetzt title-Attribut mit dem vollstaendigen Text und
@@ -180,6 +188,7 @@
 // ============================================================================
 
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';  // v7.4.9-36-18: Kommentar-Popup
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import {
@@ -404,6 +413,54 @@ function pruefeZaZeitraeume(
     }
   }
   return befunde;
+}
+
+// v7.4.9-36-18: Kommentarzelle der ZA-Tabelle mit gut lesbarem Popup.
+// Die Zelle selbst bleibt schmal und gekuerzt; der volle Text erscheint in
+// einem eigenen Kasten (16 px), rechtsbuendig zur Zelle, nach links oeffnend.
+const KOMMENTAR_POPUP_BREITE = 400;
+function KommentarZelle({ text }: { text: string | null }) {
+  const [pos, setPos] = useState<{ top: number; left: number; oben: boolean } | null>(null);
+  if (!text) {
+    return <td className="py-1.5 px-2 text-center text-gray-500 italic">-</td>;
+  }
+  const zeigen = (el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    const breite = Math.min(KOMMENTAR_POPUP_BREITE, window.innerWidth - 32);
+    const left = Math.max(16, Math.min(r.right - breite, window.innerWidth - breite - 16));
+    const oben = window.innerHeight - r.bottom < 200;
+    setPos({ top: oben ? r.top - 8 : r.bottom + 8, left, oben });
+  };
+  return (
+    <td
+      className="py-1.5 px-2 text-center text-gray-500 italic max-w-[120px] truncate cursor-help"
+      onMouseEnter={e => zeigen(e.currentTarget)}
+      onMouseLeave={() => setPos(null)}
+      onClick={e => (pos ? setPos(null) : zeigen(e.currentTarget))}
+    >
+      {text}
+      {pos && typeof document !== 'undefined' && createPortal(
+        <div
+          role="tooltip"
+          className="bg-white border border-gray-300 rounded-lg shadow-xl px-4 py-3 text-gray-800 text-left whitespace-normal pointer-events-none"
+          style={{
+            position: 'fixed',
+            top: pos.top,
+            left: pos.left,
+            width: Math.min(KOMMENTAR_POPUP_BREITE, window.innerWidth - 32),
+            transform: pos.oben ? 'translateY(-100%)' : undefined,
+            fontSize: 16,
+            lineHeight: 1.5,
+            fontStyle: 'normal',
+            zIndex: 1000,
+          }}
+        >
+          {text}
+        </div>,
+        document.body,
+      )}
+    </td>
+  );
 }
 
 function formatLaufzeit(start: string | null, end: string | null): string {
@@ -2058,12 +2115,7 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                               ? (differenz !== 0 ? formatEuro(differenz) : '0,00 EUR')
                               : '-'}
                           </td>
-                          <td
-                            className={'py-1.5 px-2 text-center text-gray-500 italic max-w-[120px] truncate' + (za.zahlungseingang_kommentar ? ' cursor-help' : '')}
-                            title={za.zahlungseingang_kommentar || undefined}
-                          >
-                            {za.zahlungseingang_kommentar || '-'}
-                          </td>
+                          <KommentarZelle text={za.zahlungseingang_kommentar} />
                         </tr>
                       );
                     })}
