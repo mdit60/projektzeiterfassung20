@@ -1,6 +1,18 @@
 // ============================================================================
 // verwendungsnachweis-utils-v1_2-2.ts
-// Version: 1.2-6
+// Version: 1.2-7
+// v1.2-7: KEINE ZA FAELLT MEHR STILLSCHWEIGEND HERAUS.
+//   BEFUND (ANOVIA 21.09.2026): zaImZeitraum nahm eine ZA nur auf, wenn ihr
+//   GESAMTER Zeitraum im Berichtszeitraum lag. ZA 5 (01.07.-31.08.2026) ragte
+//   einen Tag ueber den damals gespeicherten Berichtszeitraum (bis 30.08.)
+//   hinaus und wurde komplett verworfen - samt Kosten und Anforderung. Folge:
+//   falsche Summe A und eine Fehlalarm-"Rueckforderung".
+//   FIX: aufgenommen wird jede ZA, die den Berichtszeitraum BERUEHRT. Ihre
+//   Kosten und Stunden werden taggenau auf den Berichtszeitraum gekappt
+//   (zaVon/zaBis, zusaetzlich zur Kappung auf den Bewilligungszeitraum in
+//   abrechnungsFenster). Ragt eine ZA hinaus, erscheint eine Warnung.
+//   Seit VerwendungsnachweisPanel v1.2-6 ist der Berichtszeitraum ohnehin fest
+//   die Projektlaufzeit; die Kappung ist die zweite Sicherung.
 // v1.2-6: KORREKTUR zu v1.2-3 - der Foerderbetrag JE ZA wird wieder auf GANZE
 //   EURO gerundet, kaufmaennisch. Vorgabe Martin 21.09.2026: das Original-
 //   formular der Zahlungsanforderung weist die angeforderte Zuwendung immer in
@@ -397,10 +409,16 @@ const VARIANTE_META: Record<VNVariante, { label: string; version: string }> = {
 // Zeilen-Labels werden je Variante dynamisch in computeVNSchluss gebaut
 // (Zuschlag-Prozentsatz aus overhead_t / overhead_nt der Projektdaten).
 
+// v1.2-7: UEBERSCHNEIDUNG statt vollstaendiger Enthaltenheit. Eine ZA zaehlt,
+// sobald sie den Berichtszeitraum beruehrt; gekappt wird in computeVNSchluss.
 function zaImZeitraum(za: VNZahlungsanforderung, von: string | null, bis: string | null): boolean {
-  if (!za.zeitraum_von || !za.zeitraum_bis) return false;
-  if (von && za.zeitraum_von < von) return false;
-  if (bis && za.zeitraum_bis > bis) return false;
+  const zv = toIsoDay(za.zeitraum_von);
+  const zb = toIsoDay(za.zeitraum_bis);
+  if (!zv || !zb) return false;
+  const v = toIsoDay(von);
+  const b = toIsoDay(bis);
+  if (b && zv > b) return false;   // beginnt nach dem Berichtszeitraum
+  if (v && zb < v) return false;   // endet vor dem Berichtszeitraum
   return true;
 }
 
@@ -421,6 +439,25 @@ export function computeVNSchluss(
     .filter(za => za.project_id === projectId)
     .filter(za => zaImZeitraum(za, von, bis));
   if (zas.length === 0) warnungen.push('Keine Zahlungsanforderungen im Berichtszeitraum gefunden.');
+
+  // v1.2-7: ZA-Zeitraum taggenau auf den Berichtszeitraum kappen.
+  const vonIso = toIsoDay(von);
+  const bisIso = toIsoDay(bis);
+  const zaVon = (za: VNZahlungsanforderung): string => {
+    const zv = toIsoDay(za.zeitraum_von) || '';
+    return vonIso && zv && zv < vonIso ? vonIso : zv;
+  };
+  const zaBis = (za: VNZahlungsanforderung): string => {
+    const zb = toIsoDay(za.zeitraum_bis) || '';
+    return bisIso && zb && zb > bisIso ? bisIso : zb;
+  };
+  for (const za of zas) {
+    const zv = toIsoDay(za.zeitraum_von);
+    const zb = toIsoDay(za.zeitraum_bis);
+    if ((vonIso && zv && zv < vonIso) || (bisIso && zb && zb > bisIso)) {
+      warnungen.push('ZA ' + (za.za_nummer || '?') + ' reicht \u00fcber den Berichtszeitraum hinaus - nur der Anteil innerhalb wird ber\u00fccksichtigt.');
+    }
+  }
 
   // v1.2-2: Hinweis, wenn ein ZA-Zeitraum ueber den Bewilligungszeitraum
   // hinausragt - die Kosten werden dann gekappt und weichen bewusst von der
@@ -446,7 +483,7 @@ export function computeVNSchluss(
   if (variante === 'DS_DEMINIMIS') {
     let pkT = 0, gkT = 0, auftrT = 0, pkNT = 0, gkNT = 0, auftrNT = 0, fueUA = 0, zeitwPA = 0;
     for (const za of zas) {
-      const { pkT: a, pkNT: b } = computeDSPersonalkosten(projectId, za.zeitraum_von || '', za.zeitraum_bis || '', data);
+      const { pkT: a, pkNT: b } = computeDSPersonalkosten(projectId, zaVon(za), zaBis(za), data);
       pkT += a; pkNT += b;
       gkT += a * overheadT / 100; gkNT += b * overheadNT / 100;
       auftrT += za.auftraege_dritte_t || 0; auftrNT += za.auftraege_dritte_nt || 0;
@@ -466,7 +503,7 @@ export function computeVNSchluss(
   } else if (variante === 'EP_KOOP') {
     let pk = 0, gk = 0, auftr = 0, fueUA = 0, zeitwPA = 0;
     for (const za of zas) {
-      const { pkT } = computeDSPersonalkosten(projectId, za.zeitraum_von || '', za.zeitraum_bis || '', data);
+      const { pkT } = computeDSPersonalkosten(projectId, zaVon(za), zaBis(za), data);
       pk += pkT; gk += pkT * overheadT / 100;
       auftr += za.auftraege_dritte_t || 0;
       fueUA += za.fue_unterauftrag || 0; zeitwPA += za.zeitw_personalaufnahme || 0;
@@ -519,7 +556,7 @@ export function computeVNSchluss(
   // (1) bzw. (4) ergeben.
   const stdMap = new Map<string, { stdT: number; stdNT: number }>();
   for (const za of zas) {
-    for (const r of computeDSPersonenstunden(projectId, za.zeitraum_von || '', za.zeitraum_bis || '', data)) {
+    for (const r of computeDSPersonenstunden(projectId, zaVon(za), zaBis(za), data)) {
       const cur = stdMap.get(r.empId) || { stdT: 0, stdNT: 0 };
       cur.stdT += r.stdT; cur.stdNT += r.stdNT;
       stdMap.set(r.empId, cur);
