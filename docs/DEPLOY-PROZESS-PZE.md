@@ -1,6 +1,6 @@
 # PZE - Deploy-Prozess (verbindlich)
 
-**Stand:** 06.08.2026 (Session 74). Diese Datei ist die maßgebliche Referenz für
+**Stand:** 20.09.2026. Diese Datei ist die maßgebliche Referenz für
 Integration und Deployment. Bei jeder Session vor dem ersten Deploy lesen.
 
 ## Kernregel (der häufige Stolperstein)
@@ -10,6 +10,25 @@ Der **cubintec-Push ist NICHT optional** — die Vercel-Production zieht daraus.
 Wird nur `origin/main` gepusht, läuft **kein** Deploy (genau das ist am 06.08.2026
 passiert: origin/main stand auf dem -73-Merge, cubintec hing beim -72-Merge, Vercel
 baute nichts. Erst `git push cubintec main` löste den Deploy aus).
+
+## Zweite Regel: nur `npm run build`, kein separater Typecheck
+
+Der lokale Test ist **ausschließlich** `npm run build`. Kein `npx tsc --noEmit`
+davor, auch nicht "zur Sicherheit".
+
+Grund: Das Projekt enthält eine größere Zahl latenter Typfehler (Stand 20.09.2026:
+55 in 29 Dateien). Der Next-Build prüft keine Typen ("Skipping validation of
+types"), ein separater `tsc`-Lauf dagegen schon — und bricht dann an Altlasten ab,
+die mit der aktuellen Änderung nichts zu tun haben. Zusätzlich erfasst die
+`tsconfig.json` über `"include": ["**/*.ts", "**/*.tsx"]` auch Ablageordner wie
+`downloads/` und `backup-v7_3_86/`, in denen historische und unvollständige
+Stände liegen.
+
+Am 20.09.2026 hat ein vorangestellter `tsc`-Lauf genau deshalb eine Stunde
+gekostet, ohne einen einzigen Fehler in der geänderten Datei zu finden.
+
+Die Typfehler sind ein eigenes Thema und gehören sauber aufgeräumt — aber nicht
+im Rahmen einer fachlichen Änderung.
 
 ## Branch-Strategie
 
@@ -45,6 +64,10 @@ kopierbare Zeilen. Reihenfolge:
 Danach im Vercel-Dashboard auf "Ready" warten (meist 1-2 Min.). Bei Layout-/
 Anzeige-Fixes: im Browser hart neu laden (Cmd+Shift+R).
 
+Gehören mehrere Dateien zu einer Änderung (z. B. eine Komponente und die von ihr
+importierte Lib), werden sie **gemeinsam** integriert und committet. Einzeln
+integriert bricht der Build.
+
 ## Wenn "kein Deploy läuft" - Diagnose
 
 ```bash
@@ -57,6 +80,12 @@ Prüfen:
 - Ist der Commit nur auf `v7-dev` und gar nicht auf `main`? -> Merge-Block (Schritt 4)
   wurde nicht ausgeführt.
 
+## Wenn "in DEV läuft es, in PROD nicht"
+
+Meist fehlt kein Code, sondern das Schema. Ein Deployment bringt nur Code nach
+Prod, keine Tabellen und Spalten. Siehe PZE-UMGEBUNGEN-DEV-PROD.md, Abschnitt
+"Deployment ist nicht Migration", inklusive Schnelltest.
+
 ## Wichtige Rahmenbedingungen
 
 - Claude hat KEINEN Zugriff auf Git/Deploy/SQL - immer nur fertige Befehle liefern.
@@ -66,4 +95,7 @@ Prüfen:
   PZE-UMGEBUNGEN-DEV-PROD.md. DEV = Supabase-Projekt `projektzeiterfassung20`,
   PROD = `PZE-production` (Ref `cnnuyioklhlrfygwticf`).
 - Prod nie ohne vorherigen lokalen Test (`npm run build` + Sichtprüfung im Browser).
-  Ausnahme nur bei winzigen, dringenden Fixes nach Absprache.
+  Ausnahme nur bei winzigen, dringenden Fixes nach Absprache. Liegen die Testdaten
+  ausschließlich in Prod, ist eine Sichtprüfung vorab nicht möglich — dann vorher
+  prüfen, ob die Änderung im Anzeigepfad schreibt, und andernfalls direkt nach dem
+  Deploy in Prod verifizieren.
