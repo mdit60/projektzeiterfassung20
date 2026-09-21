@@ -1,6 +1,21 @@
 // ============================================================================
 // verwendungsnachweis-utils-v1_2-2.ts
-// Version: 1.2-5
+// Version: 1.2-6
+// v1.2-6: KORREKTUR zu v1.2-3 - der Foerderbetrag JE ZA wird wieder auf GANZE
+//   EURO gerundet, kaufmaennisch. Vorgabe Martin 21.09.2026: das Original-
+//   formular der Zahlungsanforderung weist die angeforderte Zuwendung immer in
+//   vollen Euro aus (Pruefung ZA 1 ANOVIA: 8.274,63 -> 8.275). Die Umstellung auf
+//   Cent in v1.2-3/ZAPanel v7.4.4-71 war falsch begruendet (Spaltenkopf
+//   "[EUR, Cent]" gilt fuer die Kosten, nicht fuer die Anforderung).
+//   NEU: roundEuro() - kaufmaennisch auf ganze Euro, vorher round2() gegen
+//   Gleitkomma-Rauschen (sonst wird 1000,50 als 1000,4999... abgerundet).
+//   ZAPanel nutzt roundEuro fuer alle vier Foerderbetrags-Stellen.
+//   Der VERWENDUNGSNACHWEIS bleibt centgenau (Vorgabe Martin 21.09.2026):
+//   Zuwendung gesamt = round2(Foerdersatz x Summe A).
+//   Folge fuer die Abweichungswarnung: jede ZA weicht jetzt um bis zu 0,50 EUR
+//   vom exakten Wert ab. Toleranz neu = Anzahl ZA x 0,50 + 0,005 EUR (vorher
+//   (Anzahl ZA + 1) x 0,005 - bei Euro-Rundung viel zu eng, die Warnung stuende
+//   dauerhaft da).
 // v1.2-5: RUNDUNGSTOLERANZ fuer die Abweichungswarnung in Abschnitt B.
 //   BEFUND: die Warnung sprang schon bei 0,01 EUR an. Das ist keine echte
 //   Abweichung, sondern unvermeidbar: jede ZA rundet ihren Foerderbetrag
@@ -267,6 +282,10 @@ export function istImFenster(workDate: string | null | undefined, von: string, b
 // ------------------------------ Hilfsfunktionen -----------------------------
 // v1.2-3: exportiert - ZAPanel nutzt dieselbe Rundung (kaufmaennisch, 2 Dez.)
 export function round2(n: number): number { return Math.round(n * 100) / 100; }
+
+// v1.2-6: Foerderbetrag je ZA - kaufmaennisch auf GANZE EURO, wie im Original-
+// formular. Erst round2 gegen Gleitkomma-Rauschen, dann auf den Euro.
+export function roundEuro(n: number): number { return Math.round(round2(n)); }
 
 export function getHourlyRate(pa: VNProjectAssignment | undefined, project: VNProject | undefined): number | null {
   if (!pa) return null;
@@ -535,8 +554,9 @@ export function computeVNSchluss(
   const summeFinanzierung = round2(gesamtZuwendung + eigenanteilWert);
   const schlusszahlung = round2(gesamtZuwendung - bisherErhalten);
 
-  // Strukturelle Rundungstoleranz (siehe Kopfkommentar v1.2-5).
-  const rundungstoleranz = 0.005 * (zas.length + 1);
+  // Strukturelle Rundungstoleranz (v1.2-6): jede ZA ist auf ganze Euro gerundet
+  // (bis 0,50 EUR Abweichung), der Anspruch hier auf Cent (bis 0,005 EUR).
+  const rundungstoleranz = 0.5 * zas.length + 0.005;
   const abweichungRelevant = !istNWM
     && Math.abs(angefordertLautZa - gesamtZuwendung) > rundungstoleranz;
 
