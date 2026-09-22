@@ -2,7 +2,40 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-80
+// Version: 7.4.4-84
+// v7.4.4-84: Rueckfrage "eingereichte ZA aendern" (-82) - bei Abbrechen wird das
+//   Formular auf den gespeicherten Stand der ZA zurueckgesetzt (DEV-Test Martin
+//   22.09.2026: der geaenderte Zeitraum blieb stehen, obwohl nichts gespeichert
+//   wurde). Verworfen werden damit alle ungespeicherten Aenderungen dieser ZA.
+// v7.4.4-83: FIX ZU -82 - PARALLELE LADEVORGAENGE. DEV-Test Martin 22.09.2026:
+//   nach Klick auf ZA 3 im Cockpit war ZA 3 markiert, das Formular zeigte aber
+//   den Neu-Entwurf (ZA 5, 22.09.-22.09.). Ursache: openPanel lief zweimal
+//   parallel (Mount-Effekt; in DEV durch React StrictMode immer, in PROD je nach
+//   Timing). Lauf 1 endete, der Auto-Select lud ZA 3 und setzte sein Einmal-Flag;
+//   Lauf 2 endete danach und ueberschrieb das Formular mit der Vorbelegung.
+//   FIX: Laufnummer (openSeqRef). Nur der zuletzt gestartete openPanel-Lauf
+//   uebernimmt seine Ergebnisse; ein aelterer Lauf bricht nach den DB-Abfragen
+//   ohne State-Aenderung ab. Die Reihenfolge der Antworten spielt keine Rolle mehr.
+// v7.4.4-82: KRITISCHER FIX - ZA-Zeile wurde beim ersten Speichern ueberschrieben.
+//   BEFUND PROD 22.09.2026 (GMM/AURA): Die einzige ZA 1 (01.12.25-31.07.26) wurde
+//   mit Nummer 2 / Zeitraum 01.08.-22.09.26 / neuem Betrag ueberschrieben.
+//   URSACHE (seit -73): openPanel setzte zaList, wartete dann auf ladeZahlungen()
+//   und setzte erst DANACH die Formular-Vorbelegung "neue ZA". Zwischen beiden lief
+//   der Auto-Select-Effekt (v7.4.4-56): er markierte die letzte ZA und lud sie ins
+//   Formular - danach ueberschrieb openPanel das Formular mit dem Neu-Entwurf,
+//   die Markierung (zaSelectedId) blieb aber auf der alten ZA. "ZA speichern"
+//   schrieb den Neu-Entwurf in die Zeile der alten ZA.
+//   ZUSAETZLICHE SICHERUNG: Aendert "ZA speichern" bei einer EINGEREICHTEN ZA die
+//   Nummer oder den Abrechnungszeitraum, erscheint eine Rueckfrage mit Alt- und
+//   Neuwerten (haette den Fall AURA sichtbar gemacht).
+//   FIX: Zahlungen werden VOR dem Setzen der Liste geladen; alle State-Updates
+//   von openPanel laufen wieder ohne await dazwischen (wie vor -73), der
+//   Auto-Select-Effekt laeuft danach und laedt die gewaehlte ZA korrekt.
+// v7.4.4-81: BETRAGSEINGABE - PUNKTE WERDEN IMMER IGNORIERT (Vorgabe Martin
+//   22.09.2026). Dezimaltrenner ist ausschliesslich das Komma. Bisher (-73) galt
+//   ein Punkt ohne Komma als Dezimaltrenner: "35.235" wurde zu 35,24 EUR - genau
+//   der Fehler bei AS/HEATS. Jetzt: "35.235" = 35.235,00; "12.128,00" = 12.128,00;
+//   "1575,5" = 1.575,50. Anzeige nach dem Speichern unveraendert mit Tausenderpunkt.
 // v7.4.4-80: Anmerkung im Archiv per Popup lesbar (Wunsch Martin 21.09.2026).
 //   Das Eingabefeld ist schmal und schneidet laengere Texte ab. Bei Mauskontakt
 //   erscheint derselbe Kasten wie im Cockpit (FirmaCockpit KommentarZelle):
@@ -448,12 +481,12 @@ interface ZAZahlungDB {
   kommentar: string | null;
 }
 
-// v7.4.4-73: Betragseingabe. Mit Komma: deutsches Format ("12.128,00"),
-// Punkte sind Tausendertrenner. Ohne Komma: Punkt ist Dezimaltrenner.
+// v7.4.4-81: Betragseingabe. Punkte werden immer entfernt, das Komma ist der
+// einzige Dezimaltrenner ("35.235" = 35235, "12.128,50" = 12128.5).
 const parseBetrag = (s: string): number => {
   const t = (s || '').trim().replace(/\s/g, '');
   if (t === '') return NaN;
-  const norm = t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t;
+  const norm = t.replace(/\./g, '').replace(',', '.'); // v7.4.4-81
   return parseFloat(norm);
 };
 const cent = (n: number): number => Math.round(n * 100);
@@ -677,6 +710,10 @@ export default function ZAPanel({
     nwm_kosten_dritte: '',
   });
 
+  // v7.4.4-83: Laufnummer fuer openPanel (verhindert, dass ein aelterer Lauf
+  // das Formular nach dem Auto-Select ueberschreibt)
+  const openSeqRef = useRef(0);
+
   // ---- v7.4.4-73: Zahlungen (v7_za_zahlungen) ----
   const ladeZahlungen = async (pid: string): Promise<ZAZahlungDB[]> => {
     const { data, error } = await supabase
@@ -754,6 +791,7 @@ export default function ZAPanel({
 
   // ---- Panel beim ersten Rendern laden ----
   const openPanel = useCallback(async (pid: string) => {
+    const seq = ++openSeqRef.current; // v7.4.4-83: nur der letzte Lauf zaehlt
     setZALoading(true);
     setZASelectedId(null);
     const project = projects.find(p => p.id === pid);
@@ -791,9 +829,11 @@ export default function ZAPanel({
       .order('za_nummer', { ascending: true });
 
     const zaListLoaded: ZahlungsanforderungDB[] = existingZAs || [];
-    setZAList(zaListLoaded);
-    // v7.4.4-73: Zahlungen laden; Archivzeile zeigt die Einzelzahlung (falls genau eine)
+    // v7.4.4-82: Zahlungen ZUERST laden - kein await zwischen setZAList und der
+    // Formular-Vorbelegung, sonst ueberschreibt diese die per Auto-Select geladene ZA.
     const zahlungenLoaded = await ladeZahlungen(pid);
+    if (seq !== openSeqRef.current) return; // v7.4.4-83: veralteter Lauf - verwerfen
+    setZAList(zaListLoaded);
     setZahlungen(zahlungenLoaded);
     setWeitereOffen({});
     setZahlungEdits({});
@@ -873,6 +913,27 @@ export default function ZAPanel({
 
   const handleSave = async () => {
     if (!projectId) return;
+    // v7.4.4-82: Sicherung - eingereichte ZA nicht unbemerkt umnummerieren/umdatieren
+    const zaVorher = zaSelectedId ? zaList.find(z => z.id === zaSelectedId) : null;
+    if (zaVorher && zaVorher.eingereicht_am) {
+      const neuNr = parseInt(zaFormData.za_nummer) || 1;
+      const geaendert = zaVorher.za_nummer !== neuNr
+        || zaVorher.zeitraum_von !== zaFormData.zeitraum_von
+        || zaVorher.zeitraum_bis !== zaFormData.zeitraum_bis;
+      if (geaendert) {
+        const ok = window.confirm(
+          'ACHTUNG: Sie \u00e4ndern eine EINGEREICHTE ZA.\n\n'
+          + 'Bisher: ZA ' + zaVorher.za_nummer + ', ' + fmtDatumKurz(zaVorher.zeitraum_von) + ' bis ' + fmtDatumKurz(zaVorher.zeitraum_bis) + '\n'
+          + 'Neu:    ZA ' + neuNr + ', ' + fmtDatumKurz(zaFormData.zeitraum_von) + ' bis ' + fmtDatumKurz(zaFormData.zeitraum_bis) + '\n\n'
+          + 'Wollten Sie stattdessen eine NEUE ZA anlegen, bitte Abbrechen und "+ Neue ZA" w\u00e4hlen.\n'
+          + 'Wirklich die bestehende ZA \u00fcberschreiben?'
+        );
+        if (!ok) {
+          loadZAIntoForm(zaVorher); // v7.4.4-84: gespeicherten Stand wieder anzeigen
+          return;
+        }
+      }
+    }
     setZASaving(true);
     try {
       const payload: Record<string, any> = {
