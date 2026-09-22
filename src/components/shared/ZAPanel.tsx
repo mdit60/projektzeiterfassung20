@@ -2,7 +2,13 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-85
+// Version: 7.4.4-86
+// v7.4.4-86: Zweite Sicherung fuer EINGEREICHTE ZA (A-090, Bruecke bis Etappe 3).
+//   Das Deckblatt rechnet live aus den heutigen Stunden. Weicht der neu berechnete
+//   Foerderbetrag vom gespeicherten (eingereichten) ab, fragt "ZA speichern" nach -
+//   mit beiden Betraegen. Abbrechen stellt den gespeicherten Stand wieder her.
+//   Anlass: AURA ZA 1 eingereicht 55.329, Deckblatt 56.248 nach nachtraeglichen
+//   Stundenaenderungen; Speichern haette den eingereichten Betrag ueberschrieben.
 // v7.4.4-85: Gespeicherte Zahlungsbetraege im Eingabefeld immer als Waehrung
 //   ("55.329,00" statt "55329"), in der Archivzeile und in der Zahlungsliste
 //   (Wunsch Martin 22.09.2026). Da die Eingabe Punkte ignoriert (-81), kann der
@@ -934,6 +940,22 @@ export default function ZAPanel({
         );
         if (!ok) {
           loadZAIntoForm(zaVorher); // v7.4.4-84: gespeicherten Stand wieder anzeigen
+          return;
+        }
+      }
+      // v7.4.4-86: neu berechneter Betrag weicht vom eingereichten ab
+      const betragNeu = isNetzwerk ? nwmFoerderbetrag : antZuwendung;
+      const betragAlt = zaVorher.foerderbetrag_gesamt;
+      if (betragAlt != null && cent(betragNeu) !== cent(betragAlt)) {
+        const ok2 = window.confirm(
+          'ACHTUNG: Der Betrag dieser EINGEREICHTEN ZA w\u00fcrde sich \u00e4ndern.\n\n'
+          + 'Eingereicht (gespeichert): ' + fmtEUR(betragAlt) + ' EUR\n'
+          + 'Neu berechnet (heutige Stunden): ' + fmtEUR(betragNeu) + ' EUR\n\n'
+          + 'Die Abweichung entsteht meist durch nachtr\u00e4glich ge\u00e4nderte Stunden im Abrechnungszeitraum.\n'
+          + 'Wirklich den eingereichten Betrag \u00fcberschreiben?'
+        );
+        if (!ok2) {
+          loadZAIntoForm(zaVorher);
           return;
         }
       }
