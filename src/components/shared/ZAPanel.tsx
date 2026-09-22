@@ -2,7 +2,11 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-84
+// Version: 7.4.4-85
+// v7.4.4-85: Gespeicherte Zahlungsbetraege im Eingabefeld immer als Waehrung
+//   ("55.329,00" statt "55329"), in der Archivzeile und in der Zahlungsliste
+//   (Wunsch Martin 22.09.2026). Da die Eingabe Punkte ignoriert (-81), kann der
+//   formatierte Wert unveraendert weiterbearbeitet und gesichert werden.
 // v7.4.4-84: Rueckfrage "eingereichte ZA aendern" (-82) - bei Abbrechen wird das
 //   Formular auf den gespeicherten Stand der ZA zurueckgesetzt (DEV-Test Martin
 //   22.09.2026: der geaenderte Zeitraum blieb stehen, obwohl nichts gespeichert
@@ -744,7 +748,7 @@ export default function ZAPanel({
       const einzel = eigene.length === 1 ? eigene[0] : null;
       edits[za.id] = {
         datum: einzel ? einzel.datum : '',
-        betrag: einzel ? String(einzel.betrag).replace('.', ',') : '',
+        betrag: einzel ? fmtEUR(einzel.betrag) : '', // v7.4.4-85
         kommentar: einzel?.kommentar || '',
         saving: false,
         saved: false,
@@ -2522,7 +2526,7 @@ export default function ZAPanel({
                                     <tbody className="divide-y divide-gray-100">
                                       {eigeneZahlungen.map(z => {
                                         const ze = zahlungEdits[z.id] || {
-                                          datum: z.datum, betrag: String(z.betrag).replace('.', ','),
+                                          datum: z.datum, betrag: fmtEUR(z.betrag), /* v7.4.4-85 */
                                           kommentar: z.kommentar || '', saving: false,
                                         };
                                         const setZe = (patch: Partial<typeof ze>) =>
