@@ -2,7 +2,22 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-86
+// Version: 7.4.4-87
+// v7.4.4-87: DIREKTE SPRUENGE AUS DER ZA (Wunsch Martin 02.10.2026, Berater-Komfort
+//   bei Bearbeitung und Optimierung der ZA). Zwei neue OPTIONALE Props:
+//   onNavigateToZE     - Klick auf einen Monat (bzw. dessen Stundenzelle) in der
+//                        Anlage 1a oeffnet die Stundenerfassung dieses MA/Monats.
+//   onNavigateToMatrix - Knopf "Stundennachweis-Matrix" links neben "Drucken".
+//   Die Ziel-URLs baut die aufrufende Seite (ZASeite 1.0.12); das Panel meldet nur
+//   Projekt, ZA-Id, aktiven Tab und ggf. MA/Jahr/Monat. Ohne Props (BerichtePage,
+//   Firma-Portal) ist alles unveraendert - keine Klickflaechen, kein Knopf.
+//   Sicherungen: ungespeicherte Aenderungen -> vorhandener Dialog
+//   (checkUnsavedChanges). Sprung zur Stundenerfassung aus einer noch NIE
+//   gespeicherten ZA ist gesperrt (Hinweis), weil der Ruecksprung sonst auf der
+//   letzten gespeicherten ZA landet und der Entwurf verloren waere.
+//   Druck: nur cursor-/hover-Klassen an den Zellen, Hinweiszeile und Knopf liegen
+//   ausserhalb von #za-print-area -> Ausdruck der Anlage 1a unveraendert.
+//   openPanel, Auto-Select, calcStatus, Speichern und alle Berechnungen unberuehrt.
 // v7.4.4-86: Zweite Sicherung fuer EINGEREICHTE ZA (A-090, Bruecke bis Etappe 3).
 //   Das Deckblatt rechnet live aus den heutigen Stunden. Weicht der neu berechnete
 //   Foerderbetrag vom gespeicherten (eingereichten) ab, fragt "ZA speichern" nach -
@@ -615,6 +630,18 @@ const PORTAL_COLORS = {
 // PROPS
 // ============================================================================
 
+// v7.4.4-87: Sprungziele, die das Panel an die aufrufende Seite meldet
+export interface ZASprungMatrix {
+  projectId: string;
+  zaId: string | null;
+  tab: 'deckblatt' | 'anlage1a' | 'anlage1b' | 'archiv';
+}
+export interface ZASprungZE extends ZASprungMatrix {
+  employeeId: string;
+  year: number;
+  month: number;
+}
+
 interface ZAPanelProps {
   portal: 'berater' | 'firma';
   projects: ZAProject[];
@@ -626,6 +653,8 @@ interface ZAPanelProps {
   initialProjectId?: string;
   initialZaId?: string;      // Auto-selektiert diese ZA nach Laden (von Cockpit-Navigation)
   initialTab?: 'deckblatt' | 'anlage1a' | 'anlage1b' | 'archiv';  // v7.4.4-78
+  onNavigateToZE?: (ziel: ZASprungZE) => void;          // v7.4.4-87
+  onNavigateToMatrix?: (ziel: ZASprungMatrix) => void;  // v7.4.4-87
 }
 
 // ============================================================================
@@ -643,6 +672,8 @@ export default function ZAPanel({
   initialProjectId,
   initialZaId,
   initialTab,
+  onNavigateToZE,
+  onNavigateToMatrix,
 }: ZAPanelProps) {
   const supabase = createClient();
   const colors = PORTAL_COLORS[portal];
@@ -882,6 +913,29 @@ export default function ZAPanel({
       callback();
     }
   };
+
+  // v7.4.4-87: Spruenge zur Stundenerfassung bzw. zur Stundennachweis-Matrix.
+  // Das Panel meldet nur das Ziel; die URL baut die aufrufende Seite.
+  const springeZurZE = (employeeId: string, year: number, month: number) => {
+    if (!onNavigateToZE) return;
+    if (!zaSelectedId) {
+      window.alert('Diese ZA ist noch nicht gespeichert.\n\nBitte zuerst "ZA speichern" w\u00e4hlen. Sonst geht der Entwurf beim R\u00fccksprung aus der Stundenerfassung verloren.');
+      return;
+    }
+    const zaId = zaSelectedId;
+    const tab = zaTab;
+    checkUnsavedChanges(() => onNavigateToZE({ projectId, zaId, tab, employeeId, year, month }));
+  };
+  const springeZurMatrix = () => {
+    if (!onNavigateToMatrix) return;
+    const zaId = zaSelectedId;
+    const tab = zaTab;
+    checkUnsavedChanges(() => onNavigateToMatrix({ projectId, zaId, tab }));
+  };
+  const zeCls = onNavigateToZE ? ' cursor-pointer hover:bg-blue-50 hover:text-blue-700 hover:underline' : '';
+  const zeTitle = onNavigateToZE ? 'Stundenerfassung dieses Monats \u00f6ffnen' : undefined;
+  const zeKlick = (employeeId: string, year: number, month: number) =>
+    onNavigateToZE ? () => springeZurZE(employeeId, year, month) : undefined;
 
   // Automatisch laden wenn Panel sichtbar wird
   useEffect(() => {
@@ -1715,6 +1769,18 @@ export default function ZAPanel({
             </button>
           ))}
         </div>
+        {onNavigateToMatrix && ( /* v7.4.4-87: Sprung zur Stundennachweis-Matrix */
+        <button onClick={springeZurMatrix}
+          className={`flex items-center gap-1.5 ${zaTab === 'archiv' ? 'mx-3' : 'ml-3'} px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded transition-colors`}
+          title="Zur Stundennachweis-Matrix dieses Projekts wechseln">
+          <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/>
+            <line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/>
+          </svg>
+          Stundennachweis-Matrix
+        </button>
+        )}
         {zaTab !== 'archiv' && ( /* v7.4.4-79: Drucken nur fuer eine ZA */
         <button onClick={handlePrint}
           className="flex items-center gap-1.5 mx-3 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded transition-colors"
@@ -2132,6 +2198,12 @@ export default function ZAPanel({
           {/* ====== TAB: ANLAGE 1a ====== */}
           {zaTab === 'anlage1a' && (
             <div>
+              {/* v7.4.4-87: Hinweis nur am Bildschirm (liegt ausserhalb von #za-print-area) */}
+              {onNavigateToZE && psData.length > 0 && zaFormData.zeitraum_von && zaFormData.zeitraum_bis && (
+                <div className="text-xs text-gray-500 mb-2">
+                  Klick auf einen Monat &ouml;ffnet die Stundenerfassung des Mitarbeiters f&uuml;r diesen Monat.
+                </div>
+              )}
               {(!zaFormData.zeitraum_von || !zaFormData.zeitraum_bis) ? (
                 <div className="p-4 text-sm text-gray-500 text-center">Bitte zun&auml;chst im Tab "Deckblatt" den Abrechnungszeitraum festlegen.</div>
               ) : psData.length === 0 ? (
@@ -2182,11 +2254,11 @@ export default function ZAPanel({
                                     <td className="px-2 py-1.5 border border-gray-300 font-medium align-top" rowSpan={row.monthData.length}>{row.empName}</td>
                                   </>
                                 )}
-                                <td className="px-2 py-1.5 border border-gray-300 text-center whitespace-nowrap">{m.label}</td>
+                                <td className={'px-2 py-1.5 border border-gray-300 text-center whitespace-nowrap' + zeCls} onClick={zeKlick(row.empId, m.year, m.month)} title={zeTitle}>{m.label}</td>
                                 {isDS ? (
                                   <>
-                                    <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">{m.hoursT > 0 ? m.hoursT.toFixed(2) : ''}</td>
-                                    <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">{m.hoursNT > 0 ? m.hoursNT.toFixed(2) : ''}</td>
+                                    <td className={'px-2 py-1.5 border border-gray-300 text-right font-mono' + zeCls} onClick={zeKlick(row.empId, m.year, m.month)} title={zeTitle}>{m.hoursT > 0 ? m.hoursT.toFixed(2) : ''}</td>
+                                    <td className={'px-2 py-1.5 border border-gray-300 text-right font-mono' + zeCls} onClick={zeKlick(row.empId, m.year, m.month)} title={zeTitle}>{m.hoursNT > 0 ? m.hoursNT.toFixed(2) : ''}</td>
                                     {mIdx === 0 && (
                                       <>
                                         <td className="px-2 py-1.5 border border-gray-300 text-right font-mono font-semibold bg-blue-50 align-top" rowSpan={row.monthData.length}>{row.totalT > 0 ? row.totalT.toFixed(2) : '--'}</td>
@@ -2196,7 +2268,7 @@ export default function ZAPanel({
                                   </>
                                 ) : (
                                   <>
-                                    <td className="px-2 py-1.5 border border-gray-300 text-right font-mono">{m.hoursTotal > 0 ? m.hoursTotal.toFixed(2) : ''}</td>
+                                    <td className={'px-2 py-1.5 border border-gray-300 text-right font-mono' + zeCls} onClick={zeKlick(row.empId, m.year, m.month)} title={zeTitle}>{m.hoursTotal > 0 ? m.hoursTotal.toFixed(2) : ''}</td>
                                     {mIdx === 0 && (
                                       <td className="px-2 py-1.5 border border-gray-300 text-right font-mono font-semibold bg-blue-50 align-top" rowSpan={row.monthData.length}>{row.totalAll > 0 ? row.totalAll.toFixed(2) : '--'}</td>
                                     )}

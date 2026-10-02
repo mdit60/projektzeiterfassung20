@@ -6,7 +6,16 @@
 // ============================================================================
 // Datum: 9. Mai 2026
 // Datum: 3. Juli 2026
-// Version: 1.0.11
+// Version: 1.0.12
+// v1.0.12: Direkte Spruenge aus der ZA (ZAPanel 7.4.4-87), NUR Berater-Portal:
+//   (1) Monat in der Anlage 1a -> Stundenerfassung dieses MA/Monats/Projekts;
+//       returnUrl fuehrt zurueck auf genau diese ZA und diesen Tab.
+//   (2) Knopf "Stundennachweis-Matrix" -> Matrix des Projekts.
+//   Dazu: URL-Parameter tab nimmt jetzt alle vier Tabs an (deckblatt, anlage1a,
+//   anlage1b, archiv) statt nur archiv. Der eigene Ruecksprung-Link traegt den
+//   URSPRUNG weiter (zaUrsprung), nicht die ganze Kette - sonst wuechse die URL
+//   bei jedem Wechsel ZA <-> Stundenerfassung. Im Firma-Portal werden die Props
+//   nicht gesetzt: dort keine Klickflaechen, kein Knopf (unveraendert).
 // v1.0.11: URL-Parameter tab=archiv oeffnet das ZAPanel direkt im Archiv-Tab
 //   (Archiv-Link im Cockpit, FirmaCockpit 36-20). Gelesen per useSearchParams
 //   (Import war bereits vorhanden); an ZAPanel als initialTab uebergeben.
@@ -41,11 +50,11 @@
 // ============================================================================
 
 import { useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import PortalHeader from '@/components/shared/PortalHeader';
 import PortalNav from '@/components/shared/PortalNav';
 import PortalFooter from '@/components/shared/PortalFooter';
-import ZAPanel from '@/components/shared/ZAPanel';
+import ZAPanel, { type ZASprungZE, type ZASprungMatrix } from '@/components/shared/ZAPanel';
 import { useBerichteData } from '@/hooks/useBerichteData';
 import { V7PortalType, V7UserRole } from '@/types/v7-types';
 
@@ -62,6 +71,28 @@ interface ZASeiteProps {
 }
 
 // ============================================================================
+// v1.0.12: URSPRUNG EINER RUECKSPRUNG-KETTE
+// ============================================================================
+// returnTo kann selbst eine Stundenerfassungs- oder ZA-URL mit eigenem
+// Ruecksprungziel sein (ZA -> Stundenerfassung -> ZA -> ...). Fuer den Link
+// zurueck auf die ZA wird nur der Ursprung weitergetragen (z.B. die Matrix oder
+// der Sentinel 'cockpit'), damit die URL nicht mit jedem Wechsel waechst.
+function zaUrsprung(returnTo?: string): string | undefined {
+  let cur = returnTo;
+  for (let i = 0; i < 10; i++) {
+    if (!cur || !cur.startsWith('/')) return cur;
+    const q = cur.indexOf('?');
+    if (q < 0) return cur;
+    const path = cur.slice(0, q);
+    const sp = new URLSearchParams(cur.slice(q + 1));
+    if (path.endsWith('/zeiterfassung')) { cur = sp.get('returnUrl') || undefined; continue; }
+    if (path.endsWith('/za')) { cur = sp.get('returnTo') || undefined; continue; }
+    return cur;
+  }
+  return undefined;
+}
+
+// ============================================================================
 // KOMPONENTE
 // ============================================================================
 
@@ -75,8 +106,13 @@ export default function ZASeite({
 
   // v1.0.11: Start-Tab aus der URL (?tab=archiv)
   const searchParams = useSearchParams();
+  // v1.0.12: alle vier Tabs (Ruecksprung aus der Stundenerfassung auf Anlage 1a)
+  const router = useRouter();
   const tabParam = searchParams?.get('tab');
-  const initialTab = tabParam === 'archiv' ? 'archiv' as const : undefined;
+  const initialTab =
+    (tabParam === 'archiv' || tabParam === 'anlage1a' || tabParam === 'anlage1b' || tabParam === 'deckblatt')
+      ? tabParam
+      : undefined;
 
   // Daten laden via shared hook
   const {
@@ -108,6 +144,34 @@ export default function ZASeite({
             : `/v7/berater/foerderung/firma/${clientCompanyId}/cockpit`)
         : `/v7/berater/foerderung/firma/${clientCompanyId}`
       : '/v7/firma/dashboard';
+
+  // v1.0.12: Spruenge aus der ZA - nur im Berater-Portal
+  const sprungAktiv = portal === 'berater' && !!clientCompanyId;
+  const firmaBasis = `/v7/berater/foerderung/firma/${clientCompanyId}`;
+  // Link zurueck auf genau diese ZA und diesen Tab
+  const eigeneUrl = (z: ZASprungMatrix) => {
+    const p = new URLSearchParams();
+    p.set('projektId', z.projectId);
+    if (z.zaId) p.set('zaId', z.zaId);
+    p.set('tab', z.tab);
+    const ursprung = zaUrsprung(returnTo);
+    if (ursprung) p.set('returnTo', ursprung);
+    return `${firmaBasis}/za?${p.toString()}`;
+  };
+  const handleNavigateToZE = (z: ZASprungZE) => {
+    const p = new URLSearchParams();
+    p.set('employee', z.employeeId);
+    p.set('year', String(z.year));
+    p.set('month', String(z.month));
+    p.set('projekt', z.projectId);
+    p.set('returnUrl', eigeneUrl(z));
+    router.push(`${firmaBasis}/zeiterfassung?${p.toString()}`);
+  };
+  const handleNavigateToMatrix = (z: ZASprungMatrix) => {
+    const p = new URLSearchParams();
+    p.set('projekt', z.projectId);
+    router.push(`${firmaBasis}/cockpit/stundennachweis?${p.toString()}`);
+  };
 
   const zurueckLabel = '\u2190 Zurueck';
 
@@ -214,6 +278,8 @@ export default function ZASeite({
             initialProjectId={initialProjektId}
             initialZaId={initialZaId}
             initialTab={initialTab}
+            onNavigateToZE={sprungAktiv ? handleNavigateToZE : undefined}
+            onNavigateToMatrix={sprungAktiv ? handleNavigateToMatrix : undefined}
           />
         )}
 
