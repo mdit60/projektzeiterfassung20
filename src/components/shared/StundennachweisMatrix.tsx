@@ -2,7 +2,15 @@
 // ============================================================================
 // PZE V7 - Shared Component: Stundennachweis-Matrix
 // ============================================================================
-// Version: 7.4.6-20
+// Version: 7.4.6-21
+// v7.4.6-21: ZA-Sprung als Knopf "Zahlungsanforderung" in der Bedienleiste neben
+//   "Sammeldruck" und "AP-Status" (Wunsch Martin 02.10.2026). Der kleine Link "ZA"
+//   in der Kopfzeile entfaellt - die Kopfzeile traegt nur noch Projektangaben
+//   (Name, Foerderkennzeichen, Foerderformat), die Aktionen stehen gemeinsam in
+//   der Bedienleiste. Ziel und Ruecksprung unveraendert (goToZA, v7.4.6-10).
+//   Im Sammeldruck-Modus ausgeblendet wie "AP-Status". Statuslogik (MS-01..05),
+//   Sammeldruck und AP-Status unberuehrt.
+// Version: 7.4.6-20 (vorher)
 // v7.4.6-20: Tagesabdeckung zaehlt nur noch Werktage (Mo-Fr) ohne Feiertage.
 //   Eintraege an Wochenenden/Feiertagen glichen bisher rechnerisch Luecken unter
 //   der Woche aus. Ausserdem wurde holidayCount zusaetzlich addiert, obwohl
@@ -849,19 +857,7 @@ export default function StundennachweisMatrix({
             </div>
           )}
 
-          {/* v7.4.6-10: Direktlink zur Zahlungsanforderung (ZA) des Projekts */}
-          {activeProjectId && (
-            <button
-              onClick={goToZA}
-              className={`flex items-center gap-1 text-sm ${accentColor} hover:underline`}
-              title="Zur Zahlungsanforderung (ZA) dieses Projekts springen"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-              </svg>
-              ZA
-            </button>
-          )}
+          {/* v7.4.6-21: ZA-Sprung steht jetzt als Knopf in der Bedienleiste (neben AP-Status) */}
         </div>
 
         {/* Legende */}
@@ -909,6 +905,19 @@ export default function StundennachweisMatrix({
               title="AP-Status (geplant / gebucht / offen je Arbeitspaket und Mitarbeiter) oeffnen"
             >
               <Grid3x3 className="w-4 h-4" /> AP-Status
+            </button>
+          )}
+          {/* v7.4.6-21: Sprung zur Zahlungsanforderung (ZA) des Projekts; Zurueck in der ZA fuehrt wieder hierher */}
+          {!druckModus && activeProjectId && (
+            <button
+              onClick={goToZA}
+              className={`flex items-center gap-2 text-sm px-3 py-1.5 rounded border bg-white ${accentColor} border-gray-300 hover:bg-gray-50`}
+              title="Zur Zahlungsanforderung (ZA) dieses Projekts springen"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+              Zahlungsanforderung
             </button>
           )}
           {druckModus && (
