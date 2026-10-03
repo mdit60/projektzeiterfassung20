@@ -2,7 +2,14 @@
 // ============================================================================
 // PZE V7 - Shared Component: Stundennachweis-Matrix
 // ============================================================================
-// Version: 7.4.6-21
+// Version: 7.4.6-22
+// v7.4.6-22: PDF-Dateiname Sammeldruck (ein MA) um den Vornamen ergaenzt,
+//   identisch zum Einzeldruck in TimesheetForm v7.4.6-101 (Wunsch Martin
+//   03.10.2026): "<Nachname><Vorname>_<FKZ>_Stundennachweis_<Zeitraum>".
+//   Vorname: erster Token, vollstaendig, ASCII-gewandelt, ohne Trenner.
+//   Mehrere MA weiterhin ohne Namensteil. Statuslogik (MS-01..06), Auswahl
+//   und Druck unberuehrt. Enthaelt v7.4.6-21.
+// Version: 7.4.6-21 (vorher)
 // v7.4.6-21: ZA-Sprung als Knopf "Zahlungsanforderung" in der Bedienleiste neben
 //   "Sammeldruck" und "AP-Status" (Wunsch Martin 02.10.2026). Der kleine Link "ZA"
 //   in der Kopfzeile entfaellt - die Kopfzeile traegt nur noch Projektangaben
@@ -753,6 +760,8 @@ export default function StundennachweisMatrix({
       //   1 MA  -> <Nachname>_<FKZ>_Stundennachweis_<Zeitraum>
       //   >1 MA -> <FKZ>_Stundennachweis_<Zeitraum>   (kein Namensteil)
       //   Zeitraum: YYMM (ein Monat) bzw. YYMM-YYMM (min/max der Auswahl).
+      // v7.4.6-22: 1 MA -> <Nachname><Vorname>_<FKZ>_Stundennachweis_<Zeitraum>
+      //   (Vorname: erster Token, vollstaendig, ohne Trenner).
       //   Kein .pdf im document.title (Browser haengt die Endung selbst an).
       {
         const toAscii = (s: string): string =>
@@ -771,8 +780,9 @@ export default function StundennachweisMatrix({
         if (empIds.length === 1) {
           const emp = emps.find(e => e.id === empIds[0]);
           const lastAscii = toAscii(firstToken(emp?.last_name || ''));
+          const firstAscii = toAscii(firstToken(emp?.first_name || ''));
           if (lastAscii) {
-            fileName = `${lastAscii}_${fkz}_Stundennachweis_${timePart}`;
+            fileName = `${lastAscii}${firstAscii}_${fkz}_Stundennachweis_${timePart}`;
           }
         }
         printTitleRef.current = fileName;
