@@ -3,7 +3,16 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 8. September 2026
-// Version: 7.4.6-100
+// Version: 7.4.6-101
+// v7.4.6-101: PDF-Dateiname Einzeldruck um den Vornamen ergaenzt, damit
+//   Mitarbeiter mit gleichem Nachnamen unterscheidbar sind (Wunsch Martin
+//   03.10.2026): "<Nachname><Vorname>_<FKZ>_Stundennachweis_<YYMM>" (Bsp.
+//   "DuhrkopThomas_..." / "DuhrkopMatthias_..."). Vorname: erster Token,
+//   vollstaendig, ASCII-gewandelt, direkt ohne Trenner hinter dem Nachnamen.
+//   Bewusst der volle Vorname statt drei Buchstaben (Martin/Markus -> beide
+//   "Mar"). Ohne Vornamen bleibt es beim Nachnamen, ohne Nachnamen beim
+//   Fallback ohne Namensteil. Nur handlePrint. Enthaelt v7.4.6-100.
+// Version: 7.4.6-100 (vorher)
 // v7.4.6-100: EINGABESPERRE FUER PROJEKTSTUNDEN NACH ENDE DES BEWILLIGUNGS-
 //   ZEITRAUMS (taggenau). Ersetzt den verworfenen Entwurf -99, der zu weit
 //   griff.
@@ -4080,6 +4089,9 @@ export default function TimesheetForm({
     // v7.4.6-97: Dateiname-Schema (Einzeldruck) vereinheitlicht auf
     //   "<Nachname>_<FKZ>_Stundennachweis_<YYMM>"
     //   Bsp.: Sarac_16DS251601_Stundennachweis_2510
+    // v7.4.6-101: Vorname (erster Token, vollstaendig) direkt hinter dem
+    //   Nachnamen: "<Nachname><Vorname>_<FKZ>_Stundennachweis_<YYMM>"
+    //   Bsp.: SaracFerat_16DS251601_Stundennachweis_2510
     //   (Browser haengt die Endung .pdf beim Speichern selbst an).
     //   Nachname: nur erster Token, Sonderzeichen -> ASCII (Sarac, Loewe,
     //   ss fuer scharfes s). Ohne Namen greift der Fallback ohne Namensteil.
@@ -4091,10 +4103,11 @@ export default function TimesheetForm({
         .replace(/[^A-Za-z0-9]/g, '');
     const firstToken = (s: string): string => (s || '').trim().split(/\s+/)[0] || '';
     const lastAscii = toAscii(firstToken(selectedEmployee?.last_name || ''));
+    const firstAscii = toAscii(firstToken(selectedEmployee?.first_name || ''));
     const yymm = `${String(selectedYear).slice(-2)}${String(selectedMonth).padStart(2, '0')}`;
     const fkz = (selectedProject?.funding_reference || selectedProject?.short_name || 'Projekt').replace(/[\/\s]+/g, '_');
     const fileName = lastAscii
-      ? `${lastAscii}_${fkz}_Stundennachweis_${yymm}`
+      ? `${lastAscii}${firstAscii}_${fkz}_Stundennachweis_${yymm}`
       : `${fkz}_Stundennachweis_${yymm}`;
     const prevTitle = document.title;
     document.title = fileName;
