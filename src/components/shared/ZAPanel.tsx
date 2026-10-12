@@ -2,7 +2,21 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-88
+// Version: 7.4.4-89
+// v7.4.4-89: NACH "ZA SPEICHERN" IN DER GESPEICHERTEN ZA BLEIBEN (Wunsch Martin
+//   12.10.2026). Bisher lud handleSave die Liste per openPanel neu, und openPanel
+//   belegte das Formular immer mit dem Neu-Entwurf (naechste Nummer) -> man
+//   landete nach dem Speichern in einer leeren neuen ZA. Eine neue ZA soll nur
+//   noch bewusst ueber "+ Neue ZA" entstehen.
+//   UMSETZUNG: openPanel(pid, keepZaId?) - mit keepZaId wird nach dem Laden
+//   GENAU diese ZA aus der frisch geladenen Liste ins Formular geladen
+//   (loadZAIntoForm) statt des Neu-Entwurfs. Das geschieht im selben
+//   synchronen Block wie setZAList, ohne await dazwischen (Lehre aus -82) und
+//   hinter der Laufnummern-Pruefung (-83). handleSave uebergibt die ID der
+//   gespeicherten ZA (bestehende: zaSelectedId; neue: ID aus dem Insert).
+//   Alle anderen openPanel-Aufrufe (Erstladen, Projektwechsel, "+ Neue ZA")
+//   unveraendert ohne keepZaId. Zusaetzlich: Fehler beim INSERT wird jetzt
+//   gemeldet (vorher still ignoriert).
 // v7.4.4-88: Sprung zum VERWENDUNGSNACHWEIS (Wunsch Martin 12.10.2026). Neue
 //   OPTIONALE Prop onNavigateToVN, Knopf "Verwendungsnachweis" links neben
 //   "Stundennachweis-Matrix". Nur bei VN-faehigen Foerderformaten (ZIM_EINZEL,
@@ -839,7 +853,7 @@ export default function ZAPanel({
   };
 
   // ---- Panel beim ersten Rendern laden ----
-  const openPanel = useCallback(async (pid: string) => {
+  const openPanel = useCallback(async (pid: string, keepZaId?: string | null) => {
     const seq = ++openSeqRef.current; // v7.4.4-83: nur der letzte Lauf zaehlt
     setZALoading(true);
     setZASelectedId(null);
@@ -897,6 +911,14 @@ export default function ZAPanel({
       ? (() => { const d = new Date(lastZA.zeitraum_bis); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })()
       : (project?.start_date?.slice(0, 10) || new Date().toISOString().slice(0, 10));
     const bisDefault = new Date().toISOString().slice(0, 10);
+
+    // v7.4.4-89: nach dem Speichern in der gespeicherten ZA bleiben
+    const keepZA = keepZaId ? zaListLoaded.find(z => z.id === keepZaId) : undefined;
+    if (keepZA) {
+      loadZAIntoForm(keepZA);
+      setZALoading(false);
+      return;
+    }
 
     setEingereichtAmEdit(''); // v7.4.4-56: Neu-Entwurf hat kein Einreichdatum
     setZAFormData({
@@ -1067,6 +1089,7 @@ export default function ZAPanel({
         existingZA ? (summeZahlungen(existingZA.za_nummer) || null) : null,
         payload.foerderbetrag_gesamt
       );
+      let gespeicherteId: string | null = zaSelectedId;  // v7.4.4-89
       if (zaSelectedId) {
         const { error: updErr } = await supabase.from('v7_zahlungsanforderungen').update(payload).eq('id', zaSelectedId);
         if (updErr) throw new Error(updErr.message);
@@ -1081,10 +1104,11 @@ export default function ZAPanel({
           if (movErr) throw new Error(movErr.message);
         }
       } else {
-        const { data: newZA } = await supabase.from('v7_zahlungsanforderungen').insert(payload).select().single();
-        if (newZA) setZASelectedId((newZA as any).id);
+        const { data: newZA, error: insErr } = await supabase.from('v7_zahlungsanforderungen').insert(payload).select().single();
+        if (insErr) throw new Error(insErr.message);  // v7.4.4-89
+        gespeicherteId = newZA ? (newZA as any).id : null;
       }
-      await openPanel(projectId);
+      await openPanel(projectId, gespeicherteId);  // v7.4.4-89: gespeicherte ZA bleibt offen
       setHasChanges(false);
     } catch (err: any) {
       alert('Fehler beim Speichern: ' + err.message);
