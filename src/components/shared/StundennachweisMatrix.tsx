@@ -2,7 +2,11 @@
 // ============================================================================
 // PZE V7 - Shared Component: Stundennachweis-Matrix
 // ============================================================================
-// Version: 7.4.6-22
+// Version: 7.4.6-23
+// v7.4.6-23: Knopf "Verwendungsnachweis" rechts neben "Zahlungsanforderung"
+//   (Wunsch Martin 12.10.2026). NUR Berater-Portal, nur VN-faehige
+//   Foerderformate. returnUrl = aktuelle URL -> Zurueck im VN fuehrt hierher.
+//   Statuslogik, Auswahl und Druck unberuehrt. Enthaelt v7.4.6-22.
 // v7.4.6-22: PDF-Dateiname Sammeldruck (ein MA) um den Vornamen ergaenzt,
 //   identisch zum Einzeldruck in TimesheetForm v7.4.6-101 (Wunsch Martin
 //   03.10.2026): "<Nachname><Vorname>_<FKZ>_Stundennachweis_<Zeitraum>".
@@ -412,6 +416,13 @@ export default function StundennachweisMatrix({
       ? `/v7/berater/foerderung/firma/${companyId}/za`
       : `/v7/firma/za`;
     router.push(`${base}?projektId=${activeProjectId}&returnTo=${rt}`);
+  };
+
+  // v7.4.6-23: Sprung zum Verwendungsnachweis (nur Berater-Portal)
+  const goToVN = () => {
+    if (!activeProjectId || portal !== 'berater') return;
+    const rt = encodeURIComponent(window.location.pathname + window.location.search);
+    router.push(`/v7/berater/foerderung/firma/${companyId}/verwendungsnachweis?projekt=${activeProjectId}&returnUrl=${rt}`);
   };
 
   // v7.4.6-19: zentrale Abwesenheiten (A-034) fuer die Tagesabdeckung laden.
@@ -928,6 +939,19 @@ export default function StundennachweisMatrix({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
               </svg>
               Zahlungsanforderung
+            </button>
+          )}
+          {/* v7.4.6-23: Sprung zum Verwendungsnachweis; Zurueck im VN fuehrt wieder hierher */}
+          {!druckModus && activeProjectId && portal === 'berater' && ['ZIM_EINZEL', 'ZIM_KOOP', 'ZIM', 'ZIM_DS', 'ZIM_NETZWERK'].includes(String(activeProject?.funding_format || '').toUpperCase().trim()) && (
+            <button
+              onClick={goToVN}
+              className={`flex items-center gap-2 text-sm px-3 py-1.5 rounded border bg-white ${accentColor} border-gray-300 hover:bg-gray-50`}
+              title="Zum Verwendungsnachweis (VN) dieses Projekts springen"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+              Verwendungsnachweis
             </button>
           )}
           {druckModus && (

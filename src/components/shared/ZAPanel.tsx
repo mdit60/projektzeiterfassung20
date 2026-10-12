@@ -2,7 +2,13 @@
 // ============================================================================
 // PZE V7 - Shared Component: ZA-Panel (Zahlungsanforderung ZIM)
 // ============================================================================
-// Version: 7.4.4-87
+// Version: 7.4.4-88
+// v7.4.4-88: Sprung zum VERWENDUNGSNACHWEIS (Wunsch Martin 12.10.2026). Neue
+//   OPTIONALE Prop onNavigateToVN, Knopf "Verwendungsnachweis" links neben
+//   "Stundennachweis-Matrix". Nur bei VN-faehigen Foerderformaten (ZIM_EINZEL,
+//   ZIM_KOOP, ZIM, ZIM_DS, ZIM_NETZWERK). URL baut ZASeite 1.0.13. Ohne Prop
+//   (BerichtePage, Firma-Portal) unveraendert. Ungespeicherte Aenderungen ->
+//   vorhandener Dialog (checkUnsavedChanges). Berechnungen unberuehrt.
 // v7.4.4-87: DIREKTE SPRUENGE AUS DER ZA (Wunsch Martin 02.10.2026, Berater-Komfort
 //   bei Bearbeitung und Optimierung der ZA). Zwei neue OPTIONALE Props:
 //   onNavigateToZE     - Klick auf einen Monat (bzw. dessen Stundenzelle) in der
@@ -655,6 +661,7 @@ interface ZAPanelProps {
   initialTab?: 'deckblatt' | 'anlage1a' | 'anlage1b' | 'archiv';  // v7.4.4-78
   onNavigateToZE?: (ziel: ZASprungZE) => void;          // v7.4.4-87
   onNavigateToMatrix?: (ziel: ZASprungMatrix) => void;  // v7.4.4-87
+  onNavigateToVN?: (ziel: ZASprungMatrix) => void;      // v7.4.4-88
 }
 
 // ============================================================================
@@ -674,6 +681,7 @@ export default function ZAPanel({
   initialTab,
   onNavigateToZE,
   onNavigateToMatrix,
+  onNavigateToVN,
 }: ZAPanelProps) {
   const supabase = createClient();
   const colors = PORTAL_COLORS[portal];
@@ -931,6 +939,13 @@ export default function ZAPanel({
     const zaId = zaSelectedId;
     const tab = zaTab;
     checkUnsavedChanges(() => onNavigateToMatrix({ projectId, zaId, tab }));
+  };
+  // v7.4.4-88: Sprung zum Verwendungsnachweis
+  const springeZumVN = () => {
+    if (!onNavigateToVN) return;
+    const zaId = zaSelectedId;
+    const tab = zaTab;
+    checkUnsavedChanges(() => onNavigateToVN({ projectId, zaId, tab }));
   };
   const zeCls = onNavigateToZE ? ' cursor-pointer hover:bg-blue-50 hover:text-blue-700 hover:underline' : '';
   const zeTitle = onNavigateToZE ? 'Stundenerfassung dieses Monats \u00f6ffnen' : undefined;
@@ -1769,6 +1784,17 @@ export default function ZAPanel({
             </button>
           ))}
         </div>
+        {onNavigateToVN && ['ZIM_EINZEL', 'ZIM_KOOP', 'ZIM', 'ZIM_DS', 'ZIM_NETZWERK'].includes(String(zaProject?.funding_format || '').toUpperCase().trim()) && ( /* v7.4.4-88: Sprung zum VN */
+        <button onClick={springeZumVN}
+          className="flex items-center gap-1.5 ml-3 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded transition-colors"
+          title="Zum Verwendungsnachweis dieses Projekts wechseln">
+          <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+            <line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/>
+          </svg>
+          Verwendungsnachweis
+        </button>
+        )}
         {onNavigateToMatrix && ( /* v7.4.4-87: Sprung zur Stundennachweis-Matrix */
         <button onClick={springeZurMatrix}
           className={`flex items-center gap-1.5 ${zaTab === 'archiv' ? 'mx-3' : 'ml-3'} px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded transition-colors`}

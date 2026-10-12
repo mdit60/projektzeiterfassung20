@@ -2,7 +2,10 @@
 
 // Route: /v7/berater/foerderung/firma/[id]/cockpit/stundennachweis
 // Eigenstaendige Seite fuer StundennachweisMatrix (ohne BerichtePage)
-// Version: 7.4.9-7
+// Version: 7.4.9-8
+// v7.4.9-8: "Zurueck" honoriert ?returnUrl= (konkreter Pfad, beginnt mit "/"):
+//   aus ZA bzw. Verwendungsnachweis kommend fuehrt Zurueck wieder dorthin
+//   (Wunsch Martin 12.10.2026). Ohne returnUrl wie bisher ins Firma-Cockpit.
 // v7.4.9-7: handleNavigateToZE reicht die projectId der Matrix an die ZE-Seite
 //   weiter (&projekt=) -> richtiges Projekt wird vorbelegt (vorher erstes).
 // Version: 7.4.9-6
@@ -172,6 +175,9 @@ export default function CockpitStundennachweisPage() {
   }
 
   function handleBack() {
+    // v7.4.9-8: konkretes Ruecksprungziel (ZA, VN) hat Vorrang
+    const ziel = searchParams.get('returnUrl');
+    if (ziel && ziel.startsWith('/')) { router.push(ziel); return; }
     // v7.4.9-5: deterministisch zurueck ins Firma-Cockpit (App- oder klassisch),
     // nicht per router.back() (landete sonst im alten Foerder-Portal).
     const appMode = typeof window !== 'undefined' && localStorage.getItem('pze_mode') === 'app';
