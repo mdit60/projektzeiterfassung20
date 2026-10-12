@@ -1,6 +1,6 @@
 # PZE - Deploy-Prozess (verbindlich)
 
-**Stand:** 20.09.2026. Diese Datei ist die maßgebliche Referenz für
+**Stand:** 12.10.2026 (v3: Abschnitt "Deploy erscheint verzögert"). Diese Datei ist die maßgebliche Referenz für
 Integration und Deployment. Bei jeder Session vor dem ersten Deploy lesen.
 
 ## Kernregel (der häufige Stolperstein)
@@ -67,6 +67,27 @@ Anzeige-Fixes: im Browser hart neu laden (Cmd+Shift+R).
 Gehören mehrere Dateien zu einer Änderung (z. B. eine Komponente und die von ihr
 importierte Lib), werden sie **gemeinsam** integriert und committet. Einzeln
 integriert bricht der Build.
+
+## Deploy erscheint verzögert (neu 12.10.2026)
+
+Nach `git push cubintec main` kann es **1–3 Minuten** dauern, bis der neue Deploy im
+Vercel-Dashboard überhaupt auftaucht (Session 92: Push 16:27, Eintrag erst ca. 16:29).
+Bis dahin steht oben noch der vorige Commit.
+
+Vorgehen:
+1. Mindestens **3 Minuten warten** und die Deployments-Seite neu laden.
+2. Prüfen, ob der Commit bei cubintec angekommen ist:
+   ```bash
+   cd ~/Documents/Dev/pze && git log --oneline -1 main && git ls-remote cubintec main
+   ```
+   Stimmt der Hash überein, liegt es nur an Vercel – weiter warten.
+3. Erst danach einen Redeploy per leerem Commit auslösen:
+   ```bash
+   cd ~/Documents/Dev/pze && git checkout main && git commit --allow-empty -m "Redeploy-Trigger" && git push origin main && git push cubintec main && git checkout v7-dev
+   ```
+
+Ein zu früh ausgelöster Trigger ist harmlos: Vercel baut dann zweimal denselben Code,
+der zuletzt fertige Build wird Production. Nie `vercel --prod` verwenden.
 
 ## Wenn "kein Deploy läuft" - Diagnose
 
