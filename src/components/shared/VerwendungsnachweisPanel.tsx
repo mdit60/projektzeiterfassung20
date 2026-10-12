@@ -3,7 +3,16 @@
 // src/components/shared/VerwendungsnachweisPanel.tsx
 // ============================================================================
 // PZE V7 - VN-Modul (Verwendungsnachweis), De-minimis-Varianten
-// Version: 1.2-7
+// Version: 1.2-8
+// v1.2-8: Kopfdaten um die BEWILLIGTE ZUWENDUNG (projects.bewilligte_summe)
+//   ergaenzt, rechte Spalte unter Bescheiddatum/Foerdersatz. Darunter eine
+//   Zeile "Ausschoepfung der bewilligten Zuwendung": Anspruch lt. VN
+//   (Zuwendung gesamt aus B) und angefordert lt. ZA, jeweils absolut und in
+//   Prozent der Bewilligung, dazu der verbleibende Rest und ein Balken.
+//   Uebersteigt der Anspruch die Bewilligung, erscheint ein Hinweis; die
+//   Berechnung in verwendungsnachweis-utils bleibt unveraendert.
+//   Reine Anzeige-Aenderung; bewilligte_summe wird von VerwendungsnachweisSeite
+//   bereits geladen und durchgereicht.
 // v1.2-7: "Bisher erhaltene Zuwendungen" aus v7_za_zahlungen (KONZEPT-ZA-
 //   KORREKTUR-ZAHLUNGEN v1.1, Teil B, Etappe 2). Die alte Spalte
 //   zahlungseingang_betrag wird nicht mehr gelesen. Der Loader befuellt das
@@ -287,6 +296,17 @@ export default function VerwendungsnachweisPanel({
     ? Math.abs(result.finanzierung.summeFinanzierung - result.summeKosten) < 0.005
     : true;
 
+  // v1.2-8: Ausschoepfung der bewilligten Zuwendung
+  const bewilligt = propProject?.bewilligte_summe ?? null;
+  const hatBewilligung = bewilligt !== null && bewilligt > 0;
+  const anspruch = result ? result.finanzierung.gesamtZuwendung : 0;
+  const angefordert = result ? result.finanzierung.angefordertLautZa : 0;
+  const quoteAnspruch = hatBewilligung ? (anspruch / (bewilligt as number)) * 100 : 0;
+  const quoteAngefordert = hatBewilligung ? (angefordert / (bewilligt as number)) * 100 : 0;
+  const restBewilligung = hatBewilligung ? Math.round(((bewilligt as number) - anspruch) * 100) / 100 : 0;
+  const ueberBewilligung = hatBewilligung && restBewilligung < -0.005;
+  const fmtPct = (v: number) => v.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
   if (!mounted) return <div className="text-sm text-gray-400 py-10">&hellip;</div>;
 
   return (
@@ -331,7 +351,26 @@ export default function VerwendungsnachweisPanel({
               </div>
               <div><span className="text-gray-500">F&ouml;rdersatz:</span> <span className="font-medium">{result.foerdersatz} %</span></div>
               <div><span className="text-gray-500">Zahlungsanforderungen:</span> <span className="font-medium">{result.anzahlZas}</span></div>
+              <div className="md:col-start-3"><span className="text-gray-500">Bewilligte Zuwendung:</span> <span className="font-medium">{hatBewilligung ? `${fmtEur(bewilligt)} EUR` : '\u2013'}</span></div>
             </div>
+            {hatBewilligung && (
+              <div className="mt-2 pt-2 border-t border-gray-200 text-sm">
+                <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                  <span className="text-gray-500">Aussch&ouml;pfung der bewilligten Zuwendung:</span>
+                  <span>Anspruch lt. VN <span className="font-medium">{fmtEur(anspruch)} EUR</span> <span className="text-gray-500">({fmtPct(quoteAnspruch)} %)</span></span>
+                  <span>angefordert lt. ZA <span className="font-medium">{fmtEur(angefordert)} EUR</span> <span className="text-gray-500">({fmtPct(quoteAngefordert)} %)</span></span>
+                  <span>{ueberBewilligung ? '\u00fcberschritten um' : 'verbleibend'} <span className={`font-medium ${ueberBewilligung ? 'text-red-700' : ''}`}>{fmtEur(Math.abs(restBewilligung))} EUR</span></span>
+                </div>
+                <div className="mt-1 h-1.5 w-full bg-gray-200 rounded overflow-hidden">
+                  <div className={`h-full ${ueberBewilligung ? 'bg-red-500' : (portal === 'firma' ? 'bg-green-500' : 'bg-blue-500')}`} style={{ width: `${Math.min(100, Math.max(0, quoteAnspruch))}%` }} />
+                </div>
+                {ueberBewilligung && (
+                  <div className="mt-1 text-xs text-red-700">
+                    Der Anspruch aus Abschnitt A &uuml;bersteigt die bewilligte Zuwendung. Ausgezahlt wird h&ouml;chstens die bewilligte Summe.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* v1.2-6: gespeicherter VN bezieht sich auf einen anderen Zeitraum */}
