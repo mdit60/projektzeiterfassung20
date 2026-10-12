@@ -3,7 +3,14 @@
 // src/components/shared/VerwendungsnachweisSeite.tsx
 // ============================================================================
 // PZE V7 - Standalone Verwendungsnachweis-Seite (De-minimis-Varianten + NWM)
-// Version: 1.2-2
+// Version: 1.2-3
+// v1.2-3: DIREKTE SPRUENGE AUS DEM VN, NUR Berater-Portal (Wunsch Martin
+//   12.10.2026): Knoepfe "Zahlungsanforderung" und "Stundennachweis-Matrix" im
+//   Panel (VerwendungsnachweisPanel 1.2-9). Der Ruecksprung fuehrt auf genau
+//   diesen VN und dieses Projekt. Wie in der ZA (zaUrsprung) wird dabei nur der
+//   URSPRUNG der Kette weitergetragen (vnUrsprung), damit die URL bei jedem
+//   Wechsel VN <-> ZA <-> Stundenerfassung nicht waechst.
+//   Firma-Portal: keine Props -> keine Knoepfe (VN dort freischaltpflichtig).
 // v1.2-2: VN-Freigabe je Firma. Im FIRMEN-Portal wird die Seite nur angezeigt,
 //   wenn die Firma freigeschaltet ist (v7_client_companies.vn_firma_freigeschaltet);
 //   sonst ein Sperr-Hinweis (Schutz gegen Deep-Links). Berater-Portal immer frei.
@@ -42,6 +49,25 @@ import PortalFooter from '@/components/shared/PortalFooter';
 import VerwendungsnachweisPanel from '@/components/shared/VerwendungsnachweisPanel';
 import { loadProjectAssignments } from '@/components/shared/ZAPanel';
 import { V7PortalType, V7UserRole } from '@/types/v7-types';
+
+// v1.2-3: Ursprung einer Ruecksprung-Kette. Durchreich-Seiten (ZA,
+// Stundenerfassung, VN) werden uebersprungen; zurueckgegeben wird das erste
+// echte Ziel (z.B. Cockpit, Matrix) oder ein Sentinel wie 'cockpit'.
+function vnUrsprung(returnTo?: string): string | undefined {
+  let cur = returnTo;
+  for (let i = 0; i < 10; i++) {
+    if (!cur || !cur.startsWith('/')) return cur;
+    const q = cur.indexOf('?');
+    if (q < 0) return cur;
+    const path = cur.slice(0, q);
+    const sp = new URLSearchParams(cur.slice(q + 1));
+    if (path.endsWith('/zeiterfassung')) { cur = sp.get('returnUrl') || undefined; continue; }
+    if (path.endsWith('/za')) { cur = sp.get('returnTo') || undefined; continue; }
+    if (path.endsWith('/verwendungsnachweis')) { cur = sp.get('returnUrl') || sp.get('returnTo') || undefined; continue; }
+    return cur;
+  }
+  return undefined;
+}
 
 interface VerwendungsnachweisSeiteProps {
   portal: V7PortalType;
@@ -153,6 +179,29 @@ export default function VerwendungsnachweisSeite({
           : `/v7/berater/foerderung/firma/${firmaId}/cockpit`)
       : '/v7/firma/dashboard';
   const zurueckLabel = '\u2190 Zurueck';
+
+  // v1.2-3: Spruenge aus dem VN - nur im Berater-Portal
+  const sprungAktiv = portal === 'berater' && !!firmaId;
+  const firmaBasis = `/v7/berater/foerderung/firma/${firmaId}`;
+  const eigeneVnUrl = (projectId: string) => {
+    const p = new URLSearchParams();
+    p.set('projekt', projectId);
+    const ursprung = vnUrsprung(returnTo);
+    if (ursprung) p.set('returnUrl', ursprung);
+    return `${window.location.pathname}?${p.toString()}`;
+  };
+  const handleNavigateToZA = (projectId: string) => {
+    const p = new URLSearchParams();
+    p.set('projektId', projectId);
+    p.set('returnTo', eigeneVnUrl(projectId));
+    router.push(`${firmaBasis}/za?${p.toString()}`);
+  };
+  const handleNavigateToMatrix = (projectId: string) => {
+    const p = new URLSearchParams();
+    p.set('projekt', projectId);
+    p.set('returnUrl', eigeneVnUrl(projectId));
+    router.push(`${firmaBasis}/cockpit/stundennachweis?${p.toString()}`);
+  };
   const uiRole = (role as V7UserRole) || 'consultant';
 
   if (loading) {
@@ -217,6 +266,8 @@ export default function VerwendungsnachweisSeite({
             timesheets={timesheets}
             projectAssignments={projectAssignments}
             initialProjectId={initialProjektId}
+            onNavigateToZA={sprungAktiv ? handleNavigateToZA : undefined}
+            onNavigateToMatrix={sprungAktiv ? handleNavigateToMatrix : undefined}
           />
         )}
       </div>

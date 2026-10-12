@@ -6,7 +6,13 @@
 // ============================================================================
 // Datum: 9. Mai 2026
 // Datum: 3. Juli 2026
-// Version: 1.0.12
+// Version: 1.0.13
+// v1.0.13: (1) Sprung zum VERWENDUNGSNACHWEIS (ZAPanel 7.4.4-88, Wunsch Martin
+//   12.10.2026), nur Berater-Portal; returnUrl fuehrt zurueck auf genau diese
+//   ZA und diesen Tab. (2) Sprung zur Matrix traegt jetzt ebenfalls returnUrl
+//   (Matrix-Seite 7.4.9-8 honoriert ihn) -> "Zurueck" in der Matrix fuehrt in
+//   die ZA statt ins Cockpit. (3) zaUrsprung ueberspringt auch VN-URLs, damit
+//   die Kette ZA <-> VN nicht waechst.
 // v1.0.12: Direkte Spruenge aus der ZA (ZAPanel 7.4.4-87), NUR Berater-Portal:
 //   (1) Monat in der Anlage 1a -> Stundenerfassung dieses MA/Monats/Projekts;
 //       returnUrl fuehrt zurueck auf genau diese ZA und diesen Tab.
@@ -87,6 +93,7 @@ function zaUrsprung(returnTo?: string): string | undefined {
     const sp = new URLSearchParams(cur.slice(q + 1));
     if (path.endsWith('/zeiterfassung')) { cur = sp.get('returnUrl') || undefined; continue; }
     if (path.endsWith('/za')) { cur = sp.get('returnTo') || undefined; continue; }
+    if (path.endsWith('/verwendungsnachweis')) { cur = sp.get('returnUrl') || sp.get('returnTo') || undefined; continue; }  // v1.0.13
     return cur;
   }
   return undefined;
@@ -170,7 +177,15 @@ export default function ZASeite({
   const handleNavigateToMatrix = (z: ZASprungMatrix) => {
     const p = new URLSearchParams();
     p.set('projekt', z.projectId);
+    p.set('returnUrl', eigeneUrl(z));  // v1.0.13
     router.push(`${firmaBasis}/cockpit/stundennachweis?${p.toString()}`);
+  };
+  // v1.0.13: Sprung zum Verwendungsnachweis
+  const handleNavigateToVN = (z: ZASprungMatrix) => {
+    const p = new URLSearchParams();
+    p.set('projekt', z.projectId);
+    p.set('returnUrl', eigeneUrl(z));
+    router.push(`${firmaBasis}/verwendungsnachweis?${p.toString()}`);
   };
 
   const zurueckLabel = '\u2190 Zurueck';
@@ -280,6 +295,7 @@ export default function ZASeite({
             initialTab={initialTab}
             onNavigateToZE={sprungAktiv ? handleNavigateToZE : undefined}
             onNavigateToMatrix={sprungAktiv ? handleNavigateToMatrix : undefined}
+            onNavigateToVN={sprungAktiv ? handleNavigateToVN : undefined}
           />
         )}
 

@@ -3,7 +3,12 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 8. September 2026
-// Version: 7.4.6-101
+// Version: 7.4.6-102
+// v7.4.6-102: Direktlink "VN" (Verwendungsnachweis) rechts neben "ZA" in der
+//   Steuerleiste (Wunsch Martin 12.10.2026). NUR Berater-Portal und nur bei
+//   VN-faehigen Foerderformaten (ZIM_EINZEL/ZIM_KOOP/ZIM/ZIM_DS/ZIM_NETZWERK).
+//   returnUrl = aktuelle URL -> Zurueck im VN fuehrt hierher. Sprung laeuft
+//   ueber checkUnsavedChanges. Sonst keine Aenderung.
 // v7.4.6-101: PDF-Dateiname Einzeldruck um den Vornamen ergaenzt, damit
 //   Mitarbeiter mit gleichem Nachnamen unterscheidbar sind (Wunsch Martin
 //   03.10.2026): "<Nachname><Vorname>_<FKZ>_Stundennachweis_<YYMM>" (Bsp.
@@ -1554,6 +1559,13 @@ export default function TimesheetForm({
       ? `/v7/berater/foerderung/firma/${companyId}/za`
       : `/v7/firma/za`;
     router.push(`${base}?projektId=${selectedProjectId}&returnTo=${rt}`);
+  };
+
+  // v7.4.6-102: Sprung zum Verwendungsnachweis (nur Berater-Portal)
+  const goToVN = () => {
+    if (!selectedProjectId || portal !== 'berater') return;
+    const rt = encodeURIComponent(window.location.pathname + window.location.search);
+    router.push(`/v7/berater/foerderung/firma/${companyId}/verwendungsnachweis?projekt=${selectedProjectId}&returnUrl=${rt}`);
   };
 
   const getDaysInMonth = (year: number, month: number): number => {
@@ -4712,6 +4724,20 @@ export default function TimesheetForm({
               </svg>
               ZA
             </button>
+
+            {/* v7.4.6-102: Direktlink zum Verwendungsnachweis (VN), nur Berater */}
+            {portal === 'berater' && selectedProjectId && ['ZIM_EINZEL', 'ZIM_KOOP', 'ZIM', 'ZIM_DS', 'ZIM_NETZWERK'].includes(String(selectedProject?.funding_format || '').toUpperCase().trim()) && (
+              <button
+                onClick={() => checkUnsavedChanges(goToVN)}
+                className={`flex items-center gap-1.5 text-sm px-2.5 py-1 rounded border border-gray-300 ${colors.text} hover:bg-gray-50`}
+                title="Zum Verwendungsnachweis (VN) dieses Projekts springen"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+                VN
+              </button>
+            )}
           </div>
         </div>
       </div>

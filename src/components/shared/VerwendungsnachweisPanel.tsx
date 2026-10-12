@@ -3,7 +3,14 @@
 // src/components/shared/VerwendungsnachweisPanel.tsx
 // ============================================================================
 // PZE V7 - VN-Modul (Verwendungsnachweis), De-minimis-Varianten
-// Version: 1.2-8
+// Version: 1.2-9
+// v1.2-9: DIREKTE SPRUENGE AUS DEM VN (Wunsch Martin 12.10.2026). Zwei neue
+//   OPTIONALE Props, Knoepfe links neben "Drucken":
+//   onNavigateToZA     - Zahlungsanforderung des gewaehlten Projekts
+//   onNavigateToMatrix - Stundennachweis-Matrix des gewaehlten Projekts
+//   Die Ziel-URLs baut die aufrufende Seite (VerwendungsnachweisSeite 1.2-3),
+//   das Panel meldet nur die Projekt-ID. Ohne Props (Firma-Portal) unveraendert.
+//   Knoepfe liegen in der vn-no-print-Leiste -> Ausdruck unveraendert.
 // v1.2-8: Kopfdaten um die BEWILLIGTE ZUWENDUNG (projects.bewilligte_summe)
 //   ergaenzt, rechte Spalte unter Bescheiddatum/Foerdersatz. Darunter eine
 //   Zeile "Ausschoepfung der bewilligten Zuwendung": Anspruch lt. VN
@@ -126,6 +133,8 @@ interface VNPanelProps {
   timesheets: VNTimesheet[];
   projectAssignments: VNProjectAssignment[];
   initialProjectId?: string;
+  onNavigateToZA?: (projectId: string) => void;      // v1.2-9
+  onNavigateToMatrix?: (projectId: string) => void;  // v1.2-9
 }
 
 function fmtEur(v: number | null): string {
@@ -145,6 +154,8 @@ export default function VerwendungsnachweisPanel({
   timesheets,
   projectAssignments,
   initialProjectId,
+  onNavigateToZA,
+  onNavigateToMatrix,
 }: VNPanelProps) {
   const supabase = createClient();
   const colors = PORTAL_COLORS[portal];
@@ -326,6 +337,20 @@ export default function VerwendungsnachweisPanel({
               className={`text-sm border border-gray-300 rounded px-2 py-1 ${colors.inputFocus}`}>
               {projects.map(p => <option key={p.id} value={p.id}>{p.short_name || p.name || p.id}</option>)}
             </select>
+          )}
+          {onNavigateToZA && projectId && ( /* v1.2-9: Sprung zur ZA */
+            <button onClick={() => onNavigateToZA(projectId)}
+              className="inline-flex items-center gap-1 text-sm border border-gray-300 rounded px-3 py-1 text-gray-700 hover:bg-gray-100"
+              title="Zur Zahlungsanforderung (ZA) dieses Projekts wechseln">
+              Zahlungsanforderung
+            </button>
+          )}
+          {onNavigateToMatrix && projectId && ( /* v1.2-9: Sprung zur Stundennachweis-Matrix */
+            <button onClick={() => onNavigateToMatrix(projectId)}
+              className="inline-flex items-center gap-1 text-sm border border-gray-300 rounded px-3 py-1 text-gray-700 hover:bg-gray-100"
+              title="Zur Stundennachweis-Matrix dieses Projekts wechseln (von dort in die Stundenerfassung)">
+              Stundennachweis-Matrix
+            </button>
           )}
           <button onClick={handlePrint}
             className="inline-flex items-center gap-1 text-sm border border-gray-300 rounded px-3 py-1 text-gray-700 hover:bg-gray-100">
