@@ -3,7 +3,24 @@
 // PZE V7 - Shared Timesheet Form Component
 // ============================================================================
 // Datum: 8. September 2026
-// Version: 7.4.6-102
+// Version: 7.4.6-103
+// v7.4.6-103: Auto-Vorbelegung "sonstige Arbeiten" nur noch auf LEEREN
+//   Arbeitstagen (Entscheidung Martin, 20.10.2026). Anlass: Reststunden wie
+//   0,02 h fuehrten zu Rueckfragen; die aktuellen ZIM-Stundennachweise
+//   enthalten die Zeile nicht mehr.
+//   NEUE REGEL je reinem Arbeitstag:
+//   (a) Stunden in DIESEM Projekt > 0 oder in einem ANDEREN Projekt > 0
+//       -> keine Auto-Vorbelegung; die Zelle wird geleert (Variante A,
+//       raeumt auch Altwerte in offenen Monaten beim naechsten Speichern).
+//   (b) Abwesenheitstag -> wie bisher leer.
+//   (c) Leerer Arbeitstag -> volle Tagesarbeitszeit, aber nur wenn das
+//       Wochen-Restbudget (v7.4.6-74) dafuer reicht; sonst leer. Keine
+//       Dezimalreste mehr (z.B. 30-h-MA an 4 Tagen: 5. Tag bleibt leer).
+//   Der weiche Speicher-Hinweis auf "Luecken"-Tage (v7.4.6-63) entfaellt,
+//   da Projekttage nun gewollt keine "sonstigen Arbeiten" haben.
+//   UNVERAENDERT: Wochenenden, Feiertage, gesperrte Tage, Kurzarbeit und
+//   abgeschlossene Monate; Cross-Projekt-Pruefung (A-021).
+// Version: 7.4.6-102 (vorher)
 // v7.4.6-102: Direktlink "VN" (Verwendungsnachweis) rechts neben "ZA" in der
 //   Steuerleiste (Wunsch Martin 12.10.2026). NUR Berater-Portal und nur bei
 //   VN-faehigen Foerderformaten (ZIM_EINZEL/ZIM_KOOP/ZIM/ZIM_DS/ZIM_NETZWERK).
@@ -3491,10 +3508,15 @@ export default function TimesheetForm({
         } else if (!isPlainWorkday(d)) {
           // Wochenende/Feiertag/Blocked: keine Auto-Vorbelegung.
         } else {
-          // Reiner Arbeitstag: Auto-Wert mit Tages- UND Wochen-Deckel.
-          const dailyRoom = Math.max(0, employeeDailyHours - proj - other);
+          // v7.4.6-103: Auto-Wert nur auf LEEREN Arbeitstagen und nur als volle
+          // Tagesarbeitszeit. Tage mit Projektstunden (dieses oder anderes
+          // Projekt) bekommen 0 -> Zelle wird geleert. Reicht das Wochen-
+          // Restbudget nicht fuer einen vollen Tag, bleibt der Tag leer.
           const weekRoom = Math.max(0, WAZ - weekUsed[wk] - dayFixed);
-          const auto = Math.round(Math.min(dailyRoom, weekRoom) * 100) / 100;
+          const fullDay = Math.round(employeeDailyHours * 100) / 100;
+          const auto = (proj > 0.005 || other > 0.005)
+            ? 0
+            : (weekRoom + 0.005 >= fullDay ? fullDay : 0);
           const cur = prev[d]?.value || '';
           const curVal = cur ? parseHours(cur) : 0;
           const same = Math.abs(curVal - auto) < 0.005;
@@ -4034,31 +4056,8 @@ export default function TimesheetForm({
       });
       setSavedMonthHoursPerWP(snapAfterSave);
 
-      // v7.4.6-63: Weicher Hinweis auf "Luecken"-Tage. Reine Arbeitstage mit
-      // Projektstunden > 0, aber leerer "sonstige"-Zeile UND nicht voller
-      // Tagesarbeitszeit (dieses Projekt + andere Projekte < pWAZ/5). Genau die
-      // Faelle, in denen die Auto-Vorbelegung bewusst nicht griff bzw. geloescht
-      // wurde. Blockiert NICHT -- gespeichert wurde bereits.
-      const luecken: number[] = [];
-      const daysInMon2 = getDaysInMonth(selectedYear, selectedMonth);
-      for (let d = 1; d <= daysInMon2; d++) {
-        if (!isPlainWorkday(d)) continue;
-        const proj = calculateDaySum(d);
-        if (proj <= 0) continue;
-        const other = otherProjectHours[d] || 0;
-        if (proj + other >= employeeDailyHours - 0.005) continue; // Tag ist voll
-        const nb = nonBillableEntries[d]?.value;
-        if (nb && parseHours(nb) > 0) continue; // sonstige vorhanden -> keine Luecke
-        luecken.push(d);
-      }
-      if (luecken.length > 0) {
-        setSaveHint(
-          `Hinweis: An ${luecken.length} Arbeitstag(en) (${luecken.join(', ')}) sind ` +
-          `Projektstunden erfasst, aber die Tagesarbeitszeit ist nicht voll und ` +
-          `"sonstige Arbeiten" ist leer. Falls dort noch nicht-foerderbare ` +
-          `Arbeitszeit fehlt, bitte ergaenzen. Gespeichert wurde bereits.`
-        );
-      }
+      // v7.4.6-103: Weicher Hinweis auf "Luecken"-Tage (v7.4.6-63) entfernt --
+      // Projekttage haben gewollt keine "sonstigen Arbeiten" mehr.
 
     } catch (err: any) {
       console.error('Speichern fehlgeschlagen:', err);
