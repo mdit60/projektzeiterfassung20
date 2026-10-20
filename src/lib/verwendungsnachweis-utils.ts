@@ -1,6 +1,17 @@
 // ============================================================================
-// verwendungsnachweis-utils-v1_2-2.ts
-// Version: 1.2-7
+// verwendungsnachweis-utils-v1_2-8.ts
+// Version: 1.2-8
+// v1.2-8: STUNDENSATZ IDENTISCH ZUR ZAHLUNGSANFORDERUNG (Fix Fehlalarm
+//   "zu viel angefordert").
+//   BEFUND (AURA / OpenZ, 20.10.2026): getHourlyRate skalierte den
+//   kalkulatorischen Satz noch mit weekly_hours / pm_basis_weekly_hours.
+//   ZAPanel hat genau diese Skalierung in v7.4.4-66 entfernt, weil der
+//   kalkulatorische Satz die persoenliche WAZ bereits enthaelt. Teilzeit-MA
+//   ohne anerkannten Satz wurden im VN dadurch ein zweites Mal herunter-
+//   gerechnet (Blanken: 28,00 -> 22,40 bei 30/37,5 h). Folge: Anspruch laut
+//   VN 5.793,42 EUR unter der Summe der ZA -> Fehlalarm.
+//   FIX: hourly_rate_approved ?? hourly_rate, unskaliert - exakt wie
+//   ZAPanel.getHourlyRate. Vollzeit-MA (WAZ = pm_basis) unveraendert.
 // v1.2-7: KEINE ZA FAELLT MEHR STILLSCHWEIGEND HERAUS.
 //   BEFUND (ANOVIA 21.09.2026): zaImZeitraum nahm eine ZA nur auf, wenn ihr
 //   GESAMTER Zeitraum im Berichtszeitraum lag. ZA 5 (01.07.-31.08.2026) ragte
@@ -302,12 +313,10 @@ export function roundEuro(n: number): number { return Math.round(round2(n)); }
 export function getHourlyRate(pa: VNProjectAssignment | undefined, project: VNProject | undefined): number | null {
   if (!pa) return null;
   if (pa.hourly_rate_approved != null) return pa.hourly_rate_approved;
-  if (pa.hourly_rate != null) {
-    const pmBasis = (project?.pm_basis_weekly_hours ?? pa.weekly_hours) ?? null;
-    const realWAZ = pa.weekly_hours ?? pmBasis;
-    if (pmBasis && realWAZ && pmBasis > 0) return pa.hourly_rate * (realWAZ / pmBasis);
-    return pa.hourly_rate;
-  }
+  // v1.2-8: kalkulatorischer Satz UNSKALIERT (wie ZAPanel v7.4.4-66).
+  // Parameter project bleibt fuer die Signatur erhalten.
+  void project;
+  if (pa.hourly_rate != null) return pa.hourly_rate;
   return null;
 }
 
