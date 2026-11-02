@@ -3,7 +3,20 @@
 // src/components/shared/FirmaCockpit.tsx
 // ============================================================================
 // SHARED COMPONENT: FirmaCockpit
-// Version: 7.4.9-36-21
+// Version: 7.4.9-36-22
+// v7.4.9-36-22: Bezug der Kosten-Kachel klargestellt und Bewilligung im ZA-Bereich
+//   (Wunsch Martin 02.11.2026, Anlass AURA: Kachel 102 % bei 4.767 EUR offen).
+//   Kosten-Kachel: Bezeichnung "Kosten (Plan)", weil die Prozentzahl die Ist-Kosten
+//   am Arbeitsplan misst, nicht an der Bewilligung; die Berechnung ist unveraendert.
+//   Neue zweite Zeile "x % der Bewilligung" = Ist-Kosten x Foerdersatz / bewilligte
+//   Summe, nur mit hinterlegter Bewilligung und Foerdersatz. Bei ZIM_NETZWERK
+//   entfaellt sie, weil die Analyse dort auf das Netzwerkjahr eingeschraenkt ist und
+//   der Foerdersatz je Jahr faellt.
+//   ZA-Karte: neue Kachel "Bewilligt / Offen" ueber den Summen-Karten fuer das
+//   gewaehlte Projekt. Offen = bewilligte Summe minus eingereichte Anforderungen
+//   (Basis wie "Angefordert", ganze Euro je ZA). Der Verwendungsnachweis rechnet
+//   centgenau gegen den Anspruch; daher sind Cent-Abweichungen zu ihm normal.
+//   Reine Anzeige, keine Schreibzugriffe, kein SQL.
 // v7.4.9-36-21: Reihenfolge im Kopf der ZA-Karte "+ Neue ZA | Archiv" - gleich
 //   wie oben rechts auf der ZA-Seite (ZAPanel 7.4.4-79).
 // v7.4.9-36-20: Link "Archiv" im Kopf der ZA-Karte neben "+ Neue ZA"
@@ -564,11 +577,12 @@ function formatLaufzeit(start: string | null, end: string | null): string {
 // FORTSCHRITTSBALKEN
 // ============================================================================
 
-function ProgressBar({ pct, label, sublabel, color }: {
+function ProgressBar({ pct, label, sublabel, color, detail }: {
   pct: number;
   label: string;
   sublabel: string;
   color: string;
+  detail?: string;  // v7.4.9-36-22: optionale zweite Zeile unter dem Balken
 }) {
   const clampedPct = Math.min(100, Math.max(0, pct));
   return (
@@ -584,6 +598,7 @@ function ProgressBar({ pct, label, sublabel, color }: {
         />
       </div>
       <span className="text-[10px] text-gray-400 mt-0.5 block">{sublabel}</span>
+      {detail && <span className="text-[10px] text-gray-500 block">{detail}</span>}
     </div>
   );
 }
@@ -1400,6 +1415,21 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
   const zaAusgezahlt = zaEingereicht.reduce((sum, z) => sum + (z.zahlungseingang_betrag || 0), 0);
   const zaDifferenzGesamt = zaAngefordert - zaAusgezahlt;
 
+  // v7.4.9-36-22: Bewilligung des gewaehlten Projekts und noch nicht angeforderter Rest
+  const zaBewilligt = selectedProjekt && selectedProjekt.bewilligte_summe != null && Number(selectedProjekt.bewilligte_summe) > 0
+    ? Number(selectedProjekt.bewilligte_summe)
+    : null;
+  const zaOffen = zaBewilligt !== null
+    ? Math.round((zaBewilligt - zaAngefordert) * 100) / 100
+    : null;
+
+  // v7.4.9-36-22: Ausschoepfung der Bewilligung fuer die Kosten-Kachel
+  const kostenBewilligungPct = analysis && selectedProjekt && zaBewilligt !== null
+    && selectedProjekt.funding_format !== 'ZIM_NETZWERK'
+    && selectedProjekt.foerdersatz != null && Number(selectedProjekt.foerdersatz) > 0
+    ? Math.round((analysis.gesamtIstKosten * Number(selectedProjekt.foerdersatz) / 100 / zaBewilligt) * 100)
+    : null;
+
   // Chart X-Achsen-Intervall
   const xAxisInterval = analysis
     ? Math.max(0, Math.floor(analysis.monatData.length / 12) - 1)
@@ -1867,9 +1897,10 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                         />
                         <ProgressBar
                           pct={analysis.kostenPct}
-                          label="Kosten"
+                          label="Kosten (Plan)"
                           sublabel={fmtEuroShort(analysis.gesamtIstKosten) + '/' + fmtEuroShort(analysis.gesamtPlanKosten)}
                           color="#10b981"
+                          detail={kostenBewilligungPct !== null ? kostenBewilligungPct + ' % der Bewilligung' : undefined}
                         />
                       </div>
                     )}
@@ -2165,6 +2196,24 @@ export default function FirmaCockpit({ firmaId, portal }: FirmaCockpitProps) {
                 </button>
               </div>
             </div>
+
+            {/* v7.4.9-36-22: Bewilligung / Offen */}
+            {zaBewilligt !== null && zaOffen !== null && (
+              <div className="grid grid-cols-2 divide-x divide-gray-200 mb-2 bg-gray-50 border border-gray-200 rounded-lg">
+                <div className="text-center p-3" title="Bewilligte Zuwendung des gew&auml;hlten Projekts">
+                  <div className="text-[10px] text-gray-500 font-medium mb-1">Bewilligt</div>
+                  <div className="text-xs font-bold text-gray-800">
+                    {formatEuro(zaBewilligt)}
+                  </div>
+                </div>
+                <div className="text-center p-3" title="Bewilligte Zuwendung minus eingereichte Anforderungen">
+                  <div className="text-[10px] text-gray-500 font-medium mb-1">Offen</div>
+                  <div className={'text-xs font-bold ' + (zaOffen < 0 ? 'text-red-700' : 'text-gray-800')}>
+                    {formatEuro(zaOffen)}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Summen-Karten */}
             <div className="grid grid-cols-3 gap-2 mb-4">
