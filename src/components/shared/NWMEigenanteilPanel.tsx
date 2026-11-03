@@ -2,8 +2,10 @@
 // ============================================================================
 // PZE V7 - NWM Eigenanteil-Berechnung und Zahlungsstatus
 // ============================================================================
-// Version: 7.4.5-17
+// Version: 7.4.5-18
 //
+// v7.4.5-18: FIX Quote: gleicher Anteil unter den Beteiligten, letzter NP erhaelt den
+//   Rest, Summe immer 100,00. Keine Rueckrechnung aus dem gerundeten Betrag mehr.
 // v7.4.5-17: Abrechnungsliste und PT-Nachweis stehen immer in der Reihenfolge der
 //   Netzwerkpartner-Tabelle (Nr.), unabhaengig von der Reihenfolge in der Datenbank.
 // v7.4.5-16: FIX Quote bei Kosten 0: Anzeige-Quote ist der Anteil unter den im
@@ -237,14 +239,11 @@ export const berechneNpAnteile = <T extends { ust_satz: number }>(
     const foerderAnteil = Math.round((anteilGesamt - betragSoll) * 100) / 100;
     const ustBetrag = Math.round(anteilGesamt * np.ust_satz / 100 * 100) / 100;
     const betragBrutto = Math.round((betragSoll + ustBetrag) * 100) / 100;
-    // Quote fuer Anzeige: aus Betrag rueckrechnen
-    // Ohne Kosten: gleicher Anteil unter den Beteiligten dieses Zeitraums
+    // Quote: gleicher Anteil unter den Beteiligten, Rest an den letzten NP (Summe 100,00)
     const quoteJeNP = Math.round(10000 / beteiligte.length) / 100;
-    const quoteDisplay = kostenGesamt > 0
-      ? Math.round(anteilGesamt / kostenGesamt * 10000) / 100
-      : istLetzter
-        ? Math.round((100 - quoteJeNP * (beteiligte.length - 1)) * 100) / 100
-        : quoteJeNP;
+    const quoteDisplay = istLetzter
+      ? Math.round((100 - quoteJeNP * (beteiligte.length - 1)) * 100) / 100
+      : quoteJeNP;
     return {
       np,
       felder: {
