@@ -2,8 +2,22 @@
 // ============================================================================
 // PZE V7 - NWM Eigenanteil-Berechnung und Zahlungsstatus
 // ============================================================================
-// Version: 7.4.5-13
+// Version: 7.4.5-17
 //
+// v7.4.5-17: Abrechnungsliste und PT-Nachweis stehen immer in der Reihenfolge der
+//   Netzwerkpartner-Tabelle (Nr.), unabhaengig von der Reihenfolge in der Datenbank.
+// v7.4.5-16: FIX Quote bei Kosten 0: Anzeige-Quote ist der Anteil unter den im
+//   Zeitraum beteiligten NP, nicht die aktuelle Stammdaten-Quote.
+// v7.4.5-15: Stornierte EA erscheinen nicht mehr in der Abrechnungsliste.
+//   Neue zentrale Funktionen berechneNpAnteile und verteileZeitraumNeu: das
+//   Ausscheiden und die Ruecknahme verteilen gespeicherte Zeitraeume sofort neu.
+// v7.4.5-14: NP-Austritt (Session 95). Regel B: Ein NP ist an einem
+//   Abrechnungszeitraum nur beteiligt, wenn der Zeitraum spaetestens am
+//   Austrittsdatum endet. Alle NP werden geladen, damit Namen und Rechnungen
+//   ausgeschiedener NP erhalten bleiben. Verteilung nur auf beteiligte NP.
+//   Offene EA nicht beteiligter NP werden bei Neuberechnung nach Rueckfrage
+//   storniert; stornierte EA zaehlen in keiner Summe. Aenderung des
+//   Beteiligtenkreises bei bezahlten EA im Zeitraum wird blockiert.
 // v7.4.5-13: FZ-basierte Foerderquote + Grenzueberschreitungs-Validierung.
 //   Foerderquote und Netzwerkjahr werden primaer aus v7_nwm_foerderzeitraeume
 //   ermittelt (Fallback auf Date-Arithmetik). Abrechnungszeitraum darf nicht
@@ -190,6 +204,133 @@ const getFoerdersatz = (
   return isInt ? 40 : 30;
 };
 
+// v7.4.5-14: Regel B - beteiligt, wenn der Beitritt spaetestens am Periodenende
+// liegt und der Zeitraum spaetestens am Austrittsdatum endet.
+// Datumswerte sind ISO-Strings (YYYY-MM-DD), der Textvergleich ist daher korrekt.
+export const npImZeitraumBeteiligt = (
+  np: { beitritt_datum: string | null; austritt_datum: string | null },
+  periodeBis: string
+): boolean =>
+  (!np.beitritt_datum || np.beitritt_datum <= periodeBis)
+  && (!np.austritt_datum || periodeBis <= np.austritt_datum);
+
+// v7.4.5-15: Centgenaue Verteilung des Eigenanteils auf die beteiligten NP.
+// Einzige Rechenstelle fuer Neuberechnung und automatische Neuverteilung.
+export const berechneNpAnteile = <T extends { ust_satz: number }>(
+  kostenGesamt: number,
+  foerdersatz: number,
+  beteiligte: T[]
+) => {
+  // Cent-genaue Verteilung: Gesamtbetrag in Cents berechnen
+  // dann floor(Betrag/n) je NP, Rest an letzten NP
+  const eigenanteilGesamtCents = Math.round(kostenGesamt * (100 - foerdersatz));
+  const centsJeNP = Math.floor(eigenanteilGesamtCents / beteiligte.length);
+  const restCents = eigenanteilGesamtCents - centsJeNP * beteiligte.length;
+  const quoteEA = (100 - foerdersatz) / 100;
+
+  return beteiligte.map((np, npIdx) => {
+    const istLetzter = npIdx === beteiligte.length - 1;
+    // Betrag in Cents: letzter NP bekommt den Rundungsrest
+    const betragSoll = (centsJeNP + (istLetzter ? restCents : 0)) / 100;
+    // Eigenanteil = Anteil - Foerderanteil; Anteil = betragSoll / Eigenanteilsquote
+    const anteilGesamt = quoteEA > 0 ? Math.round(betragSoll / quoteEA * 100) / 100 : 0;
+    const foerderAnteil = Math.round((anteilGesamt - betragSoll) * 100) / 100;
+    const ustBetrag = Math.round(anteilGesamt * np.ust_satz / 100 * 100) / 100;
+    const betragBrutto = Math.round((betragSoll + ustBetrag) * 100) / 100;
+    // Quote fuer Anzeige: aus Betrag rueckrechnen
+    // Ohne Kosten: gleicher Anteil unter den Beteiligten dieses Zeitraums
+    const quoteJeNP = Math.round(10000 / beteiligte.length) / 100;
+    const quoteDisplay = kostenGesamt > 0
+      ? Math.round(anteilGesamt / kostenGesamt * 10000) / 100
+      : istLetzter
+        ? Math.round((100 - quoteJeNP * (beteiligte.length - 1)) * 100) / 100
+        : quoteJeNP;
+    return {
+      np,
+      felder: {
+        eigenanteil_quote: quoteDisplay,
+        anteil_gesamtleistung_netto: anteilGesamt,
+        foerderanteil_pt: foerderAnteil,
+        betrag_soll: betragSoll,
+        ust_satz: np.ust_satz,
+        ust_betrag: ustBetrag,
+        betrag_brutto: betragBrutto,
+      },
+    };
+  });
+};
+
+// v7.4.5-15: Gespeicherten Zeitraum nach geaendertem Beteiligtenkreis neu verteilen.
+// Kosten und Foerdersatz bleiben der gespeicherte Stand. Ergebnis:
+// 'unveraendert' | 'neu_verteilt' | 'bezahlt' (bezahlte EA, nichts geaendert)
+// | 'neuberechnung' (beteiligter NP ohne EA-Zeile, nichts geaendert).
+export const verteileZeitraumNeu = async (
+  supabase: any,
+  projectId: string,
+  periodeVon: string,
+  periodeBis: string,
+  allePartner: {
+    id: string;
+    ust_satz: number;
+    eigenanteil_quote: number;
+    beitritt_datum: string | null;
+    austritt_datum: string | null;
+  }[]
+): Promise<'unveraendert' | 'neu_verteilt' | 'bezahlt' | 'neuberechnung'> => {
+  const { data: zeilen, error: ladeErr } = await supabase
+    .from('v7_netzwerk_eigenanteile')
+    .select('id, partner_id, status, nwm_kosten_gesamt, foerdersatz_percent')
+    .eq('project_id', projectId)
+    .eq('periode_von', periodeVon)
+    .eq('periode_bis', periodeBis);
+  if (ladeErr) throw ladeErr;
+  const rows: {
+    id: string;
+    partner_id: string;
+    status: string;
+    nwm_kosten_gesamt: number;
+    foerdersatz_percent: number;
+  }[] = zeilen || [];
+  if (rows.length === 0) return 'unveraendert';
+
+  const beteiligte = allePartner.filter(p => npImZeitraumBeteiligt(p, periodeBis));
+  if (beteiligte.length === 0) return 'neuberechnung';
+  const gueltig = rows.filter(r => r.status !== 'storniert');
+  const zuStornieren = gueltig.filter(r => !beteiligte.some(p => p.id === r.partner_id));
+  const zuErgaenzen = beteiligte.filter(p => !gueltig.some(r => r.partner_id === p.id));
+  if (zuStornieren.length === 0 && zuErgaenzen.length === 0) return 'unveraendert';
+  if (gueltig.some(r => r.status === 'bezahlt')) return 'bezahlt';
+  if (beteiligte.some(p => !rows.some(r => r.partner_id === p.id))) return 'neuberechnung';
+
+  const jetzt = new Date().toISOString();
+  for (const r of zuStornieren) {
+    const { error: stornoErr } = await supabase
+      .from('v7_netzwerk_eigenanteile')
+      .update({ status: 'storniert', updated_at: jetzt })
+      .eq('id', r.id);
+    if (stornoErr) throw stornoErr;
+  }
+  const basis = gueltig[0] || rows[0];
+  const anteile = berechneNpAnteile(
+    Number(basis.nwm_kosten_gesamt) || 0,
+    Number(basis.foerdersatz_percent) || 0,
+    beteiligte
+  );
+  for (const { np, felder } of anteile) {
+    const zeile = rows.find(r => r.partner_id === np.id)!;
+    const { error: updErr } = await supabase
+      .from('v7_netzwerk_eigenanteile')
+      .update({
+        ...felder,
+        status: zeile.status === 'storniert' ? 'offen' : zeile.status,
+        updated_at: jetzt,
+      })
+      .eq('id', zeile.id);
+    if (updErr) throw updErr;
+  }
+  return 'neu_verteilt';
+};
+
 // Abrechnungsperioden ab Projektstart im 3-Monats-Rhythmus generieren
 const generatePerioden = (startDate: string | null): { label: string; von: string; bis: string }[] => {
   if (!startDate) return [];
@@ -324,6 +465,7 @@ export default function NWMEigenanteilPanel({
       if (archivData) {
         const periodeMap = new Map<string, typeof archivPerioden[0]>();
         for (const ea of archivData) {
+          if (ea.status === 'storniert') continue;
           const key = `${ea.periode_von}__${ea.periode_bis}`;
           if (!periodeMap.has(key)) {
             periodeMap.set(key, {
@@ -344,13 +486,15 @@ export default function NWMEigenanteilPanel({
         }
         archivPerioden.push(...Array.from(periodeMap.values()));
       }
-      // Aktive Partner laden
+      // v7.4.5-14: Alle Partner laden, auch ausgeschiedene (Namen, Rechnungen).
+      // Wer in einem Zeitraum mitrechnet, bestimmt npImZeitraumBeteiligt.
       const { data: npData } = await supabase
         .from('v7_netzwerk_partner')
         .select('*')
         .eq('project_id', project.id)
-        .is('austritt_datum', null)
-        .order('sort_order');
+        .order('sort_order', { ascending: true })
+        .order('beitritt_datum', { ascending: true })
+        .order('name', { ascending: true });
       setArchivPerioden(archivPerioden);
       setPartner(npData || []);
 
@@ -486,7 +630,15 @@ export default function NWMEigenanteilPanel({
   const eigenanteilsquote = 100 - foerdersatz;
 
   // NWM-Personalkosten aus Eigenanteilen (falls bereits berechnet)
-  const existingEA = eigenanteile[0];
+  // v7.4.5-17: Reihenfolge wie in der Netzwerkpartner-Tabelle
+  const npPosition = (partnerId: string) => {
+    const idx = partner.findIndex(p => p.id === partnerId);
+    return idx >= 0 ? idx : partner.length;
+  };
+  const gueltigeEA = eigenanteile
+    .filter(e => e.status !== 'storniert')
+    .sort((a, b) => npPosition(a.partner_id) - npPosition(b.partner_id));
+  const existingEA = gueltigeEA[0];
   const nwmPersonalkosten = existingEA
     ? existingEA.nwm_kosten_gesamt - (parseFloat(nwmKostenDritte) || 0) - (existingEA.nwm_kosten_gesamt - (parseFloat(nwmKostenDritte) || 0)) / 2
     : 0;
@@ -499,15 +651,49 @@ export default function NWMEigenanteilPanel({
   const eigenanteilGesamt = nwmKostenGesamt - foerderbetragPT;
 
   // Summen aus EA-Liste
-  const summeBrutto = eigenanteile.reduce((s, ea) => s + ea.betrag_brutto, 0);
+  const summeBrutto = gueltigeEA.reduce((s, ea) => s + ea.betrag_brutto, 0);
   const summeBezahlt = eigenanteile.filter(e => e.status === 'bezahlt').reduce((s, ea) => s + (ea.betrag_ist || ea.betrag_brutto), 0);
   const summeOffen = eigenanteile.filter(e => e.status !== 'bezahlt' && e.status !== 'storniert').reduce((s, ea) => s + ea.betrag_brutto, 0);
 
+  // v7.4.5-14: Beteiligte und nicht beteiligte NP des gewaehlten Zeitraums
+  const beteiligtePartner = selectedQ.bis
+    ? partner.filter(p => npImZeitraumBeteiligt(p, selectedQ.bis))
+    : [];
+  const nichtBeteiligtePartner = selectedQ.bis
+    ? partner.filter(p => !npImZeitraumBeteiligt(p, selectedQ.bis))
+    : [];
+
   // ---- Eigenanteile berechnen und speichern ----
   const handleBerechnen = async () => {
-    if (partner.length === 0) {
-      setError('Keine aktiven Netzwerkpartner vorhanden.');
+    if (beteiligtePartner.length === 0) {
+      setError('Keine Netzwerkpartner an diesem Zeitraum beteiligt.');
       return;
+    }
+    // v7.4.5-14: Aenderung des Beteiligtenkreises pruefen
+    const zuStornieren = gueltigeEA.filter(ea => !beteiligtePartner.some(p => p.id === ea.partner_id));
+    const fehlenNoch = beteiligtePartner.some(p => !gueltigeEA.some(ea => ea.partner_id === p.id));
+    const kreisGeaendert = gueltigeEA.length > 0 && (zuStornieren.length > 0 || fehlenNoch);
+    if (kreisGeaendert && gueltigeEA.some(ea => ea.status === 'bezahlt')) {
+      setError(
+        'Der Kreis der beteiligten Netzwerkpartner hat sich ge\u00e4ndert, und in diesem Zeitraum sind bereits '
+        + 'Eigenanteile bezahlt. Eine Neuverteilung w\u00fcrde bezahlte Betr\u00e4ge unstimmig machen. '
+        + 'Bitte die Zahlungen zuerst kl\u00e4ren.'
+      );
+      return;
+    }
+    if (zuStornieren.length > 0) {
+      const namen = zuStornieren
+        .map(ea => {
+          const np = partner.find(p => p.id === ea.partner_id);
+          return `${np?.name || '--'} (Rechnung ${ea.rechnung_nr || '--'})`;
+        })
+        .join(', ');
+      const ok = window.confirm(
+        `Nicht mehr an diesem Zeitraum beteiligt: ${namen}. `
+        + 'Dieser Eigenanteil wird storniert und auf die beteiligten Partner verteilt. '
+        + 'Eine bereits versendete Rechnung muss separat storniert werden. Fortfahren?'
+      );
+      if (!ok) return;
     }
     if (!project.bewilligung_datum && nwmFoerderzeitraeume.length === 0) {
       setError('Weder Foerderzeitraeume noch Bewilligungsdatum hinterlegt. Bitte in Einstellungen anlegen.');
@@ -560,37 +746,16 @@ export default function NWMEigenanteilPanel({
       // Fuer jeden NP einen EA-Datensatz erstellen/aktualisieren
       let naechsteRechnungsnr = project.nwm_rechnung_naechste || 1;
 
-      // Cent-genaue Verteilung: Gesamtbetrag in Cents berechnen
-      // dann floor(Betrag/n) je NP, Rest an letzten NP
-      const eigenanteilGesamtCents = Math.round(kostenGesamt * (100 - foerdersatz));
-      // Cents je NP (floor)
-      const centsJeNP = Math.floor(eigenanteilGesamtCents / partner.length);
-      const restCents = eigenanteilGesamtCents - centsJeNP * partner.length;
+      // v7.4.5-14: EA nicht beteiligter NP stornieren
+      for (const ea of zuStornieren) {
+        const { error: stornoErr } = await supabase
+          .from('v7_netzwerk_eigenanteile')
+          .update({ status: 'storniert', updated_at: new Date().toISOString() })
+          .eq('id', ea.id);
+        if (stornoErr) throw stornoErr;
+      }
 
-      for (let npIdx = 0; npIdx < partner.length; npIdx++) {
-        const np = partner[npIdx];
-        const istLetzter = npIdx === partner.length - 1;
-
-        // Betrag in Cents: letzter NP bekommt den Rundungsrest
-        const betragSollCents = centsJeNP + (istLetzter ? restCents : 0);
-        const betragSoll = betragSollCents / 100;
-
-        // Anteil Gesamtleistung: proportional zum Soll-Betrag
-        // Eigenanteil = Anteil - Foerderanteil
-        // Anteil = betragSoll / (eigenanteilsquote/100)
-        const eigenanteilsquote = (100 - foerdersatz) / 100;
-        const anteilGesamt = eigenanteilsquote > 0
-          ? Math.round(betragSoll / eigenanteilsquote * 100) / 100
-          : 0;
-        const foerderAnteil = Math.round((anteilGesamt - betragSoll) * 100) / 100;
-        const ustBetrag = Math.round(anteilGesamt * np.ust_satz / 100 * 100) / 100;
-        const betragBrutto = Math.round((betragSoll + ustBetrag) * 100) / 100;
-
-        // Quote fuer Anzeige: aus Betrag rueckrechnen
-        const quoteDisplay = kostenGesamt > 0
-          ? Math.round(anteilGesamt / kostenGesamt * 10000) / 100
-          : np.eigenanteil_quote;
-
+      for (const { np, felder } of berechneNpAnteile(kostenGesamt, foerdersatz, beteiligtePartner)) {
         const payload = {
           project_id: project.id,
           partner_id: np.id,
@@ -599,13 +764,7 @@ export default function NWMEigenanteilPanel({
           nwm_kosten_gesamt: Math.round(kostenGesamt * 100) / 100,
           foerdersatz_percent: foerdersatz,
           laufzeitjahr,
-          eigenanteil_quote: quoteDisplay,
-          anteil_gesamtleistung_netto: anteilGesamt,
-          foerderanteil_pt: foerderAnteil,
-          betrag_soll: betragSoll,
-          ust_satz: np.ust_satz,
-          ust_betrag: ustBetrag,
-          betrag_brutto: betragBrutto,
+          ...felder,
           status: 'offen',
           updated_at: new Date().toISOString(),
         };
@@ -866,7 +1025,7 @@ export default function NWMEigenanteilPanel({
     <th>Eingegangen am</th>
     <th>Status</th>
   </tr>
-  ${eigenanteile.map((ea, idx) => {
+  ${gueltigeEA.map((ea, idx) => {
     const np = partner.find(p => p.id === ea.partner_id);
     const statusClass = ea.status === 'bezahlt' ? 'bezahlt' : ea.status === 'gemahnt' ? 'gemahnt' : 'offen';
     const statusLabel = ea.status === 'bezahlt' ? 'bezahlt' : ea.status === 'gemahnt' ? 'gemahnt' : 'offen';
@@ -882,7 +1041,7 @@ export default function NWMEigenanteilPanel({
   }).join('')}
   <tr class="sumrow">
     <td colspan="3">Summe</td>
-    <td style="text-align:right;">${fmt2(eigenanteile.reduce((s, e) => s + e.betrag_soll, 0))}</td>
+    <td style="text-align:right;">${fmt2(gueltigeEA.reduce((s, e) => s + e.betrag_soll, 0))}</td>
     <td colspan="3"></td>
   </tr>
 </table>
@@ -1106,8 +1265,23 @@ export default function NWMEigenanteilPanel({
         </div>
       </div>
 
+      {/* v7.4.5-14: Hinweis auf nicht beteiligte NP */}
+      {nichtBeteiligtePartner.length > 0 && (
+        <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+          <AlertCircle size={14} className="shrink-0 mt-0.5" />
+          <span>
+            An diesem Zeitraum nicht beteiligt:{' '}
+            {nichtBeteiligtePartner.map(p => (
+              p.austritt_datum && selectedQ.bis > p.austritt_datum
+                ? `${p.name} (Austritt ${fmtDate(p.austritt_datum)})`
+                : `${p.name} (Beitritt ${fmtDate(p.beitritt_datum)})`
+            )).join(', ')}
+          </span>
+        </div>
+      )}
+
       {/* ---- Kacheln ---- */}
-      {eigenanteile.length > 0 && (
+      {gueltigeEA.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[
             { label: 'NWM-Kosten gesamt', value: fmt2(nwmKostenGesamt) + ' EUR', sub: 'netto' },
@@ -1149,7 +1323,7 @@ export default function NWMEigenanteilPanel({
               <Calculator size={13} />
               {calculating ? 'Berechne...' : 'Eigenanteile berechnen'}
             </button>
-            {eigenanteile.length > 0 && (
+            {gueltigeEA.length > 0 && (
               <>
                 <button
                   onClick={handlePTNachweisPDF}
@@ -1169,7 +1343,7 @@ export default function NWMEigenanteilPanel({
         <div className="flex items-center justify-center py-12">
           <div className={`w-8 h-8 border-4 rounded-full animate-spin ${portal === 'firma' ? 'border-green-200 border-t-green-600' : 'border-blue-200 border-t-blue-600'}`}></div>
         </div>
-      ) : eigenanteile.length === 0 ? (
+      ) : gueltigeEA.length === 0 ? (
         <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
           <Euro size={48} className="mx-auto mb-3 text-gray-300" />
           <p className="text-sm text-gray-500 mb-2">Noch keine Eigenanteile fuer {selectedQ.label} berechnet.</p>
@@ -1192,7 +1366,7 @@ export default function NWMEigenanteilPanel({
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {eigenanteile.map(ea => {
+              {gueltigeEA.map(ea => {
                 const np = partner.find(p => p.id === ea.partner_id);
                 return (
                   <tr key={ea.id} className="hover:bg-gray-50">
@@ -1262,9 +1436,9 @@ export default function NWMEigenanteilPanel({
             <tfoot>
               <tr className="bg-gray-50 border-t-2 border-gray-300 font-semibold text-sm">
                 <td colSpan={2} className="px-4 py-3 text-right text-gray-600">Summe:</td>
-                <td className="px-4 py-3 text-right font-mono">{fmt2(eigenanteile.reduce((s, e) => s + e.betrag_soll, 0))}</td>
+                <td className="px-4 py-3 text-right font-mono">{fmt2(gueltigeEA.reduce((s, e) => s + e.betrag_soll, 0))}</td>
                 <td className="px-4 py-3 text-right font-mono text-gray-500"></td>
-                <td className="px-4 py-3 text-right font-mono">{fmt2(eigenanteile.reduce((s, e) => s + e.ust_betrag, 0))}</td>
+                <td className="px-4 py-3 text-right font-mono">{fmt2(gueltigeEA.reduce((s, e) => s + e.ust_betrag, 0))}</td>
                 <td colSpan={4} className="px-4 py-3 text-xs text-gray-500">
                   Bezahlt: {fmt2(summeBezahlt)} EUR | Offen: {fmt2(summeOffen)} EUR
                 </td>

@@ -4,8 +4,9 @@
 // ============================================================================
 // PZE V7 - NWM-Uebersichtsseite (Berater-Portal)
 // ============================================================================
-// Version: 7.4.5-2
-// v7.4.5-2: "< Dashboard"-Link im App-Modus ausgeblendet
+// Version: 7.4.5-4
+// v7.4.5-4: NP mit kuenftigem Austrittsdatum zaehlen bis dahin als aktiv
+// v7.4.5-3: "< Dashboard"-Link im App-Modus ausgeblendet
 // Datum: 26. Maerz 2026
 //
 // Zeigt alle ZIM_NETZWERK-Projekte aller Kunden des Beraters.
@@ -152,7 +153,7 @@ export default function BeraterNetzwerkPage() {
           .from('v7_netzwerk_partner')
           .select('project_id')
           .in('project_id', projectIds)
-          .is('austritt_datum', null);
+          .or(`austritt_datum.is.null,austritt_datum.gt.${new Date().toLocaleDateString('sv-SE')}`);
 
         const partnerCount: Record<string, number> = {};
         (partnerData || []).forEach(p => {
