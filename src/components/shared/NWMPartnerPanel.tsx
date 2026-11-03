@@ -2,8 +2,8 @@
 // ============================================================================
 // PZE V7 - NWM Netzwerkpartner-Verwaltung
 // ============================================================================
-// Version: 7.4.5-4
-// Datum: 26. Maerz 2026
+// Version: 7.4.5-7
+// Datum: 3. November 2026
 //
 // Verwaltet die Netzwerkpartner eines ZIM_NETZWERK-Projekts:
 // - Tabelle aller NP mit Quoten, USt-Satz, Status
@@ -12,6 +12,13 @@
 // - Schloss-Icon: manuell gesperrte NP werden bei Auto-Anpassung uebersprungen
 // - NP hinzufuegen / bearbeiten / ausscheiden
 // - Quoten-Summen-Validierung (muss 100,00% ergeben)
+// v7.4.5-7: Feste Reihenfolge auch bei gleichem sort_order und Beitritt (Name)
+// v7.4.5-6: Ausscheiden und Ruecknahme verteilen gespeicherte Zeitraeume sofort neu.
+//   FIX Gleichverteilen: Zaehler lief im State-Updater, der im Entwicklungsmodus
+//   doppelt ausgefuehrt wird (Quoten undefined, Summe NaN).
+// v7.4.5-5: NP-Austritt (Session 95): NP bleibt bis zum Austrittsdatum aktiv;
+//   Quoten nach Konzept 4.5 proportional statt gleichmaessig (gesperrte bleiben);
+//   Austritt ruecknehmbar; Dialog zeigt betroffene Eigenanteile (Regel B).
 // v7.4.5-4: FIX: Nach NP-Hinzufuegen automatisch Gleichverteilung aller aktiven NP
 // v7.4.5-3: Kundenauswahl uebernimmt alle verfuegbaren Felder:
 //   contact_person, contact_email, street, zip_code, city
@@ -37,7 +44,9 @@ import {
   AlertCircle,
   CheckCircle,
   RefreshCw,
+  RotateCcw,
 } from 'lucide-react';
+import { npImZeitraumBeteiligt, verteileZeitraumNeu } from './NWMEigenanteilPanel';
 
 // ============================================================================
 // TYPEN
@@ -101,6 +110,13 @@ const emptyForm = () => ({
 // HILFSFUNKTIONEN
 // ============================================================================
 
+// v7.4.5-5: Lokales Tagesdatum als ISO-String (YYYY-MM-DD)
+const heuteIso = (): string => new Date().toLocaleDateString('sv-SE');
+
+// v7.4.5-5: Aktiv, solange kein Austritt oder das Austrittsdatum noch aussteht
+const npIstAktiv = (p: { austritt_datum: string | null }): boolean =>
+  !p.austritt_datum || p.austritt_datum > heuteIso();
+
 // Rundungskorrektur: Stellt sicher dass Summe exakt 100,00 ergibt
 const roundQuote = (v: number): number =>
   Math.round(v * 100) / 100;
@@ -116,13 +132,42 @@ const gleichverteilung = (n: number): number[] => {
   return quoten;
 };
 
+// v7.4.5-5: Konzept 4.5 - freie Quoten proportional auf Summe 100,00 skalieren.
+// Gesperrte NP und fixeIds bleiben unveraendert. Ohne freie NP: keine Aenderung.
+const proportionalVerteilen = (
+  np: NetzwerkPartner[],
+  fixeIds: string[] = []
+): Record<string, number> => {
+  const istFix = (p: NetzwerkPartner) => p.quote_manuell_gesperrt || fixeIds.includes(p.id);
+  const frei = np.filter(p => !istFix(p));
+  if (frei.length === 0) return {};
+  const fixSumme = np.filter(istFix).reduce((s, p) => s + p.eigenanteil_quote, 0);
+  const ziel = roundQuote(100 - fixSumme);
+  if (ziel < 0) return {};
+  const summeFrei = frei.reduce((s, p) => s + p.eigenanteil_quote, 0);
+  const result: Record<string, number> = {};
+  let verteilt = 0;
+  frei.forEach((p, i) => {
+    if (i === frei.length - 1) {
+      result[p.id] = roundQuote(ziel - verteilt);
+    } else {
+      const q = summeFrei > 0
+        ? roundQuote(p.eigenanteil_quote * ziel / summeFrei)
+        : roundQuote(ziel / frei.length);
+      result[p.id] = q;
+      verteilt += q;
+    }
+  });
+  return result;
+};
+
 // Smart-Anpassung: NP_x auf neuen Wert setzen, Rest proportional anpassen
 const smartAnpassung = (
   partner: NetzwerkPartner[],
   changedId: string,
   neueQuote: number
 ): NetzwerkPartner[] => {
-  const aktive = partner.filter(p => !p.austritt_datum);
+  const aktive = partner.filter(npIstAktiv);
   const changed = aktive.find(p => p.id === changedId);
   if (!changed) return partner;
 
@@ -204,6 +249,11 @@ export default function NWMPartnerPanel({ portal, projectId, consultantCompanyId
   const [austrittsId, setAustrittsId] = useState<string | null>(null);
   const [austrittDatum, setAustrittDatum] = useState(new Date().toISOString().slice(0, 10));
   const [austrittAuto, setAustrittAuto] = useState(true);
+  const [austrittEA, setAustrittEA] = useState<{
+    periode_von: string;
+    periode_bis: string;
+    status: string;
+  }[]>([]);
 
   // ---- Laden ----
   const loadPartner = useCallback(async () => {
@@ -223,7 +273,8 @@ export default function NWMPartnerPanel({ portal, projectId, consultantCompanyId
       .select('*')
       .eq('project_id', projectId)
       .order('sort_order', { ascending: true })
-      .order('beitritt_datum', { ascending: true });
+      .order('beitritt_datum', { ascending: true })
+      .order('name', { ascending: true });
     if (err) {
       setError('Fehler beim Laden der Netzwerkpartner');
     } else {
@@ -235,7 +286,8 @@ export default function NWMPartnerPanel({ portal, projectId, consultantCompanyId
   useEffect(() => { loadPartner(); }, [loadPartner]);
 
   // ---- Berechnungen ----
-  const aktivePartner = partner.filter(p => !p.austritt_datum);
+  const aktivePartner = partner.filter(npIstAktiv);
+  const ausgeschiedenePartner = partner.filter(p => !npIstAktiv(p));
   const quotenSumme = roundQuote(
     aktivePartner.reduce((s, p) => s + p.eigenanteil_quote, 0)
   );
@@ -256,12 +308,13 @@ export default function NWMPartnerPanel({ portal, projectId, consultantCompanyId
   };
 
   const handleGleichverteilen = () => {
-    const aktive = partner.filter(p => !p.austritt_datum);
+    const aktive = partner.filter(npIstAktiv);
     const quoten = gleichverteilung(aktive.length);
-    let qi = 0;
+    const quoteJeId: Record<string, number> = {};
+    aktive.forEach((p, i) => { quoteJeId[p.id] = quoten[i]; });
     setPartner(prev => prev.map(p => {
-      if (p.austritt_datum) return p;
-      return { ...p, eigenanteil_quote: quoten[qi++], quote_manuell_gesperrt: false };
+      if (quoteJeId[p.id] === undefined) return p;
+      return { ...p, eigenanteil_quote: quoteJeId[p.id], quote_manuell_gesperrt: false };
     }));
   };
 
@@ -398,10 +451,9 @@ export default function NWMPartnerPanel({ portal, projectId, consultantCompanyId
         // Neu geladene Liste holen
         const { data: alleNP } = await supabase
           .from('v7_netzwerk_partner')
-          .select('id')
-          .eq('project_id', projectId)
-          .is('austritt_datum', null);
-        const aktiveIds = (alleNP || []).map((p: any) => p.id);
+          .select('id, austritt_datum')
+          .eq('project_id', projectId);
+        const aktiveIds = (alleNP || []).filter(npIstAktiv).map((p: any) => p.id);
         const quoten = gleichverteilung(aktiveIds.length);
         for (let i = 0; i < aktiveIds.length; i++) {
           await supabase
@@ -422,36 +474,145 @@ export default function NWMPartnerPanel({ portal, projectId, consultantCompanyId
   };
 
   // ---- NP ausscheiden ----
-  const openAustritt = (id: string) => {
+  const openAustritt = async (id: string) => {
     setAustrittsId(id);
     setAustrittDatum(new Date().toISOString().slice(0, 10));
     setAustrittAuto(true);
+    setAustrittEA([]);
+    // v7.4.5-5: Eigenanteile des NP fuer den Hinweis im Dialog
+    const { data, error: eaErr } = await supabase
+      .from('v7_netzwerk_eigenanteile')
+      .select('periode_von, periode_bis, status')
+      .eq('partner_id', id)
+      .neq('status', 'storniert')
+      .order('periode_von', { ascending: true });
+    if (eaErr) {
+      setError('Eigenanteile konnten nicht gepr\u00fcft werden: ' + eaErr.message);
+    } else {
+      setAustrittEA(data || []);
+    }
+  };
+
+  const speichereQuoten = async (quoten: Record<string, number>) => {
+    for (const [id, quote] of Object.entries(quoten)) {
+      const { error: qErr } = await supabase
+        .from('v7_netzwerk_partner')
+        .update({ eigenanteil_quote: quote, updated_at: new Date().toISOString() })
+        .eq('id', id);
+      if (qErr) throw qErr;
+    }
+  };
+
+  // v7.4.5-6: Gespeicherte Zeitraeume nach geaendertem Beteiligtenkreis neu verteilen
+  const verteileZeitraeume = async (
+    zeitraeume: { periode_von: string; periode_bis: string }[],
+    allePartner: NetzwerkPartner[]
+  ): Promise<string> => {
+    const eindeutig = Array.from(
+      new Map(zeitraeume.map(z => [`${z.periode_von}__${z.periode_bis}`, z])).values()
+    );
+    let neu = 0;
+    const offenGeblieben: string[] = [];
+    for (const z of eindeutig) {
+      const ergebnis = await verteileZeitraumNeu(
+        supabase, projectId, z.periode_von, z.periode_bis, allePartner
+      );
+      if (ergebnis === 'neu_verteilt') neu++;
+      if (ergebnis === 'bezahlt' || ergebnis === 'neuberechnung') {
+        offenGeblieben.push(
+          `${new Date(z.periode_von).toLocaleDateString('de-DE')} - ${new Date(z.periode_bis).toLocaleDateString('de-DE')}`
+        );
+      }
+    }
+    if (offenGeblieben.length > 0) {
+      setError(
+        `Nicht automatisch neu verteilt, bitte pr\u00fcfen und unter Eigenanteile kl\u00e4ren: ${offenGeblieben.join(', ')}.`
+      );
+    }
+    return neu > 0 ? ` ${neu} Abrechnungszeitraum/-r\u00e4ume neu verteilt.` : '';
   };
 
   const handleAustritt = async () => {
     if (!austrittsId) return;
+    const np = partner.find(p => p.id === austrittsId);
+    if (!austrittDatum) {
+      setError('Bitte ein Austrittsdatum angeben.');
+      return;
+    }
+    if (np?.beitritt_datum && austrittDatum < np.beitritt_datum) {
+      setError('Das Austrittsdatum darf nicht vor dem Beitritt liegen.');
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
       // Austritt setzen
-      await supabase
+      const { error: updErr } = await supabase
         .from('v7_netzwerk_partner')
         .update({ austritt_datum: austrittDatum, updated_at: new Date().toISOString() })
         .eq('id', austrittsId);
+      if (updErr) throw updErr;
 
-      if (austrittAuto) {
-        // Quoten der verbleibenden NP proportional neu verteilen
+      // v7.4.5-5: Quoten nur anpassen, wenn der Austritt bereits wirksam ist
+      const sofortWirksam = austrittDatum <= heuteIso();
+      if (sofortWirksam && austrittAuto) {
         const verbleibende = aktivePartner.filter(p => p.id !== austrittsId);
-        const quoten = gleichverteilung(verbleibende.length);
-        for (let i = 0; i < verbleibende.length; i++) {
-          await supabase
-            .from('v7_netzwerk_partner')
-            .update({ eigenanteil_quote: quoten[i], updated_at: new Date().toISOString() })
-            .eq('id', verbleibende[i].id);
-        }
+        await speichereQuoten(proportionalVerteilen(verbleibende));
       }
+      // v7.4.5-6: Betroffene Zeitraeume sofort neu verteilen
+      const nachAustritt = { beitritt_datum: null, austritt_datum: austrittDatum };
+      const hinweis = await verteileZeitraeume(
+        austrittEA.filter(ea => !npImZeitraumBeteiligt(nachAustritt, ea.periode_bis)),
+        partner.map(p => (p.id === austrittsId ? { ...p, austritt_datum: austrittDatum } : p))
+      );
       setAustrittsId(null);
-      setSuccess('Netzwerkpartner ausgeschieden. Quoten wurden angepasst.');
+      setSuccess(
+        (!sofortWirksam
+          ? 'Austritt vorgemerkt. Die Quoten bitte nach dem Austrittsdatum neu verteilen.'
+          : austrittAuto
+            ? 'Netzwerkpartner ausgeschieden. Quoten wurden proportional neu verteilt.'
+            : 'Netzwerkpartner ausgeschieden. Bitte die Quoten manuell anpassen.') + hinweis
+      );
+      setTimeout(() => setSuccess(null), 4000);
+      await loadPartner();
+    } catch (err: any) {
+      setError('Fehler: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // v7.4.5-5: Austritt zuruecknehmen
+  const handleAustrittZuruecknehmen = async (np: NetzwerkPartner) => {
+    const ok = window.confirm(
+      `Austritt von ${np.name} zur\u00fccknehmen? Die Quoten der \u00fcbrigen Partner werden proportional angepasst `
+      + 'und betroffene Abrechnungszeitr\u00e4ume neu verteilt. Bereits versendete Rechnungen sind ggf. zu korrigieren.'
+    );
+    if (!ok) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const warAusgeschieden = !npIstAktiv(np);
+      const { error: updErr } = await supabase
+        .from('v7_netzwerk_partner')
+        .update({ austritt_datum: null, updated_at: new Date().toISOString() })
+        .eq('id', np.id);
+      if (updErr) throw updErr;
+      if (warAusgeschieden) {
+        await speichereQuoten(proportionalVerteilen([...aktivePartner, np], [np.id]));
+      }
+      // v7.4.5-6: Zuvor stornierte Zeitraeume dieses NP wieder einbeziehen
+      const { data: stornoZeilen, error: stornoErr } = await supabase
+        .from('v7_netzwerk_eigenanteile')
+        .select('periode_von, periode_bis')
+        .eq('partner_id', np.id)
+        .eq('status', 'storniert');
+      if (stornoErr) throw stornoErr;
+      const hinweis = await verteileZeitraeume(
+        stornoZeilen || [],
+        partner.map(p => (p.id === np.id ? { ...p, austritt_datum: null } : p))
+      );
+      setSuccess('Austritt zur\u00fcckgenommen.' + hinweis);
       setTimeout(() => setSuccess(null), 4000);
       await loadPartner();
     } catch (err: any) {
@@ -503,9 +664,9 @@ export default function NWMPartnerPanel({ portal, projectId, consultantCompanyId
               Netzwerkpartner
               <span className="ml-2 text-sm font-normal text-gray-500">
                 {aktivePartner.length} aktiv
-                {partner.filter(p => p.austritt_datum).length > 0 && (
+                {ausgeschiedenePartner.length > 0 && (
                   <span className="ml-1 text-gray-400">
-                    / {partner.filter(p => p.austritt_datum).length} ausgeschieden
+                    / {ausgeschiedenePartner.length} ausgeschieden
                   </span>
                 )}
               </span>
@@ -589,6 +750,11 @@ export default function NWMPartnerPanel({ portal, projectId, consultantCompanyId
                     {p.rechtsform && (
                       <div className="text-xs text-gray-400">{p.rechtsform}</div>
                     )}
+                    {p.austritt_datum && (
+                      <div className="text-xs text-amber-700">
+                        Scheidet aus am {new Date(p.austritt_datum).toLocaleDateString('de-DE')}
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     {p.ansprechpartner && (
@@ -648,13 +814,24 @@ export default function NWMPartnerPanel({ portal, projectId, consultantCompanyId
                       >
                         <Pencil size={14} />
                       </button>
-                      <button
-                        onClick={() => openAustritt(p.id)}
-                        title="Ausscheiden"
-                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                      >
-                        <UserMinus size={14} />
-                      </button>
+                      {p.austritt_datum ? (
+                        <button
+                          onClick={() => handleAustrittZuruecknehmen(p)}
+                          disabled={saving}
+                          title="Austritt zur&uuml;cknehmen"
+                          className="p-1.5 text-amber-600 hover:text-amber-800 hover:bg-amber-50 rounded transition-colors disabled:opacity-50"
+                        >
+                          <RotateCcw size={14} />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => openAustritt(p.id)}
+                          title="Ausscheiden"
+                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                        >
+                          <UserMinus size={14} />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -687,20 +864,30 @@ export default function NWMPartnerPanel({ portal, projectId, consultantCompanyId
       )}
 
       {/* Ausgeschiedene NP (eingeklappt) */}
-      {partner.filter(p => p.austritt_datum).length > 0 && (
+      {ausgeschiedenePartner.length > 0 && (
         <details className="bg-white rounded-lg border border-gray-200">
           <summary className="px-4 py-3 text-sm text-gray-500 cursor-pointer hover:text-gray-700">
-            {partner.filter(p => p.austritt_datum).length} ausgeschiedene Netzwerkpartner anzeigen
+            {ausgeschiedenePartner.length} ausgeschiedene Netzwerkpartner anzeigen
           </summary>
           <div className="border-t border-gray-100">
             <table className="w-full text-sm">
               <tbody className="divide-y divide-gray-100">
-                {partner.filter(p => p.austritt_datum).map(p => (
+                {ausgeschiedenePartner.map(p => (
                   <tr key={p.id} className="bg-gray-50">
                     <td className="px-4 py-2 text-gray-400 text-xs w-8">--</td>
                     <td className="px-4 py-2 text-gray-400 line-through">{p.name}</td>
                     <td className="px-4 py-2 text-xs text-gray-400">
                       Ausgeschieden: {new Date(p.austritt_datum!).toLocaleDateString('de-DE')}
+                    </td>
+                    <td className="px-4 py-2 text-right">
+                      <button
+                        onClick={() => handleAustrittZuruecknehmen(p)}
+                        disabled={saving}
+                        className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800 disabled:opacity-50"
+                      >
+                        <RotateCcw size={12} />
+                        Austritt zur&uuml;cknehmen
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -953,25 +1140,60 @@ export default function NWMPartnerPanel({ portal, projectId, consultantCompanyId
                     className={`w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 ${focusRing}`}
                   />
                 </div>
-                <div className="space-y-2">
-                  <div className="text-xs font-medium text-gray-700">Quoten der verbleibenden NP:</div>
-                  <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input
-                      type="radio"
-                      checked={austrittAuto}
-                      onChange={() => setAustrittAuto(true)}
-                    />
-                    Automatisch gleichmaessig neu verteilen
-                  </label>
-                  <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input
-                      type="radio"
-                      checked={!austrittAuto}
-                      onChange={() => setAustrittAuto(false)}
-                    />
-                    Quoten manuell anpassen (nach Austritt in Tabelle bearbeiten)
-                  </label>
-                </div>
+                {austrittDatum > heuteIso() ? (
+                  <p className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-lg p-3">
+                    Das Datum liegt in der Zukunft. Der Partner bleibt bis dahin aktiv.
+                    Die Quoten sind nach dem Austrittsdatum neu zu verteilen.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="text-xs font-medium text-gray-700">Quoten der verbleibenden NP:</div>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input
+                        type="radio"
+                        checked={austrittAuto}
+                        onChange={() => setAustrittAuto(true)}
+                      />
+                      Automatisch proportional neu verteilen (gesperrte Quoten bleiben)
+                    </label>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input
+                        type="radio"
+                        checked={!austrittAuto}
+                        onChange={() => setAustrittAuto(false)}
+                      />
+                      Quoten manuell anpassen (nach Austritt in Tabelle bearbeiten)
+                    </label>
+                  </div>
+                )}
+                {(() => {
+                  const stub = { beitritt_datum: null, austritt_datum: austrittDatum };
+                  const danach = austrittEA.filter(ea => !npImZeitraumBeteiligt(stub, ea.periode_bis));
+                  const offen = austrittEA.filter(ea =>
+                    npImZeitraumBeteiligt(stub, ea.periode_bis) && ea.status !== 'bezahlt'
+                  );
+                  return (
+                    <>
+                      {danach.length > 0 && (
+                        <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                          {danach.length} bereits berechnete(r) Eigenanteil(e) enden nach dem Austrittsdatum:{' '}
+                          {danach.map(ea => (
+                            `${new Date(ea.periode_von).toLocaleDateString('de-DE')} - ${new Date(ea.periode_bis).toLocaleDateString('de-DE')} (${ea.status})`
+                          )).join(', ')}.
+                          {' '}Beim Ausscheiden entf&auml;llt dieser Anteil und wird sofort auf die
+                          &uuml;brigen Partner verteilt. Bereits versendete Rechnungen sind zu korrigieren.
+                          Zeitr&auml;ume mit bezahlten Eigenanteilen bleiben unver&auml;ndert und sind zu kl&auml;ren.
+                        </div>
+                      )}
+                      {offen.length > 0 && (
+                        <div className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-lg p-3">
+                          {offen.length} offene(r) Eigenanteil(e) aus der Zeit bis zum Austritt
+                          bleiben bestehen und sind weiterhin zu zahlen.
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
               <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-200">
                 <button
