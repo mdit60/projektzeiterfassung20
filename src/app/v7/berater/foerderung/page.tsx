@@ -1,5 +1,13 @@
 // src/app/v7/berater/foerderung/page.tsx
-// VERSION: v7.4.1-10
+// VERSION: v7.4.1-11
+// AENDERUNG v7.4.1-11 (SICHERHEIT, Befund K7 aus BEFUNDE-SICHERHEIT-PHASE0):
+//   Festes Startpasswort DEV_PASSWORD ('Test1234!') entfernt. Fuer jeden neuen
+//   Firmen-Admin wird ein zufaelliges, starkes Startpasswort erzeugt
+//   (16 Zeichen, Gross/Klein/Ziffer, ohne verwechselbare Zeichen, Web-Crypto).
+//   Nach erfolgreicher Anlage erscheint ein eigener Dialog "Zugangsdaten" mit
+//   E-Mail und Passwort (Kopieren-Button), der erst durch Klick geschlossen wird.
+//   Beim Aufruf aus dem App-Cockpit (?openNew=true) erfolgt der Ruecksprung erst
+//   nach dem Schliessen dieses Dialogs.
 // AENDERUNG v7.4.1-10: Zurueck-Button modus-bewusst (liest pze_mode aus localStorage).
 //   App-Modus -> zurueck ins App-Cockpit (/v7/berater/app/cockpit),
 //   Classic-Modus -> altes Dashboard (/v7/berater/dashboard). Label zu "Zurueck" vereinheitlicht.
@@ -136,8 +144,43 @@ const STATUS_CONFIG = {
   inactive: { label: 'Inaktiv', color: 'gray', icon: '' },
 };
 
-// Festes Entwicklungs-Passwort
-const DEV_PASSWORD = 'Test1234!';
+// v7.4.1-11: Zufaelliges Startpasswort je Firmen-Admin (ersetzt festes DEV_PASSWORD)
+// Ohne verwechselbare Zeichen (0/O, 1/l/I), damit es sich gut weitergeben laesst.
+const PW_CHARS_UPPER = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+const PW_CHARS_LOWER = 'abcdefghijkmnpqrstuvwxyz';
+const PW_CHARS_DIGIT = '23456789';
+const PW_CHARS_ALL = PW_CHARS_UPPER + PW_CHARS_LOWER + PW_CHARS_DIGIT;
+
+// Gleichverteilter Zufallsindex 0..max-1 (Web-Crypto, ohne Modulo-Verzerrung)
+function randomIndex(max: number): number {
+  const buf = new Uint32Array(1);
+  const limit = Math.floor(0x100000000 / max) * max;
+  let v = 0;
+  do {
+    crypto.getRandomValues(buf);
+    v = buf[0];
+  } while (v >= limit);
+  return v % max;
+}
+
+function generateStartPassword(length: number = 16): string {
+  const chars: string[] = [
+    PW_CHARS_UPPER[randomIndex(PW_CHARS_UPPER.length)],
+    PW_CHARS_LOWER[randomIndex(PW_CHARS_LOWER.length)],
+    PW_CHARS_DIGIT[randomIndex(PW_CHARS_DIGIT.length)],
+  ];
+  while (chars.length < length) {
+    chars.push(PW_CHARS_ALL[randomIndex(PW_CHARS_ALL.length)]);
+  }
+  // Fisher-Yates-Mischung
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = randomIndex(i + 1);
+    const tmp = chars[i];
+    chars[i] = chars[j];
+    chars[j] = tmp;
+  }
+  return chars.join('');
+}
 
 // ============================================
 // KOMPONENTE
@@ -166,6 +209,14 @@ function FoerderungPageInner() {
   const [formData, setFormData] = useState<CompanyFormData>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // v7.4.1-11: Zugangsdaten des neu angelegten Firmen-Admins (einmalige Anzeige)
+  const [createdCredentials, setCreatedCredentials] = useState<{
+    companyName: string;
+    email: string;
+    password: string;
+  } | null>(null);
+  const [pwCopied, setPwCopied] = useState(false);
 
   // Delete Confirmation State
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -347,6 +398,25 @@ function FoerderungPageInner() {
     setSaved(false);
   };
 
+  // v7.4.1-11: Zugangsdaten-Dialog schliessen (Passwort wird danach nicht mehr angezeigt)
+  const closeCredentialsDialog = () => {
+    setCreatedCredentials(null);
+    setPwCopied(false);
+    if (searchParams.get('openNew') === 'true') {
+      router.push('/v7/berater/app/cockpit');
+    }
+  };
+
+  const copyStartPassword = async () => {
+    if (!createdCredentials) return;
+    try {
+      await navigator.clipboard.writeText(createdCredentials.password);
+      setPwCopied(true);
+    } catch {
+      setPwCopied(false);
+    }
+  };
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
     if (type === 'checkbox') {
@@ -426,10 +496,14 @@ function FoerderungPageInner() {
         }
 
         // 2. Admin-User anlegen (immer bei Neuanlage)
+        let credentialsShown = false;
         if (newCompany) {
           const adminDisplayName = formData.admin_first_name.trim() && formData.admin_last_name.trim()
             ? `${formData.admin_first_name.trim()} ${formData.admin_last_name.trim()}`
             : formData.admin_email.split('@')[0];
+
+          // v7.4.1-11: Zufaelliges Startpasswort je Anlage
+          const startPassword = generateStartPassword();
 
           // v7.4.1-5: Alle 3 Schritte (Auth + Profil + Employee) server-seitig
           // Service Role Key umgeht RLS - kein client-seitiger Insert mehr noetig
@@ -438,7 +512,7 @@ function FoerderungPageInner() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               email: formData.admin_email.trim(),
-              password: DEV_PASSWORD,
+              password: startPassword,
               display_name: adminDisplayName,
               first_name: formData.admin_first_name.trim() || null,
               last_name: formData.admin_last_name.trim() || null,
@@ -458,10 +532,14 @@ function FoerderungPageInner() {
             return;
           }
 
-          setSuccessMessage(
-            `Firma "${formData.name}" wurde angelegt. ` +
-            `Admin ${formData.admin_email} kann sich mit Passwort "${DEV_PASSWORD}" anmelden.`
-          );
+          // v7.4.1-11: Zugangsdaten in eigenem Dialog anzeigen (bleibt bis Klick offen)
+          setPwCopied(false);
+          setCreatedCredentials({
+            companyName: formData.name,
+            email: formData.admin_email.trim(),
+            password: startPassword,
+          });
+          credentialsShown = true;
         } else {
           setSuccessMessage(`Firma "${formData.name}" wurde angelegt.`);
         }
@@ -471,7 +549,8 @@ function FoerderungPageInner() {
         await loadCompanies(userProfile.consultant_company_id);
         closeModal();
         // v7.4.1-9: Wenn vom App-Cockpit gekommen -> zurueck zum Cockpit (Daten werden neu geladen)
-        if (searchParams.get('openNew') === 'true') {
+        // v7.4.1-11: Bei angezeigten Zugangsdaten erst nach Schliessen des Dialogs
+        if (searchParams.get('openNew') === 'true' && !credentialsShown) {
           router.push('/v7/berater/app/cockpit');
           return;
         }
@@ -1018,7 +1097,7 @@ function FoerderungPageInner() {
                     <p className="font-medium text-blue-900">Administrator-Zugang</p>
                     <p className="text-sm text-blue-700 mt-0.5">
                       Erstellt einen Login fuer den Firmen-Admin (z.B. Geschaeftsfuehrer).
-                      Passwort: <code className="bg-blue-100 px-1 rounded">{DEV_PASSWORD}</code>
+                      Ein sicheres Startpasswort wird automatisch erzeugt und nach dem Speichern einmalig angezeigt.
                     </p>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1106,6 +1185,56 @@ function FoerderungPageInner() {
                 ) : (
                   'Speichern'
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================ */}
+      {/* MODAL: Zugangsdaten neuer Firmen-Admin (v7.4.1-11) */}
+      {/* ============================================ */}
+
+      {createdCredentials && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Zugangsdaten fuer den Firmen-Admin</h3>
+            <p className="text-gray-600 mb-4">
+              Die Firma <strong>"{createdCredentials.companyName}"</strong> wurde angelegt.
+              Bitte notieren oder kopieren Sie das Startpasswort jetzt. Es wird nach dem
+              Schliessen dieses Fensters nicht erneut angezeigt.
+            </p>
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-3 mb-4">
+              <div>
+                <p className="text-xs text-gray-500">E-Mail (Anmeldename)</p>
+                <p className="font-mono text-gray-900 break-all">{createdCredentials.email}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Startpasswort</p>
+                <div className="flex items-center gap-3">
+                  <code className="font-mono text-lg text-gray-900 bg-white border border-gray-200 rounded px-2 py-1 select-all">
+                    {createdCredentials.password}
+                  </code>
+                  <button
+                    onClick={copyStartPassword}
+                    className="px-3 py-1 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100"
+                  >
+                    {pwCopied ? 'Kopiert' : 'Kopieren'}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600 mb-6">
+              Teilen Sie E-Mail und Passwort dem Admin moeglichst auf getrennten Wegen mit
+              (z.B. E-Mail-Adresse per Mail, Passwort telefonisch). Der Admin kann das
+              Passwort nach der Anmeldung unter "Passwort aendern" selbst aendern.
+            </p>
+            <div className="flex justify-end">
+              <button
+                onClick={closeCredentialsDialog}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                Passwort notiert - schliessen
               </button>
             </div>
           </div>
